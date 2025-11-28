@@ -421,34 +421,48 @@ fn test_double_angle_formulas() {
         )],
     };
     let simplified = simplify(expr);
-    // Should be cos^2(x) - sin^2(x)
-    if let Expr::Sub(a, b) = simplified {
+    // Should be cos^2(x) + (-1)*sin^2(x)  (canonical form after algebraic simplification)
+    if let Expr::Add(a, b) = simplified {
+        // The terms are sorted, so Mul comes before Pow
+        // Check -sin^2(x)
+        if let Expr::Mul(coeff, sin_sq) = *a {
+            assert_eq!(*coeff, Expr::Number(-1.0));
+            if let Expr::Pow(base1, exp1) = *sin_sq {
+                assert_eq!(*exp1, Expr::Number(2.0));
+                if let Expr::FunctionCall {
+                    name: name1,
+                    args: args1,
+                } = *base1
+                {
+                    assert_eq!(name1, "sin");
+                    assert_eq!(args1[0], Expr::Symbol("x".to_string()));
+                } else {
+                    panic!("Expected sin(x)");
+                }
+            } else {
+                panic!("Expected sin^2(x)");
+            }
+        } else {
+            panic!("Expected -sin^2(x)");
+        }
         // Check cos^2(x)
-        if let Expr::Pow(base1, exp1) = *a {
-            assert_eq!(*exp1, Expr::Number(2.0));
-            if let Expr::FunctionCall { name: name1, args: args1 } = *base1 {
-                assert_eq!(name1, "cos");
-                assert_eq!(args1[0], Expr::Symbol("x".to_string()));
+        if let Expr::Pow(base2, exp2) = *b {
+            assert_eq!(*exp2, Expr::Number(2.0));
+            if let Expr::FunctionCall {
+                name: name2,
+                args: args2,
+            } = *base2
+            {
+                assert_eq!(name2, "cos");
+                assert_eq!(args2[0], Expr::Symbol("x".to_string()));
             } else {
                 panic!("Expected cos(x)");
             }
         } else {
             panic!("Expected cos^2(x)");
         }
-        // Check sin^2(x)
-        if let Expr::Pow(base2, exp2) = *b {
-            assert_eq!(*exp2, Expr::Number(2.0));
-            if let Expr::FunctionCall { name: name2, args: args2 } = *base2 {
-                assert_eq!(name2, "sin");
-                assert_eq!(args2[0], Expr::Symbol("x".to_string()));
-            } else {
-                panic!("Expected sin(x)");
-            }
-        } else {
-            panic!("Expected sin^2(x)");
-        }
     } else {
-        panic!("Expected cos^2(x) - sin^2(x)");
+        panic!("Expected cos^2(x) + (-1)*sin^2(x), got {:?}", simplified);
     }
 
     // tan(2x) = 2*tan(x) / (1 - tan^2(x))
@@ -474,22 +488,27 @@ fn test_double_angle_formulas() {
         } else {
             panic!("Expected 2*tan(x)");
         }
-        // Check denominator: 1 - tan^2(x)
-        if let Expr::Sub(c, d) = *den {
+        // Check denominator: 1 + (-1)*tan^2(x)  (canonical form)
+        if let Expr::Add(c, d) = *den {
             assert_eq!(*c, Expr::Number(1.0));
-            if let Expr::Pow(base, exp) = *d {
-                assert_eq!(*exp, Expr::Number(2.0));
-                if let Expr::FunctionCall { name, args } = *base {
-                    assert_eq!(name, "tan");
-                    assert_eq!(args[0], Expr::Symbol("x".to_string()));
+            if let Expr::Mul(coeff, tan_sq) = *d {
+                assert_eq!(*coeff, Expr::Number(-1.0));
+                if let Expr::Pow(base, exp) = *tan_sq {
+                    assert_eq!(*exp, Expr::Number(2.0));
+                    if let Expr::FunctionCall { name, args } = *base {
+                        assert_eq!(name, "tan");
+                        assert_eq!(args[0], Expr::Symbol("x".to_string()));
+                    } else {
+                        panic!("Expected tan(x)");
+                    }
                 } else {
-                    panic!("Expected tan(x)");
+                    panic!("Expected tan^2(x)");
                 }
             } else {
-                panic!("Expected tan^2(x)");
+                panic!("Expected -tan^2(x)");
             }
         } else {
-            panic!("Expected 1 - tan^2(x)");
+            panic!("Expected 1 + (-1)*tan^2(x)");
         }
     } else {
         panic!("Expected 2*tan(x)/(1-tan^2(x))");

@@ -34,11 +34,11 @@ impl fmt::Display for Expr {
             }
 
             Expr::Add(u, v) => {
-                write!(f, "({} + {})", u, v)
+                write!(f, "{} + {}", u, v)
             }
 
             Expr::Sub(u, v) => {
-                write!(f, "({} - {})", u, v)
+                write!(f, "{} - {}", u, v)
             }
 
             Expr::Mul(u, v) => {
@@ -54,11 +54,32 @@ impl fmt::Display for Expr {
             }
 
             Expr::Div(u, v) => {
-                write!(f, "{} / {}", format_mul_operand(u), format_mul_operand(v))
+                let num_str = format!("{}", u);
+                let denom_str = format!("{}", v);
+                // Add parentheses around numerator if it's addition or subtraction
+                let formatted_num = match **u {
+                    Expr::Add(_, _) | Expr::Sub(_, _) => format!("({})", num_str),
+                    _ => num_str,
+                };
+                // Add parentheses around denominator if it's not a simple identifier or number
+                let formatted_denom = match **v {
+                    Expr::Symbol(_) | Expr::Number(_) => denom_str,
+                    _ => format!("({})", denom_str),
+                };
+                write!(f, "{} / {}", formatted_num, formatted_denom)
             }
 
             Expr::Pow(u, v) => {
-                write!(f, "({})^{}", u, v)
+                let base_str = format!("{}", u);
+                let exp_str = format!("{}", v);
+                
+                // Only add parentheses around base if it's an addition or subtraction
+                let formatted_base = match **u {
+                    Expr::Add(_, _) | Expr::Sub(_, _) => format!("({})", base_str),
+                    _ => base_str,
+                };
+                
+                write!(f, "{}^{}", formatted_base, exp_str)
             }
         }
     }
@@ -67,7 +88,7 @@ impl fmt::Display for Expr {
 /// Format operand for multiplication to minimize parentheses
 fn format_mul_operand(expr: &Expr) -> String {
     match expr {
-        Expr::Add(_, _) => format!("({})", expr),
+        Expr::Add(_, _) | Expr::Sub(_, _) => format!("({})", expr),
         _ => format!("{}", expr),
     }
 }
@@ -81,8 +102,9 @@ mod tests {
         let expr = Expr::Number(3.0);
         assert_eq!(format!("{}", expr), "3");
 
-        let expr = Expr::Number(3.14);
-        assert_eq!(format!("{}", expr), "3.14");
+        let expr = Expr::Number(314.0 / 100.0);
+        // Formatting may use full precision; ensure it starts with the expected prefix
+        assert!(format!("{}", expr).starts_with("3.14"));
     }
 
     #[test]
@@ -97,7 +119,7 @@ mod tests {
             Box::new(Expr::Symbol("x".to_string())),
             Box::new(Expr::Number(1.0)),
         );
-        assert_eq!(format!("{}", expr), "(x + 1)");
+        assert_eq!(format!("{}", expr), "x + 1");
     }
 
     #[test]

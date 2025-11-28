@@ -16,7 +16,7 @@ fn main() {
     )
     .unwrap();
     println!("d/dx [{}] = {}", expr1, result1);
-    // Expected: y(x) + x * ∂_y(x)/∂_x
+    // Expected: y(x) + x * ∂^1_y(x)/∂_x^1
 
     // Example 2: Implicit function with multiple arguments f(x, a)
     // 'a' is a fixed variable (constant)
@@ -31,5 +31,5 @@ fn main() {
     )
     .unwrap();
     println!("d/dx [{}] = {}", expr2, result2);
-    // Expected: ∂_f(x, a)/∂_x
+    // Expected: ∂^1_f(x, a)/∂_x^1
 }

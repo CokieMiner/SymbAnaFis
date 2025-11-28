@@ -2,8 +2,8 @@
 
 mod simplification_advanced {
 
-    use crate::simplification::simplify;
     use crate::Expr;
+    use crate::simplification::simplify;
 
     #[test]
     fn test_nested_add_zero() {

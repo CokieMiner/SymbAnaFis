@@ -41,22 +41,22 @@ impl Expr {
     }
 
     /// Create an addition expression
-    pub fn add(left: Expr, right: Expr) -> Self {
+    pub fn add_expr(left: Expr, right: Expr) -> Self {
         Expr::Add(Box::new(left), Box::new(right))
     }
 
     /// Create a subtraction expression
-    pub fn sub(left: Expr, right: Expr) -> Self {
+    pub fn sub_expr(left: Expr, right: Expr) -> Self {
         Expr::Sub(Box::new(left), Box::new(right))
     }
 
     /// Create a multiplication expression
-    pub fn mul(left: Expr, right: Expr) -> Self {
+    pub fn mul_expr(left: Expr, right: Expr) -> Self {
         Expr::Mul(Box::new(left), Box::new(right))
     }
 
     /// Create a division expression
-    pub fn div(left: Expr, right: Expr) -> Self {
+    pub fn div_expr(left: Expr, right: Expr) -> Self {
         Expr::Div(Box::new(left), Box::new(right))
     }
 
@@ -134,13 +134,14 @@ mod tests {
 
     #[test]
     fn test_constructors() {
-        let num = Expr::number(3.14);
-        assert_eq!(num, Expr::Number(3.14));
+        let val = 314.0 / 100.0;
+        let num = Expr::number(val);
+        assert_eq!(num, Expr::Number(val));
 
         let sym = Expr::symbol("x");
         assert_eq!(sym, Expr::Symbol("x".to_string()));
 
-        let add = Expr::add(Expr::number(1.0), Expr::number(2.0));
+        let add = Expr::add_expr(Expr::number(1.0), Expr::number(2.0));
         match add {
             Expr::Add(_, _) => (),
             _ => panic!("Expected Add variant"),
@@ -152,11 +153,11 @@ mod tests {
         let x = Expr::symbol("x");
         assert_eq!(x.node_count(), 1);
 
-        let x_plus_1 = Expr::add(Expr::symbol("x"), Expr::number(1.0));
+        let x_plus_1 = Expr::add_expr(Expr::symbol("x"), Expr::number(1.0));
         assert_eq!(x_plus_1.node_count(), 3); // Add + x + 1
 
-        let complex = Expr::mul(
-            Expr::add(Expr::symbol("x"), Expr::number(1.0)),
+        let complex = Expr::mul_expr(
+            Expr::add_expr(Expr::symbol("x"), Expr::number(1.0)),
             Expr::symbol("y"),
         );
         assert_eq!(complex.node_count(), 5); // Mul + (Add + x + 1) + y
@@ -167,8 +168,8 @@ mod tests {
         let x = Expr::symbol("x");
         assert_eq!(x.max_depth(), 1);
 
-        let nested = Expr::add(
-            Expr::mul(Expr::symbol("x"), Expr::symbol("y")),
+        let nested = Expr::add_expr(
+            Expr::mul_expr(Expr::symbol("x"), Expr::symbol("y")),
             Expr::number(1.0),
         );
         assert_eq!(nested.max_depth(), 3); // Add -> Mul -> x/y
@@ -176,8 +177,8 @@ mod tests {
 
     #[test]
     fn test_contains_var() {
-        let expr = Expr::add(
-            Expr::mul(Expr::symbol("x"), Expr::symbol("y")),
+        let expr = Expr::add_expr(
+            Expr::mul_expr(Expr::symbol("x"), Expr::symbol("y")),
             Expr::number(1.0),
         );
 

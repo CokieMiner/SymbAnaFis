@@ -164,4 +164,69 @@ mod tests {
         let simplified = simplify(expr.clone());
         assert_eq!(simplified, expr);
     }
+
+    #[test]
+    fn test_distributive_property() {
+        // x*y + x*z should become x*(y + z)
+        let expr = Expr::Add(
+            Box::new(Expr::Mul(
+                Box::new(Expr::Symbol("x".to_string())),
+                Box::new(Expr::Symbol("y".to_string())),
+            )),
+            Box::new(Expr::Mul(
+                Box::new(Expr::Symbol("x".to_string())),
+                Box::new(Expr::Symbol("z".to_string())),
+            )),
+        );
+        let simplified = simplify(expr);
+        // Should be x*(y + z)
+        if let Expr::Mul(x, sum) = simplified {
+            assert_eq!(*x, Expr::Symbol("x".to_string()));
+            if let Expr::Add(y, z) = *sum {
+                assert_eq!(*y, Expr::Symbol("y".to_string()));
+                assert_eq!(*z, Expr::Symbol("z".to_string()));
+            } else {
+                panic!("Expected y + z");
+            }
+        } else {
+            panic!("Expected x*(y + z)");
+        }
+    }
+
+    #[test]
+    fn test_binomial_expansion() {
+        // x^2 + 2*x*y + y^2 should become (x + y)^2
+        let expr = Expr::Add(
+            Box::new(Expr::Add(
+                Box::new(Expr::Pow(
+                    Box::new(Expr::Symbol("x".to_string())),
+                    Box::new(Expr::Number(2.0)),
+                )),
+                Box::new(Expr::Mul(
+                    Box::new(Expr::Number(2.0)),
+                    Box::new(Expr::Mul(
+                        Box::new(Expr::Symbol("x".to_string())),
+                        Box::new(Expr::Symbol("y".to_string())),
+                    )),
+                )),
+            )),
+            Box::new(Expr::Pow(
+                Box::new(Expr::Symbol("y".to_string())),
+                Box::new(Expr::Number(2.0)),
+            )),
+        );
+        let simplified = simplify(expr);
+        // Should be (x + y)^2
+        if let Expr::Pow(sum, exp) = simplified {
+            assert_eq!(*exp, Expr::Number(2.0));
+            if let Expr::Add(x, y) = *sum {
+                assert_eq!(*x, Expr::Symbol("x".to_string()));
+                assert_eq!(*y, Expr::Symbol("y".to_string()));
+            } else {
+                panic!("Expected x + y");
+            }
+        } else {
+            panic!("Expected (x + y)^2");
+        }
+    }
 }

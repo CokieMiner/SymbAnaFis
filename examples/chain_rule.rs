@@ -27,5 +27,5 @@ fn main() {
     )
     .unwrap();
     println!("d/dx [{}] = {}", expr3, result3);
-    // Expected: ∂_f(g(x))/∂_x * ∂_g(x)/∂_x (or similar notation)
+    // Expected: ∂^1_f(g(x))/∂_x^1 * ∂^1_g(x)/∂_x^1 (or similar notation)
 }

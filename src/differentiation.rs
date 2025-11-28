@@ -14,6 +14,35 @@ impl Expr {
             Expr::Number(_) => Expr::Number(0.0),
 
             Expr::Symbol(name) => {
+                // Check if this is a derivative notation like ∂^n_f(args)/∂_x^n
+                if name.starts_with("∂^") && name.contains("/∂_") {
+                    // Parse the derivative notation
+                    // Format: ∂^order_func(args)/∂_var^order
+                    let parts: Vec<&str> = name.split("/∂_").collect();
+                    if parts.len() == 2 {
+                        let left = parts[0]; // ∂^order_func(args)
+                        let right = parts[1]; // var^order
+
+                        // Extract order from right side
+                        if let Some(order_str) = right.split('^').nth(1) {
+                            if let Ok(current_order) = order_str.parse::<i32>() {
+                                let new_order = current_order + 1;
+
+                                // Extract func and args from left side
+                                if let Some(func_part) = left.strip_prefix("∂^") {
+                                    if let Some(order_end) = func_part.find('_') {
+                                        let func_name = &func_part[order_end + 1..];
+                                        // Reconstruct with new order
+                                        let new_symbol = format!("∂^{}_{}/∂_{}^{}", new_order, func_name, var, new_order);
+                                        return Expr::Symbol(new_symbol);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Standard symbol differentiation
                 if name == var && !fixed_vars.contains(name) {
                     Expr::Number(1.0)
                 } else {
@@ -700,7 +729,14 @@ impl Expr {
 
                     "polygamma" => {
                         if args.len() != 2 {
-                            return Expr::Symbol(format!("∂_polygamma({})/∂_{}", args.iter().map(|a| a.to_string()).collect::<Vec<_>>().join(", "), var));
+                            return Expr::Symbol(format!(
+                                "∂_polygamma({})/∂_{}",
+                                args.iter()
+                                    .map(|a| a.to_string())
+                                    .collect::<Vec<_>>()
+                                    .join(", "),
+                                var
+                            ));
                         }
                         let n = &args[0];
                         let x = &args[1];
@@ -738,7 +774,14 @@ impl Expr {
                     // Multi-argument functions
                     "beta" => {
                         if args.len() != 2 {
-                            return Expr::Symbol(format!("∂_beta({})/∂_{}", args.iter().map(|a| a.to_string()).collect::<Vec<_>>().join(", "), var));
+                            return Expr::Symbol(format!(
+                                "∂_beta({})/∂_{}",
+                                args.iter()
+                                    .map(|a| a.to_string())
+                                    .collect::<Vec<_>>()
+                                    .join(", "),
+                                var
+                            ));
                         }
                         let a = &args[0];
                         let b = &args[1];
@@ -763,7 +806,10 @@ impl Expr {
                                     }),
                                     Box::new(Expr::FunctionCall {
                                         name: "digamma".to_string(),
-                                        args: vec![Expr::Add(Box::new(a.clone()), Box::new(b.clone()))],
+                                        args: vec![Expr::Add(
+                                            Box::new(a.clone()),
+                                            Box::new(b.clone()),
+                                        )],
                                     }),
                                 )),
                             );
@@ -781,7 +827,10 @@ impl Expr {
                                     }),
                                     Box::new(Expr::FunctionCall {
                                         name: "digamma".to_string(),
-                                        args: vec![Expr::Add(Box::new(a.clone()), Box::new(b.clone()))],
+                                        args: vec![Expr::Add(
+                                            Box::new(a.clone()),
+                                            Box::new(b.clone()),
+                                        )],
                                     }),
                                 )),
                             );
@@ -803,14 +852,22 @@ impl Expr {
 
                     "besselj" => {
                         if args.len() != 2 {
-                            return Expr::Symbol(format!("∂_besselj({})/∂_{}", args.iter().map(|a| a.to_string()).collect::<Vec<_>>().join(", "), var));
+                            return Expr::Symbol(format!(
+                                "∂_besselj({})/∂_{}",
+                                args.iter()
+                                    .map(|a| a.to_string())
+                                    .collect::<Vec<_>>()
+                                    .join(", "),
+                                var
+                            ));
                         }
                         let n = &args[0];
                         let x = &args[1];
                         let x_prime = x.derive(var, fixed_vars);
 
                         // d/dx J_n(x) = (1/2) * (J_{n-1}(x) - J_{n+1}(x))
-                        let half = Expr::Div(Box::new(Expr::Number(1.0)), Box::new(Expr::Number(2.0)));
+                        let half =
+                            Expr::Div(Box::new(Expr::Number(1.0)), Box::new(Expr::Number(2.0)));
                         let n_minus_1 = Expr::Sub(Box::new(n.clone()), Box::new(Expr::Number(1.0)));
                         let n_plus_1 = Expr::Add(Box::new(n.clone()), Box::new(Expr::Number(1.0)));
 
@@ -833,14 +890,22 @@ impl Expr {
 
                     "bessely" => {
                         if args.len() != 2 {
-                            return Expr::Symbol(format!("∂_bessely({})/∂_{}", args.iter().map(|a| a.to_string()).collect::<Vec<_>>().join(", "), var));
+                            return Expr::Symbol(format!(
+                                "∂_bessely({})/∂_{}",
+                                args.iter()
+                                    .map(|a| a.to_string())
+                                    .collect::<Vec<_>>()
+                                    .join(", "),
+                                var
+                            ));
                         }
                         let n = &args[0];
                         let x = &args[1];
                         let x_prime = x.derive(var, fixed_vars);
 
                         // d/dx Y_n(x) = (1/2) * (Y_{n-1}(x) - Y_{n+1}(x))
-                        let half = Expr::Div(Box::new(Expr::Number(1.0)), Box::new(Expr::Number(2.0)));
+                        let half =
+                            Expr::Div(Box::new(Expr::Number(1.0)), Box::new(Expr::Number(2.0)));
                         let n_minus_1 = Expr::Sub(Box::new(n.clone()), Box::new(Expr::Number(1.0)));
                         let n_plus_1 = Expr::Add(Box::new(n.clone()), Box::new(Expr::Number(1.0)));
 
@@ -863,14 +928,22 @@ impl Expr {
 
                     "besseli" => {
                         if args.len() != 2 {
-                            return Expr::Symbol(format!("∂_besseli({})/∂_{}", args.iter().map(|a| a.to_string()).collect::<Vec<_>>().join(", "), var));
+                            return Expr::Symbol(format!(
+                                "∂_besseli({})/∂_{}",
+                                args.iter()
+                                    .map(|a| a.to_string())
+                                    .collect::<Vec<_>>()
+                                    .join(", "),
+                                var
+                            ));
                         }
                         let n = &args[0];
                         let x = &args[1];
                         let x_prime = x.derive(var, fixed_vars);
 
                         // d/dx I_n(x) = (1/2) * (I_{n-1}(x) + I_{n+1}(x))
-                        let half = Expr::Div(Box::new(Expr::Number(1.0)), Box::new(Expr::Number(2.0)));
+                        let half =
+                            Expr::Div(Box::new(Expr::Number(1.0)), Box::new(Expr::Number(2.0)));
                         let n_minus_1 = Expr::Sub(Box::new(n.clone()), Box::new(Expr::Number(1.0)));
                         let n_plus_1 = Expr::Add(Box::new(n.clone()), Box::new(Expr::Number(1.0)));
 
@@ -893,14 +966,22 @@ impl Expr {
 
                     "besselk" => {
                         if args.len() != 2 {
-                            return Expr::Symbol(format!("∂_besselk({})/∂_{}", args.iter().map(|a| a.to_string()).collect::<Vec<_>>().join(", "), var));
+                            return Expr::Symbol(format!(
+                                "∂_besselk({})/∂_{}",
+                                args.iter()
+                                    .map(|a| a.to_string())
+                                    .collect::<Vec<_>>()
+                                    .join(", "),
+                                var
+                            ));
                         }
                         let n = &args[0];
                         let x = &args[1];
                         let x_prime = x.derive(var, fixed_vars);
 
                         // d/dx K_n(x) = (-1/2) * (K_{n-1}(x) + K_{n+1}(x))
-                        let neg_half = Expr::Div(Box::new(Expr::Number(-1.0)), Box::new(Expr::Number(2.0)));
+                        let neg_half =
+                            Expr::Div(Box::new(Expr::Number(-1.0)), Box::new(Expr::Number(2.0)));
                         let n_minus_1 = Expr::Sub(Box::new(n.clone()), Box::new(Expr::Number(1.0)));
                         let n_plus_1 = Expr::Add(Box::new(n.clone()), Box::new(Expr::Number(1.0)));
 
@@ -927,22 +1008,22 @@ impl Expr {
 
                         let mut terms = Vec::new();
 
-                        for (i, arg) in args.iter().enumerate() {
+                        for (_i, arg) in args.iter().enumerate() {
                             let arg_prime = arg.derive(var, fixed_vars);
 
                             // Optimization: if derivative of argument is 0, skip this term
-                            if let Expr::Number(n) = arg_prime {
-                                if n == 0.0 {
-                                    continue;
-                                }
+                            if let Expr::Number(n) = arg_prime
+                                && n == 0.0
+                            {
+                                continue;
                             }
 
                             // Construct partial derivative symbol
-                            // For single argument: ∂_f(u)/∂_x (legacy notation kept for compatibility/simplicity)
-                            // For multi argument: D_i[f](args)
+                            // For single argument: ∂^1_f(u)/∂_x^1
+                            // For multi argument: ∂^1_f(args)/∂_x^1
 
                             let partial_derivative = if args.len() == 1 {
-                                Expr::Symbol(format!("∂_{}({})/∂_{}", name, args[0], var))
+                                Expr::Symbol(format!("∂^1_{}({})/∂_{}^1", name, args[0], var))
                             } else {
                                 // Represent arguments as string for the symbol
                                 let args_str = args
@@ -950,7 +1031,7 @@ impl Expr {
                                     .map(|a| a.to_string())
                                     .collect::<Vec<_>>()
                                     .join(", ");
-                                Expr::Symbol(format!("D_{}[{}]({})", i, name, args_str))
+                                Expr::Symbol(format!("∂^1_{}({})/∂_{}^1", name, args_str, var))
                             };
 
                             terms
@@ -1101,5 +1182,35 @@ mod tests {
         let result = expr.derive("x", &HashSet::new());
         // Result should be multiplication (complex expression)
         assert!(matches!(result, Expr::Mul(_, _)));
+    }
+
+    #[test]
+    fn test_derivative_order_increment() {
+        // Test that differentiating a derivative symbol increments the order
+        let derivative_symbol = Expr::Symbol("∂^1_f(x)/∂_x^1".to_string());
+        let result = derivative_symbol.derive("x", &HashSet::new());
+        match result {
+            Expr::Symbol(name) => assert_eq!(name, "∂^2_f(x)/∂_x^2"),
+            _ => panic!("Expected symbol, got {:?}", result),
+        }
+    }
+
+    #[test]
+    fn test_derivative_order_increment_multi_digit() {
+        // Test incrementing from 9 to 10 (single to double digit)
+        let ninth_symbol = Expr::Symbol("∂^9_f(x)/∂_x^9".to_string());
+        let result = ninth_symbol.derive("x", &HashSet::new());
+        match result {
+            Expr::Symbol(name) => assert_eq!(name, "∂^10_f(x)/∂_x^10"),
+            _ => panic!("Expected symbol, got {:?}", result),
+        }
+
+        // Test incrementing from 99 to 100 (double to triple digit)
+        let ninety_ninth_symbol = Expr::Symbol("∂^99_f(x)/∂_x^99".to_string());
+        let result = ninety_ninth_symbol.derive("x", &HashSet::new());
+        match result {
+            Expr::Symbol(name) => assert_eq!(name, "∂^100_f(x)/∂_x^100"),
+            _ => panic!("Expected symbol, got {:?}", result),
+        }
     }
 }

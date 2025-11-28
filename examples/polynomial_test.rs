@@ -1,39 +1,29 @@
-use std::collections::HashSet;
-use symb_anafis::{parser, simplification};
+use symb_anafis::diff;
 
 fn main() {
-    println!("Testing Polynomial Simplifications (Direct Parse & Simplify)...");
+    println!("Testing Polynomial Differentiation and Simplifications...");
     println!("--------------------------------------------------");
 
     let test_cases = vec![
-        ("x + x", "2 * x"),
-        ("x * x", "(x)^2"),
-        ("x * x * x", "(x)^3"),
-        ("x^2 * x^3", "(x)^5"),
-        ("(x^2)^3", "(x)^6"),
-        ("x / x", "1"),
-        ("x^5 / x^2", "(x)^3"),
-        ("x^2 / x^5", "(x)^-3"),
-        ("x / x^3", "(x)^-2"),
-        ("x^3 / x", "(x)^2"),
-        ("2*x + 3*x", "5 * x"),
-        ("x + 2*x", "3 * x"),
-        ("x + x + x", "3 * x"),
+        ("x^2", "2 * x"),
+        ("x^3", "3 * (x)^2"),
+        ("x^4", "4 * (x)^3"),
+        ("2*x^2 + 3*x + 5", "3 + 4 * x"),
+        ("x^2 + 2*x + 1", "2 + 2 * x"),
+        ("(x + 1)^2", "2 * (1 + x)"),
+        ("x^5 / x^2", "3 * (x)^2"),  // d/dx[x^5/x^2] = d/dx[x^3] = 3*x^2
+        ("x^2 / x^5", "-3 * (x)^-4"), // d/dx[x^2/x^5] = d/dx[x^(-3)] = -3*x^(-4)
     ];
 
-    let fixed_vars = HashSet::new();
-    let custom_funcs = HashSet::new();
-
     for (input, expected) in test_cases {
-        match parser::parse(input, &fixed_vars, &custom_funcs) {
-            Ok(ast) => {
-                let simplified = simplification::simplify(ast);
-                println!("Input:    {}", input);
-                println!("Result:   {}", simplified);
+        match diff(input.to_string(), "x".to_string(), None, None) {
+            Ok(result) => {
+                println!("Input:    d/dx [{}]", input);
+                println!("Result:   {}", result);
                 println!("Expected: {}", expected);
 
                 // Simple string check (ignoring whitespace/parens for now)
-                let result_str = format!("{}", simplified);
+                let result_str = format!("{}", result);
                 if result_str
                     .replace(" ", "")
                     .replace("(", "")
@@ -46,7 +36,7 @@ fn main() {
                 }
                 println!("--------------------------------------------------");
             }
-            Err(e) => println!("Error parsing {}: {:?}", input, e),
+            Err(e) => println!("Error differentiating {}: {:?}", input, e),
         }
     }
 }

@@ -32,16 +32,16 @@ pub fn apply_trig_rules(expr: Expr) -> Expr {
                     }
 
                     // sin(-x) = -sin(x)
-                    if let Expr::Mul(a, b) = content {
-                        if matches!(**a, Expr::Number(n) if n == -1.0) {
-                            return Expr::Mul(
-                                Box::new(Expr::Number(-1.0)),
-                                Box::new(Expr::FunctionCall {
-                                    name: "sin".to_string(),
-                                    args: vec![*b.clone()],
-                                }),
-                            );
-                        }
+                    if let Expr::Mul(a, b) = content
+                        && matches!(**a, Expr::Number(n) if n == -1.0)
+                    {
+                        return Expr::Mul(
+                            Box::new(Expr::Number(-1.0)),
+                            Box::new(Expr::FunctionCall {
+                                name: "sin".to_string(),
+                                args: vec![*b.clone()],
+                            }),
+                        );
                     }
 
                     // sin(asin(x)) = x
@@ -49,20 +49,42 @@ pub fn apply_trig_rules(expr: Expr) -> Expr {
                         name: inner_name,
                         args: inner_args,
                     } = content
+                        && inner_name == "asin"
+                        && inner_args.len() == 1
                     {
-                        if inner_name == "asin" && inner_args.len() == 1 {
-                            return inner_args[0].clone();
-                        }
+                        return inner_args[0].clone();
                     }
 
                     // Cofunction: sin(pi/2 - x) = cos(x)
-                    if let Expr::Sub(lhs, rhs) = content {
-                        if matches!(**lhs, Expr::Number(n) if (n - PI/2.0).abs() < 1e-10) {
-                            return Expr::FunctionCall {
-                                name: "cos".to_string(),
-                                args: vec![*rhs.clone()],
-                            };
-                        }
+                    if let Expr::Sub(lhs, rhs) = content
+                        && matches!(**lhs, Expr::Number(n) if (n - PI/2.0).abs() < 1e-10)
+                    {
+                        return Expr::FunctionCall {
+                            name: "cos".to_string(),
+                            args: vec![*rhs.clone()],
+                        };
+                    }
+                    // Cofunction: sin(pi/2 + (-1 * x)) = cos(x)  (after algebraic simplification)
+                    if let Expr::Add(lhs, rhs) = content
+                        && matches!(**lhs, Expr::Number(n) if (n - PI/2.0).abs() < 1e-10)
+                        && let Expr::Mul(a, b) = &**rhs
+                        && matches!(**a, Expr::Number(n) if n == -1.0)
+                    {
+                        return Expr::FunctionCall {
+                            name: "cos".to_string(),
+                            args: vec![*b.clone()],
+                        };
+                    }
+                    // Cofunction: sin((-1 * x) + pi/2) = cos(x)  (after algebraic simplification)
+                    if let Expr::Add(lhs, rhs) = content
+                        && matches!(**rhs, Expr::Number(n) if (n - PI/2.0).abs() < 1e-10)
+                        && let Expr::Mul(a, b) = &**lhs
+                        && matches!(**a, Expr::Number(n) if n == -1.0)
+                    {
+                        return Expr::FunctionCall {
+                            name: "cos".to_string(),
+                            args: vec![*b.clone()],
+                        };
                     }
 
                     // Periodicity: sin(x + 2k*pi) = sin(x)
@@ -127,22 +149,22 @@ pub fn apply_trig_rules(expr: Expr) -> Expr {
                     }
 
                     // Double angle: sin(2x) = 2*sin(x)*cos(x)
-                    if let Expr::Mul(a, b) = content {
-                        if matches!(**a, Expr::Number(n) if n == 2.0) {
-                            return Expr::Mul(
-                                Box::new(Expr::Mul(
-                                    Box::new(Expr::Number(2.0)),
-                                    Box::new(Expr::FunctionCall {
-                                        name: "sin".to_string(),
-                                        args: vec![*b.clone()],
-                                    }),
-                                )),
+                    if let Expr::Mul(a, b) = content
+                        && matches!(**a, Expr::Number(n) if n == 2.0)
+                    {
+                        return Expr::Mul(
+                            Box::new(Expr::Mul(
+                                Box::new(Expr::Number(2.0)),
                                 Box::new(Expr::FunctionCall {
-                                    name: "cos".to_string(),
+                                    name: "sin".to_string(),
                                     args: vec![*b.clone()],
                                 }),
-                            );
-                        }
+                            )),
+                            Box::new(Expr::FunctionCall {
+                                name: "cos".to_string(),
+                                args: vec![*b.clone()],
+                            }),
+                        );
                     }
                 }
                 "cos" => {
@@ -168,13 +190,13 @@ pub fn apply_trig_rules(expr: Expr) -> Expr {
                     }
 
                     // cos(-x) = cos(x)
-                    if let Expr::Mul(a, b) = content {
-                        if matches!(**a, Expr::Number(n) if n == -1.0) {
-                            return Expr::FunctionCall {
-                                name: "cos".to_string(),
-                                args: vec![*b.clone()],
-                            };
-                        }
+                    if let Expr::Mul(a, b) = content
+                        && matches!(**a, Expr::Number(n) if n == -1.0)
+                    {
+                        return Expr::FunctionCall {
+                            name: "cos".to_string(),
+                            args: vec![*b.clone()],
+                        };
                     }
 
                     // cos(acos(x)) = x
@@ -182,20 +204,42 @@ pub fn apply_trig_rules(expr: Expr) -> Expr {
                         name: inner_name,
                         args: inner_args,
                     } = content
+                        && inner_name == "acos"
+                        && inner_args.len() == 1
                     {
-                        if inner_name == "acos" && inner_args.len() == 1 {
-                            return inner_args[0].clone();
-                        }
+                        return inner_args[0].clone();
                     }
 
                     // Cofunction: cos(pi/2 - x) = sin(x)
-                    if let Expr::Sub(lhs, rhs) = content {
-                        if matches!(**lhs, Expr::Number(n) if (n - PI/2.0).abs() < 1e-10) {
-                            return Expr::FunctionCall {
-                                name: "sin".to_string(),
-                                args: vec![*rhs.clone()],
-                            };
-                        }
+                    if let Expr::Sub(lhs, rhs) = content
+                        && matches!(**lhs, Expr::Number(n) if (n - PI/2.0).abs() < 1e-10)
+                    {
+                        return Expr::FunctionCall {
+                            name: "sin".to_string(),
+                            args: vec![*rhs.clone()],
+                        };
+                    }
+                    // Cofunction: cos(pi/2 + (-1 * x)) = sin(x)  (after algebraic simplification)
+                    if let Expr::Add(lhs, rhs) = content
+                        && matches!(**lhs, Expr::Number(n) if (n - PI/2.0).abs() < 1e-10)
+                        && let Expr::Mul(a, b) = &**rhs
+                        && matches!(**a, Expr::Number(n) if n == -1.0)
+                    {
+                        return Expr::FunctionCall {
+                            name: "sin".to_string(),
+                            args: vec![*b.clone()],
+                        };
+                    }
+                    // Cofunction: cos((-1 * x) + pi/2) = sin(x)  (after algebraic simplification)
+                    if let Expr::Add(lhs, rhs) = content
+                        && matches!(**rhs, Expr::Number(n) if (n - PI/2.0).abs() < 1e-10)
+                        && let Expr::Mul(a, b) = &**lhs
+                        && matches!(**a, Expr::Number(n) if n == -1.0)
+                    {
+                        return Expr::FunctionCall {
+                            name: "sin".to_string(),
+                            args: vec![*b.clone()],
+                        };
                     }
 
                     // Periodicity: cos(x + 2k*pi) = cos(x)
@@ -260,25 +304,25 @@ pub fn apply_trig_rules(expr: Expr) -> Expr {
                     }
 
                     // Double angle: cos(2x) = cos^2(x) - sin^2(x) = 2*cos^2(x) - 1 = 1 - 2*sin^2(x)
-                    if let Expr::Mul(a, b) = content {
-                        if matches!(**a, Expr::Number(n) if n == 2.0) {
-                            return Expr::Sub(
-                                Box::new(Expr::Pow(
-                                    Box::new(Expr::FunctionCall {
-                                        name: "cos".to_string(),
-                                        args: vec![*b.clone()],
-                                    }),
-                                    Box::new(Expr::Number(2.0)),
-                                )),
-                                Box::new(Expr::Pow(
-                                    Box::new(Expr::FunctionCall {
-                                        name: "sin".to_string(),
-                                        args: vec![*b.clone()],
-                                    }),
-                                    Box::new(Expr::Number(2.0)),
-                                )),
-                            );
-                        }
+                    if let Expr::Mul(a, b) = content
+                        && matches!(**a, Expr::Number(n) if n == 2.0)
+                    {
+                        return Expr::Sub(
+                            Box::new(Expr::Pow(
+                                Box::new(Expr::FunctionCall {
+                                    name: "cos".to_string(),
+                                    args: vec![*b.clone()],
+                                }),
+                                Box::new(Expr::Number(2.0)),
+                            )),
+                            Box::new(Expr::Pow(
+                                Box::new(Expr::FunctionCall {
+                                    name: "sin".to_string(),
+                                    args: vec![*b.clone()],
+                                }),
+                                Box::new(Expr::Number(2.0)),
+                            )),
+                        );
                     }
                 }
                 "tan" => {
@@ -301,16 +345,16 @@ pub fn apply_trig_rules(expr: Expr) -> Expr {
                     }
 
                     // tan(-x) = -tan(x)
-                    if let Expr::Mul(a, b) = content {
-                        if matches!(**a, Expr::Number(n) if n == -1.0) {
-                            return Expr::Mul(
-                                Box::new(Expr::Number(-1.0)),
-                                Box::new(Expr::FunctionCall {
-                                    name: "tan".to_string(),
-                                    args: vec![*b.clone()],
-                                }),
-                            );
-                        }
+                    if let Expr::Mul(a, b) = content
+                        && matches!(**a, Expr::Number(n) if n == -1.0)
+                    {
+                        return Expr::Mul(
+                            Box::new(Expr::Number(-1.0)),
+                            Box::new(Expr::FunctionCall {
+                                name: "tan".to_string(),
+                                args: vec![*b.clone()],
+                            }),
+                        );
                     }
 
                     // tan(atan(x)) = x
@@ -318,38 +362,58 @@ pub fn apply_trig_rules(expr: Expr) -> Expr {
                         name: inner_name,
                         args: inner_args,
                     } = content
+                        && inner_name == "atan"
+                        && inner_args.len() == 1
                     {
-                        if inner_name == "atan" && inner_args.len() == 1 {
-                            return inner_args[0].clone();
-                        }
+                        return inner_args[0].clone();
                     }
 
-                    // tan(x) = sin(x) / cos(x)
-                    // This could be useful for some transformations, but might be too aggressive
-                    // Only do this if it leads to simplification
+                    // Cofunction: tan(pi/2 - x) = cot(x)
+                    if let Expr::Sub(lhs, rhs) = content
+                        && matches!(**lhs, Expr::Number(n) if (n - PI/2.0).abs() < 1e-10)
+                    {
+                        return Expr::FunctionCall {
+                            name: "cot".to_string(),
+                            args: vec![*rhs.clone()],
+                        };
+                    }
+                    // Cofunction: tan(pi/2 + (-1 * x)) = cot(x)  (after algebraic simplification)
+                    if let Expr::Add(lhs, rhs) = content
+                        && matches!(**lhs, Expr::Number(n) if (n - PI/2.0).abs() < 1e-10)
+                        && let Expr::Mul(a, b) = &**rhs
+                        && matches!(**a, Expr::Number(n) if n == -1.0)
+                    {
+                        return Expr::FunctionCall {
+                            name: "cot".to_string(),
+                            args: vec![*b.clone()],
+                        };
+                    }
+                    // Cofunction: tan((-1 * x) + pi/2) = cot(x)  (after algebraic simplification)
+                    if let Expr::Add(lhs, rhs) = content
+                        && matches!(**rhs, Expr::Number(n) if (n - PI/2.0).abs() < 1e-10)
+                        && let Expr::Mul(a, b) = &**lhs
+                        && matches!(**a, Expr::Number(n) if n == -1.0)
+                    {
+                        return Expr::FunctionCall {
+                            name: "cot".to_string(),
+                            args: vec![*b.clone()],
+                        };
+                    }
 
                     // Double angle: tan(2x) = 2*tan(x) / (1 - tan^2(x))
-                    if let Expr::Mul(a, b) = content {
-                        if matches!(**a, Expr::Number(n) if n == 2.0) {
-                            let tan_x = Expr::FunctionCall {
-                                name: "tan".to_string(),
-                                args: vec![*b.clone()],
-                            };
-                            let tan_x_sq = Expr::Pow(
-                                Box::new(tan_x.clone()),
-                                Box::new(Expr::Number(2.0)),
-                            );
-                            return Expr::Div(
-                                Box::new(Expr::Mul(
-                                    Box::new(Expr::Number(2.0)),
-                                    Box::new(tan_x),
-                                )),
-                                Box::new(Expr::Sub(
-                                    Box::new(Expr::Number(1.0)),
-                                    Box::new(tan_x_sq),
-                                )),
-                            );
-                        }
+                    if let Expr::Mul(a, b) = content
+                        && matches!(**a, Expr::Number(n) if n == 2.0)
+                    {
+                        let tan_x = Expr::FunctionCall {
+                            name: "tan".to_string(),
+                            args: vec![*b.clone()],
+                        };
+                        let tan_x_sq =
+                            Expr::Pow(Box::new(tan_x.clone()), Box::new(Expr::Number(2.0)));
+                        return Expr::Div(
+                            Box::new(Expr::Mul(Box::new(Expr::Number(2.0)), Box::new(tan_x))),
+                            Box::new(Expr::Sub(Box::new(Expr::Number(1.0)), Box::new(tan_x_sq))),
+                        );
                     }
                 }
                 "cot" => {
@@ -362,17 +426,36 @@ pub fn apply_trig_rules(expr: Expr) -> Expr {
                         return Expr::Number(0.0);
                     }
 
-                    // cot(-x) = -cot(x)
-                    if let Expr::Mul(a, b) = content {
-                        if matches!(**a, Expr::Number(n) if n == -1.0) {
-                            return Expr::Mul(
-                                Box::new(Expr::Number(-1.0)),
-                                Box::new(Expr::FunctionCall {
-                                    name: "cot".to_string(),
-                                    args: vec![*b.clone()],
-                                }),
-                            );
-                        }
+                    // Cofunction: cot(pi/2 - x) = tan(x)
+                    if let Expr::Sub(lhs, rhs) = content
+                        && matches!(**lhs, Expr::Number(n) if (n - PI/2.0).abs() < 1e-10)
+                    {
+                        return Expr::FunctionCall {
+                            name: "tan".to_string(),
+                            args: vec![*rhs.clone()],
+                        };
+                    }
+                    // Cofunction: cot(pi/2 + (-1 * x)) = tan(x)  (after algebraic simplification)
+                    if let Expr::Add(lhs, rhs) = content
+                        && matches!(**lhs, Expr::Number(n) if (n - PI/2.0).abs() < 1e-10)
+                        && let Expr::Mul(a, b) = &**rhs
+                        && matches!(**a, Expr::Number(n) if n == -1.0)
+                    {
+                        return Expr::FunctionCall {
+                            name: "tan".to_string(),
+                            args: vec![*b.clone()],
+                        };
+                    }
+                    // Cofunction: cot((-1 * x) + pi/2) = tan(x)  (after algebraic simplification)
+                    if let Expr::Add(lhs, rhs) = content
+                        && matches!(**rhs, Expr::Number(n) if (n - PI/2.0).abs() < 1e-10)
+                        && let Expr::Mul(a, b) = &**lhs
+                        && matches!(**a, Expr::Number(n) if n == -1.0)
+                    {
+                        return Expr::FunctionCall {
+                            name: "tan".to_string(),
+                            args: vec![*b.clone()],
+                        };
                     }
                 }
                 "sec" => {
@@ -383,13 +466,13 @@ pub fn apply_trig_rules(expr: Expr) -> Expr {
                     }
 
                     // sec(-x) = sec(x)
-                    if let Expr::Mul(a, b) = content {
-                        if matches!(**a, Expr::Number(n) if n == -1.0) {
-                            return Expr::FunctionCall {
-                                name: "sec".to_string(),
-                                args: vec![*b.clone()],
-                            };
-                        }
+                    if let Expr::Mul(a, b) = content
+                        && matches!(**a, Expr::Number(n) if n == -1.0)
+                    {
+                        return Expr::FunctionCall {
+                            name: "sec".to_string(),
+                            args: vec![*b.clone()],
+                        };
                     }
                 }
                 "csc" => {
@@ -403,16 +486,16 @@ pub fn apply_trig_rules(expr: Expr) -> Expr {
                     }
 
                     // csc(-x) = -csc(x)
-                    if let Expr::Mul(a, b) = content {
-                        if matches!(**a, Expr::Number(n) if n == -1.0) {
-                            return Expr::Mul(
-                                Box::new(Expr::Number(-1.0)),
-                                Box::new(Expr::FunctionCall {
-                                    name: "csc".to_string(),
-                                    args: vec![*b.clone()],
-                                }),
-                            );
-                        }
+                    if let Expr::Mul(a, b) = content
+                        && matches!(**a, Expr::Number(n) if n == -1.0)
+                    {
+                        return Expr::Mul(
+                            Box::new(Expr::Number(-1.0)),
+                            Box::new(Expr::FunctionCall {
+                                name: "csc".to_string(),
+                                args: vec![*b.clone()],
+                            }),
+                        );
                     }
                 }
 
@@ -426,10 +509,10 @@ pub fn apply_trig_rules(expr: Expr) -> Expr {
                         name: inner_name,
                         args: inner_args,
                     } = content
+                        && inner_name == "sin"
+                        && inner_args.len() == 1
                     {
-                        if inner_name == "sin" && inner_args.len() == 1 {
-                            return inner_args[0].clone();
-                        }
+                        return inner_args[0].clone();
                     }
                 }
                 "acos" => {
@@ -444,10 +527,10 @@ pub fn apply_trig_rules(expr: Expr) -> Expr {
                         name: inner_name,
                         args: inner_args,
                     } = content
+                        && inner_name == "cos"
+                        && inner_args.len() == 1
                     {
-                        if inner_name == "cos" && inner_args.len() == 1 {
-                            return inner_args[0].clone();
-                        }
+                        return inner_args[0].clone();
                     }
                 }
                 "atan" => {
@@ -462,10 +545,10 @@ pub fn apply_trig_rules(expr: Expr) -> Expr {
                         name: inner_name,
                         args: inner_args,
                     } = content
+                        && inner_name == "tan"
+                        && inner_args.len() == 1
                     {
-                        if inner_name == "tan" && inner_args.len() == 1 {
-                            return inner_args[0].clone();
-                        }
+                        return inner_args[0].clone();
                     }
                 }
                 _ => {}
@@ -473,7 +556,7 @@ pub fn apply_trig_rules(expr: Expr) -> Expr {
         }
         Expr::Add(u, v) => {
             // Pythagorean: sin^2(x) + cos^2(x) = 1
-            if let Some(_) = is_sin_sq_plus_cos_sq(u, v) {
+            if is_sin_sq_plus_cos_sq(u, v).is_some() {
                 return Expr::Number(1.0);
             }
 
@@ -530,42 +613,41 @@ fn is_three_pi_over_two(expr: &Expr) -> bool {
 
 // Helper for sin^2(x) + cos^2(x)
 fn is_sin_sq_plus_cos_sq(u: &Expr, v: &Expr) -> Option<Expr> {
-    if let (Some((name1, arg1)), Some((name2, arg2))) = (get_trig_sq(u), get_trig_sq(v)) {
-        if arg1 == arg2 {
-            if (name1 == "sin" && name2 == "cos") || (name1 == "cos" && name2 == "sin") {
-                return Some(arg1);
-            }
-        }
+    if let (Some((name1, arg1)), Some((name2, arg2))) = (get_trig_sq(u), get_trig_sq(v))
+        && arg1 == arg2
+        && ((name1 == "sin" && name2 == "cos") || (name1 == "cos" && name2 == "sin"))
+    {
+        return Some(arg1);
     }
     None
 }
 
 // Helper for 1 + tan^2(x)
 fn is_one_plus_tan_sq(u: &Expr, v: &Expr) -> Option<Expr> {
-    if is_one(u) {
-        if let Some(("tan", arg)) = get_trig_sq(v) {
-            return Some(arg);
-        }
+    if is_one(u)
+        && let Some(("tan", arg)) = get_trig_sq(v)
+    {
+        return Some(arg);
     }
-    if is_one(v) {
-        if let Some(("tan", arg)) = get_trig_sq(u) {
-            return Some(arg);
-        }
+    if is_one(v)
+        && let Some(("tan", arg)) = get_trig_sq(u)
+    {
+        return Some(arg);
     }
     None
 }
 
 // Helper for 1 + cot^2(x)
 fn is_one_plus_cot_sq(u: &Expr, v: &Expr) -> Option<Expr> {
-    if is_one(u) {
-        if let Some(("cot", arg)) = get_trig_sq(v) {
-            return Some(arg);
-        }
+    if is_one(u)
+        && let Some(("cot", arg)) = get_trig_sq(v)
+    {
+        return Some(arg);
     }
-    if is_one(v) {
-        if let Some(("cot", arg)) = get_trig_sq(u) {
-            return Some(arg);
-        }
+    if is_one(v)
+        && let Some(("cot", arg)) = get_trig_sq(u)
+    {
+        return Some(arg);
     }
     None
 }
@@ -576,14 +658,12 @@ fn is_one(expr: &Expr) -> bool {
 
 // Helper to extract (name, arg) from trig(arg)^2
 fn get_trig_sq(expr: &Expr) -> Option<(&str, Expr)> {
-    if let Expr::Pow(base, exp) = expr {
-        if matches!(**exp, Expr::Number(n) if n == 2.0) {
-            if let Expr::FunctionCall { name, args } = &**base {
-                if args.len() == 1 {
-                    return Some((name.as_str(), args[0].clone()));
-                }
-            }
-        }
+    if let Expr::Pow(base, exp) = expr
+        && matches!(**exp, Expr::Number(n) if n == 2.0)
+        && let Expr::FunctionCall { name, args } = &**base
+        && args.len() == 1
+    {
+        return Some((name.as_str(), args[0].clone()));
     }
     None
 }

@@ -2,7 +2,8 @@ use crate::Expr;
 
 pub fn apply_log_exp_rules(expr: Expr) -> Expr {
     if let Expr::FunctionCall { name, args } = &expr
-        && args.len() == 1 {
+        && args.len() == 1
+    {
         let content = &args[0];
         match name.as_str() {
             "exp" => {
@@ -14,7 +15,9 @@ pub fn apply_log_exp_rules(expr: Expr) -> Expr {
                     name: inner_name,
                     args: inner_args,
                 } = content
-                    && inner_name == "ln" && inner_args.len() == 1 {
+                    && inner_name == "ln"
+                    && inner_args.len() == 1
+                {
                     return inner_args[0].clone();
                 }
             }
@@ -27,7 +30,9 @@ pub fn apply_log_exp_rules(expr: Expr) -> Expr {
                     name: inner_name,
                     args: inner_args,
                 } = content
-                    && inner_name == "exp" && inner_args.len() == 1 {
+                    && inner_name == "exp"
+                    && inner_args.len() == 1
+                {
                     return inner_args[0].clone();
                 }
             }

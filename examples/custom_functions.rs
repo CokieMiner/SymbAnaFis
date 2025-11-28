@@ -23,5 +23,5 @@ fn main() {
     println!("Fixed Vars: {:?}", fixed_vars);
     println!("Custom Funcs: {:?}", custom_funcs);
     println!("Derivative: {}", result);
-    // Expected: alpha * ∂_psi(x)/∂_x + beta * ∂_phi(x^2)/∂_x * 2 * x
+    // Expected: alpha * ∂^1_psi(x)/∂_x^1 + beta * ∂^1_phi(x^2)/∂_x^1 * 2 * x
 }

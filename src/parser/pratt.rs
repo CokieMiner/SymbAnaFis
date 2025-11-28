@@ -197,6 +197,13 @@ impl<'a> Parser<'a> {
                 }
             }
 
+            // Unary minus
+            Token::Operator(Operator::Sub) => {
+                self.advance();
+                let expr = self.parse_expr(40)?; // Highest precedence for unary
+                Ok(Expr::Mul(Box::new(Expr::Number(-1.0)), Box::new(expr)))
+            }
+
             Token::LeftParen => {
                 self.advance(); // consume (
                 let expr = self.parse_expr(0)?;
@@ -210,6 +217,13 @@ impl<'a> Parser<'a> {
                         got: format!("{:?}", self.current()),
                     })
                 }
+            }
+
+            Token::Derivative { order, func, args: _, var } => {
+                self.advance();
+                // For now, create a symbol with the derivative notation
+                // Later we might want to create a more structured representation
+                Ok(Expr::Symbol(format!("∂^{}_{}/∂_{}^{}", order, func, var, order)))
             }
 
             _ => Err(DiffError::InvalidToken(format!("{:?}", token))),
@@ -258,9 +272,9 @@ mod tests {
 
     #[test]
     fn test_parse_number() {
-        let tokens = vec![Token::Number(3.14)];
+        let tokens = vec![Token::Number(314.0 / 100.0)];
         let ast = parse_expression(&tokens).unwrap();
-        assert_eq!(ast, Expr::Number(3.14));
+        assert_eq!(ast, Expr::Number(314.0 / 100.0));
     }
 
     #[test]

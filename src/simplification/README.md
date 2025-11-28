@@ -40,6 +40,10 @@ All binary operations with numeric constants are evaluated:
 - **Addition**: `x + x = 2x`, `2x + 3x = 5x`
 - **Multiplication**: `x * x = x^2`, `x^2 * x^3 = x^5`
 
+### Factoring
+- **Common factor**: `x*y + x*z = x*(y+z)`
+- **Perfect squares**: `x^2 + 2*x*y + y^2 = (x+y)^2`
+
 ### Cancellation
 - **Subtraction**: `x - x = 0`
 - **Division**: `x / x = 1`
@@ -49,6 +53,10 @@ All binary operations with numeric constants are evaluated:
 - **Division with powers**: `x^n / x^m = x^(n-m)`
 - **Division by power**: `x^n / x = x^(n-1)`
 - **Division of power**: `x / x^n = x^(1-n)`
+
+### Canonical Ordering
+- Terms are sorted and combined in canonical form
+- Subtraction converted to addition with negation: `x - y = x + (-1)*y`
 
 ## Trigonometric Rules (`trig.rs`)
 
@@ -71,15 +79,15 @@ All binary operations with numeric constants are evaluated:
 - **csc(-x) = -csc(x)**
 
 ### Inverse Function Composition
-- **sin(asin(x)) = x**
-- **cos(acos(x)) = x**
-- **tan(atan(x)) = x**
-- **asin(sin(x)) = x**
-- **acos(cos(x)) = x**
+- **sin(asin(x)) = x**, **asin(sin(x)) = x**
+- **cos(acos(x)) = x**, **acos(cos(x)) = x**
+- **tan(atan(x)) = x**, **atan(tan(x)) = x**
 
 ### Cofunction Identities
 - **sin(π/2 - x) = cos(x)**
 - **cos(π/2 - x) = sin(x)**
+- **tan(π/2 - x) = cot(x)**
+- **cot(π/2 - x) = tan(x)**
 
 ### Periodicity
 - **sin(x + 2kπ) = sin(x)**
@@ -129,6 +137,12 @@ All binary operations with numeric constants are evaluated:
 - **2/(e^x + e^-x) = sech(x)**
 - **2/(e^x - e^-x) = csch(x)**
 
+### Canonical Form Handling
+All identities also recognize forms after algebraic simplification:
+- **cosh²(x) + (-1)*sinh²(x) = 1**
+- **1 + (-1)*tanh²(x) = sech²(x)**
+- **coth²(x) + (-1) = csch²(x)**
+
 ## Logarithmic/Exponential Rules (`log_exp.rs`)
 
 ### Exponential Rules
@@ -160,3 +174,5 @@ All binary operations with numeric constants are evaluated:
 - Rules are applied in multiple passes until convergence
 - Numeric precision uses ε = 1e-10 for floating-point comparisons
 - The system preserves exact symbolic forms when possible
+- **Canonical form handling**: Many rules recognize both original forms (e.g., `a - b`) and canonical forms after algebraic simplification (e.g., `a + (-1)*b`)
+- **Recursive simplification**: Subexpressions are simplified before applying rules to the current level

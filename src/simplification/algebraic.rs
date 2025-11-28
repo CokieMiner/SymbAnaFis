@@ -5,15 +5,35 @@ use std::cmp::Ordering;
 /// - Canonical ordering of multiplication/addition terms
 /// - Cancellation: x - x = 0, x / x = 1
 /// - Exponent simplification: x^n / x^m = x^(n-m)
+/// - Factoring: x*y + x*z = x*(y+z)
+/// - Perfect squares: x^2 + 2*x*y + y^2 = (x+y)^2
 pub fn apply_algebraic_rules(expr: Expr) -> Expr {
+    // First recursively simplify subexpressions
+    let expr = match expr {
+        Expr::Add(u, v) => Expr::Add(Box::new(apply_algebraic_rules(*u)), Box::new(apply_algebraic_rules(*v))),
+        Expr::Mul(u, v) => Expr::Mul(Box::new(apply_algebraic_rules(*u)), Box::new(apply_algebraic_rules(*v))),
+        Expr::Sub(u, v) => Expr::Sub(Box::new(apply_algebraic_rules(*u)), Box::new(apply_algebraic_rules(*v))),
+        Expr::Div(u, v) => Expr::Div(Box::new(apply_algebraic_rules(*u)), Box::new(apply_algebraic_rules(*v))),
+        Expr::Pow(u, v) => Expr::Pow(Box::new(apply_algebraic_rules(*u)), Box::new(apply_algebraic_rules(*v))),
+        Expr::FunctionCall { name, args } => Expr::FunctionCall {
+            name,
+            args: args.into_iter().map(|arg| apply_algebraic_rules(arg)).collect(),
+        },
+        other => other,
+    };
+
+    // Then apply rules to the current level
     match expr {
         Expr::Add(u, v) => {
             // Flatten and sort for canonical ordering
             let mut terms = flatten_add(Expr::Add(u, v));
             terms.sort_by(compare_expr);
 
+            // Try to factor out common terms
+            let factored_terms = try_factor_common_terms(terms);
+
             // Combine like terms (x + x = 2x)
-            let combined_terms = combine_add_terms(terms);
+            let combined_terms = combine_add_terms(factored_terms);
 
             // Rebuild tree
             rebuild_add(combined_terms)
@@ -32,11 +52,9 @@ pub fn apply_algebraic_rules(expr: Expr) -> Expr {
         }
 
         Expr::Sub(u, v) => {
-            // x - x = 0
-            if u == v {
-                return Expr::Number(0.0);
-            }
-            Expr::Sub(u, v)
+            // Convert x - y to x + (-1)*y so that addition rules can combine like terms
+            let neg_v = Expr::Mul(Box::new(Expr::Number(-1.0)), v);
+            apply_algebraic_rules(Expr::Add(u, Box::new(neg_v)))
         }
 
         Expr::Div(u, v) => {
@@ -45,34 +63,45 @@ pub fn apply_algebraic_rules(expr: Expr) -> Expr {
                 return Expr::Number(1.0);
             }
 
+            // c * x^n / x^m = c * x^(n-m)
+            if let Expr::Mul(coeff, power) = &*u
+                && let Expr::Pow(base_v, exp_v) = &*v
+                && let Expr::Pow(base_p, exp_p) = &**power
+                && base_p == base_v
+            {
+                let new_exp = Expr::Sub(exp_p.clone(), exp_v.clone());
+                let new_power = Expr::Pow(base_v.clone(), Box::new(new_exp));
+                return Expr::Mul(coeff.clone(), Box::new(new_power));
+            }
+
             // x^n / x^m = x^(n-m)
-            if let (Expr::Pow(base_u, exp_u), Expr::Pow(base_v, exp_v)) = (&*u, &*v) {
-                if base_u == base_v {
-                    return Expr::Pow(
-                        base_u.clone(),
-                        Box::new(Expr::Sub(exp_u.clone(), exp_v.clone())),
-                    );
-                }
+            if let (Expr::Pow(base_u, exp_u), Expr::Pow(base_v, exp_v)) = (&*u, &*v)
+                && base_u == base_v
+            {
+                return Expr::Pow(
+                    base_u.clone(),
+                    Box::new(Expr::Sub(exp_u.clone(), exp_v.clone())),
+                );
             }
 
             // x^n / x = x^(n-1)
-            if let Expr::Pow(base_u, exp_u) = &*u {
-                if base_u == &v {
-                    return Expr::Pow(
-                        base_u.clone(),
-                        Box::new(Expr::Sub(exp_u.clone(), Box::new(Expr::Number(1.0)))),
-                    );
-                }
+            if let Expr::Pow(base_u, exp_u) = &*u
+                && base_u == &v
+            {
+                return Expr::Pow(
+                    base_u.clone(),
+                    Box::new(Expr::Sub(exp_u.clone(), Box::new(Expr::Number(1.0)))),
+                );
             }
 
             // x / x^n = x^(1-n)
-            if let Expr::Pow(base_v, exp_v) = &*v {
-                if &u == base_v {
-                    return Expr::Pow(
-                        base_v.clone(),
-                        Box::new(Expr::Sub(Box::new(Expr::Number(1.0)), exp_v.clone())),
-                    );
-                }
+            if let Expr::Pow(base_v, exp_v) = &*v
+                && &u == base_v
+            {
+                return Expr::Pow(
+                    base_v.clone(),
+                    Box::new(Expr::Sub(Box::new(Expr::Number(1.0)), exp_v.clone())),
+                );
             }
 
             Expr::Div(u, v)
@@ -83,6 +112,16 @@ pub fn apply_algebraic_rules(expr: Expr) -> Expr {
             if let Expr::Pow(base, exp_inner) = *u {
                 return Expr::Pow(base, Box::new(Expr::Mul(exp_inner, v)));
             }
+            
+            // x^-n = 1/x^n for n > 0
+            if let Expr::Number(n) = *v {
+                if n < 0.0 {
+                    let positive_exp = Expr::Number(-n);
+                    let denom = Expr::Pow(u, Box::new(positive_exp));
+                    return Expr::Div(Box::new(Expr::Number(1.0)), Box::new(denom));
+                }
+            }
+            
             Expr::Pow(u, v)
         }
 
@@ -166,11 +205,34 @@ fn combine_add_terms(terms: Vec<Expr>) -> Vec<Expr> {
 // Helper: Combine like factors in multiplication (x * x -> x^2)
 fn combine_mul_terms(terms: Vec<Expr>) -> Vec<Expr> {
     if terms.is_empty() {
-        return terms;
+        return vec![Expr::Number(1.0)];
+    }
+
+    // Remove factors of 1 and handle 0
+    let mut filtered_terms = Vec::new();
+    for term in terms {
+        match term {
+            Expr::Number(n) => {
+                if n == 0.0 {
+                    // Anything times 0 is 0
+                    return vec![Expr::Number(0.0)];
+                } else if n == 1.0 {
+                    // Skip 1
+                    continue;
+                } else {
+                    filtered_terms.push(Expr::Number(n));
+                }
+            }
+            other => filtered_terms.push(other),
+        }
+    }
+
+    if filtered_terms.is_empty() {
+        return vec![Expr::Number(1.0)];
     }
 
     let mut result = Vec::new();
-    let mut iter = terms.into_iter();
+    let mut iter = filtered_terms.into_iter();
     let mut current_base = iter.next().unwrap();
     let mut current_exp = Expr::Number(1.0);
 
@@ -184,41 +246,40 @@ fn combine_mul_terms(terms: Vec<Expr>) -> Vec<Expr> {
         // Check if term is power with same base (x * x^n)
         // We need to check carefully to avoid borrow checker issues
         let mut merged = false;
-        if let Expr::Pow(base, exp) = &term {
-            if **base == current_base {
-                current_exp = Expr::Add(Box::new(current_exp), exp.clone());
-                merged = true;
-            }
+        if let Expr::Pow(base, exp) = &term
+            && **base == current_base
+        {
+            current_exp = Expr::Add(Box::new(current_exp), exp.clone());
+            merged = true;
         }
         if merged {
             continue;
         }
 
         // Check if current is power and term is same base (x^n * x)
-        if let Expr::Pow(base, exp) = &current_base {
-            if **base == term {
-                let new_base = *base.clone();
-                let new_exp = Expr::Add(exp.clone(), Box::new(Expr::Number(1.0)));
-                current_base = new_base;
-                current_exp = new_exp;
-                merged = true;
-            }
+        if let Expr::Pow(base, exp) = &current_base
+            && **base == term
+        {
+            let new_base = *base.clone();
+            let new_exp = Expr::Add(exp.clone(), Box::new(Expr::Number(1.0)));
+            current_base = new_base;
+            current_exp = new_exp;
+            merged = true;
         }
         if merged {
             continue;
         }
 
         // Check if both are powers with same base (x^n * x^m)
-        if let Expr::Pow(b1, e1) = &current_base {
-            if let Expr::Pow(b2, e2) = &term {
-                if b1 == b2 {
-                    let new_base = *b1.clone();
-                    let new_exp = Expr::Add(e1.clone(), e2.clone());
-                    current_base = new_base;
-                    current_exp = new_exp;
-                    merged = true;
-                }
-            }
+        if let Expr::Pow(b1, e1) = &current_base
+            && let Expr::Pow(b2, e2) = &term
+            && b1 == b2
+        {
+            let new_base = *b1.clone();
+            let new_exp = Expr::Add(e1.clone(), e2.clone());
+            current_base = new_base;
+            current_exp = new_exp;
+            merged = true;
         }
         if merged {
             continue;
@@ -294,7 +355,117 @@ fn rebuild_mul(terms: Vec<Expr>) -> Expr {
     result
 }
 
-// Helper: Deterministic comparison for sorting
+// Helper: Try to factor out common terms from a sum
+fn try_factor_common_terms(terms: Vec<Expr>) -> Vec<Expr> {
+    if terms.len() < 2 {
+        return terms;
+    }
+
+    // Check for perfect square: a^2 + 2*a*b + b^2 -> (a+b)^2
+    if terms.len() == 3
+        && let Some((a, b)) = is_perfect_square(&terms)
+    {
+        return vec![Expr::Pow(
+            Box::new(Expr::Add(Box::new(a), Box::new(b))),
+            Box::new(Expr::Number(2.0)),
+        )];
+    }
+
+    // Simple case: if all terms are multiplications with the same first factor
+    // e.g., x*y + x*z -> x*(y+z)
+    let mut common_factor = None;
+    let mut remaining_factors = Vec::new();
+
+    for term in &terms {
+        match term {
+            Expr::Mul(a, b) => {
+                let a_expr = (**a).clone();
+                let b_expr = (**b).clone();
+                if let Some(cf) = &common_factor {
+                    if a_expr == *cf {
+                        remaining_factors.push(b_expr);
+                    } else {
+                        // Not all terms have the same common factor
+                        return terms;
+                    }
+                } else {
+                    common_factor = Some(a_expr);
+                    remaining_factors.push(b_expr);
+                }
+            }
+            _ => {
+                // If any term is not a multiplication, can't factor
+                return terms;
+            }
+        }
+    }
+
+    // If we found a common factor, reconstruct as factor * (sum of remaining factors)
+    if let Some(factor) = common_factor
+        && remaining_factors.len() > 1
+    {
+        // Build the sum of remaining factors
+        let mut sum = remaining_factors[0].clone();
+        for factor in &remaining_factors[1..] {
+            sum = Expr::Add(Box::new(sum), Box::new(factor.clone()));
+        }
+        return vec![Expr::Mul(Box::new(factor), Box::new(sum))];
+    }
+
+    terms
+}
+
+// Helper: Check if terms represent a perfect square: a^2 + 2*a*b + b^2
+fn is_perfect_square(terms: &[Expr]) -> Option<(Expr, Expr)> {
+    if terms.len() != 3 {
+        return None;
+    }
+
+    // Extract coefficients and bases
+    let mut squares = Vec::new();
+    let mut cross_terms = Vec::new();
+
+    for term in terms {
+        match term {
+            Expr::Pow(base, exp) => {
+                if let Expr::Number(n) = **exp
+                    && n == 2.0
+                {
+                    squares.push(*base.clone());
+                }
+            }
+            Expr::Mul(coeff, rest) => {
+                // Check for 2 * (a * b)
+                if let Expr::Number(n) = **coeff
+                    && n == 2.0
+                    && let Expr::Mul(a, b) = &**rest
+                {
+                    cross_terms.push((*a.clone(), *b.clone()));
+                }
+                // Check for (2 * a) * b
+                else if let Expr::Mul(inner_coeff, a) = &**coeff
+                    && let Expr::Number(n) = &**inner_coeff
+                    && *n == 2.0
+                {
+                    cross_terms.push((*a.clone(), *rest.clone()));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Should have 2 squares and 1 cross term
+    if squares.len() == 2 && cross_terms.len() == 1 {
+        let (a, b) = &cross_terms[0];
+        // Check if the squares match the cross term variables
+        if (squares[0] == *a && squares[1] == *b) || (squares[0] == *b && squares[1] == *a) {
+            return Some((squares[0].clone(), squares[1].clone()));
+        }
+    }
+
+    None
+}
+
 fn compare_expr(a: &Expr, b: &Expr) -> Ordering {
     // Priority: Number < Symbol < Function < Add < Sub < Mul < Div < Pow
     let type_score = |e: &Expr| match e {

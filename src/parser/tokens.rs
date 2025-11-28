@@ -7,6 +7,7 @@ pub enum Token {
     LeftParen,
     RightParen,
     Comma,
+    Derivative { order: u32, func: String, args: String, var: String },
 }
 
 /// Operator types (arithmetic and built-in functions)
@@ -155,7 +156,7 @@ impl Operator {
     }
 
     /// Convert a string to an operator
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse_str(s: &str) -> Option<Self> {
         match s {
             "+" => Some(Operator::Add),
             "-" => Some(Operator::Sub),
@@ -279,6 +280,13 @@ impl Operator {
     }
 }
 
+impl std::str::FromStr for Operator {
+    type Err = ();
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Operator::parse_str(s).ok_or(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -293,10 +301,10 @@ mod tests {
 
     #[test]
     fn test_from_str() {
-        assert_eq!(Operator::from_str("+"), Some(Operator::Add));
-        assert_eq!(Operator::from_str("sin"), Some(Operator::Sin));
-        assert_eq!(Operator::from_str("**"), Some(Operator::Pow));
-        assert_eq!(Operator::from_str("invalid"), None);
+        assert_eq!(Operator::parse_str("+"), Some(Operator::Add));
+        assert_eq!(Operator::parse_str("sin"), Some(Operator::Sin));
+        assert_eq!(Operator::parse_str("**"), Some(Operator::Pow));
+        assert_eq!(Operator::parse_str("invalid"), None);
     }
 
     #[test]

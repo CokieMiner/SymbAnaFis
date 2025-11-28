@@ -134,17 +134,22 @@ fn test_derivative_simplification_from_examples() {
     // Test derivative from basic.rs example: d/dx[sin(x) * cos(x)]
     // This should simplify to cos(x)^2 - sin(x)^2
     let result = diff("sin(x) * cos(x)".to_string(), "x".to_string(), None, None).unwrap();
-    
+
     // The result should contain cos^2 and sin^2 terms
     // It might be in the form: -(sin(x))^2 + (cos(x))^2 or similar
     assert!(result.contains("cos"));
     assert!(result.contains("sin"));
-    
+
     // More specifically, it should be equivalent to cos(2x) or cos^2(x) - sin^2(x)
     // Let's check that it contains the right structure
-    let expected_patterns = ["(cos(x))^2", "(sin(x))^2", "-"];
+    let expected_patterns = ["cos(x)^2", "sin(x)^2", "-"];
     for pattern in expected_patterns {
-        assert!(result.contains(pattern), "Result '{}' should contain '{}'", result, pattern);
+        assert!(
+            result.contains(pattern),
+            "Result '{}' should contain '{}'",
+            result,
+            pattern
+        );
     }
 }
 
@@ -153,15 +158,21 @@ fn test_chain_rule_derivative_from_examples() {
     // Test derivative from chain_rule.rs example: d/dx[sin(cos(2*x))]
     // This should simplify using double angle formulas
     let result = diff("sin(cos(2*x))".to_string(), "x".to_string(), None, None).unwrap();
-    
+
     // The result should contain trig functions and show double angle simplification
     assert!(result.contains("cos"));
     assert!(result.contains("sin"));
-    
+
     // Should show the simplified form with double angle identities applied
     // cos(2*x) becomes (cos(x))^2 - (sin(x))^2 and sin(2*x) becomes 2*sin(x)*cos(x)
-    let expected_patterns = ["-4", "cos(x)", "sin(x)", "cos(((cos(x))^2 - (sin(x))^2))"];
+    // After algebraic canonicalization: (cos(x))^2 + (-1)*(sin(x))^2 becomes -(sin(x))^2 + (cos(x))^2
+    let expected_patterns = ["-4", "cos(x)", "sin(x)", "cos(-sin(x)^2 + cos(x)^2)"];
     for pattern in expected_patterns {
-        assert!(result.contains(pattern), "Result '{}' should contain '{}'", result, pattern);
+        assert!(
+            result.contains(pattern),
+            "Result '{}' should contain '{}'",
+            result,
+            pattern
+        );
     }
 }

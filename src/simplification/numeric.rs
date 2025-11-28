@@ -78,7 +78,8 @@ pub fn apply_numeric_rules(expr: Expr) -> Expr {
             }
             // Constant folding: a / b = c
             if let (Expr::Number(a), Expr::Number(b)) = (&**u, &**v)
-                && *b != 0.0 {
+                && *b != 0.0
+            {
                 // Check if we should preserve as fraction
                 // Only preserve if both are effectively integers and result is not an integer
                 let is_int_a = a.fract() == 0.0;

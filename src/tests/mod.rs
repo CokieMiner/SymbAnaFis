@@ -6,3 +6,5 @@ pub mod simplification_tests;
 pub mod tier1_tests;
 pub mod tier2_tests;
 pub mod trig_simplification_tests;
+pub mod advanced_simplification_tests;
+pub mod numerical_accuracy_tests;
