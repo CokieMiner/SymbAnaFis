@@ -75,10 +75,10 @@ pub enum Operator {
     // Gamma functions (Tier 3)
     Gamma,
     Digamma,
+    Trigamma,
+    Tetragamma,
+    Polygamma,
     Beta,
-
-    // Zeta (Tier 3)
-    Zeta,
 
     // Bessel functions (Tier 3)
     BesselJ,
@@ -137,8 +137,10 @@ impl Operator {
                 | Operator::Erfc
                 | Operator::Gamma
                 | Operator::Digamma
+                | Operator::Trigamma
+                | Operator::Tetragamma
+                | Operator::Polygamma
                 | Operator::Beta
-                | Operator::Zeta
                 | Operator::BesselJ
                 | Operator::BesselY
                 | Operator::BesselI
@@ -197,8 +199,10 @@ impl Operator {
             "erfc" => Some(Operator::Erfc),
             "gamma" => Some(Operator::Gamma),
             "digamma" => Some(Operator::Digamma),
+            "trigamma" => Some(Operator::Trigamma),
+            "tetragamma" => Some(Operator::Tetragamma),
+            "polygamma" => Some(Operator::Polygamma),
             "beta" => Some(Operator::Beta),
-            "zeta" => Some(Operator::Zeta),
             "besselj" => Some(Operator::BesselJ),
             "bessely" => Some(Operator::BesselY),
             "besseli" => Some(Operator::BesselI),
@@ -254,8 +258,10 @@ impl Operator {
             | Operator::Erfc
             | Operator::Gamma
             | Operator::Digamma
+            | Operator::Trigamma
+            | Operator::Tetragamma
+            | Operator::Polygamma
             | Operator::Beta
-            | Operator::Zeta
             | Operator::BesselJ
             | Operator::BesselY
             | Operator::BesselI

@@ -125,6 +125,25 @@ pub fn apply_trig_rules(expr: Expr) -> Expr {
                             );
                         }
                     }
+
+                    // Double angle: sin(2x) = 2*sin(x)*cos(x)
+                    if let Expr::Mul(a, b) = content {
+                        if matches!(**a, Expr::Number(n) if n == 2.0) {
+                            return Expr::Mul(
+                                Box::new(Expr::Mul(
+                                    Box::new(Expr::Number(2.0)),
+                                    Box::new(Expr::FunctionCall {
+                                        name: "sin".to_string(),
+                                        args: vec![*b.clone()],
+                                    }),
+                                )),
+                                Box::new(Expr::FunctionCall {
+                                    name: "cos".to_string(),
+                                    args: vec![*b.clone()],
+                                }),
+                            );
+                        }
+                    }
                 }
                 "cos" => {
                     // Standard values
@@ -239,6 +258,28 @@ pub fn apply_trig_rules(expr: Expr) -> Expr {
                             };
                         }
                     }
+
+                    // Double angle: cos(2x) = cos^2(x) - sin^2(x) = 2*cos^2(x) - 1 = 1 - 2*sin^2(x)
+                    if let Expr::Mul(a, b) = content {
+                        if matches!(**a, Expr::Number(n) if n == 2.0) {
+                            return Expr::Sub(
+                                Box::new(Expr::Pow(
+                                    Box::new(Expr::FunctionCall {
+                                        name: "cos".to_string(),
+                                        args: vec![*b.clone()],
+                                    }),
+                                    Box::new(Expr::Number(2.0)),
+                                )),
+                                Box::new(Expr::Pow(
+                                    Box::new(Expr::FunctionCall {
+                                        name: "sin".to_string(),
+                                        args: vec![*b.clone()],
+                                    }),
+                                    Box::new(Expr::Number(2.0)),
+                                )),
+                            );
+                        }
+                    }
                 }
                 "tan" => {
                     // Standard values
@@ -282,8 +323,65 @@ pub fn apply_trig_rules(expr: Expr) -> Expr {
                             return inner_args[0].clone();
                         }
                     }
+
+                    // tan(x) = sin(x) / cos(x)
+                    // This could be useful for some transformations, but might be too aggressive
+                    // Only do this if it leads to simplification
+
+                    // Double angle: tan(2x) = 2*tan(x) / (1 - tan^2(x))
+                    if let Expr::Mul(a, b) = content {
+                        if matches!(**a, Expr::Number(n) if n == 2.0) {
+                            let tan_x = Expr::FunctionCall {
+                                name: "tan".to_string(),
+                                args: vec![*b.clone()],
+                            };
+                            let tan_x_sq = Expr::Pow(
+                                Box::new(tan_x.clone()),
+                                Box::new(Expr::Number(2.0)),
+                            );
+                            return Expr::Div(
+                                Box::new(Expr::Mul(
+                                    Box::new(Expr::Number(2.0)),
+                                    Box::new(tan_x),
+                                )),
+                                Box::new(Expr::Sub(
+                                    Box::new(Expr::Number(1.0)),
+                                    Box::new(tan_x_sq),
+                                )),
+                            );
+                        }
+                    }
+                }
+                "cot" => {
+                    // cot(x) = 1 / tan(x) = cos(x) / sin(x)
+                    // cot(0) is undefined, but cot(π/4) = 1, cot(π/2) = 0
+                    if matches!(content, Expr::Number(n) if (n - PI/4.0).abs() < 1e-10) {
+                        return Expr::Number(1.0);
+                    }
+                    if matches!(content, Expr::Number(n) if (n - PI/2.0).abs() < 1e-10) {
+                        return Expr::Number(0.0);
+                    }
+
+                    // cot(-x) = -cot(x)
+                    if let Expr::Mul(a, b) = content {
+                        if matches!(**a, Expr::Number(n) if n == -1.0) {
+                            return Expr::Mul(
+                                Box::new(Expr::Number(-1.0)),
+                                Box::new(Expr::FunctionCall {
+                                    name: "cot".to_string(),
+                                    args: vec![*b.clone()],
+                                }),
+                            );
+                        }
+                    }
                 }
                 "sec" => {
+                    // sec(x) = 1 / cos(x)
+                    // sec(0) = 1, sec(π/2) is undefined
+                    if matches!(content, Expr::Number(n) if *n == 0.0) {
+                        return Expr::Number(1.0);
+                    }
+
                     // sec(-x) = sec(x)
                     if let Expr::Mul(a, b) = content {
                         if matches!(**a, Expr::Number(n) if n == -1.0) {
@@ -294,14 +392,23 @@ pub fn apply_trig_rules(expr: Expr) -> Expr {
                         }
                     }
                 }
-                "csc" | "cot" => {
-                    // csc(-x) = -csc(x), cot(-x) = -cot(x)
+                "csc" => {
+                    // csc(x) = 1 / sin(x)
+                    // csc(π/2) = 1, csc(π/6) = 2
+                    if matches!(content, Expr::Number(n) if (n - PI/2.0).abs() < 1e-10) {
+                        return Expr::Number(1.0);
+                    }
+                    if matches!(content, Expr::Number(n) if (n - PI/6.0).abs() < 1e-10) {
+                        return Expr::Number(2.0);
+                    }
+
+                    // csc(-x) = -csc(x)
                     if let Expr::Mul(a, b) = content {
                         if matches!(**a, Expr::Number(n) if n == -1.0) {
                             return Expr::Mul(
                                 Box::new(Expr::Number(-1.0)),
                                 Box::new(Expr::FunctionCall {
-                                    name: name.clone(),
+                                    name: "csc".to_string(),
                                     args: vec![*b.clone()],
                                 }),
                             );

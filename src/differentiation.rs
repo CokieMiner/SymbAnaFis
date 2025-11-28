@@ -662,6 +662,60 @@ impl Expr {
                         )
                     }
 
+                    "digamma" => {
+                        let (content, u_prime) = get_single_arg();
+                        // d/dx[digamma(u)] = trigamma(u) · u'
+                        Expr::Mul(
+                            Box::new(Expr::FunctionCall {
+                                name: "trigamma".to_string(),
+                                args: vec![content.clone()],
+                            }),
+                            Box::new(u_prime),
+                        )
+                    }
+
+                    "trigamma" => {
+                        let (content, u_prime) = get_single_arg();
+                        // d/dx[trigamma(u)] = tetragamma(u) · u'
+                        Expr::Mul(
+                            Box::new(Expr::FunctionCall {
+                                name: "tetragamma".to_string(),
+                                args: vec![content.clone()],
+                            }),
+                            Box::new(u_prime),
+                        )
+                    }
+
+                    "tetragamma" => {
+                        let (content, u_prime) = get_single_arg();
+                        // d/dx[tetragamma(u)] = polygamma(3, u) · u'
+                        Expr::Mul(
+                            Box::new(Expr::FunctionCall {
+                                name: "polygamma".to_string(),
+                                args: vec![Expr::Number(3.0), content.clone()],
+                            }),
+                            Box::new(u_prime),
+                        )
+                    }
+
+                    "polygamma" => {
+                        if args.len() != 2 {
+                            return Expr::Symbol(format!("∂_polygamma({})/∂_{}", args.iter().map(|a| a.to_string()).collect::<Vec<_>>().join(", "), var));
+                        }
+                        let n = &args[0];
+                        let x = &args[1];
+                        let x_prime = x.derive(var, fixed_vars);
+
+                        // d/dx polygamma(n, x) = polygamma(n+1, x)
+                        let n_plus_1 = Expr::Add(Box::new(n.clone()), Box::new(Expr::Number(1.0)));
+                        let derivative = Expr::FunctionCall {
+                            name: "polygamma".to_string(),
+                            args: vec![n_plus_1, x.clone()],
+                        };
+
+                        Expr::Mul(Box::new(derivative), Box::new(x_prime))
+                    }
+
                     "LambertW" => {
                         let (content, u_prime) = get_single_arg();
                         // d/dx[W(u)] = W(u) / (u · (1 + W(u))) · u'
@@ -679,6 +733,192 @@ impl Expr {
                             )),
                             Box::new(u_prime),
                         )
+                    }
+
+                    // Multi-argument functions
+                    "beta" => {
+                        if args.len() != 2 {
+                            return Expr::Symbol(format!("∂_beta({})/∂_{}", args.iter().map(|a| a.to_string()).collect::<Vec<_>>().join(", "), var));
+                        }
+                        let a = &args[0];
+                        let b = &args[1];
+                        let a_prime = a.derive(var, fixed_vars);
+                        let b_prime = b.derive(var, fixed_vars);
+
+                        let beta_ab = Expr::FunctionCall {
+                            name: "beta".to_string(),
+                            args: vec![a.clone(), b.clone()],
+                        };
+
+                        let mut terms = Vec::new();
+
+                        // ∂beta/∂a term
+                        if !matches!(a_prime, Expr::Number(0.0)) {
+                            let partial_a = Expr::Mul(
+                                Box::new(beta_ab.clone()),
+                                Box::new(Expr::Sub(
+                                    Box::new(Expr::FunctionCall {
+                                        name: "digamma".to_string(),
+                                        args: vec![a.clone()],
+                                    }),
+                                    Box::new(Expr::FunctionCall {
+                                        name: "digamma".to_string(),
+                                        args: vec![Expr::Add(Box::new(a.clone()), Box::new(b.clone()))],
+                                    }),
+                                )),
+                            );
+                            terms.push(Expr::Mul(Box::new(partial_a), Box::new(a_prime)));
+                        }
+
+                        // ∂beta/∂b term
+                        if !matches!(b_prime, Expr::Number(0.0)) {
+                            let partial_b = Expr::Mul(
+                                Box::new(beta_ab.clone()),
+                                Box::new(Expr::Sub(
+                                    Box::new(Expr::FunctionCall {
+                                        name: "digamma".to_string(),
+                                        args: vec![b.clone()],
+                                    }),
+                                    Box::new(Expr::FunctionCall {
+                                        name: "digamma".to_string(),
+                                        args: vec![Expr::Add(Box::new(a.clone()), Box::new(b.clone()))],
+                                    }),
+                                )),
+                            );
+                            terms.push(Expr::Mul(Box::new(partial_b), Box::new(b_prime)));
+                        }
+
+                        if terms.is_empty() {
+                            Expr::Number(0.0)
+                        } else if terms.len() == 1 {
+                            terms.remove(0)
+                        } else {
+                            let mut result = terms.remove(0);
+                            for term in terms {
+                                result = Expr::Add(Box::new(result), Box::new(term));
+                            }
+                            result
+                        }
+                    }
+
+                    "besselj" => {
+                        if args.len() != 2 {
+                            return Expr::Symbol(format!("∂_besselj({})/∂_{}", args.iter().map(|a| a.to_string()).collect::<Vec<_>>().join(", "), var));
+                        }
+                        let n = &args[0];
+                        let x = &args[1];
+                        let x_prime = x.derive(var, fixed_vars);
+
+                        // d/dx J_n(x) = (1/2) * (J_{n-1}(x) - J_{n+1}(x))
+                        let half = Expr::Div(Box::new(Expr::Number(1.0)), Box::new(Expr::Number(2.0)));
+                        let n_minus_1 = Expr::Sub(Box::new(n.clone()), Box::new(Expr::Number(1.0)));
+                        let n_plus_1 = Expr::Add(Box::new(n.clone()), Box::new(Expr::Number(1.0)));
+
+                        let j_n_minus_1 = Expr::FunctionCall {
+                            name: "besselj".to_string(),
+                            args: vec![n_minus_1, x.clone()],
+                        };
+                        let j_n_plus_1 = Expr::FunctionCall {
+                            name: "besselj".to_string(),
+                            args: vec![n_plus_1, x.clone()],
+                        };
+
+                        let derivative = Expr::Mul(
+                            Box::new(half),
+                            Box::new(Expr::Sub(Box::new(j_n_minus_1), Box::new(j_n_plus_1))),
+                        );
+
+                        Expr::Mul(Box::new(derivative), Box::new(x_prime))
+                    }
+
+                    "bessely" => {
+                        if args.len() != 2 {
+                            return Expr::Symbol(format!("∂_bessely({})/∂_{}", args.iter().map(|a| a.to_string()).collect::<Vec<_>>().join(", "), var));
+                        }
+                        let n = &args[0];
+                        let x = &args[1];
+                        let x_prime = x.derive(var, fixed_vars);
+
+                        // d/dx Y_n(x) = (1/2) * (Y_{n-1}(x) - Y_{n+1}(x))
+                        let half = Expr::Div(Box::new(Expr::Number(1.0)), Box::new(Expr::Number(2.0)));
+                        let n_minus_1 = Expr::Sub(Box::new(n.clone()), Box::new(Expr::Number(1.0)));
+                        let n_plus_1 = Expr::Add(Box::new(n.clone()), Box::new(Expr::Number(1.0)));
+
+                        let y_n_minus_1 = Expr::FunctionCall {
+                            name: "bessely".to_string(),
+                            args: vec![n_minus_1, x.clone()],
+                        };
+                        let y_n_plus_1 = Expr::FunctionCall {
+                            name: "bessely".to_string(),
+                            args: vec![n_plus_1, x.clone()],
+                        };
+
+                        let derivative = Expr::Mul(
+                            Box::new(half),
+                            Box::new(Expr::Sub(Box::new(y_n_minus_1), Box::new(y_n_plus_1))),
+                        );
+
+                        Expr::Mul(Box::new(derivative), Box::new(x_prime))
+                    }
+
+                    "besseli" => {
+                        if args.len() != 2 {
+                            return Expr::Symbol(format!("∂_besseli({})/∂_{}", args.iter().map(|a| a.to_string()).collect::<Vec<_>>().join(", "), var));
+                        }
+                        let n = &args[0];
+                        let x = &args[1];
+                        let x_prime = x.derive(var, fixed_vars);
+
+                        // d/dx I_n(x) = (1/2) * (I_{n-1}(x) + I_{n+1}(x))
+                        let half = Expr::Div(Box::new(Expr::Number(1.0)), Box::new(Expr::Number(2.0)));
+                        let n_minus_1 = Expr::Sub(Box::new(n.clone()), Box::new(Expr::Number(1.0)));
+                        let n_plus_1 = Expr::Add(Box::new(n.clone()), Box::new(Expr::Number(1.0)));
+
+                        let i_n_minus_1 = Expr::FunctionCall {
+                            name: "besseli".to_string(),
+                            args: vec![n_minus_1, x.clone()],
+                        };
+                        let i_n_plus_1 = Expr::FunctionCall {
+                            name: "besseli".to_string(),
+                            args: vec![n_plus_1, x.clone()],
+                        };
+
+                        let derivative = Expr::Mul(
+                            Box::new(half),
+                            Box::new(Expr::Add(Box::new(i_n_minus_1), Box::new(i_n_plus_1))),
+                        );
+
+                        Expr::Mul(Box::new(derivative), Box::new(x_prime))
+                    }
+
+                    "besselk" => {
+                        if args.len() != 2 {
+                            return Expr::Symbol(format!("∂_besselk({})/∂_{}", args.iter().map(|a| a.to_string()).collect::<Vec<_>>().join(", "), var));
+                        }
+                        let n = &args[0];
+                        let x = &args[1];
+                        let x_prime = x.derive(var, fixed_vars);
+
+                        // d/dx K_n(x) = (-1/2) * (K_{n-1}(x) + K_{n+1}(x))
+                        let neg_half = Expr::Div(Box::new(Expr::Number(-1.0)), Box::new(Expr::Number(2.0)));
+                        let n_minus_1 = Expr::Sub(Box::new(n.clone()), Box::new(Expr::Number(1.0)));
+                        let n_plus_1 = Expr::Add(Box::new(n.clone()), Box::new(Expr::Number(1.0)));
+
+                        let k_n_minus_1 = Expr::FunctionCall {
+                            name: "besselk".to_string(),
+                            args: vec![n_minus_1, x.clone()],
+                        };
+                        let k_n_plus_1 = Expr::FunctionCall {
+                            name: "besselk".to_string(),
+                            args: vec![n_plus_1, x.clone()],
+                        };
+
+                        let derivative = Expr::Mul(
+                            Box::new(neg_half),
+                            Box::new(Expr::Add(Box::new(k_n_minus_1), Box::new(k_n_plus_1))),
+                        );
+
+                        Expr::Mul(Box::new(derivative), Box::new(x_prime))
                     }
 
                     _ => {

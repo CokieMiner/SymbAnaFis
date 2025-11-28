@@ -67,7 +67,9 @@ fn main() {
 - **Hyperbolic**: `sinh`, `cosh`, `tanh`, `coth`, `sech`, `csch`, `asinh`, `acosh`, `atanh`, `acoth`, `asech`, `acsch`
 - **Exponential/Logarithmic**: `exp`, `ln`, `log`, `log10`, `log2`
 - **Roots**: `sqrt`, `cbrt`
-- **Special**: `sinc`, `erf`, `erfc`, `gamma`, `LambertW`
+- **Special**: `sinc`, `erf`, `erfc`, `gamma`, `digamma`, `trigamma`, `tetragamma`, `polygamma`, `beta`, `LambertW`, `besselj`, `bessely`, `besseli`, `besselk`
+
+Note: The `polygamma(n, x)` function provides derivatives for all polygamma functions. Functions with non-elementary derivatives use custom notation.
 
 ## Contributing
 

@@ -12,5 +12,5 @@ categories = ["mathematics", "science"]
 [dependencies]
 
 [dev-dependencies]
-criterion = "0.5"
+criterion = "0.7.0"
 

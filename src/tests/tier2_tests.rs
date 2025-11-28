@@ -114,9 +114,4 @@ mod tier3_unimplemented_placeholders {
         assert!(result.contains("besselj") && result.contains("∂"));
     }
 
-    #[test]
-    fn test_zeta_parsing() {
-        let result = diff("zeta(x)".to_string(), "x".to_string(), None, None).unwrap();
-        assert!(result.contains("zeta") && result.contains("∂"));
-    }
 }
