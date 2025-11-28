@@ -1,0 +1,9 @@
+    Blocking waiting for file lock on package cache
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running `target/debug/examples/custom_functions`
+SymbAnaFis Custom Functions Example
+-----------------------------------
+Expression: alpha * psi(x) + beta * phi(x^2)
+Fixed Vars: ["alpha", "beta"]
+Custom Funcs: ["psi", "phi"]
+Derivative: (alpha * ∂_psi(x)/∂_x + 2 * beta * x * ∂_phi((x)^2)/∂_x)

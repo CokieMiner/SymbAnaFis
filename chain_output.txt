@@ -1,0 +1,8 @@
+    Blocking waiting for file lock on package cache
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running `target/debug/examples/chain_rule`
+SymbAnaFis Chain Rule Example
+-----------------------------
+d/dx [sin(cos(x))] = -1 * cos(cos(x)) * sin(x)
+d/dx [exp(sin(x^2))] = 2 * x * cos((x)^2) * exp(sin((x)^2))
+d/dx [f(g(x))] = ∂_f(g(x))/∂_x * ∂_g(x)/∂_x

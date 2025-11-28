@@ -1,0 +1,482 @@
+use crate::Expr;
+use std::f64::consts::PI;
+
+pub fn apply_trig_rules(expr: Expr) -> Expr {
+    match &expr {
+        Expr::FunctionCall { name, args } => {
+            if args.len() != 1 {
+                return expr;
+            }
+            let content = &args[0];
+            match name.as_str() {
+                "sin" => {
+                    // Standard values
+                    if matches!(content, Expr::Number(n) if *n == 0.0) {
+                        return Expr::Number(0.0);
+                    }
+                    if matches!(content, Expr::Number(n) if (n - PI).abs() < 1e-10) {
+                        return Expr::Number(0.0);
+                    }
+                    if matches!(content, Expr::Number(n) if (n - PI/2.0).abs() < 1e-10) {
+                        return Expr::Number(1.0);
+                    }
+                    // Extended Exact Values
+                    if matches!(content, Expr::Number(n) if (n - PI/6.0).abs() < 1e-10) {
+                        return Expr::Number(0.5);
+                    }
+                    if matches!(content, Expr::Number(n) if (n - PI/4.0).abs() < 1e-10) {
+                        return Expr::Number(2.0f64.sqrt() / 2.0);
+                    }
+                    if matches!(content, Expr::Number(n) if (n - PI/3.0).abs() < 1e-10) {
+                        return Expr::Number(3.0f64.sqrt() / 2.0);
+                    }
+
+                    // sin(-x) = -sin(x)
+                    if let Expr::Mul(a, b) = content {
+                        if matches!(**a, Expr::Number(n) if n == -1.0) {
+                            return Expr::Mul(
+                                Box::new(Expr::Number(-1.0)),
+                                Box::new(Expr::FunctionCall {
+                                    name: "sin".to_string(),
+                                    args: vec![*b.clone()],
+                                }),
+                            );
+                        }
+                    }
+
+                    // sin(asin(x)) = x
+                    if let Expr::FunctionCall {
+                        name: inner_name,
+                        args: inner_args,
+                    } = content
+                    {
+                        if inner_name == "asin" && inner_args.len() == 1 {
+                            return inner_args[0].clone();
+                        }
+                    }
+
+                    // Cofunction: sin(pi/2 - x) = cos(x)
+                    if let Expr::Sub(lhs, rhs) = content {
+                        if matches!(**lhs, Expr::Number(n) if (n - PI/2.0).abs() < 1e-10) {
+                            return Expr::FunctionCall {
+                                name: "cos".to_string(),
+                                args: vec![*rhs.clone()],
+                            };
+                        }
+                    }
+
+                    // Periodicity: sin(x + 2k*pi) = sin(x)
+                    if let Expr::Add(lhs, rhs) = content {
+                        if is_multiple_of_two_pi(rhs) {
+                            return Expr::FunctionCall {
+                                name: "sin".to_string(),
+                                args: vec![*lhs.clone()],
+                            };
+                        }
+                        if is_multiple_of_two_pi(lhs) {
+                            return Expr::FunctionCall {
+                                name: "sin".to_string(),
+                                args: vec![*rhs.clone()],
+                            };
+                        }
+                    }
+
+                    // Reflection/Shifts
+                    // sin(pi - x) = sin(x)
+                    if let Expr::Sub(lhs, rhs) = content {
+                        if is_pi(lhs) {
+                            return Expr::FunctionCall {
+                                name: "sin".to_string(),
+                                args: vec![*rhs.clone()],
+                            };
+                        }
+                        // sin(3pi/2 - x) = -cos(x)
+                        if is_three_pi_over_two(lhs) {
+                            return Expr::Mul(
+                                Box::new(Expr::Number(-1.0)),
+                                Box::new(Expr::FunctionCall {
+                                    name: "cos".to_string(),
+                                    args: vec![*rhs.clone()],
+                                }),
+                            );
+                        }
+                    }
+                    // sin(pi + x) = -sin(x)
+                    if let Expr::Add(lhs, rhs) = content {
+                        if is_pi(lhs) || is_pi(rhs) {
+                            let arg = if is_pi(lhs) { rhs } else { lhs };
+                            return Expr::Mul(
+                                Box::new(Expr::Number(-1.0)),
+                                Box::new(Expr::FunctionCall {
+                                    name: "sin".to_string(),
+                                    args: vec![*arg.clone()],
+                                }),
+                            );
+                        }
+                        // sin(3pi/2 + x) = -cos(x)
+                        if is_three_pi_over_two(lhs) || is_three_pi_over_two(rhs) {
+                            let arg = if is_three_pi_over_two(lhs) { rhs } else { lhs };
+                            return Expr::Mul(
+                                Box::new(Expr::Number(-1.0)),
+                                Box::new(Expr::FunctionCall {
+                                    name: "cos".to_string(),
+                                    args: vec![*arg.clone()],
+                                }),
+                            );
+                        }
+                    }
+                }
+                "cos" => {
+                    // Standard values
+                    if matches!(content, Expr::Number(n) if *n == 0.0) {
+                        return Expr::Number(1.0);
+                    }
+                    if matches!(content, Expr::Number(n) if (n - PI).abs() < 1e-10) {
+                        return Expr::Number(-1.0);
+                    }
+                    if matches!(content, Expr::Number(n) if (n - PI/2.0).abs() < 1e-10) {
+                        return Expr::Number(0.0);
+                    }
+                    // Extended Exact Values
+                    if matches!(content, Expr::Number(n) if (n - PI/6.0).abs() < 1e-10) {
+                        return Expr::Number(3.0f64.sqrt() / 2.0);
+                    }
+                    if matches!(content, Expr::Number(n) if (n - PI/4.0).abs() < 1e-10) {
+                        return Expr::Number(2.0f64.sqrt() / 2.0);
+                    }
+                    if matches!(content, Expr::Number(n) if (n - PI/3.0).abs() < 1e-10) {
+                        return Expr::Number(0.5);
+                    }
+
+                    // cos(-x) = cos(x)
+                    if let Expr::Mul(a, b) = content {
+                        if matches!(**a, Expr::Number(n) if n == -1.0) {
+                            return Expr::FunctionCall {
+                                name: "cos".to_string(),
+                                args: vec![*b.clone()],
+                            };
+                        }
+                    }
+
+                    // cos(acos(x)) = x
+                    if let Expr::FunctionCall {
+                        name: inner_name,
+                        args: inner_args,
+                    } = content
+                    {
+                        if inner_name == "acos" && inner_args.len() == 1 {
+                            return inner_args[0].clone();
+                        }
+                    }
+
+                    // Cofunction: cos(pi/2 - x) = sin(x)
+                    if let Expr::Sub(lhs, rhs) = content {
+                        if matches!(**lhs, Expr::Number(n) if (n - PI/2.0).abs() < 1e-10) {
+                            return Expr::FunctionCall {
+                                name: "sin".to_string(),
+                                args: vec![*rhs.clone()],
+                            };
+                        }
+                    }
+
+                    // Periodicity: cos(x + 2k*pi) = cos(x)
+                    if let Expr::Add(lhs, rhs) = content {
+                        if is_multiple_of_two_pi(rhs) {
+                            return Expr::FunctionCall {
+                                name: "cos".to_string(),
+                                args: vec![*lhs.clone()],
+                            };
+                        }
+                        if is_multiple_of_two_pi(lhs) {
+                            return Expr::FunctionCall {
+                                name: "cos".to_string(),
+                                args: vec![*rhs.clone()],
+                            };
+                        }
+                    }
+
+                    // Reflection/Shifts
+                    // cos(pi - x) = -cos(x)
+                    if let Expr::Sub(lhs, rhs) = content {
+                        if is_pi(lhs) {
+                            return Expr::Mul(
+                                Box::new(Expr::Number(-1.0)),
+                                Box::new(Expr::FunctionCall {
+                                    name: "cos".to_string(),
+                                    args: vec![*rhs.clone()],
+                                }),
+                            );
+                        }
+                        // cos(3pi/2 - x) = -sin(x)
+                        if is_three_pi_over_two(lhs) {
+                            return Expr::Mul(
+                                Box::new(Expr::Number(-1.0)),
+                                Box::new(Expr::FunctionCall {
+                                    name: "sin".to_string(),
+                                    args: vec![*rhs.clone()],
+                                }),
+                            );
+                        }
+                    }
+                    // cos(pi + x) = -cos(x)
+                    if let Expr::Add(lhs, rhs) = content {
+                        if is_pi(lhs) || is_pi(rhs) {
+                            let arg = if is_pi(lhs) { rhs } else { lhs };
+                            return Expr::Mul(
+                                Box::new(Expr::Number(-1.0)),
+                                Box::new(Expr::FunctionCall {
+                                    name: "cos".to_string(),
+                                    args: vec![*arg.clone()],
+                                }),
+                            );
+                        }
+                        // cos(3pi/2 + x) = sin(x)
+                        if is_three_pi_over_two(lhs) || is_three_pi_over_two(rhs) {
+                            let arg = if is_three_pi_over_two(lhs) { rhs } else { lhs };
+                            return Expr::FunctionCall {
+                                name: "sin".to_string(),
+                                args: vec![*arg.clone()],
+                            };
+                        }
+                    }
+                }
+                "tan" => {
+                    // Standard values
+                    if matches!(content, Expr::Number(n) if *n == 0.0) {
+                        return Expr::Number(0.0);
+                    }
+                    if matches!(content, Expr::Number(n) if (n - PI).abs() < 1e-10) {
+                        return Expr::Number(0.0);
+                    }
+                    // Extended Exact Values
+                    if matches!(content, Expr::Number(n) if (n - PI/6.0).abs() < 1e-10) {
+                        return Expr::Number(3.0f64.sqrt() / 3.0);
+                    }
+                    if matches!(content, Expr::Number(n) if (n - PI/4.0).abs() < 1e-10) {
+                        return Expr::Number(1.0);
+                    }
+                    if matches!(content, Expr::Number(n) if (n - PI/3.0).abs() < 1e-10) {
+                        return Expr::Number(3.0f64.sqrt());
+                    }
+
+                    // tan(-x) = -tan(x)
+                    if let Expr::Mul(a, b) = content {
+                        if matches!(**a, Expr::Number(n) if n == -1.0) {
+                            return Expr::Mul(
+                                Box::new(Expr::Number(-1.0)),
+                                Box::new(Expr::FunctionCall {
+                                    name: "tan".to_string(),
+                                    args: vec![*b.clone()],
+                                }),
+                            );
+                        }
+                    }
+
+                    // tan(atan(x)) = x
+                    if let Expr::FunctionCall {
+                        name: inner_name,
+                        args: inner_args,
+                    } = content
+                    {
+                        if inner_name == "atan" && inner_args.len() == 1 {
+                            return inner_args[0].clone();
+                        }
+                    }
+                }
+                "sec" => {
+                    // sec(-x) = sec(x)
+                    if let Expr::Mul(a, b) = content {
+                        if matches!(**a, Expr::Number(n) if n == -1.0) {
+                            return Expr::FunctionCall {
+                                name: "sec".to_string(),
+                                args: vec![*b.clone()],
+                            };
+                        }
+                    }
+                }
+                "csc" | "cot" => {
+                    // csc(-x) = -csc(x), cot(-x) = -cot(x)
+                    if let Expr::Mul(a, b) = content {
+                        if matches!(**a, Expr::Number(n) if n == -1.0) {
+                            return Expr::Mul(
+                                Box::new(Expr::Number(-1.0)),
+                                Box::new(Expr::FunctionCall {
+                                    name: name.clone(),
+                                    args: vec![*b.clone()],
+                                }),
+                            );
+                        }
+                    }
+                }
+
+                // Inverse Trig
+                "asin" => {
+                    if matches!(content, Expr::Number(n) if *n == 0.0) {
+                        return Expr::Number(0.0);
+                    }
+                    // asin(sin(x)) = x
+                    if let Expr::FunctionCall {
+                        name: inner_name,
+                        args: inner_args,
+                    } = content
+                    {
+                        if inner_name == "sin" && inner_args.len() == 1 {
+                            return inner_args[0].clone();
+                        }
+                    }
+                }
+                "acos" => {
+                    if matches!(content, Expr::Number(n) if *n == 1.0) {
+                        return Expr::Number(0.0);
+                    }
+                    if matches!(content, Expr::Number(n) if *n == 0.0) {
+                        return Expr::Number(PI / 2.0);
+                    }
+                    // acos(cos(x)) = x
+                    if let Expr::FunctionCall {
+                        name: inner_name,
+                        args: inner_args,
+                    } = content
+                    {
+                        if inner_name == "cos" && inner_args.len() == 1 {
+                            return inner_args[0].clone();
+                        }
+                    }
+                }
+                "atan" => {
+                    if matches!(content, Expr::Number(n) if *n == 0.0) {
+                        return Expr::Number(0.0);
+                    }
+                    if matches!(content, Expr::Number(n) if *n == 1.0) {
+                        return Expr::Number(PI / 4.0);
+                    }
+                    // atan(tan(x)) = x
+                    if let Expr::FunctionCall {
+                        name: inner_name,
+                        args: inner_args,
+                    } = content
+                    {
+                        if inner_name == "tan" && inner_args.len() == 1 {
+                            return inner_args[0].clone();
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        Expr::Add(u, v) => {
+            // Pythagorean: sin^2(x) + cos^2(x) = 1
+            if let Some(_) = is_sin_sq_plus_cos_sq(u, v) {
+                return Expr::Number(1.0);
+            }
+
+            // Pythagorean: 1 + tan^2(x) = sec^2(x)
+            if let Some(arg) = is_one_plus_tan_sq(u, v) {
+                return Expr::Pow(
+                    Box::new(Expr::FunctionCall {
+                        name: "sec".to_string(),
+                        args: vec![arg],
+                    }),
+                    Box::new(Expr::Number(2.0)),
+                );
+            }
+
+            // Pythagorean: 1 + cot^2(x) = csc^2(x)
+            if let Some(arg) = is_one_plus_cot_sq(u, v) {
+                return Expr::Pow(
+                    Box::new(Expr::FunctionCall {
+                        name: "csc".to_string(),
+                        args: vec![arg],
+                    }),
+                    Box::new(Expr::Number(2.0)),
+                );
+            }
+        }
+        _ => {}
+    }
+    expr
+}
+
+// Helper to check if expression is k * 2*pi where k is an integer
+fn is_multiple_of_two_pi(expr: &Expr) -> bool {
+    if let Expr::Number(n) = expr {
+        let two_pi = 2.0 * PI;
+        let k = n / two_pi;
+        return (k - k.round()).abs() < 1e-10;
+    }
+    false
+}
+
+fn is_pi(expr: &Expr) -> bool {
+    if let Expr::Number(n) = expr {
+        return (n - PI).abs() < 1e-10;
+    }
+    false
+}
+
+fn is_three_pi_over_two(expr: &Expr) -> bool {
+    if let Expr::Number(n) = expr {
+        return (n - 3.0 * PI / 2.0).abs() < 1e-10;
+    }
+    false
+}
+
+// Helper for sin^2(x) + cos^2(x)
+fn is_sin_sq_plus_cos_sq(u: &Expr, v: &Expr) -> Option<Expr> {
+    if let (Some((name1, arg1)), Some((name2, arg2))) = (get_trig_sq(u), get_trig_sq(v)) {
+        if arg1 == arg2 {
+            if (name1 == "sin" && name2 == "cos") || (name1 == "cos" && name2 == "sin") {
+                return Some(arg1);
+            }
+        }
+    }
+    None
+}
+
+// Helper for 1 + tan^2(x)
+fn is_one_plus_tan_sq(u: &Expr, v: &Expr) -> Option<Expr> {
+    if is_one(u) {
+        if let Some(("tan", arg)) = get_trig_sq(v) {
+            return Some(arg);
+        }
+    }
+    if is_one(v) {
+        if let Some(("tan", arg)) = get_trig_sq(u) {
+            return Some(arg);
+        }
+    }
+    None
+}
+
+// Helper for 1 + cot^2(x)
+fn is_one_plus_cot_sq(u: &Expr, v: &Expr) -> Option<Expr> {
+    if is_one(u) {
+        if let Some(("cot", arg)) = get_trig_sq(v) {
+            return Some(arg);
+        }
+    }
+    if is_one(v) {
+        if let Some(("cot", arg)) = get_trig_sq(u) {
+            return Some(arg);
+        }
+    }
+    None
+}
+
+fn is_one(expr: &Expr) -> bool {
+    matches!(expr, Expr::Number(n) if (n - 1.0).abs() < 1e-10)
+}
+
+// Helper to extract (name, arg) from trig(arg)^2
+fn get_trig_sq(expr: &Expr) -> Option<(&str, Expr)> {
+    if let Expr::Pow(base, exp) = expr {
+        if matches!(**exp, Expr::Number(n) if n == 2.0) {
+            if let Expr::FunctionCall { name, args } = &**base {
+                if args.len() == 1 {
+                    return Some((name.as_str(), args[0].clone()));
+                }
+            }
+        }
+    }
+    None
+}

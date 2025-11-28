@@ -1,0 +1,7 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running `target/debug/examples/basic`
+SymbAnaFis Basic Example
+------------------------
+d/dx [x^2 + 3*x + 5] = (3 + 2 * x)
+d/dx [sin(x) * cos(x)] = (-1 * (sin(x))^2 + (cos(x))^2)
+d/dx [exp(x) * ln(x)] = (exp(x) * ln(x) + exp(x) * (x)^-1)

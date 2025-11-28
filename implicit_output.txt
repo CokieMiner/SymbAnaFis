@@ -1,0 +1,6 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running `target/debug/examples/implicit_functions`
+SymbAnaFis Implicit Functions Example
+-------------------------------------
+d/dx [x * y(x)] = (y(x) + x * ∂_y(x)/∂_x)
+d/dx [f(x, a)] = D_0[f](x, a)

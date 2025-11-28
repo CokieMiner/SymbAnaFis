@@ -1,0 +1,16 @@
+[package]
+name = "symb_anafis"
+version = "0.1.0"
+edition = "2024"
+authors = ["CokieMiner"]
+description = "Fast symbolic differentiation library for Rust"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/CokieMiner/symb_anafis"
+keywords = ["symbolic", "differentiation", "calculus", "mathematics", "derivatives"]
+categories = ["mathematics", "science"]
+
+[dependencies]
+
+[dev-dependencies]
+criterion = "0.5"
+

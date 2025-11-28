@@ -1,0 +1,229 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running unittests src/lib.rs (target/debug/deps/symb_anafis-ddff78b602064b1a)
+
+running 191 tests
+test ast::tests::test_constructors ... ok
+test ast::tests::test_contains_var ... ok
+test ast::tests::test_max_depth ... ok
+test ast::tests::test_node_count ... ok
+test differentiation::tests::test_derive_sinh ... ok
+test differentiation::tests::test_derive_division ... ok
+test differentiation::tests::test_derive_subtraction ... ok
+test display::tests::test_display_addition ... ok
+test differentiation::tests::test_logarithmic_differentiation ... ok
+test display::tests::test_display_function ... ok
+test display::tests::test_display_multiplication ... ok
+test display::tests::test_display_number ... ok
+test display::tests::test_display_symbol ... ok
+test parser::implicit_mul::tests::test_function_no_multiplication ... ok
+test parser::implicit_mul::tests::test_identifier_function ... ok
+test parser::implicit_mul::tests::test_identifier_identifier ... ok
+test parser::implicit_mul::tests::test_number_identifier ... ok
+test parser::implicit_mul::tests::test_paren_identifier ... ok
+test parser::lexer::tests::test_balance_parentheses ... ok
+test parser::lexer::tests::test_empty_parens ... ok
+test parser::lexer::tests::test_lex_basic ... ok
+test parser::lexer::tests::test_lex_with_fixed_vars ... ok
+test parser::lexer::tests::test_parse_number ... ok
+test parser::lexer::tests::test_scan_characters ... ok
+test parser::pratt::tests::test_parentheses ... ok
+test parser::pratt::tests::test_parse_addition ... ok
+test parser::pratt::tests::test_parse_function ... ok
+test parser::pratt::tests::test_parse_multiplication ... ok
+test parser::pratt::tests::test_parse_number ... ok
+test parser::pratt::tests::test_parse_power ... ok
+test parser::pratt::tests::test_precedence ... ok
+test parser::pratt::tests::test_parse_symbol ... ok
+test parser::tokens::tests::test_from_str ... ok
+test parser::tokens::tests::test_is_function ... ok
+test parser::tokens::tests::test_precedence ... ok
+test tests::advanced_tests::boundary_conditions::test_single_char_fixed_var ... ok
+test tests::advanced_tests::boundary_conditions::test_underscore_in_name ... ok
+test tests::advanced_tests::boundary_conditions::test_unicode_identifier ... ok
+test tests::advanced_tests::boundary_conditions::test_very_deep_nesting ... ok
+test tests::advanced_tests::real_world_expressions::test_chain_rule_triple ... ok
+test tests::advanced_tests::real_world_expressions::test_hyperbolic_combo ... ok
+test tests::advanced_tests::real_world_expressions::test_exponential_growth ... ok
+test tests::advanced_tests::real_world_expressions::test_product_of_three ... ok
+test tests::advanced_tests::real_world_expressions::test_quadratic_derivative ... ok
+test tests::advanced_tests::real_world_expressions::test_implicit_with_division ... ok
+test tests::advanced_tests::real_world_expressions::test_rational_function ... ok
+test tests::advanced_tests::real_world_expressions::test_trig_identity_input ... ok
+test tests::advanced_tests::simplification_advanced::test_constant_div ... ok
+test tests::advanced_tests::simplification_advanced::test_constant_folding_chain ... ok
+test tests::advanced_tests::simplification_advanced::test_constant_sub ... ok
+test tests::advanced_tests::simplification_advanced::test_div_zero ... ok
+test tests::advanced_tests::simplification_advanced::test_div_by_one ... ok
+test tests::advanced_tests::simplification_advanced::test_mul_by_zero_nested ... ok
+test tests::advanced_tests::simplification_advanced::test_sub_zero ... ok
+test tests::advanced_tests::simplification_advanced::test_nested_add_zero ... ok
+test tests::advanced_tests::simplification_advanced::test_power_simplification ... ok
+test tests::edge_case_tests::api_validation::test_empty_fixed_vars ... ok
+test tests::edge_case_tests::api_validation::test_empty_custom_functions ... ok
+test tests::edge_case_tests::api_validation::test_name_collision ... ok
+test tests::edge_case_tests::complex_expressions::test_nested_product_chain ... ok
+test tests::edge_case_tests::complex_expressions::test_composition_chain ... ok
+test tests::edge_case_tests::differentiation_edge_cases::test_all_constants ... ok
+test tests::edge_case_tests::complex_expressions::test_div_with_functions ... ok
+test tests::edge_case_tests::differentiation_edge_cases::test_function_of_constant ... ok
+test tests::edge_case_tests::differentiation_edge_cases::test_var_not_in_formula ... ok
+test tests::edge_case_tests::differentiation_edge_cases::test_var_in_both_fixed_and_diff ... ok
+test tests::edge_case_tests::complex_expressions::test_polynomial ... ok
+test tests::edge_case_tests::differentiation_edge_cases::test_nested_functions ... ok
+test tests::edge_case_tests::implicit_multiplication::test_number_paren ... ok
+test tests::edge_case_tests::input_validation::test_empty_input ... ok
+test tests::edge_case_tests::implicit_multiplication::test_number_variable ... ok
+test tests::edge_case_tests::input_validation::test_only_whitespace ... ok
+test tests::edge_case_tests::implicit_multiplication::test_paren_multiplication ... ok
+test tests::edge_case_tests::input_validation::test_single_different_symbol ... ok
+test tests::edge_case_tests::input_validation::test_only_number ... ok
+test tests::edge_case_tests::implicit_multiplication::test_variable_variable ... ok
+test tests::edge_case_tests::input_validation::test_single_symbol ... ok
+test tests::edge_case_tests::number_parsing::test_multiple_decimals_error ... ok
+test tests::edge_case_tests::number_parsing::test_mixed_separators_error ... FAILED
+test tests::edge_case_tests::number_parsing::test_leading_comma ... FAILED
+test tests::edge_case_tests::number_parsing::test_comma_decimal ... FAILED
+test tests::edge_case_tests::number_parsing::test_scientific_notation_basic ... ok
+test tests::edge_case_tests::number_parsing::test_scientific_notation_negative_exp ... ok
+test tests::edge_case_tests::number_parsing::test_trailing_comma ... ok
+test tests::edge_case_tests::number_parsing::test_scientific_notation_with_var ... ok
+test tests::edge_case_tests::parentheses_edge_cases::test_empty_parens ... ok
+test tests::edge_case_tests::parentheses_edge_cases::test_nested_empty_parens ... ok
+test tests::edge_case_tests::parentheses_edge_cases::test_empty_parens_with_mul ... ok
+test tests::edge_case_tests::parentheses_edge_cases::test_multiple_unmatched_open ... ok
+test tests::edge_case_tests::parentheses_edge_cases::test_unmatched_close_paren ... ok
+test tests::edge_case_tests::parentheses_edge_cases::test_unmatched_open_paren ... ok
+test tests::edge_case_tests::parentheses_edge_cases::test_wrong_order_parens ... ok
+test tests::edge_case_tests::phase2_features::test_division_basic ... ok
+test tests::edge_case_tests::phase2_features::test_cosh_basic ... ok
+test tests::edge_case_tests::phase2_features::test_base_to_x ... ok
+test tests::edge_case_tests::phase2_features::test_subtraction_basic ... ok
+test tests::edge_case_tests::phase2_features::test_quotient_rule ... ok
+test tests::edge_case_tests::phase2_features::test_sinh_basic ... ok
+test tests::edge_case_tests::phase2_features::test_subtraction_vars ... ok
+test tests::edge_case_tests::phase2_features::test_tanh_basic ... ok
+test tests::edge_case_tests::phase2_features::test_x_to_variable_exponent ... ok
+test tests::edge_case_tests::phase2_features::test_x_to_x_logarithmic ... ok
+test tests::edge_case_tests::symbol_grouping::test_cosine_without_fixed_vars ... ok
+test tests::edge_case_tests::symbol_grouping::test_multi_char_fixed_var ... ok
+test tests::edge_case_tests::symbol_grouping::test_expense_no_exp_match ... ok
+test tests::edge_case_tests::symbol_grouping::test_sinus_as_fixed_var ... ok
+test tests::hyperbolic_conversion_tests::test_simplify_to_cosh ... ok
+test tests::hyperbolic_conversion_tests::test_simplify_to_coth ... ok
+test tests::hyperbolic_conversion_tests::test_hyperbolic_identities ... ok
+test tests::hyperbolic_conversion_tests::test_simplify_to_csch ... ok
+test tests::hyperbolic_conversion_tests::test_simplify_to_sinh ... ok
+test tests::hyperbolic_conversion_tests::test_simplify_to_tanh ... ok
+test tests::integration_tests::test_auto_balance_parens ... ok
+test tests::integration_tests::test_cosh ... ok
+test tests::integration_tests::test_empty_parens ... ok
+test tests::integration_tests::test_error_var_in_fixed ... ok
+test tests::integration_tests::test_implicit_multiplication ... ok
+test tests::integration_tests::test_locale_comma ... FAILED
+test tests::edge_case_tests::stress_tests::test_deeply_nested ... ok
+test tests::integration_tests::test_power_rule ... ok
+test tests::edge_case_tests::stress_tests::test_very_long_sum ... ok
+test tests::integration_tests::test_scientific_notation ... ok
+test tests::integration_tests::test_quotient_rule ... ok
+test tests::integration_tests::test_simple_constant ... ok
+test tests::integration_tests::test_simple_variable ... ok
+test tests::integration_tests::test_sin_function ... ok
+test tests::integration_tests::test_subtraction ... ok
+test tests::integration_tests::test_sinh ... ok
+test tests::integration_tests::test_tanh ... ok
+test tests::integration_tests::test_with_fixed_constant ... ok
+test tests::edge_case_tests::stress_tests::test_many_variables ... ok
+test tests::simplification_tests::tests::test_add_zero ... ok
+test tests::simplification_tests::tests::test_constant_folding ... ok
+test tests::simplification_tests::tests::test_hyperbolic_simplification ... ok
+test tests::integration_tests::test_x_to_x ... ok
+test tests::integration_tests::test_x_to_2x ... ok
+test tests::simplification_tests::tests::test_mul_one ... ok
+test tests::simplification_tests::tests::test_mul_zero ... ok
+test tests::simplification_tests::tests::test_log_exp_simplification ... ok
+test tests::simplification_tests::tests::test_nested_simplification ... ok
+test tests::simplification_tests::tests::test_pow_zero ... ok
+test tests::simplification_tests::tests::test_root_simplification ... ok
+test tests::simplification_tests::tests::test_trig_simplification ... ok
+test tests::tier1_tests::complex_expressions_tier1::test_asin_nested ... ok
+test tests::tier1_tests::complex_expressions_tier1::test_mixed_trig ... ok
+test tests::tier1_tests::complex_expressions_tier1::test_sqrt_of_sqrt ... ok
+test tests::tier1_tests::complex_expressions_tier1::test_tan_product ... ok
+test tests::tier1_tests::tier1_inverse_trig::test_acos ... ok
+test tests::tier1_tests::tier1_inverse_trig::test_acsc ... ok
+test tests::tier1_tests::tier1_inverse_trig::test_asin ... ok
+test tests::tier1_tests::tier1_inverse_trig::test_acot ... ok
+test tests::tier1_tests::tier1_inverse_trig::test_asec ... ok
+test tests::tier1_tests::tier1_inverse_trig::test_atan ... ok
+test tests::tier1_tests::tier1_roots::test_cbrt ... ok
+test tests::tier1_tests::tier1_roots::test_sqrt ... ok
+test tests::integration_tests::test_division ... ok
+test tests::tier1_tests::tier1_trig::test_cot ... ok
+test tests::tier1_tests::tier1_roots::test_sqrt_composition ... ok
+test tests::tier1_tests::tier1_trig::test_sen_alias ... ok
+test tests::tier1_tests::tier1_trig::test_csc ... ok
+test tests::hyperbolic_conversion_tests::test_simplify_to_sech ... ok
+test tests::tier1_tests::tier1_trig::test_sec ... ok
+test tests::tier1_tests::tier1_trig::test_tan ... ok
+test tests::tier1_tests::tier2_extended_hyperbolics::test_coth ... ok
+test tests::tier1_tests::tier2_extended_hyperbolics::test_csch ... ok
+test tests::tier2_tests::tier2_inverse_hyperbolic::test_acoth ... ok
+test tests::tier2_tests::tier2_inverse_hyperbolic::test_acosh ... ok
+test tests::tier1_tests::tier2_extended_hyperbolics::test_sech ... ok
+test tests::tier2_tests::tier2_inverse_hyperbolic::test_acsch ... ok
+test tests::tier2_tests::tier3_special_functions::test_lambertw ... ok
+test tests::tier2_tests::tier3_unimplemented_placeholders::test_zeta_parsing ... ok
+test tests::trig_simplification_tests::test_cofunction_identities ... ok
+test tests::tier2_tests::tier3_unimplemented_placeholders::test_besselj_parsing ... ok
+test tests::tier2_tests::tier2_log_variants::test_log2 ... ok
+test tests::trig_simplification_tests::test_inverse_composition_reverse ... ok
+test tests::trig_simplification_tests::test_inverse_composition ... ok
+test tests::trig_simplification_tests::test_trig_exact_values_extended ... ok
+test tests::tier2_tests::tier3_special_functions::test_sinc ... ok
+test tests::trig_simplification_tests::test_trig_periodicity ... ok
+test tests::trig_simplification_tests::test_trig_periodicity_general ... ok
+test tests::trig_simplification_tests::test_trig_reflection_shifts ... ok
+test tests::trig_simplification_tests::test_trig_symmetry_extended ... ok
+test tests::tier2_tests::tier3_special_functions::test_erfc ... ok
+test tests::trig_simplification_tests::test_pythagorean_identities ... ok
+test tests::tier2_tests::tier2_log_variants::test_log_default ... ok
+test tests::tier2_tests::tier2_inverse_hyperbolic::test_asinh ... ok
+test tests::tier2_tests::tier2_inverse_hyperbolic::test_asech ... ok
+test tests::tier2_tests::tier2_inverse_hyperbolic::test_atanh ... ok
+test tests::tier2_tests::tier3_special_functions::test_gamma ... ok
+test tests::tier2_tests::tier2_log_variants::test_log10 ... ok
+test tests::tier2_tests::tier3_special_functions::test_erf ... ok
+
+failures:
+
+---- tests::edge_case_tests::number_parsing::test_mixed_separators_error stdout ----
+
+thread 'tests::edge_case_tests::number_parsing::test_mixed_separators_error' panicked at src/tests/edge_case_tests.rs:85:9:
+assertion failed: diff("3,14.15*x".to_string(), "x".to_string(), None, None).is_err()
+
+---- tests::edge_case_tests::number_parsing::test_leading_comma stdout ----
+
+thread 'tests::edge_case_tests::number_parsing::test_leading_comma' panicked at src/tests/edge_case_tests.rs:48:74:
+called `Result::unwrap()` on an `Err` value: InvalidToken("Comma")
+
+---- tests::edge_case_tests::number_parsing::test_comma_decimal stdout ----
+
+thread 'tests::edge_case_tests::number_parsing::test_comma_decimal' panicked at src/tests/edge_case_tests.rs:61:9:
+assertion failed: result.contains("3.14")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- tests::integration_tests::test_locale_comma stdout ----
+
+thread 'tests::integration_tests::test_locale_comma' panicked at src/tests/integration_tests.rs:105:5:
+assertion failed: result.contains("3.14")
+
+
+failures:
+    tests::edge_case_tests::number_parsing::test_comma_decimal
+    tests::edge_case_tests::number_parsing::test_leading_comma
+    tests::edge_case_tests::number_parsing::test_mixed_separators_error
+    tests::integration_tests::test_locale_comma
+
+test result: FAILED. 187 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--lib`
