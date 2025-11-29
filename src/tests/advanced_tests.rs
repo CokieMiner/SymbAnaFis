@@ -79,6 +79,114 @@ mod simplification_advanced {
     }
 
     #[test]
+    fn test_power_division_simplification() {
+        // x^2 / x^2 should simplify to 1
+        let expr = Expr::Div(
+            Box::new(Expr::Pow(
+                Box::new(Expr::Symbol("x".to_string())),
+                Box::new(Expr::Number(2.0)),
+            )),
+            Box::new(Expr::Pow(
+                Box::new(Expr::Symbol("x".to_string())),
+                Box::new(Expr::Number(2.0)),
+            )),
+        );
+        let result = simplify(expr);
+        assert_eq!(result, Expr::Number(1.0));
+    }
+
+    #[test]
+    fn test_complex_power_division() {
+        // (x+1)^3 / (x+1)^2 should simplify to (x+1)
+        let base = Expr::Add(
+            Box::new(Expr::Symbol("x".to_string())),
+            Box::new(Expr::Number(1.0)),
+        );
+        let expr = Expr::Div(
+            Box::new(Expr::Pow(
+                Box::new(base.clone()),
+                Box::new(Expr::Number(3.0)),
+            )),
+            Box::new(Expr::Pow(
+                Box::new(base),
+                Box::new(Expr::Number(2.0)),
+            )),
+        );
+        let result = simplify(expr);
+        // Should simplify to (x+1)^1, which should further simplify to (x+1)
+        // Due to canonical ordering, it becomes 1 + x
+        let expected = Expr::Add(
+            Box::new(Expr::Number(1.0)),
+            Box::new(Expr::Symbol("x".to_string())),
+        );
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_general_power_division() {
+        // Test with different expressions inside parentheses
+        // (x^2 + y)^4 / (x^2 + y)^2 should simplify to (x^2 + y)^2
+        let base = Expr::Add(
+            Box::new(Expr::Pow(
+                Box::new(Expr::Symbol("x".to_string())),
+                Box::new(Expr::Number(2.0)),
+            )),
+            Box::new(Expr::Symbol("y".to_string())),
+        );
+        let expr = Expr::Div(
+            Box::new(Expr::Pow(
+                Box::new(base.clone()),
+                Box::new(Expr::Number(4.0)),
+            )),
+            Box::new(Expr::Pow(
+                Box::new(base),
+                Box::new(Expr::Number(2.0)),
+            )),
+        );
+        let result = simplify(expr);
+        // Should simplify to (x^2 + y)^2
+        // Due to canonical ordering, it becomes y + x^2
+        let expected_base = Expr::Add(
+            Box::new(Expr::Symbol("y".to_string())),
+            Box::new(Expr::Pow(
+                Box::new(Expr::Symbol("x".to_string())),
+                Box::new(Expr::Number(2.0)),
+            )),
+        );
+        let expected = Expr::Pow(
+            Box::new(expected_base),
+            Box::new(Expr::Number(2.0)),
+        );
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_function_power_division() {
+        // Test with function expressions: sin(x)^3 / sin(x)^2 should simplify to sin(x)
+        let base = Expr::FunctionCall {
+            name: "sin".to_string(),
+            args: vec![Expr::Symbol("x".to_string())],
+        };
+        let expr = Expr::Div(
+            Box::new(Expr::Pow(
+                Box::new(base.clone()),
+                Box::new(Expr::Number(3.0)),
+            )),
+            Box::new(Expr::Pow(
+                Box::new(base),
+                Box::new(Expr::Number(2.0)),
+            )),
+        );
+        let result = simplify(expr);
+        // Should simplify to sin(x)^1, which should further simplify to sin(x)
+        let expected = Expr::FunctionCall {
+            name: "sin".to_string(),
+            args: vec![Expr::Symbol("x".to_string())],
+        };
+        assert_eq!(result, expected);
+    }
+
+    #[test]
     fn test_div_by_one() {
         // (x + y) / 1 should become (x + y)
         let expr = Expr::Div(

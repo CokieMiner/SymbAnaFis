@@ -23,6 +23,16 @@ pub fn apply_hyperbolic_rules(expr: Expr) -> Expr {
                                     }),
                                 );
                             }
+                            // sinh(asinh(x)) = x
+                            if let Expr::FunctionCall {
+                                name: inner_name,
+                                args: inner_args,
+                            } = content
+                                && inner_name == "asinh"
+                                && inner_args.len() == 1
+                            {
+                                return inner_args[0].clone();
+                            }
                         } else {
                             // tanh(-x) = -tanh(x)
                             if let Expr::Mul(a, b) = content
@@ -35,6 +45,16 @@ pub fn apply_hyperbolic_rules(expr: Expr) -> Expr {
                                         args: vec![*b.clone()],
                                     }),
                                 );
+                            }
+                            // tanh(atanh(x)) = x
+                            if let Expr::FunctionCall {
+                                name: inner_name,
+                                args: inner_args,
+                            } = content
+                                && inner_name == "atanh"
+                                && inner_args.len() == 1
+                            {
+                                return inner_args[0].clone();
                             }
                         }
                     }
@@ -51,6 +71,16 @@ pub fn apply_hyperbolic_rules(expr: Expr) -> Expr {
                                     name: "cosh".to_string(),
                                     args: vec![*b.clone()],
                                 };
+                            }
+                            // cosh(acosh(x)) = x
+                            if let Expr::FunctionCall {
+                                name: inner_name,
+                                args: inner_args,
+                            } = content
+                                && inner_name == "acosh"
+                                && inner_args.len() == 1
+                            {
+                                return inner_args[0].clone();
                             }
                         }
                     }
@@ -95,6 +125,16 @@ pub fn apply_hyperbolic_rules(expr: Expr) -> Expr {
             }
         }
         Expr::Add(u, v) => {
+            // cosh^2(x) + sinh^2(x) = cosh(2x)
+            if let (Some((name1, arg1)), Some((name2, arg2))) = (get_hyp_sq(u), get_hyp_sq(v))
+                && arg1 == arg2
+                && ((name1 == "sinh" && name2 == "cosh") || (name1 == "cosh" && name2 == "sinh"))
+            {
+                return Expr::FunctionCall {
+                    name: "cosh".to_string(),
+                    args: vec![Expr::Mul(Box::new(Expr::Number(2.0)), Box::new(arg1))],
+                };
+            }
             // cosh^2(x) + (-1 * sinh^2(x)) = 1  (after algebraic simplification)
             if let (Some((name1, arg1)), Expr::Mul(lhs, rhs)) = (get_hyp_sq(u), &**v)
                 && let Expr::Number(n) = **lhs
@@ -294,6 +334,62 @@ pub fn apply_hyperbolic_rules(expr: Expr) -> Expr {
                 return Expr::FunctionCall {
                     name: "csch".to_string(),
                     args: vec![arg],
+                };
+            }
+            // sinh(x) / cosh(x) = tanh(x)
+            if let (
+                Expr::FunctionCall { name: n1, args: a1 },
+                Expr::FunctionCall { name: n2, args: a2 },
+            ) = (&**numerator, &**denominator)
+                && n1 == "sinh"
+                && n2 == "cosh"
+                && a1.len() == 1
+                && a2.len() == 1
+                && a1[0] == a2[0]
+            {
+                return Expr::FunctionCall {
+                    name: "tanh".to_string(),
+                    args: a1.clone(),
+                };
+            }
+            // cosh(x) / sinh(x) = coth(x)
+            if let (
+                Expr::FunctionCall { name: n1, args: a1 },
+                Expr::FunctionCall { name: n2, args: a2 },
+            ) = (&**numerator, &**denominator)
+                && n1 == "cosh"
+                && n2 == "sinh"
+                && a1.len() == 1
+                && a2.len() == 1
+                && a1[0] == a2[0]
+            {
+                return Expr::FunctionCall {
+                    name: "coth".to_string(),
+                    args: a1.clone(),
+                };
+            }
+            // 1 / cosh(x) = sech(x)
+            if let (Expr::Number(n), Expr::FunctionCall { name, args }) =
+                (&**numerator, &**denominator)
+                && *n == 1.0
+                && name == "cosh"
+                && args.len() == 1
+            {
+                return Expr::FunctionCall {
+                    name: "sech".to_string(),
+                    args: args.clone(),
+                };
+            }
+            // 1 / sinh(x) = csch(x)
+            if let (Expr::Number(n), Expr::FunctionCall { name, args }) =
+                (&**numerator, &**denominator)
+                && *n == 1.0
+                && name == "sinh"
+                && args.len() == 1
+            {
+                return Expr::FunctionCall {
+                    name: "csch".to_string(),
+                    args: args.clone(),
                 };
             }
         }

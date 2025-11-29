@@ -6,7 +6,7 @@ A fast, focused Rust library for symbolic differentiation and analysis, designed
 
 - **Symbolic Differentiation**: Compute derivatives of complex mathematical expressions.
 - **Context-Aware Parsing**: Support for fixed variables (constants) and custom functions.
-- **Simplification**: Algebraic, trigonometric, hyperbolic, and logarithmic simplification rules.
+- **Simplification**: Comprehensive algebraic, trigonometric, hyperbolic, and logarithmic simplification rules.
 - **Extensible**: Easily add new functions and simplification rules.
 - **Safe**: Built with Rust's safety guarantees, with limits on recursion depth and node count.
 

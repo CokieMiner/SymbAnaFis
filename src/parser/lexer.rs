@@ -113,8 +113,8 @@ fn parse_number(s: &str) -> Result<f64, DiffError> {
 #[derive(Debug, Clone)]
 enum RawToken {
     Number(f64),
-    Sequence(String), // Multi-char sequence to be resolved
-    Operator(char),   // Single-char operator: +, *, ^
+    Sequence(String),   // Multi-char sequence to be resolved
+    Operator(char),     // Single-char operator: +, *, ^
     Derivative(String), // Derivative notation starting with ∂
     LeftParen,
     RightParen,
@@ -206,15 +206,19 @@ fn scan_characters(input: &str) -> Result<Vec<RawToken>, DiffError> {
             c if c.is_alphabetic() || c == '_' || c == '∂' => {
                 let mut seq = String::new();
                 while let Some(&c) = chars.peek() {
-                    if c.is_alphanumeric() || c == '_' || c == '∂' ||
-                       (seq.starts_with('∂') && (c == '^' || c == '/' || c == '(' || c == ')' || c == ',')) {
+                    if c.is_alphanumeric()
+                        || c == '_'
+                        || c == '∂'
+                        || (seq.starts_with('∂')
+                            && (c == '^' || c == '/' || c == '(' || c == ')' || c == ','))
+                    {
                         seq.push(c);
                         chars.next();
                     } else {
                         break;
                     }
                 }
-                
+
                 // Check if this is derivative notation
                 if seq.starts_with('∂') {
                     tokens.push(RawToken::Derivative(seq));
@@ -260,15 +264,14 @@ pub fn lex(
                 tokens.push(Token::Operator(op));
             }
 
-            RawToken::Derivative(deriv_str) => {
-                match parse_derivative_notation(deriv_str) {
-                    Ok(deriv_token) => tokens.push(deriv_token),
-                    Err(_) => return Err(DiffError::InvalidToken(deriv_str.to_string())),
-                }
-            }
+            RawToken::Derivative(deriv_str) => match parse_derivative_notation(deriv_str) {
+                Ok(deriv_token) => tokens.push(deriv_token),
+                Err(_) => return Err(DiffError::InvalidToken(deriv_str.to_string())),
+            },
 
             RawToken::Sequence(seq) => {
-                let next_is_paren = i + 1 < raw_tokens.len() && matches!(raw_tokens[i + 1], RawToken::LeftParen);
+                let next_is_paren =
+                    i + 1 < raw_tokens.len() && matches!(raw_tokens[i + 1], RawToken::LeftParen);
                 let resolved = resolve_sequence(seq, fixed_vars, custom_functions, next_is_paren);
                 tokens.extend(resolved);
             }
@@ -300,6 +303,11 @@ fn resolve_sequence(
 ) -> Vec<Token> {
     // Priority 1: Check if entire sequence is in fixed_vars
     if fixed_vars.contains(seq) {
+        return vec![Token::Identifier(seq.to_string())];
+    }
+
+    // Priority 1.5: Check for known constants (pi, e)
+    if seq == "pi" || seq == "e" {
         return vec![Token::Identifier(seq.to_string())];
     }
 
@@ -358,52 +366,56 @@ fn parse_derivative_notation(s: &str) -> Result<Token, DiffError> {
     if !s.starts_with("∂^") || !s.contains("/∂_") {
         return Err(DiffError::InvalidToken(s.to_string()));
     }
-    
+
     let parts: Vec<&str> = s.split("/∂_").collect();
     if parts.len() != 2 {
         return Err(DiffError::InvalidToken(s.to_string()));
     }
-    
+
     let left = parts[0]; // ∂^order_func(args)
     let right = parts[1]; // var^order
-    
+
     // Parse order from right side
     let right_parts: Vec<&str> = right.split('^').collect();
     if right_parts.len() != 2 {
         return Err(DiffError::InvalidToken(s.to_string()));
     }
-    
-    let order: u32 = right_parts[1].parse().map_err(|_| DiffError::InvalidToken(s.to_string()))?;
+
+    let order: u32 = right_parts[1]
+        .parse()
+        .map_err(|_| DiffError::InvalidToken(s.to_string()))?;
     let var = right_parts[0].to_string();
-    
+
     // Parse function and args from left side
     if !left.starts_with("∂^") {
         return Err(DiffError::InvalidToken(s.to_string()));
     }
-    
+
     // Convert to chars for safe indexing
     let left_chars: Vec<char> = left.chars().collect();
-    
+
     // Find the position of '_'
     let underscore_pos = left_chars.iter().position(|&c| c == '_');
     if underscore_pos.is_none() {
         return Err(DiffError::InvalidToken(s.to_string()));
     }
-    
+
     let underscore_pos = underscore_pos.unwrap();
-    
+
     // Extract order string: from after "∂^" (position 2) to before '_'
     let order_chars = &left_chars[2..underscore_pos];
     let order_str: String = order_chars.iter().collect();
-    let expected_order: u32 = order_str.parse().map_err(|_| DiffError::InvalidToken(s.to_string()))?;
+    let expected_order: u32 = order_str
+        .parse()
+        .map_err(|_| DiffError::InvalidToken(s.to_string()))?;
     if expected_order != order {
         return Err(DiffError::InvalidToken(s.to_string()));
     }
-    
+
     // Extract function and args: from after '_' to end
     let func_chars = &left_chars[underscore_pos + 1..];
     let func_and_args: String = func_chars.iter().collect();
-    
+
     Ok(Token::Derivative {
         order,
         func: func_and_args,

@@ -4,7 +4,7 @@ mod hyperbolic;
 mod log_exp;
 mod numeric;
 mod roots;
-mod trig;
+pub mod trig;
 
 use crate::Expr;
 use std::collections::HashSet;
@@ -44,22 +44,33 @@ pub fn simplify(expr: Expr) -> Expr {
 
 /// Apply all simplification rules recursively (bottom-up)
 fn apply_rules(expr: Expr) -> Expr {
-    // First, simplify children (bottom-up)
-    let simplified_children = match expr {
-        Expr::Add(u, v) => Expr::Add(Box::new(apply_rules(*u)), Box::new(apply_rules(*v))),
-        Expr::Sub(u, v) => Expr::Sub(Box::new(apply_rules(*u)), Box::new(apply_rules(*v))),
-        Expr::Mul(u, v) => Expr::Mul(Box::new(apply_rules(*u)), Box::new(apply_rules(*v))),
-        Expr::Div(u, v) => Expr::Div(Box::new(apply_rules(*u)), Box::new(apply_rules(*v))),
-        Expr::Pow(u, v) => Expr::Pow(Box::new(apply_rules(*u)), Box::new(apply_rules(*v))),
-        Expr::FunctionCall { name, args } => Expr::FunctionCall {
+    match expr {
+        Expr::Add(u, v) => apply_single_rule(Expr::Add(
+            Box::new(apply_rules(*u)),
+            Box::new(apply_rules(*v)),
+        )),
+        Expr::Sub(u, v) => apply_single_rule(Expr::Sub(
+            Box::new(apply_rules(*u)),
+            Box::new(apply_rules(*v)),
+        )),
+        Expr::Mul(u, v) => apply_single_rule(Expr::Mul(
+            Box::new(apply_rules(*u)),
+            Box::new(apply_rules(*v)),
+        )),
+        Expr::Div(u, v) => apply_single_rule(Expr::Div(
+            Box::new(apply_rules(*u)),
+            Box::new(apply_rules(*v)),
+        )),
+        Expr::Pow(u, v) => apply_single_rule(Expr::Pow(
+            Box::new(apply_rules(*u)),
+            Box::new(apply_rules(*v)),
+        )),
+        Expr::FunctionCall { name, args } => apply_single_rule(Expr::FunctionCall {
             name,
             args: args.into_iter().map(apply_rules).collect(),
-        },
-        other => other,
-    };
-
-    // Then apply rules to this node
-    apply_single_rule(simplified_children)
+        }),
+        other => apply_single_rule(other),
+    }
 }
 
 /// Apply simple simplification rule to a single node
@@ -68,7 +79,7 @@ fn apply_single_rule(expr: Expr) -> Expr {
 
     // Apply rules in sequence
     current = numeric::apply_numeric_rules(current);
-    current = algebraic::apply_algebraic_rules(current); // New algebraic rules
+    current = algebraic::apply_algebraic_rules(current);
     current = trig::apply_trig_rules(current);
     current = hyperbolic::apply_hyperbolic_rules(current);
     current = log_exp::apply_log_exp_rules(current);

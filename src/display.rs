@@ -61,9 +61,12 @@ impl fmt::Display for Expr {
                     Expr::Add(_, _) | Expr::Sub(_, _) => format!("({})", num_str),
                     _ => num_str,
                 };
-                // Add parentheses around denominator if it's not a simple identifier or number
+                // Add parentheses around denominator if it's not a simple identifier, number, power, or function
                 let formatted_denom = match **v {
-                    Expr::Symbol(_) | Expr::Number(_) => denom_str,
+                    Expr::Symbol(_)
+                    | Expr::Number(_)
+                    | Expr::Pow(_, _)
+                    | Expr::FunctionCall { .. } => denom_str,
                     _ => format!("({})", denom_str),
                 };
                 write!(f, "{} / {}", formatted_num, formatted_denom)
@@ -72,14 +75,24 @@ impl fmt::Display for Expr {
             Expr::Pow(u, v) => {
                 let base_str = format!("{}", u);
                 let exp_str = format!("{}", v);
-                
-                // Only add parentheses around base if it's an addition or subtraction
+
+                // Add parentheses around base if it's not a simple expression
+                // CRITICAL: Mul and Div MUST be parenthesized to avoid ambiguity
+                // (C * R)^2 should display as "(C * R)^2", not "C * R^2"
                 let formatted_base = match **u {
-                    Expr::Add(_, _) | Expr::Sub(_, _) => format!("({})", base_str),
+                    Expr::Add(_, _) | Expr::Sub(_, _) | Expr::Mul(_, _) | Expr::Div(_, _) => {
+                        format!("({})", base_str)
+                    }
                     _ => base_str,
                 };
-                
-                write!(f, "{}^{}", formatted_base, exp_str)
+
+                // Add parentheses around exponent if it's not a simple number or symbol
+                let formatted_exp = match **v {
+                    Expr::Number(_) | Expr::Symbol(_) => exp_str,
+                    _ => format!("({})", exp_str),
+                };
+
+                write!(f, "{}^{}", formatted_base, formatted_exp)
             }
         }
     }
@@ -156,5 +169,55 @@ mod tests {
             }),
         );
         assert_eq!(format!("{}", expr2), "-sin(x)");
+    }
+
+    #[test]
+    fn test_display_fraction_parens() {
+        // 1 / x -> 1 / x
+        let expr = Expr::Div(
+            Box::new(Expr::Number(1.0)),
+            Box::new(Expr::Symbol("x".to_string())),
+        );
+        assert_eq!(format!("{}", expr), "1 / x");
+
+        // 1 / x^2 -> 1 / x^2
+        let expr = Expr::Div(
+            Box::new(Expr::Number(1.0)),
+            Box::new(Expr::Pow(
+                Box::new(Expr::Symbol("x".to_string())),
+                Box::new(Expr::Number(2.0)),
+            )),
+        );
+        assert_eq!(format!("{}", expr), "1 / x^2");
+
+        // 1 / sin(x) -> 1 / sin(x)
+        let expr = Expr::Div(
+            Box::new(Expr::Number(1.0)),
+            Box::new(Expr::FunctionCall {
+                name: "sin".to_string(),
+                args: vec![Expr::Symbol("x".to_string())],
+            }),
+        );
+        assert_eq!(format!("{}", expr), "1 / sin(x)");
+
+        // 1 / (2 * x) -> 1 / (2 * x)
+        let expr = Expr::Div(
+            Box::new(Expr::Number(1.0)),
+            Box::new(Expr::Mul(
+                Box::new(Expr::Number(2.0)),
+                Box::new(Expr::Symbol("x".to_string())),
+            )),
+        );
+        assert_eq!(format!("{}", expr), "1 / (2 * x)");
+
+        // 1 / (x + 1) -> 1 / (x + 1)
+        let expr = Expr::Div(
+            Box::new(Expr::Number(1.0)),
+            Box::new(Expr::Add(
+                Box::new(Expr::Symbol("x".to_string())),
+                Box::new(Expr::Number(1.0)),
+            )),
+        );
+        assert_eq!(format!("{}", expr), "1 / (x + 1)");
     }
 }

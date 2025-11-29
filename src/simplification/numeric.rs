@@ -90,14 +90,19 @@ pub fn apply_numeric_rules(expr: Expr) -> Expr {
                         // Exact integer division
                         return Expr::Number(a / b);
                     } else {
-                        // Non-integer result, keep as fraction
-                        // We can try to simplify the fraction (e.g. 2/4 -> 1/2) here if we want,
-                        // but for now just keeping it is enough to satisfy the requirement.
-                        // To be safe against infinite recursion if we return expr, we should return a new Div
-                        // But since we are in a match on &expr, returning expr.clone() is fine.
-                        // Actually, returning expr.clone() might cause infinite loop in simplify() if it expects change?
-                        // No, simplify() loop breaks if current == original.
-                        // If we return expr.clone(), it means no change, so it stabilizes.
+                        // Simplify fraction: 2/4 -> 1/2
+                        let a_int = *a as i64;
+                        let b_int = *b as i64;
+                        let common = gcd(a_int.abs(), b_int.abs());
+
+                        if common > 1 {
+                            return Expr::Div(
+                                Box::new(Expr::Number((a_int / common) as f64)),
+                                Box::new(Expr::Number((b_int / common) as f64)),
+                            );
+                        }
+
+                        // If no simplification possible, return clone
                         return expr.clone();
                     }
                 }
@@ -140,4 +145,14 @@ pub fn apply_numeric_rules(expr: Expr) -> Expr {
 
         _ => expr,
     }
+}
+
+// Helper: Greatest Common Divisor
+fn gcd(mut a: i64, mut b: i64) -> i64 {
+    while b != 0 {
+        let temp = b;
+        b = a % b;
+        a = temp;
+    }
+    a
 }

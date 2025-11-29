@@ -39,6 +39,7 @@ All binary operations with numeric constants are evaluated:
 ### Like Terms Combination
 - **Addition**: `x + x = 2x`, `2x + 3x = 5x`
 - **Multiplication**: `x * x = x^2`, `x^2 * x^3 = x^5`
+- **Normalized terms**: Expressions like `2*cosh(x)*sinh(x)` and `-2*sinh(x)*cosh(x)` are recognized as like terms after normalizing multiplication order
 
 ### Factoring
 - **Common factor**: `x*y + x*z = x*(y+z)`
@@ -54,9 +55,37 @@ All binary operations with numeric constants are evaluated:
 - **Division by power**: `x^n / x = x^(n-1)`
 - **Division of power**: `x / x^n = x^(1-n)`
 
+### Negative Term Handling
+- **Addition with negation**: `a + (-b) = a - b`
+- **Subtraction conversion**: `x - y = x + (-1)*y`
+
+### Identity Operations
+- **Multiplication by one**: `1 * x = x`, `x * 1 = x`
+- **Addition with zero**: `x + 0 = x`, `0 + x = x`
+
+### Division Simplification
+- **Factor cancellation**: `(a * b) / (a * c) → b / c`
+- **Exact match cancellation**: Common factors in numerator and denominator are cancelled
+- **Power reduction**: 
+  - `x / x^n → 1 / x^(n-1)`
+  - `x^n / x → x^(n-1) / 1`
+  - `x^n / x^m → x^(n-m)`
+- **Division structure preservation**: When multiplications contain divisions (e.g., `a * (b/c) * d`), they are flattened to `(a*b*d)/c` and the division structure is preserved through subsequent simplification passes
+- **Nested division simplification**:
+  - `(x/y) / (z/a) → (x*a) / (y*z)`
+  - `x / (y/z) → (x*z) / y`
+  - `(x/y) / z → x / (y*z)`
+
+#### Critical Implementation Details
+
+1. **Structure Preservation**: The multiplication simplification includes a critical fix (lines 137-145 in `algebraic.rs`): when `try_flatten_mul_div` successfully creates a single `Div` expression from a multiplication containing divisions, it is returned immediately without further processing by `combine_mul_terms` or `combine_power_terms`. This prevents the division structure from being broken apart.
+
+2. **Power Expansion Strategy**: To enable cancellation in expressions like `a / (a*b)^n`, the denominator is temporarily expanded to `a^n * b^n` using `expand_pow_mul`.
+   - **Loop Prevention**: To avoid infinite loops (expand → combine → expand), the expanded form is **only kept if a cancellation actually occurs**. If no factors are cancelled, the original unexpanded denominator is returned. This breaks the cycle between `expand_pow_mul` and `combine_power_terms`.
+
 ### Canonical Ordering
 - Terms are sorted and combined in canonical form
-- Subtraction converted to addition with negation: `x - y = x + (-1)*y`
+- Multiplication factors are normalized by sorting subexpressions
 
 ## Trigonometric Rules (`trig.rs`)
 
@@ -104,8 +133,7 @@ All binary operations with numeric constants are evaluated:
 - **cos(3π/2 + x) = sin(x)**
 
 ### Double Angle Formulas
-- **sin(2x) = 2*sin(x)*cos(x)**
-- **cos(2x) = cos²(x) - sin²(x)**
+- **sin(2x) = 2* sin(x) *cos(x)**
 - **tan(2x) = 2*tan(x)/(1 - tan²(x))**
 
 ### Pythagorean Identities
@@ -126,8 +154,15 @@ All binary operations with numeric constants are evaluated:
 
 ### Hyperbolic Pythagorean Identities
 - **cosh²(x) - sinh²(x) = 1**
+- **sinh²(x) + cosh²(x) = cosh(2x)**
 - **1 - tanh²(x) = sech²(x)**
 - **coth²(x) - 1 = csch²(x)**
+
+### Hyperbolic Ratio Identities
+- **sinh(x)/cosh(x) = tanh(x)**
+- **cosh(x)/sinh(x) = coth(x)**
+- **1/cosh(x) = sech(x)**
+- **1/sinh(x) = csch(x)**
 
 ### Exponential Form Recognition
 - **(e^x - e^-x)/2 = sinh(x)**
@@ -136,12 +171,17 @@ All binary operations with numeric constants are evaluated:
 - **(e^x + e^-x)/(e^x - e^-x) = coth(x)**
 - **2/(e^x + e^-x) = sech(x)**
 - **2/(e^x - e^-x) = csch(x)**
+- **(e^x + (-1)*e^-x)/2 = sinh(x)** (after algebraic simplification)
+- **(e^x + e^-x)/(e^x + (-1)*e^-x) = coth(x)** (after algebraic simplification)
 
 ### Canonical Form Handling
 All identities also recognize forms after algebraic simplification:
 - **cosh²(x) + (-1)*sinh²(x) = 1**
+- **(-1)*sinh²(x) + cosh²(x) = 1**
 - **1 + (-1)*tanh²(x) = sech²(x)**
+- **(-1)*tanh²(x) + 1 = sech²(x)**
 - **coth²(x) + (-1) = csch²(x)**
+- **(-1) + coth²(x) = csch²(x)**
 
 ## Logarithmic/Exponential Rules (`log_exp.rs`)
 
@@ -152,6 +192,9 @@ All identities also recognize forms after algebraic simplification:
 ### Logarithmic Rules
 - **ln(1) = 0**
 - **ln(exp(x)) = x**
+- **ln(x^n) = n * ln(x)**
+- **log10(x^n) = n * log10(x)**
+- **log2(x^n) = n * log2(x)**
 
 ### Logarithm Base Rules
 - **log₁₀(1) = 0**, **log₁₀(10) = 1**
@@ -167,7 +210,38 @@ All identities also recognize forms after algebraic simplification:
 - **∛0 = 0**, **∛1 = 1**
 - **∛(x³) = x**
 
-## Implementation Notes
+### Root Simplification
+- **General Powers**: `sqrt(x^n)` simplifies to `x^(n/2)` if `n` is even. `cbrt(x^n)` simplifies to `x^(n/3)` if `n` is a multiple of 3.
+- **Nested Roots**: `sqrt(sqrt(x))` simplifies to `x^(1/4)`.
+- **Power to Root Conversion**: `x^(1/2)` → `sqrt(x)`, `x^(1/3)` → `cbrt(x)`, `x^0.5` → `sqrt(x)`.
+
+### Hyperbolic Simplification
+- **Inverse Composition**:
+    - `sinh(asinh(x))` -> `x`
+    - `cosh(acosh(x))` -> `x`
+    - `tanh(atanh(x))` -> `x`
+
+### Logarithmic and Exponential Simplification
+- **Combination Rules**:
+    - `ln(a) + ln(b)` -> `ln(a * b)`
+    - `ln(a) - ln(b)` -> `ln(a / b)`
+    - `exp(a) * exp(b)` -> `exp(a + b)`
+
+### Trigonometric Simplification
+- **Sum/Difference Combination**:
+    - `sin(x)cos(y) + cos(x)sin(y)` -> `sin(x + y)`
+    - `sin(x)cos(y) - cos(x)sin(y)` -> `sin(x - y)`
+    - `cos(x)cos(y) - sin(x)sin(y)` -> `cos(x + y)`
+    - `cos(x)cos(y) + sin(x)sin(y)` -> `cos(x - y)`
+
+
+## Future Enhancements (TODO)
+
+- **Polynomial GCD**: Implement greatest common divisor for polynomials to enable further factorization and simplification of rational expressions.
+- **Advanced Factoring**: Add support for factoring higher-degree polynomials, including irreducible polynomials and special cases.
+- **Advanced Inverse Trig/Hyperbolic**: Extend inverse trigonometric and hyperbolic function simplifications, such as compositions and identities involving multiple arguments.
+
+## Implementation Details
 
 - All rules are applied recursively bottom-up through the expression tree
 - The system uses cycle detection to prevent infinite loops
@@ -176,3 +250,18 @@ All identities also recognize forms after algebraic simplification:
 - The system preserves exact symbolic forms when possible
 - **Canonical form handling**: Many rules recognize both original forms (e.g., `a - b`) and canonical forms after algebraic simplification (e.g., `a + (-1)*b`)
 - **Recursive simplification**: Subexpressions are simplified before applying rules to the current level
+- **Expression normalization**: Multiplication terms are sorted and normalized for consistent term combination
+- **Negative term recognition**: Rules handle expressions with explicit negative coefficients (e.g., `a + (-b)`)
+- **Identity preservation**: Operations like `1 * x` and `x * 1` are reduced to `x` for cleaner output
+
+### Display Correctness
+
+The display module (`display.rs`) includes critical fixes to ensure mathematical correctness:
+
+- **Power base parenthesization**: When displaying `x^n`, if `x` is a `Mul`, `Div`, `Add`, or `Sub` expression, it is parenthesized to avoid operator precedence ambiguity. For example:
+  - `(C * R)^2` displays as `(C * R)^2`, not `C * R^2` (which would mean `C * (R^2)`)
+  - `(a / b)^n` displays as `(a / b)^n`, not `a / b^n` (which would mean `a / (b^n)`)
+- **Division denominator parenthesization**: Denominators containing `Mul`, `Div`, `Add`, or `Sub` are parenthesized:
+  - `a / (b * c)` displays correctly, not `a / b * c` (which would mean `(a / b) * c`)
+  
+These fixes ensure that the displayed form matches the internal expression tree structure and can be parsed back correctly without ambiguity.

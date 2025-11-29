@@ -44,6 +44,16 @@ mod tests {
     }
 
     #[test]
+    fn test_pow_one() {
+        let expr = Expr::Pow(
+            Box::new(Expr::Symbol("x".to_string())),
+            Box::new(Expr::Number(1.0)),
+        );
+        let result = simplify(expr);
+        assert_eq!(result, Expr::Symbol("x".to_string()));
+    }
+
+    #[test]
     fn test_constant_folding() {
         let expr = Expr::Add(Box::new(Expr::Number(2.0)), Box::new(Expr::Number(3.0)));
         let result = simplify(expr);
@@ -227,6 +237,61 @@ mod tests {
             }
         } else {
             panic!("Expected (x + y)^2");
+        }
+    }
+
+    #[test]
+    fn test_product_four_functions_derivative() {
+        use crate::diff;
+        // d/dx [x * exp(x) * sin(x) * ln(x)]
+        let expr_str = "x * exp(x) * sin(x) * ln(x)";
+        let derivative = diff(expr_str.to_string(), "x".to_string(), None, None).unwrap();
+
+        // Check if "... / x" is present (it shouldn't be if simplified)
+        let derivative_str = format!("{}", derivative);
+        assert!(
+            !derivative_str.contains("/ x"),
+            "Derivative contains unsimplified division by x: {}",
+            derivative_str
+        );
+    }
+
+    #[test]
+    fn test_flatten_mul_div_structure() {
+        // (A / B) * R^2 -> (A * R^2) / B
+        let expr = Expr::Mul(
+            Box::new(Expr::Div(
+                Box::new(Expr::Symbol("A".to_string())),
+                Box::new(Expr::Symbol("B".to_string())),
+            )),
+            Box::new(Expr::Pow(
+                Box::new(Expr::Symbol("R".to_string())),
+                Box::new(Expr::Number(2.0)),
+            )),
+        );
+        let simplified = simplify(expr);
+        println!("Simplified: {:?}", simplified);
+
+        if let Expr::Div(num, den) = simplified {
+            // Check denominator is B
+            if let Expr::Symbol(s) = *den {
+                assert_eq!(s, "B");
+            } else {
+                panic!("Expected denominator B");
+            }
+
+            // Check numerator is A * R^2 (or R^2 * A)
+            if let Expr::Mul(n1, n2) = *num {
+                // One should be A, other should be R^2
+                let s1 = format!("{}", n1);
+                let s2 = format!("{}", n2);
+                assert!((s1 == "A" && s2 == "R^2") || (s1 == "R^2" && s2 == "A"));
+            } else {
+                panic!("Expected numerator multiplication");
+            }
+        } else {
+            // If it's not Div, it failed to flatten
+            panic!("Expected Div, got {:?}", simplified);
         }
     }
 }

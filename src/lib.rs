@@ -9,12 +9,12 @@
 //! - Implicit function handling
 //! - Partial derivative notation
 
-pub mod ast;
-pub mod differentiation;
-pub mod display;
-pub mod error;
-pub mod parser;
-pub mod simplification;
+mod ast;
+mod differentiation;
+mod display;
+mod error;
+mod parser;
+mod simplification;
 
 #[cfg(test)]
 mod tests;

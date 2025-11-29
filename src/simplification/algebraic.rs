@@ -10,21 +10,90 @@ use std::cmp::Ordering;
 pub fn apply_algebraic_rules(expr: Expr) -> Expr {
     // First recursively simplify subexpressions
     let expr = match expr {
-        Expr::Add(u, v) => Expr::Add(Box::new(apply_algebraic_rules(*u)), Box::new(apply_algebraic_rules(*v))),
-        Expr::Mul(u, v) => Expr::Mul(Box::new(apply_algebraic_rules(*u)), Box::new(apply_algebraic_rules(*v))),
-        Expr::Sub(u, v) => Expr::Sub(Box::new(apply_algebraic_rules(*u)), Box::new(apply_algebraic_rules(*v))),
-        Expr::Div(u, v) => Expr::Div(Box::new(apply_algebraic_rules(*u)), Box::new(apply_algebraic_rules(*v))),
-        Expr::Pow(u, v) => Expr::Pow(Box::new(apply_algebraic_rules(*u)), Box::new(apply_algebraic_rules(*v))),
+        Expr::Add(u, v) => Expr::Add(
+            Box::new(apply_algebraic_rules(*u)),
+            Box::new(apply_algebraic_rules(*v)),
+        ),
+        Expr::Mul(u, v) => Expr::Mul(
+            Box::new(apply_algebraic_rules(*u)),
+            Box::new(apply_algebraic_rules(*v)),
+        ),
+        Expr::Sub(u, v) => Expr::Sub(
+            Box::new(apply_algebraic_rules(*u)),
+            Box::new(apply_algebraic_rules(*v)),
+        ),
+        Expr::Div(u, v) => Expr::Div(
+            Box::new(apply_algebraic_rules(*u)),
+            Box::new(apply_algebraic_rules(*v)),
+        ),
+        Expr::Pow(u, v) => Expr::Pow(
+            Box::new(apply_algebraic_rules(*u)),
+            Box::new(apply_algebraic_rules(*v)),
+        ),
         Expr::FunctionCall { name, args } => Expr::FunctionCall {
             name,
-            args: args.into_iter().map(|arg| apply_algebraic_rules(arg)).collect(),
+            args: args
+                .into_iter()
+                .map(|arg| apply_algebraic_rules(arg))
+                .collect(),
         },
         other => other,
     };
-
     // Then apply rules to the current level
     match expr {
         Expr::Add(u, v) => {
+            // a + (-b) = a - b
+            if let Some(neg_term) = is_negative_term(&*v) {
+                return Expr::Sub(u, neg_term);
+            }
+            // (-b) + a = a - b
+            if let Some(neg_term) = is_negative_term(&*u) {
+                return Expr::Sub(v, neg_term);
+            }
+
+            // Constant folding: number + number
+            if let (Expr::Number(a), Expr::Number(b)) = (&*u, &*v) {
+                return Expr::Number(a + b);
+            }
+
+            // Combine number + fraction: a + b/c = (a*c + b)/c
+            if let (Expr::Number(a), Expr::Div(b, c)) = (&*u, &*v) {
+                if let (Expr::Number(b_val), Expr::Number(c_val)) = (&**b, &**c) {
+                    let numerator = a * c_val + b_val;
+                    return Expr::Div(
+                        Box::new(Expr::Number(numerator)),
+                        Box::new(Expr::Number(*c_val)),
+                    );
+                }
+            }
+            // Combine fraction + fraction with same denominator: a/c + b/c = (a+b)/c
+            if let (Expr::Div(a, c1), Expr::Div(b, c2)) = (&*u, &*v) {
+                if c1 == c2 {
+                    if let (Expr::Number(a_val), Expr::Number(b_val)) = (&**a, &**b) {
+                        let numerator = a_val + b_val;
+                        return Expr::Div(Box::new(Expr::Number(numerator)), c1.clone());
+                    }
+                }
+            }
+
+            // Combine fraction + fraction with different denominators: a/c + b/d = (a*d + b*c)/(c*d)
+            if let (Expr::Div(a, c), Expr::Div(b, d)) = (&*u, &*v) {
+                if let (
+                    Expr::Number(a_val),
+                    Expr::Number(b_val),
+                    Expr::Number(c_val),
+                    Expr::Number(d_val),
+                ) = (&**a, &**b, &**c, &**d)
+                {
+                    let numerator = a_val * d_val + b_val * c_val;
+                    let denominator = c_val * d_val;
+                    return Expr::Div(
+                        Box::new(Expr::Number(numerator)),
+                        Box::new(Expr::Number(denominator)),
+                    );
+                }
+            }
+
             // Flatten and sort for canonical ordering
             let mut terms = flatten_add(Expr::Add(u, v));
             terms.sort_by(compare_expr);
@@ -40,18 +109,54 @@ pub fn apply_algebraic_rules(expr: Expr) -> Expr {
         }
 
         Expr::Mul(u, v) => {
+            // Constant folding: number * number
+            if let (Expr::Number(a), Expr::Number(b)) = (&*u, &*v) {
+                return Expr::Number(a * b);
+            }
+
+            // 1 * x = x, x * 1 = x
+            if let Expr::Number(n) = &*u {
+                if *n == 1.0 {
+                    return *v;
+                }
+            }
+            if let Expr::Number(n) = &*v {
+                if *n == 1.0 {
+                    return *u;
+                }
+            }
+
             // Flatten and sort
             let mut terms = flatten_mul(Expr::Mul(u, v));
             terms.sort_by(compare_expr);
 
+            // Special case: a * (b / c) -> (a * b) / c
+            let terms = try_flatten_mul_div(terms);
+
+            // CRITICAL FIX: If try_flatten_mul_div created a single Div expression,
+            // return it immediately without further processing to preserve the structure
+            if terms.len() == 1 {
+                if let Expr::Div(_, _) = &terms[0] {
+                    return terms[0].clone();
+                }
+            }
+
             // Combine like terms (x * x = x^2)
             let combined_terms = combine_mul_terms(terms);
+
+            // Combine same exponents (x^n * y^n = (x*y)^n)
+            let combined_terms = combine_power_terms(combined_terms);
 
             // Rebuild
             rebuild_mul(combined_terms)
         }
 
         Expr::Sub(u, v) => {
+            // Constant folding: number - number
+            if let (Expr::Number(a), Expr::Number(b)) = (&*u, &*v) {
+                return Expr::Number(a - b);
+            }
+
             // Convert x - y to x + (-1)*y so that addition rules can combine like terms
             let neg_v = Expr::Mul(Box::new(Expr::Number(-1.0)), v);
             apply_algebraic_rules(Expr::Add(u, Box::new(neg_v)))
@@ -94,6 +199,16 @@ pub fn apply_algebraic_rules(expr: Expr) -> Expr {
                 );
             }
 
+            // x^n / y^n = (x/y)^n
+            if let (Expr::Pow(base_u, exp_u), Expr::Pow(base_v, exp_v)) = (&*u, &*v)
+                && exp_u == exp_v
+            {
+                return Expr::Pow(
+                    Box::new(Expr::Div(base_u.clone(), base_v.clone())),
+                    exp_u.clone(),
+                );
+            }
+
             // x / x^n = x^(1-n)
             if let Expr::Pow(base_v, exp_v) = &*v
                 && &u == base_v
@@ -103,16 +218,63 @@ pub fn apply_algebraic_rules(expr: Expr) -> Expr {
                     Box::new(Expr::Sub(Box::new(Expr::Number(1.0)), exp_v.clone())),
                 );
             }
+            // (x/y) / (z/a) = (x*a) / (y*z)
+            if let Expr::Div(x, y) = &*u
+                && let Expr::Div(z, a) = &*v
+            {
+                let new_num = Expr::Mul(x.clone(), a.clone());
+                let new_denom = Expr::Mul(y.clone(), z.clone());
+                return apply_algebraic_rules(Expr::Div(Box::new(new_num), Box::new(new_denom)));
+            }
+
+            // x / (y/z) = (x*z) / y
+            if let Expr::Div(y, z) = &*v {
+                let new_num = Expr::Mul(u.clone(), z.clone());
+                let new_denom = y.clone();
+                return apply_algebraic_rules(Expr::Div(Box::new(new_num), new_denom));
+            }
+
+            // (x/y) / z = x / (y*z)
+            if let Expr::Div(x, y) = &*u {
+                let new_num = x.clone();
+                let new_denom = Expr::Mul(y.clone(), v.clone());
+                return apply_algebraic_rules(Expr::Div(new_num, Box::new(new_denom)));
+            }
+            // Simplify fraction by canceling common factors
+            // (a * b) / (a * c) -> b / c
+            let (new_u, new_v) = simplify_fraction_factors(*u.clone(), *v.clone());
+            if new_u != *u || new_v != *v {
+                return apply_algebraic_rules(Expr::Div(Box::new(new_u), Box::new(new_v)));
+            }
 
             Expr::Div(u, v)
         }
 
         Expr::Pow(u, v) => {
+            // Constant folding: number ^ number
+            if let (Expr::Number(a), Expr::Number(b)) = (&*u, &*v) {
+                return Expr::Number(a.powf(*b));
+            }
+
             // (x^a)^b = x^(a*b)
             if let Expr::Pow(base, exp_inner) = *u {
                 return Expr::Pow(base, Box::new(Expr::Mul(exp_inner, v)));
             }
-            
+
+            // x^0 = 1 for x != 0
+            if let Expr::Number(n) = *v {
+                if n == 0.0 {
+                    return Expr::Number(1.0);
+                }
+            }
+
+            // x^1 = x
+            if let Expr::Number(n) = *v {
+                if n == 1.0 {
+                    return *u;
+                }
+            }
+
             // x^-n = 1/x^n for n > 0
             if let Expr::Number(n) = *v {
                 if n < 0.0 {
@@ -121,7 +283,18 @@ pub fn apply_algebraic_rules(expr: Expr) -> Expr {
                     return Expr::Div(Box::new(Expr::Number(1.0)), Box::new(denom));
                 }
             }
-            
+
+            // x^(-a/b) = 1/x^(a/b) for a > 0, b > 0
+            if let Expr::Div(num, den) = &*v {
+                if let (Expr::Number(n), Expr::Number(d)) = (&**num, &**den) {
+                    if *n < 0.0 && *d > 0.0 {
+                        let positive_exp = Expr::Div(Box::new(Expr::Number(-*n)), den.clone());
+                        let denom = Expr::Pow(u, Box::new(positive_exp));
+                        return Expr::Div(Box::new(Expr::Number(1.0)), Box::new(denom));
+                    }
+                }
+            }
+
             Expr::Pow(u, v)
         }
 
@@ -143,15 +316,35 @@ fn combine_add_terms(terms: Vec<Expr>) -> Vec<Expr> {
     // e.g. 2*x -> (2.0, x)
     //      x   -> (1.0, x)
     fn extract_coeff(expr: Expr) -> (f64, Expr) {
-        match expr {
-            Expr::Mul(l, r) => {
-                if let Expr::Number(n) = *l {
-                    (n, *r)
-                } else {
-                    (1.0, Expr::Mul(l, r))
-                }
+        let flattened = flatten_mul(expr);
+        let mut coeff = 1.0;
+        let mut non_num = Vec::new();
+        for term in flattened {
+            if let Expr::Number(n) = term {
+                coeff *= n;
+            } else {
+                non_num.push(term);
             }
-            other => (1.0, other),
+        }
+        let base = if non_num.is_empty() {
+            Expr::Number(1.0)
+        } else if non_num.len() == 1 {
+            non_num[0].clone()
+        } else {
+            rebuild_mul(non_num)
+        };
+        (coeff, normalize_expr(base))
+    }
+
+    // Helper: Normalize expression by sorting factors in multiplication
+    fn normalize_expr(expr: Expr) -> Expr {
+        match expr {
+            Expr::Mul(u, v) => {
+                let mut factors = flatten_mul(Expr::Mul(u, v));
+                factors.sort_by(compare_expr);
+                rebuild_mul(factors)
+            }
+            other => other,
         }
     }
 
@@ -171,10 +364,22 @@ fn combine_add_terms(terms: Vec<Expr>) -> Vec<Expr> {
             } else if current_coeff == 1.0 {
                 result.push(current_base);
             } else {
-                result.push(Expr::Mul(
-                    Box::new(Expr::Number(current_coeff)),
-                    Box::new(current_base),
-                ));
+                // Check if base is 1.0 (meaning it's just a number)
+                if let Expr::Number(n) = &current_base {
+                    if *n == 1.0 {
+                        result.push(Expr::Number(current_coeff));
+                    } else {
+                        result.push(Expr::Mul(
+                            Box::new(Expr::Number(current_coeff)),
+                            Box::new(current_base),
+                        ));
+                    }
+                } else {
+                    result.push(Expr::Mul(
+                        Box::new(Expr::Number(current_coeff)),
+                        Box::new(current_base),
+                    ));
+                }
             }
 
             current_coeff = coeff;
@@ -188,10 +393,22 @@ fn combine_add_terms(terms: Vec<Expr>) -> Vec<Expr> {
     } else if current_coeff == 1.0 {
         result.push(current_base);
     } else {
-        result.push(Expr::Mul(
-            Box::new(Expr::Number(current_coeff)),
-            Box::new(current_base),
-        ));
+        // Check if base is 1.0
+        if let Expr::Number(n) = &current_base {
+            if *n == 1.0 {
+                result.push(Expr::Number(current_coeff));
+            } else {
+                result.push(Expr::Mul(
+                    Box::new(Expr::Number(current_coeff)),
+                    Box::new(current_base),
+                ));
+            }
+        } else {
+            result.push(Expr::Mul(
+                Box::new(Expr::Number(current_coeff)),
+                Box::new(current_base),
+            ));
+        }
     }
 
     // If all terms canceled out, return 0
@@ -352,6 +569,52 @@ fn rebuild_mul(terms: Vec<Expr>) -> Expr {
     for term in iter {
         result = Expr::Mul(Box::new(result), Box::new(term));
     }
+    result
+}
+
+// Helper: Try to flatten multiplication with division
+// a * (b / c) -> (a * b) / c
+fn try_flatten_mul_div(terms: Vec<Expr>) -> Vec<Expr> {
+    let mut result = Vec::new();
+    let mut numerator_factors = Vec::new();
+    let mut denominator_factors = Vec::new();
+
+    for term in terms {
+        match term {
+            Expr::Div(num, den) => {
+                // Extract factors from numerator and denominator
+                let num_factors = flatten_mul(*num);
+                let den_factors = flatten_mul(*den);
+                numerator_factors.extend(num_factors);
+                denominator_factors.extend(den_factors);
+            }
+            other => {
+                numerator_factors.push(other);
+            }
+        }
+    }
+
+    // If we found divisions, reconstruct as division
+    if !denominator_factors.is_empty() {
+        // Build numerator: product of all numerator factors
+        let numerator = if numerator_factors.len() == 1 {
+            numerator_factors.into_iter().next().unwrap()
+        } else {
+            rebuild_mul(numerator_factors)
+        };
+
+        // Build denominator: product of all denominator factors
+        let denominator = if denominator_factors.len() == 1 {
+            denominator_factors.into_iter().next().unwrap()
+        } else {
+            rebuild_mul(denominator_factors)
+        };
+
+        result.push(Expr::Div(Box::new(numerator), Box::new(denominator)));
+    } else {
+        result = numerator_factors;
+    }
+
     result
 }
 
@@ -529,4 +792,216 @@ fn compare_binary(l1: &Expr, r1: &Expr, l2: &Expr, r2: &Expr) -> Ordering {
         Ordering::Equal => compare_expr(r1, r2),
         ord => ord,
     }
+}
+
+fn is_negative_term(expr: &Expr) -> Option<Box<Expr>> {
+    if let Expr::Mul(a, b) = expr {
+        if let Expr::Number(n) = **a {
+            if n == -1.0 {
+                return Some(b.clone());
+            }
+        }
+    }
+    None
+}
+
+// Helper: Combine terms with same exponent in multiplication (x^n * y^n -> (x*y)^n)
+fn combine_power_terms(terms: Vec<Expr>) -> Vec<Expr> {
+    if terms.len() < 2 {
+        return terms;
+    }
+
+    // Group terms by exponent
+    // Since Expr doesn't implement Hash, we can't use HashMap easily.
+    // We'll use a simple O(N^2) approach or sort by exponent?
+    // Sorting by exponent might be better.
+
+    // We need to be careful not to combine things that shouldn't be combined implicitly
+    // But x^n * y^n = (x*y)^n is generally valid.
+
+    // Let's try to find groups of same exponent.
+    // We will iterate and build a new list.
+
+    let mut result = Vec::new();
+    let mut processed = vec![false; terms.len()];
+
+    for i in 0..terms.len() {
+        if processed[i] {
+            continue;
+        }
+
+        let term_i = &terms[i];
+        let (base_i, exp_i) = match term_i {
+            Expr::Pow(b, e) => (b.clone(), e.clone()),
+            _ => (Box::new(term_i.clone()), Box::new(Expr::Number(1.0))),
+        };
+
+        // If exponent is 1.0, we usually don't want to group everything into (x*y*z)^1 unless requested?
+        // Actually (x*y)^1 is just x*y, so it doesn't change structure much, but might reorder.
+        // Let's skip if exponent is 1.0 to preserve canonical ordering of factors?
+        // The user asked for x^n * y^n = (x*y)^n.
+        if let Expr::Number(n) = *exp_i {
+            if n == 1.0 {
+                result.push(term_i.clone());
+                processed[i] = true;
+                continue;
+            }
+        }
+
+        let mut bases = vec![*base_i];
+        processed[i] = true;
+
+        for j in (i + 1)..terms.len() {
+            if processed[j] {
+                continue;
+            }
+
+            let term_j = &terms[j];
+            let (base_j, exp_j) = match term_j {
+                Expr::Pow(b, e) => (b.clone(), e.clone()),
+                _ => (Box::new(term_j.clone()), Box::new(Expr::Number(1.0))),
+            };
+
+            if *exp_i == *exp_j {
+                bases.push(*base_j);
+                processed[j] = true;
+            }
+        }
+
+        if bases.len() > 1 {
+            // Create (b1 * b2 * ...)^n
+            // We need to sort bases to ensure canonical form
+            bases.sort_by(compare_expr);
+            let combined_base = rebuild_mul(bases);
+            // Recursively simplify the base? Maybe not needed if we trust inputs are simplified.
+            // But rebuild_mul just creates Expr::Mul chain.
+            result.push(Expr::Pow(Box::new(combined_base), exp_i));
+        } else {
+            result.push(term_i.clone());
+        }
+    }
+
+    result
+}
+
+// Helper: Expand powers of products to enable factor cancellation in divisions
+// (a*b)^n -> a^n * b^n
+// This is applied ONLY in division simplification context to avoid conflicts
+// CRITICAL: Non-recursive to avoid stack overflow
+fn expand_pow_mul(expr: Expr) -> Expr {
+    // Flatten to individual factors first
+    let factors = flatten_mul(expr);
+
+    // Expand any Pow(Mul(...)) factors
+    let expanded_factors: Vec<Expr> = factors
+        .into_iter()
+        .flat_map(|factor| {
+            if let Expr::Pow(base, exp) = factor {
+                if let Expr::Mul(a, b) = *base {
+                    // Expand (a*b)^n to [a^n, b^n]
+                    // Recursively flatten the multiplication to handle (a*b*c)^n
+                    let base_factors = flatten_mul(Expr::Mul(a, b));
+                    base_factors
+                        .into_iter()
+                        .map(|f| Expr::Pow(Box::new(f), exp.clone()))
+                        .collect()
+                } else {
+                    // Keep other powers as-is
+                    vec![Expr::Pow(base, exp)]
+                }
+            } else {
+                // Non-power factors pass through
+                vec![factor]
+            }
+        })
+        .collect();
+
+    rebuild_mul(expanded_factors)
+}
+
+// Helper: Simplify fraction by canceling common factors
+fn simplify_fraction_factors(numerator: Expr, denominator: Expr) -> (Expr, Expr) {
+    // Keep original denominator to return if no cancellation happens
+    // This prevents infinite loops where we expand (a*b)^n -> a^n * b^n,
+    // nothing cancels, we return expanded form, and then combine_power_terms
+    // puts it back to (a*b)^n, restarting the cycle.
+    let original_denominator = denominator.clone();
+
+    // CRITICAL: Expand powers of products in denominator to enable factor cancellation
+    // (a*b)^n in denominator should become a^n * b^n so we can cancel individual factors
+    let denominator_expanded = expand_pow_mul(denominator);
+
+    let num_factors = flatten_mul(numerator);
+    let den_factors = flatten_mul(denominator_expanded);
+
+    let mut new_num_factors = Vec::new();
+    let mut new_den_factors = den_factors;
+    let mut any_cancellation = false;
+
+    for num_factor in num_factors {
+        let mut matched = false;
+        for i in 0..new_den_factors.len() {
+            // Exact match
+            if num_factor == new_den_factors[i] {
+                new_den_factors.remove(i);
+                matched = true;
+                any_cancellation = true;
+                break;
+            }
+
+            // Power cancellation: x / x^n -> 1 / x^(n-1)
+            if let Expr::Pow(base_d, exp_d) = &new_den_factors[i]
+                && **base_d == num_factor
+            {
+                // x / x^n = 1 / x^(n-1)
+                let new_exp = Expr::Sub(exp_d.clone(), Box::new(Expr::Number(1.0)));
+                let new_den_term = Expr::Pow(base_d.clone(), Box::new(new_exp));
+                new_den_factors[i] = new_den_term;
+                matched = true;
+                any_cancellation = true;
+                break;
+            }
+
+            // Power cancellation: x^n / x -> x^(n-1) / 1
+            if let Expr::Pow(base_n, exp_n) = &num_factor
+                && **base_n == new_den_factors[i]
+            {
+                let new_exp = Expr::Sub(exp_n.clone(), Box::new(Expr::Number(1.0)));
+                let new_num_term = Expr::Pow(base_n.clone(), Box::new(new_exp));
+                new_num_factors.push(new_num_term);
+                new_den_factors.remove(i);
+                matched = true;
+                any_cancellation = true;
+                break;
+            }
+
+            // Power cancellation: x^n / x^m
+            if let Expr::Pow(base_n, exp_n) = &num_factor
+                && let Expr::Pow(base_d, exp_d) = &new_den_factors[i]
+                && base_n == base_d
+            {
+                // We don't know which is larger, so let's just subtract from top
+                // x^n / x^m = x^(n-m) / 1
+                let new_exp = Expr::Sub(exp_n.clone(), exp_d.clone());
+                let new_num_term = Expr::Pow(base_n.clone(), Box::new(new_exp));
+                new_num_factors.push(new_num_term);
+                new_den_factors.remove(i);
+                matched = true;
+                any_cancellation = true;
+                break;
+            }
+        }
+
+        if !matched {
+            new_num_factors.push(num_factor);
+        }
+    }
+
+    if !any_cancellation {
+        // If no cancellation happened, return the rebuilt numerator and the ORIGINAL denominator
+        // This avoids returning an expanded form that will just be recombined later
+        return (rebuild_mul(new_num_factors), original_denominator);
+    }
+
+    (rebuild_mul(new_num_factors), rebuild_mul(new_den_factors))
 }

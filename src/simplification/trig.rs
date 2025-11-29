@@ -302,28 +302,6 @@ pub fn apply_trig_rules(expr: Expr) -> Expr {
                             };
                         }
                     }
-
-                    // Double angle: cos(2x) = cos^2(x) - sin^2(x) = 2*cos^2(x) - 1 = 1 - 2*sin^2(x)
-                    if let Expr::Mul(a, b) = content
-                        && matches!(**a, Expr::Number(n) if n == 2.0)
-                    {
-                        return Expr::Sub(
-                            Box::new(Expr::Pow(
-                                Box::new(Expr::FunctionCall {
-                                    name: "cos".to_string(),
-                                    args: vec![*b.clone()],
-                                }),
-                                Box::new(Expr::Number(2.0)),
-                            )),
-                            Box::new(Expr::Pow(
-                                Box::new(Expr::FunctionCall {
-                                    name: "sin".to_string(),
-                                    args: vec![*b.clone()],
-                                }),
-                                Box::new(Expr::Number(2.0)),
-                            )),
-                        );
-                    }
                 }
                 "tan" => {
                     // Standard values
@@ -581,6 +559,62 @@ pub fn apply_trig_rules(expr: Expr) -> Expr {
                     Box::new(Expr::Number(2.0)),
                 );
             }
+
+            // Double angle: cos^2(x) - sin^2(x) = cos(2x)
+            if let Some(arg) = is_cos_sq_minus_sin_sq(u, v) {
+                return Expr::FunctionCall {
+                    name: "cos".to_string(),
+                    args: vec![Expr::Mul(Box::new(Expr::Number(2.0)), Box::new(arg))],
+                };
+            }
+            // Double angle: cos^2(x) + (-sin^2(x)) = cos(2x)
+            if let Some(arg) = is_cos_sq_plus_neg_sin_sq(u, v) {
+                return Expr::FunctionCall {
+                    name: "cos".to_string(),
+                    args: vec![Expr::Mul(Box::new(Expr::Number(2.0)), Box::new(arg))],
+                };
+            }
+
+            // Sum/Difference Formulas
+            // sin(x)cos(y) + cos(x)sin(y) = sin(x + y)
+            if let Some((x, y)) = is_sin_sum(u, v) {
+                return Expr::FunctionCall {
+                    name: "sin".to_string(),
+                    args: vec![Expr::Add(Box::new(x), Box::new(y))],
+                };
+            }
+            // cos(x)cos(y) + sin(x)sin(y) = cos(x - y)
+            if let Some((x, y)) = is_cos_diff(u, v) {
+                return Expr::FunctionCall {
+                    name: "cos".to_string(),
+                    args: vec![Expr::Sub(Box::new(x), Box::new(y))],
+                };
+            }
+        }
+        Expr::Sub(u, v) => {
+            // Double angle: cos^2(x) - sin^2(x) = cos(2x)
+            if let Some(arg) = is_cos_sq_minus_sin_sq(u, v) {
+                return Expr::FunctionCall {
+                    name: "cos".to_string(),
+                    args: vec![Expr::Mul(Box::new(Expr::Number(2.0)), Box::new(arg))],
+                };
+            }
+
+            // Sum/Difference Formulas
+            // sin(x)cos(y) - cos(x)sin(y) = sin(x - y)
+            if let Some((x, y)) = is_sin_diff(u, v) {
+                return Expr::FunctionCall {
+                    name: "sin".to_string(),
+                    args: vec![Expr::Sub(Box::new(x), Box::new(y))],
+                };
+            }
+            // cos(x)cos(y) - sin(x)sin(y) = cos(x + y)
+            if let Some((x, y)) = is_cos_sum(u, v) {
+                return Expr::FunctionCall {
+                    name: "cos".to_string(),
+                    args: vec![Expr::Add(Box::new(x), Box::new(y))],
+                };
+            }
         }
         _ => {}
     }
@@ -616,6 +650,42 @@ fn is_sin_sq_plus_cos_sq(u: &Expr, v: &Expr) -> Option<Expr> {
     if let (Some((name1, arg1)), Some((name2, arg2))) = (get_trig_sq(u), get_trig_sq(v))
         && arg1 == arg2
         && ((name1 == "sin" && name2 == "cos") || (name1 == "cos" && name2 == "sin"))
+    {
+        return Some(arg1);
+    }
+    None
+}
+
+// Helper for cos^2(x) - sin^2(x)
+fn is_cos_sq_minus_sin_sq(u: &Expr, v: &Expr) -> Option<Expr> {
+    if let (Some(("cos", arg1)), Some(("sin", arg2))) = (get_trig_sq(u), get_trig_sq(v))
+        && arg1 == arg2
+    {
+        return Some(arg1);
+    }
+    if let (Some(("sin", arg2)), Some(("cos", arg1))) = (get_trig_sq(u), get_trig_sq(v))
+        && arg1 == arg2
+    {
+        return Some(arg1);
+    }
+    None
+}
+
+// Helper for cos^2(x) + (-sin^2(x))
+fn is_cos_sq_plus_neg_sin_sq(u: &Expr, v: &Expr) -> Option<Expr> {
+    if let Some(("cos", arg1)) = get_trig_sq(u)
+        && let Expr::Mul(coeff, sin_sq) = v
+        && matches!(**coeff, Expr::Number(n) if n == -1.0)
+        && let Some(("sin", arg2)) = get_trig_sq(sin_sq)
+        && arg1 == arg2
+    {
+        return Some(arg1);
+    }
+    if let Some(("cos", arg1)) = get_trig_sq(v)
+        && let Expr::Mul(coeff, sin_sq) = u
+        && matches!(**coeff, Expr::Number(n) if n == -1.0)
+        && let Some(("sin", arg2)) = get_trig_sq(sin_sq)
+        && arg1 == arg2
     {
         return Some(arg1);
     }
@@ -664,6 +734,119 @@ fn get_trig_sq(expr: &Expr) -> Option<(&str, Expr)> {
         && args.len() == 1
     {
         return Some((name.as_str(), args[0].clone()));
+    }
+    None
+}
+
+// Helper for sin(x)cos(y) + cos(x)sin(y)
+fn is_sin_sum(u: &Expr, v: &Expr) -> Option<(Expr, Expr)> {
+    if let (Some((s1, c1)), Some((s2, c2))) = (get_sin_cos_args(u), get_sin_cos_args(v)) {
+        if s1 == c2 && c1 == s2 {
+            return Some((s1, c1));
+        }
+    }
+    None
+}
+
+// Helper for sin(x)cos(y) - cos(x)sin(y)
+fn is_sin_diff(u: &Expr, v: &Expr) -> Option<(Expr, Expr)> {
+    if let (Some((s1, c1)), Some((c2, s2))) = (get_sin_cos_args(u), get_sin_cos_args(v)) {
+        // u = sin(x)cos(y), v = cos(x)sin(y)
+        // x = s1, y = c1. Check if c2=x, s2=y
+        if s1 == c2 && c1 == s2 {
+            return Some((s1, c1));
+        }
+    }
+    None
+}
+
+// Helper for cos(x)cos(y) - sin(x)sin(y)
+fn is_cos_sum(u: &Expr, v: &Expr) -> Option<(Expr, Expr)> {
+    if let (Some((c1, c2)), Some((s1, s2))) = (get_cos_cos_args(u), get_sin_sin_args(v)) {
+        // u = cos(x)cos(y), v = sin(x)sin(y)
+        // Check if {c1, c2} == {s1, s2}
+        if (c1 == s1 && c2 == s2) || (c1 == s2 && c2 == s1) {
+            return Some((c1, c2));
+        }
+    }
+    None
+}
+
+// Helper for cos(x)cos(y) + sin(x)sin(y)
+fn is_cos_diff(u: &Expr, v: &Expr) -> Option<(Expr, Expr)> {
+    if let (Some((c1, c2)), Some((s1, s2))) = (get_cos_cos_args(u), get_sin_sin_args(v)) {
+        // u = cos(x)cos(y), v = sin(x)sin(y)
+        // Check if {c1, c2} == {s1, s2}
+        if (c1 == s1 && c2 == s2) || (c1 == s2 && c2 == s1) {
+            return Some((c1, c2));
+        }
+    }
+    None
+}
+
+// Extracts (x, y) from sin(x)*cos(y) or cos(y)*sin(x)
+fn get_sin_cos_args(expr: &Expr) -> Option<(Expr, Expr)> {
+    if let Expr::Mul(lhs, rhs) = expr {
+        // Check sin(x)*cos(y)
+        if let (
+            Expr::FunctionCall { name: n1, args: a1 },
+            Expr::FunctionCall { name: n2, args: a2 },
+        ) = (&**lhs, &**rhs)
+            && n1 == "sin"
+            && n2 == "cos"
+            && a1.len() == 1
+            && a2.len() == 1
+        {
+            return Some((a1[0].clone(), a2[0].clone()));
+        }
+        // Check cos(y)*sin(x)
+        if let (
+            Expr::FunctionCall { name: n1, args: a1 },
+            Expr::FunctionCall { name: n2, args: a2 },
+        ) = (&**lhs, &**rhs)
+            && n1 == "cos"
+            && n2 == "sin"
+            && a1.len() == 1
+            && a2.len() == 1
+        {
+            return Some((a2[0].clone(), a1[0].clone()));
+        }
+    }
+    None
+}
+
+// Extracts (x, y) from cos(x)*cos(y)
+fn get_cos_cos_args(expr: &Expr) -> Option<(Expr, Expr)> {
+    if let Expr::Mul(lhs, rhs) = expr {
+        if let (
+            Expr::FunctionCall { name: n1, args: a1 },
+            Expr::FunctionCall { name: n2, args: a2 },
+        ) = (&**lhs, &**rhs)
+            && n1 == "cos"
+            && n2 == "cos"
+            && a1.len() == 1
+            && a2.len() == 1
+        {
+            return Some((a1[0].clone(), a2[0].clone()));
+        }
+    }
+    None
+}
+
+// Extracts (x, y) from sin(x)*sin(y)
+fn get_sin_sin_args(expr: &Expr) -> Option<(Expr, Expr)> {
+    if let Expr::Mul(lhs, rhs) = expr {
+        if let (
+            Expr::FunctionCall { name: n1, args: a1 },
+            Expr::FunctionCall { name: n2, args: a2 },
+        ) = (&**lhs, &**rhs)
+            && n1 == "sin"
+            && n2 == "sin"
+            && a1.len() == 1
+            && a2.len() == 1
+        {
+            return Some((a1[0].clone(), a2[0].clone()));
+        }
     }
     None
 }

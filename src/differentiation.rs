@@ -3,6 +3,20 @@ use crate::Expr;
 use std::collections::HashSet;
 
 impl Expr {
+    /// Check if this expression contains any variables (symbols that are not constants)
+    fn contains_variables(&self, fixed_vars: &HashSet<String>) -> bool {
+        match self {
+            Expr::Number(_) => false,
+            Expr::Symbol(name) => !fixed_vars.contains(name),
+            Expr::Add(u, v) | Expr::Sub(u, v) | Expr::Mul(u, v) | Expr::Div(u, v) | Expr::Pow(u, v) => {
+                u.contains_variables(fixed_vars) || v.contains_variables(fixed_vars)
+            }
+            Expr::FunctionCall { args, .. } => {
+                args.iter().any(|arg| arg.contains_variables(fixed_vars))
+            }
+        }
+    }
+
     /// Differentiate this expression with respect to a variable
     ///
     /// # Arguments
@@ -1093,10 +1107,8 @@ impl Expr {
 
             // Power rule with LOGARITHMIC DIFFERENTIATION for variable exponents
             Expr::Pow(u, v) => {
-                let v_prime = v.derive(var, fixed_vars);
-
-                // Check if exponent is constant
-                if matches!(v_prime, Expr::Number(0.0)) {
+                // Check if exponent is constant (contains no variables)
+                if !v.contains_variables(fixed_vars) {
                     // Constant exponent - use standard power rule
                     // (u^n)' = n * u^(n-1) * u'
                     let u_prime = u.derive(var, fixed_vars);
@@ -1113,6 +1125,7 @@ impl Expr {
                     // Variable exponent - use LOGARITHMIC DIFFERENTIATION!
                     // d/dx[u^v] = u^v * (v' * ln(u) + v * u'/u)
                     let u_prime = u.derive(var, fixed_vars);
+                    let v_prime = v.derive(var, fixed_vars);
 
                     // Term 1: v' * ln(u)
                     let ln_u = Expr::FunctionCall {
