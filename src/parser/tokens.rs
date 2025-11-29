@@ -7,7 +7,12 @@ pub enum Token {
     LeftParen,
     RightParen,
     Comma,
-    Derivative { order: u32, func: String, args: String, var: String },
+    Derivative {
+        order: u32,
+        func: String,
+        args: String,
+        var: String,
+    },
 }
 
 /// Operator types (arithmetic and built-in functions)

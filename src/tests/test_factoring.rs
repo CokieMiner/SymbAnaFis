@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::{Expr, simplify};
+    use crate::{Expr, simplification::simplify};
 
     #[test]
     fn test_perfect_square_factoring() {
@@ -24,8 +24,8 @@ mod tests {
         // Expected: (x + 1)^2
         let expected = Expr::Pow(
             Box::new(Expr::Add(
-                Box::new(Expr::Symbol("x".to_string())),
                 Box::new(Expr::Number(1.0)),
+                Box::new(Expr::Symbol("x".to_string())),
             )),
             Box::new(Expr::Number(2.0)),
         );

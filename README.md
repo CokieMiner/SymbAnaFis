@@ -22,23 +22,84 @@ symb_anafis = "0.1.0"
 ## Quick Start
 
 ```rust
-use symb_anafis::diff;
+use symb_anafis::{diff, simplify};
 
 fn main() {
     // Differentiate sin(x) * x with respect to x
-    let result = diff(
+    let derivative = diff(
         "sin(x) * x".to_string(),
         "x".to_string(),
         None, // No fixed variables
         None  // No custom functions
     ).unwrap();
 
-    println!("Derivative: {}", result);
+    println!("Derivative: {}", derivative);
     // Output: cos(x) * x + sin(x)
+
+    // Simplify an expression
+    let simplified = simplify(
+        "x^2 + 2*x + 1".to_string(),
+        None, // No fixed variables
+        None  // No custom functions
+    ).unwrap();
+
+    println!("Simplified: {}", simplified);
+    // Output: (x + 1)^2
 }
 ```
 
+## Configuration
+
+You can configure safety limits using environment variables:
+
+- `SYMB_ANAFIS_MAX_DEPTH`: Maximum AST depth (default: 100)
+- `SYMB_ANAFIS_MAX_NODES`: Maximum AST node count (default: 10000)
+
+```bash
+export SYMB_ANAFIS_MAX_DEPTH=200
+export SYMB_ANAFIS_MAX_NODES=50000
+```
+
 ## Advanced Usage
+
+### Expression Simplification
+
+You can simplify expressions without differentiation:
+
+```rust
+use symb_anafis::simplify;
+
+fn main() {
+    // Simplify a complex expression
+    let result = simplify(
+        "sin(x)^2 + cos(x)^2".to_string(),
+        None, // No fixed variables
+        None  // No custom functions
+    ).unwrap();
+
+    println!("Simplified: {}", result);
+    // Output: 1
+}
+```
+
+### Multi-Character Symbols
+
+For symbols with multiple characters (like "sigma", "alpha", etc.), pass them as fixed variables to ensure they're treated as single symbols:
+
+```rust
+use symb_anafis::simplify;
+
+fn main() {
+    // This treats "sigma" as one symbol
+    let result = simplify(
+        "(sigma^2)^2".to_string(),
+        Some(&["sigma".to_string()]),
+        None
+    ).unwrap();
+    println!("Simplified: {}", result);
+    // Output: sigma^4
+}
+```
 
 ### Fixed Variables and Custom Functions
 

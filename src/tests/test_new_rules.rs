@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::{Expr, simplify};
+    use crate::{Expr, simplification::simplify};
 
     #[test]
     fn test_roots_simplification() {

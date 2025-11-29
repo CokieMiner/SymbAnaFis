@@ -32,10 +32,7 @@ pub fn apply_algebraic_rules(expr: Expr) -> Expr {
         ),
         Expr::FunctionCall { name, args } => Expr::FunctionCall {
             name,
-            args: args
-                .into_iter()
-                .map(|arg| apply_algebraic_rules(arg))
-                .collect(),
+            args: args.into_iter().map(apply_algebraic_rules).collect(),
         },
         other => other,
     };
@@ -43,11 +40,11 @@ pub fn apply_algebraic_rules(expr: Expr) -> Expr {
     match expr {
         Expr::Add(u, v) => {
             // a + (-b) = a - b
-            if let Some(neg_term) = is_negative_term(&*v) {
+            if let Some(neg_term) = is_negative_term(&v) {
                 return Expr::Sub(u, neg_term);
             }
             // (-b) + a = a - b
-            if let Some(neg_term) = is_negative_term(&*u) {
+            if let Some(neg_term) = is_negative_term(&u) {
                 return Expr::Sub(v, neg_term);
             }
 
@@ -57,41 +54,39 @@ pub fn apply_algebraic_rules(expr: Expr) -> Expr {
             }
 
             // Combine number + fraction: a + b/c = (a*c + b)/c
-            if let (Expr::Number(a), Expr::Div(b, c)) = (&*u, &*v) {
-                if let (Expr::Number(b_val), Expr::Number(c_val)) = (&**b, &**c) {
-                    let numerator = a * c_val + b_val;
-                    return Expr::Div(
-                        Box::new(Expr::Number(numerator)),
-                        Box::new(Expr::Number(*c_val)),
-                    );
-                }
+            if let (Expr::Number(a), Expr::Div(b, c)) = (&*u, &*v)
+                && let (Expr::Number(b_val), Expr::Number(c_val)) = (&**b, &**c)
+            {
+                let numerator = a * c_val + b_val;
+                return Expr::Div(
+                    Box::new(Expr::Number(numerator)),
+                    Box::new(Expr::Number(*c_val)),
+                );
             }
             // Combine fraction + fraction with same denominator: a/c + b/c = (a+b)/c
-            if let (Expr::Div(a, c1), Expr::Div(b, c2)) = (&*u, &*v) {
-                if c1 == c2 {
-                    if let (Expr::Number(a_val), Expr::Number(b_val)) = (&**a, &**b) {
-                        let numerator = a_val + b_val;
-                        return Expr::Div(Box::new(Expr::Number(numerator)), c1.clone());
-                    }
-                }
+            if let (Expr::Div(a, c1), Expr::Div(b, c2)) = (&*u, &*v)
+                && c1 == c2
+                && let (Expr::Number(a_val), Expr::Number(b_val)) = (&**a, &**b)
+            {
+                let numerator = a_val + b_val;
+                return Expr::Div(Box::new(Expr::Number(numerator)), c1.clone());
             }
 
             // Combine fraction + fraction with different denominators: a/c + b/d = (a*d + b*c)/(c*d)
-            if let (Expr::Div(a, c), Expr::Div(b, d)) = (&*u, &*v) {
-                if let (
+            if let (Expr::Div(a, c), Expr::Div(b, d)) = (&*u, &*v)
+                && let (
                     Expr::Number(a_val),
                     Expr::Number(b_val),
                     Expr::Number(c_val),
                     Expr::Number(d_val),
                 ) = (&**a, &**b, &**c, &**d)
-                {
-                    let numerator = a_val * d_val + b_val * c_val;
-                    let denominator = c_val * d_val;
-                    return Expr::Div(
-                        Box::new(Expr::Number(numerator)),
-                        Box::new(Expr::Number(denominator)),
-                    );
-                }
+            {
+                let numerator = a_val * d_val + b_val * c_val;
+                let denominator = c_val * d_val;
+                return Expr::Div(
+                    Box::new(Expr::Number(numerator)),
+                    Box::new(Expr::Number(denominator)),
+                );
             }
 
             // Flatten and sort for canonical ordering
@@ -115,15 +110,15 @@ pub fn apply_algebraic_rules(expr: Expr) -> Expr {
             }
 
             // 1 * x = x, x * 1 = x
-            if let Expr::Number(n) = &*u {
-                if *n == 1.0 {
-                    return *v;
-                }
+            if let Expr::Number(n) = &*u
+                && *n == 1.0
+            {
+                return *v;
             }
-            if let Expr::Number(n) = &*v {
-                if *n == 1.0 {
-                    return *u;
-                }
+            if let Expr::Number(n) = &*v
+                && *n == 1.0
+            {
+                return *u;
             }
 
             // Flatten and sort
@@ -135,10 +130,10 @@ pub fn apply_algebraic_rules(expr: Expr) -> Expr {
 
             // CRITICAL FIX: If try_flatten_mul_div created a single Div expression,
             // return it immediately without further processing to preserve the structure
-            if terms.len() == 1 {
-                if let Expr::Div(_, _) = &terms[0] {
-                    return terms[0].clone();
-                }
+            if terms.len() == 1
+                && let Expr::Div(_, _) = &terms[0]
+            {
+                return terms[0].clone();
             }
 
             // Combine like terms (x * x = x^2)
@@ -262,37 +257,37 @@ pub fn apply_algebraic_rules(expr: Expr) -> Expr {
             }
 
             // x^0 = 1 for x != 0
-            if let Expr::Number(n) = *v {
-                if n == 0.0 {
-                    return Expr::Number(1.0);
-                }
+            if let Expr::Number(n) = *v
+                && n == 0.0
+            {
+                return Expr::Number(1.0);
             }
 
             // x^1 = x
-            if let Expr::Number(n) = *v {
-                if n == 1.0 {
-                    return *u;
-                }
+            if let Expr::Number(n) = *v
+                && n == 1.0
+            {
+                return *u;
             }
 
             // x^-n = 1/x^n for n > 0
-            if let Expr::Number(n) = *v {
-                if n < 0.0 {
-                    let positive_exp = Expr::Number(-n);
-                    let denom = Expr::Pow(u, Box::new(positive_exp));
-                    return Expr::Div(Box::new(Expr::Number(1.0)), Box::new(denom));
-                }
+            if let Expr::Number(n) = *v
+                && n < 0.0
+            {
+                let positive_exp = Expr::Number(-n);
+                let denom = Expr::Pow(u, Box::new(positive_exp));
+                return Expr::Div(Box::new(Expr::Number(1.0)), Box::new(denom));
             }
 
             // x^(-a/b) = 1/x^(a/b) for a > 0, b > 0
-            if let Expr::Div(num, den) = &*v {
-                if let (Expr::Number(n), Expr::Number(d)) = (&**num, &**den) {
-                    if *n < 0.0 && *d > 0.0 {
-                        let positive_exp = Expr::Div(Box::new(Expr::Number(-*n)), den.clone());
-                        let denom = Expr::Pow(u, Box::new(positive_exp));
-                        return Expr::Div(Box::new(Expr::Number(1.0)), Box::new(denom));
-                    }
-                }
+            if let Expr::Div(num, den) = &*v
+                && let (Expr::Number(n), Expr::Number(d)) = (&**num, &**den)
+                && *n < 0.0
+                && *d > 0.0
+            {
+                let positive_exp = Expr::Div(Box::new(Expr::Number(-*n)), den.clone());
+                let denom = Expr::Pow(u, Box::new(positive_exp));
+                return Expr::Div(Box::new(Expr::Number(1.0)), Box::new(denom));
             }
 
             Expr::Pow(u, v)
@@ -628,8 +623,14 @@ fn try_factor_common_terms(terms: Vec<Expr>) -> Vec<Expr> {
     if terms.len() == 3
         && let Some((a, b)) = is_perfect_square(&terms)
     {
+        // Sort a and b for canonical order
+        let (first, second) = if compare_expr(&a, &b) == Ordering::Greater {
+            (a, b)
+        } else {
+            (b, a)
+        };
         return vec![Expr::Pow(
-            Box::new(Expr::Add(Box::new(a), Box::new(b))),
+            Box::new(Expr::Add(Box::new(first), Box::new(second))),
             Box::new(Expr::Number(2.0)),
         )];
     }
@@ -697,13 +698,23 @@ fn is_perfect_square(terms: &[Expr]) -> Option<(Expr, Expr)> {
                     squares.push(*base.clone());
                 }
             }
+            Expr::Number(n) => {
+                if *n == 1.0 {
+                    // 1 = 1^2
+                    squares.push(Expr::Number(1.0));
+                }
+            }
             Expr::Mul(coeff, rest) => {
                 // Check for 2 * (a * b)
                 if let Expr::Number(n) = **coeff
                     && n == 2.0
-                    && let Expr::Mul(a, b) = &**rest
                 {
-                    cross_terms.push((*a.clone(), *b.clone()));
+                    if let Expr::Mul(a, b) = &**rest {
+                        cross_terms.push((*a.clone(), *b.clone()));
+                    } else {
+                        // 2 * a, so b = 1
+                        cross_terms.push((*rest.clone(), Expr::Number(1.0)));
+                    }
                 }
                 // Check for (2 * a) * b
                 else if let Expr::Mul(inner_coeff, a) = &**coeff
@@ -721,8 +732,20 @@ fn is_perfect_square(terms: &[Expr]) -> Option<(Expr, Expr)> {
     if squares.len() == 2 && cross_terms.len() == 1 {
         let (a, b) = &cross_terms[0];
         // Check if the squares match the cross term variables
-        if (squares[0] == *a && squares[1] == *b) || (squares[0] == *b && squares[1] == *a) {
-            return Some((squares[0].clone(), squares[1].clone()));
+        let square_a = if *a == Expr::Number(1.0) {
+            Expr::Number(1.0)
+        } else {
+            a.clone()
+        };
+        let square_b = if *b == Expr::Number(1.0) {
+            Expr::Number(1.0)
+        } else {
+            b.clone()
+        };
+        if (squares.contains(&square_a) && squares.contains(&square_b))
+            || (squares.contains(&square_b) && squares.contains(&square_a))
+        {
+            return Some((a.clone(), b.clone()));
         }
     }
 
@@ -795,12 +818,11 @@ fn compare_binary(l1: &Expr, r1: &Expr, l2: &Expr, r2: &Expr) -> Ordering {
 }
 
 fn is_negative_term(expr: &Expr) -> Option<Box<Expr>> {
-    if let Expr::Mul(a, b) = expr {
-        if let Expr::Number(n) = **a {
-            if n == -1.0 {
-                return Some(b.clone());
-            }
-        }
+    if let Expr::Mul(a, b) = expr
+        && let Expr::Number(n) = **a
+        && n == -1.0
+    {
+        return Some(b.clone());
     }
     None
 }
@@ -840,12 +862,12 @@ fn combine_power_terms(terms: Vec<Expr>) -> Vec<Expr> {
         // Actually (x*y)^1 is just x*y, so it doesn't change structure much, but might reorder.
         // Let's skip if exponent is 1.0 to preserve canonical ordering of factors?
         // The user asked for x^n * y^n = (x*y)^n.
-        if let Expr::Number(n) = *exp_i {
-            if n == 1.0 {
-                result.push(term_i.clone());
-                processed[i] = true;
-                continue;
-            }
+        if let Expr::Number(n) = *exp_i
+            && n == 1.0
+        {
+            result.push(term_i.clone());
+            processed[i] = true;
+            continue;
         }
 
         let mut bases = vec![*base_i];

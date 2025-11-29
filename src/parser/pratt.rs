@@ -219,11 +219,19 @@ impl<'a> Parser<'a> {
                 }
             }
 
-            Token::Derivative { order, func, args: _, var } => {
+            Token::Derivative {
+                order,
+                func,
+                args: _,
+                var,
+            } => {
                 self.advance();
                 // For now, create a symbol with the derivative notation
                 // Later we might want to create a more structured representation
-                Ok(Expr::Symbol(format!("∂^{}_{}/∂_{}^{}", order, func, var, order)))
+                Ok(Expr::Symbol(format!(
+                    "∂^{}_{}/∂_{}^{}",
+                    order, func, var, order
+                )))
             }
 
             _ => Err(DiffError::InvalidToken(format!("{:?}", token))),

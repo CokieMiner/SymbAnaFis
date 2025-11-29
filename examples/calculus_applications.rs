@@ -20,9 +20,27 @@ fn main() {
 
     // Box volume: V = x * y * z, with constraint x + 2y + 2z = constant
     let volume = "x * y * z";
-    let volume_grad_x = diff(volume.to_string(), "x".to_string(), Some(&["y".to_string(), "z".to_string()]), None).unwrap();
-    let volume_grad_y = diff(volume.to_string(), "y".to_string(), Some(&["x".to_string(), "z".to_string()]), None).unwrap();
-    let volume_grad_z = diff(volume.to_string(), "z".to_string(), Some(&["x".to_string(), "y".to_string()]), None).unwrap();
+    let volume_grad_x = diff(
+        volume.to_string(),
+        "x".to_string(),
+        Some(&["y".to_string(), "z".to_string()]),
+        None,
+    )
+    .unwrap();
+    let volume_grad_y = diff(
+        volume.to_string(),
+        "y".to_string(),
+        Some(&["x".to_string(), "z".to_string()]),
+        None,
+    )
+    .unwrap();
+    let volume_grad_z = diff(
+        volume.to_string(),
+        "z".to_string(),
+        Some(&["x".to_string(), "y".to_string()]),
+        None,
+    )
+    .unwrap();
 
     println!("Volume: V = {}", volume);
     println!("∂V/∂x = {}", volume_grad_x);
@@ -49,8 +67,20 @@ fn main() {
     // Second-order DE: y'' + p(x)y' + q(x)y = 0
     // For y = e^(rx), we get: r²e^(rx) + p(x)re^(rx) + q(x)e^(rx) = 0
     let trial_solution = "exp(r * x)";
-    let y_prime = diff(trial_solution.to_string(), "x".to_string(), Some(&["r".to_string()]), None).unwrap();
-    let y_double_prime = diff(y_prime.clone(), "x".to_string(), Some(&["r".to_string()]), None).unwrap();
+    let y_prime = diff(
+        trial_solution.to_string(),
+        "x".to_string(),
+        Some(&["r".to_string()]),
+        None,
+    )
+    .unwrap();
+    let y_double_prime = diff(
+        y_prime.clone(),
+        "x".to_string(),
+        Some(&["r".to_string()]),
+        None,
+    )
+    .unwrap();
 
     println!("Trial solution: y = {}", trial_solution);
     println!("y' = {}", y_prime);
@@ -61,9 +91,27 @@ fn main() {
 
     // Scalar field: f(x,y,z) = x² + y² + z²
     let scalar_field = "x^2 + y^2 + z^2";
-    let grad_x = diff(scalar_field.to_string(), "x".to_string(), Some(&["y".to_string(), "z".to_string()]), None).unwrap();
-    let grad_y = diff(scalar_field.to_string(), "y".to_string(), Some(&["x".to_string(), "z".to_string()]), None).unwrap();
-    let grad_z = diff(scalar_field.to_string(), "z".to_string(), Some(&["x".to_string(), "y".to_string()]), None).unwrap();
+    let grad_x = diff(
+        scalar_field.to_string(),
+        "x".to_string(),
+        Some(&["y".to_string(), "z".to_string()]),
+        None,
+    )
+    .unwrap();
+    let grad_y = diff(
+        scalar_field.to_string(),
+        "y".to_string(),
+        Some(&["x".to_string(), "z".to_string()]),
+        None,
+    )
+    .unwrap();
+    let grad_z = diff(
+        scalar_field.to_string(),
+        "z".to_string(),
+        Some(&["x".to_string(), "y".to_string()]),
+        None,
+    )
+    .unwrap();
 
     println!("Scalar field: f(x,y,z) = {}", scalar_field);
     println!("∇f = ({}, {}, {})", grad_x, grad_y, grad_z);
@@ -77,8 +125,15 @@ fn main() {
     let derivative = diff(function.to_string(), "x".to_string(), None, None).unwrap();
 
     println!("Function: f(x) = {}", function);
-    println!("Linear approximation at x = {}: f(x) ≈ f({}) + f'({})(x - {})", approximation_point, approximation_point, approximation_point, approximation_point);
-    println!("f'({}) = {}", approximation_point, derivative.replace("x", approximation_point));
+    println!(
+        "Linear approximation at x = {}: f(x) ≈ f({}) + f'({})(x - {})",
+        approximation_point, approximation_point, approximation_point, approximation_point
+    );
+    println!(
+        "f'({}) = {}",
+        approximation_point,
+        derivative.replace("x", approximation_point)
+    );
 
     println!("\n7. MEAN VALUE THEOREM - Rolle's Theorem");
     println!("-------------------------------------");
@@ -90,7 +145,10 @@ fn main() {
 
     println!("Function: f(x) = {}", function);
     println!("f'(x) = {}", derivative);
-    println!("Critical points where f'(x) = 0: solve {}", derivative.replace("x", "c"));
+    println!(
+        "Critical points where f'(x) = 0: solve {}",
+        derivative.replace("x", "c")
+    );
 
     println!("\n8. L'HÔPITAL'S RULE - Indeterminate Forms");
     println!("----------------------------------------");
@@ -113,7 +171,10 @@ fn main() {
     let dx_dt = diff(x_parametric.to_string(), "t".to_string(), None, None).unwrap();
     let dy_dt = diff(y_parametric.to_string(), "t".to_string(), None, None).unwrap();
 
-    println!("Parametric curve: x(t) = {}, y(t) = {}", x_parametric, y_parametric);
+    println!(
+        "Parametric curve: x(t) = {}, y(t) = {}",
+        x_parametric, y_parametric
+    );
     println!("dx/dt = {}", dx_dt);
     println!("dy/dt = {}", dy_dt);
     println!("Arc length element: ds = √[({})² + ({})²] dt", dx_dt, dy_dt);

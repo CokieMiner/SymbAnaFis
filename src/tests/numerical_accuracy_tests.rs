@@ -10,7 +10,12 @@ fn test_polynomial_accuracy() {
 
     // d/dx[5x^4 + 3x^2 + 7] = 20x^3 + 6x
     let result = diff("5*x^4 + 3*x^2 + 7".to_string(), "x".to_string(), None, None).unwrap();
-    assert!(result.contains("20") && result.contains("x^3") && result.contains("6") && result.contains("x"));
+    assert!(
+        result.contains("20")
+            && result.contains("x^3")
+            && result.contains("6")
+            && result.contains("x")
+    );
 }
 
 #[test]

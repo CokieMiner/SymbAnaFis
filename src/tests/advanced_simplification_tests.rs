@@ -1,6 +1,6 @@
 // Advanced simplification tests - complex algebraic and trigonometric identities
 
-use crate::{simplify, parser};
+use crate::{parser, simplification::simplify};
 use std::collections::HashSet;
 
 fn parse_expr(s: &str) -> crate::Expr {

@@ -1,14 +1,13 @@
 use symb_anafis::{diff, parse, simplify};
 
 fn main() {
-    // Test fraction addition
-    let expr1 = parse(
-        "1/2 + 1/3",
-        &std::collections::HashSet::new(),
-        &std::collections::HashSet::new(),
+    // Test fraction addition using the new simplify API
+    let simplified = simplify(
+        "1/2 + 1/3".to_string(),
+        None, // No fixed variables
+        None, // No custom functions
     )
     .unwrap();
-    let simplified = simplify(expr1);
     println!("1/2 + 1/3 simplified: {}", simplified);
 
     // Original test

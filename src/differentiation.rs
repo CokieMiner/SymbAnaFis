@@ -8,7 +8,11 @@ impl Expr {
         match self {
             Expr::Number(_) => false,
             Expr::Symbol(name) => !fixed_vars.contains(name),
-            Expr::Add(u, v) | Expr::Sub(u, v) | Expr::Mul(u, v) | Expr::Div(u, v) | Expr::Pow(u, v) => {
+            Expr::Add(u, v)
+            | Expr::Sub(u, v)
+            | Expr::Mul(u, v)
+            | Expr::Div(u, v)
+            | Expr::Pow(u, v) => {
                 u.contains_variables(fixed_vars) || v.contains_variables(fixed_vars)
             }
             Expr::FunctionCall { args, .. } => {
@@ -38,19 +42,22 @@ impl Expr {
                         let right = parts[1]; // var^order
 
                         // Extract order from right side
-                        if let Some(order_str) = right.split('^').nth(1) {
-                            if let Ok(current_order) = order_str.parse::<i32>() {
-                                let new_order = current_order + 1;
+                        if let Some(order_str) = right.split('^').nth(1)
+                            && let Ok(current_order) = order_str.parse::<i32>()
+                        {
+                            let new_order = current_order + 1;
 
-                                // Extract func and args from left side
-                                if let Some(func_part) = left.strip_prefix("∂^") {
-                                    if let Some(order_end) = func_part.find('_') {
-                                        let func_name = &func_part[order_end + 1..];
-                                        // Reconstruct with new order
-                                        let new_symbol = format!("∂^{}_{}/∂_{}^{}", new_order, func_name, var, new_order);
-                                        return Expr::Symbol(new_symbol);
-                                    }
-                                }
+                            // Extract func and args from left side
+                            if let Some(func_part) = left.strip_prefix("∂^")
+                                && let Some(order_end) = func_part.find('_')
+                            {
+                                let func_name = &func_part[order_end + 1..];
+                                // Reconstruct with new order
+                                let new_symbol = format!(
+                                    "∂^{}_{}/∂_{}^{}",
+                                    new_order, func_name, var, new_order
+                                );
+                                return Expr::Symbol(new_symbol);
                             }
                         }
                     }
@@ -1022,7 +1029,7 @@ impl Expr {
 
                         let mut terms = Vec::new();
 
-                        for (_i, arg) in args.iter().enumerate() {
+                        for arg in args.iter() {
                             let arg_prime = arg.derive(var, fixed_vars);
 
                             // Optimization: if derivative of argument is 0, skip this term

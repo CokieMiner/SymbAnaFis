@@ -107,10 +107,7 @@ mod simplification_advanced {
                 Box::new(base.clone()),
                 Box::new(Expr::Number(3.0)),
             )),
-            Box::new(Expr::Pow(
-                Box::new(base),
-                Box::new(Expr::Number(2.0)),
-            )),
+            Box::new(Expr::Pow(Box::new(base), Box::new(Expr::Number(2.0)))),
         );
         let result = simplify(expr);
         // Should simplify to (x+1)^1, which should further simplify to (x+1)
@@ -138,10 +135,7 @@ mod simplification_advanced {
                 Box::new(base.clone()),
                 Box::new(Expr::Number(4.0)),
             )),
-            Box::new(Expr::Pow(
-                Box::new(base),
-                Box::new(Expr::Number(2.0)),
-            )),
+            Box::new(Expr::Pow(Box::new(base), Box::new(Expr::Number(2.0)))),
         );
         let result = simplify(expr);
         // Should simplify to (x^2 + y)^2
@@ -153,10 +147,7 @@ mod simplification_advanced {
                 Box::new(Expr::Number(2.0)),
             )),
         );
-        let expected = Expr::Pow(
-            Box::new(expected_base),
-            Box::new(Expr::Number(2.0)),
-        );
+        let expected = Expr::Pow(Box::new(expected_base), Box::new(Expr::Number(2.0)));
         assert_eq!(result, expected);
     }
 
@@ -172,10 +163,7 @@ mod simplification_advanced {
                 Box::new(base.clone()),
                 Box::new(Expr::Number(3.0)),
             )),
-            Box::new(Expr::Pow(
-                Box::new(base),
-                Box::new(Expr::Number(2.0)),
-            )),
+            Box::new(Expr::Pow(Box::new(base), Box::new(Expr::Number(2.0)))),
         );
         let result = simplify(expr);
         // Should simplify to sin(x)^1, which should further simplify to sin(x)

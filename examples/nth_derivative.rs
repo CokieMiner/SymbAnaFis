@@ -13,13 +13,7 @@ fn main() {
     println!("Original expression: {}", expr);
 
     // First derivative using diff API
-    let first_deriv = diff(
-        expr.to_string(),
-        "x".to_string(),
-        None,
-        Some(&custom_funcs),
-    )
-    .unwrap();
+    let first_deriv = diff(expr.to_string(), "x".to_string(), None, Some(&custom_funcs)).unwrap();
     println!("First derivative: {}", first_deriv);
 
     // Second derivative - now we can parse the derivative notation!

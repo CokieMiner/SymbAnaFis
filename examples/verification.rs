@@ -3,15 +3,8 @@ use symb_anafis::{Expr, simplify};
 fn main() {
     println!("--- Log Power Rule ---");
     // ln(x^2) -> 2 * ln(x)
-    let expr = Expr::FunctionCall {
-        name: "ln".to_string(),
-        args: vec![Expr::Pow(
-            Box::new(Expr::Symbol("x".to_string())),
-            Box::new(Expr::Number(2.0)),
-        )],
-    };
-    println!("Original: {}", expr);
-    println!("Simplified: {}", simplify(expr));
+    let result = simplify("ln(x^2)".to_string(), None, None).unwrap();
+    println!("ln(x^2) simplified: {}", result);
 
     println!("\n--- Fraction Display ---");
     // 1 / x^2 -> 1 / x^2 (no parens around denominator)
@@ -26,25 +19,16 @@ fn main() {
 
     println!("\n--- Power of Power ---");
     // (x^2)^2 -> x^4
-    let expr = Expr::Pow(
-        Box::new(Expr::Pow(
-            Box::new(Expr::Symbol("x".to_string())),
-            Box::new(Expr::Number(2.0)),
-        )),
-        Box::new(Expr::Number(2.0)),
-    );
-    println!("Original: {}", expr);
-    println!("Simplified: {}", simplify(expr));
+    let result = simplify("(x^2)^2".to_string(), None, None).unwrap();
+    println!("(x^2)^2 simplified: {}", result);
 
     println!("\n--- Sigma Power ---");
     // (sigma^2)^2 -> sigma^4
-    let expr = Expr::Pow(
-        Box::new(Expr::Pow(
-            Box::new(Expr::Symbol("sigma".to_string())),
-            Box::new(Expr::Number(2.0)),
-        )),
-        Box::new(Expr::Number(2.0)),
-    );
-    println!("Original: {}", expr);
-    println!("Simplified: {}", simplify(expr));
+    let result = simplify(
+        "(sigma^2)^2".to_string(),
+        Some(&["sigma".to_string()]),
+        None,
+    )
+    .unwrap();
+    println!("(sigma^2)^2 simplified: {}", result);
 }

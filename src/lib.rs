@@ -23,9 +23,25 @@ mod tests;
 pub use ast::Expr;
 pub use error::DiffError;
 pub use parser::parse;
-pub use simplification::simplify;
 
 use std::collections::HashSet;
+use std::env;
+
+/// Get the maximum allowed AST depth from environment variable or default
+fn max_depth() -> usize {
+    env::var("SYMB_ANAFIS_MAX_DEPTH")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(100)
+}
+
+/// Get the maximum allowed AST node count from environment variable or default
+fn max_nodes() -> usize {
+    env::var("SYMB_ANAFIS_MAX_NODES")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(10_000)
+}
 
 /// Main API function for symbolic differentiation
 ///
@@ -78,10 +94,10 @@ pub fn diff(
     let ast = parser::parse(&formula, &fixed_set, &custom_funcs)?;
 
     // Step 4: Check safety limits
-    if ast.max_depth() > MAX_DEPTH {
+    if ast.max_depth() > max_depth() {
         return Err(DiffError::MaxDepthExceeded);
     }
-    if ast.node_count() > MAX_NODES {
+    if ast.node_count() > max_nodes() {
         return Err(DiffError::MaxNodesExceeded);
     }
 
@@ -95,6 +111,57 @@ pub fn diff(
     Ok(format!("{}", simplified))
 }
 
-// Constants for safety limits
-const MAX_DEPTH: usize = 100;
-const MAX_NODES: usize = 10_000;
+/// Simplify a mathematical expression without differentiation
+///
+/// # Arguments
+/// * `formula` - Mathematical expression to simplify (e.g., "x^2 + 2*x + 1")
+/// * `fixed_vars` - Symbols that are constants (e.g., &["a", "b"])
+/// * `custom_functions` - User-defined function names (e.g., &["f", "g"])
+///
+/// # Returns
+/// The simplified expression as a string, or an error if parsing/simplification fails
+///
+/// # Example
+/// ```ignore
+/// let result = simplify(
+///     "x^2 + 2*x + 1".to_string(),
+///     None, // No fixed variables
+///     None  // No custom functions
+/// ).unwrap();
+///
+/// println!("Simplified: {}", result);
+/// // Output: (x + 1)^2
+/// ```
+pub fn simplify(
+    formula: String,
+    fixed_vars: Option<&[String]>,
+    custom_functions: Option<&[String]>,
+) -> Result<String, DiffError> {
+    // Step 1: Convert to HashSets for O(1) lookups
+    let fixed_set: HashSet<String> = fixed_vars.unwrap_or(&[]).iter().cloned().collect();
+    let custom_funcs: HashSet<String> = custom_functions.unwrap_or(&[]).iter().cloned().collect();
+
+    // Check for name collisions
+    for name in &fixed_set {
+        if custom_funcs.contains(name) {
+            return Err(DiffError::NameCollision { name: name.clone() });
+        }
+    }
+
+    // Step 2: Parse the formula into AST
+    let ast = parser::parse(&formula, &fixed_set, &custom_funcs)?;
+
+    // Step 3: Check safety limits
+    if ast.max_depth() > max_depth() {
+        return Err(DiffError::MaxDepthExceeded);
+    }
+    if ast.node_count() > max_nodes() {
+        return Err(DiffError::MaxNodesExceeded);
+    }
+
+    // Step 4: Simplify
+    let simplified = simplification::simplify(ast);
+
+    // Step 5: Convert to string
+    Ok(format!("{}", simplified))
+}

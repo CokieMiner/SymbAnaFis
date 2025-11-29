@@ -14,16 +14,16 @@ pub fn apply_root_rules(expr: Expr) -> Expr {
                     return Expr::Number(1.0);
                 }
                 // sqrt(x^n) -> x^(n/2)
-                if let Expr::Pow(base, exp) = content {
-                    if let Expr::Number(n) = **exp {
-                        // If n is even, result is x^(n/2)
-                        if n % 2.0 == 0.0 {
-                            let new_exp = n / 2.0;
-                            if new_exp == 1.0 {
-                                return *base.clone();
-                            }
-                            return Expr::Pow(base.clone(), Box::new(Expr::Number(new_exp)));
+                if let Expr::Pow(base, exp) = content
+                    && let Expr::Number(n) = **exp
+                {
+                    // If n is even, result is x^(n/2)
+                    if n % 2.0 == 0.0 {
+                        let new_exp = n / 2.0;
+                        if new_exp == 1.0 {
+                            return *base.clone();
                         }
+                        return Expr::Pow(base.clone(), Box::new(Expr::Number(new_exp)));
                     }
                 }
                 // sqrt(sqrt(x)) -> x^(1/4)
@@ -48,16 +48,16 @@ pub fn apply_root_rules(expr: Expr) -> Expr {
                     return Expr::Number(1.0);
                 }
                 // cbrt(x^n) -> x^(n/3)
-                if let Expr::Pow(base, exp) = content {
-                    if let Expr::Number(n) = **exp {
-                        // If n is multiple of 3, result is x^(n/3)
-                        if n % 3.0 == 0.0 {
-                            let new_exp = n / 3.0;
-                            if new_exp == 1.0 {
-                                return *base.clone();
-                            }
-                            return Expr::Pow(base.clone(), Box::new(Expr::Number(new_exp)));
+                if let Expr::Pow(base, exp) = content
+                    && let Expr::Number(n) = **exp
+                {
+                    // If n is multiple of 3, result is x^(n/3)
+                    if n % 3.0 == 0.0 {
+                        let new_exp = n / 3.0;
+                        if new_exp == 1.0 {
+                            return *base.clone();
                         }
+                        return Expr::Pow(base.clone(), Box::new(Expr::Number(new_exp)));
                     }
                 }
             }

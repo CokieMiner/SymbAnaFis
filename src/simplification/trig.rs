@@ -740,10 +740,11 @@ fn get_trig_sq(expr: &Expr) -> Option<(&str, Expr)> {
 
 // Helper for sin(x)cos(y) + cos(x)sin(y)
 fn is_sin_sum(u: &Expr, v: &Expr) -> Option<(Expr, Expr)> {
-    if let (Some((s1, c1)), Some((s2, c2))) = (get_sin_cos_args(u), get_sin_cos_args(v)) {
-        if s1 == c2 && c1 == s2 {
-            return Some((s1, c1));
-        }
+    if let (Some((s1, c1)), Some((s2, c2))) = (get_sin_cos_args(u), get_sin_cos_args(v))
+        && s1 == c2
+        && c1 == s2
+    {
+        return Some((s1, c1));
     }
     None
 }
@@ -817,36 +818,34 @@ fn get_sin_cos_args(expr: &Expr) -> Option<(Expr, Expr)> {
 
 // Extracts (x, y) from cos(x)*cos(y)
 fn get_cos_cos_args(expr: &Expr) -> Option<(Expr, Expr)> {
-    if let Expr::Mul(lhs, rhs) = expr {
-        if let (
+    if let Expr::Mul(lhs, rhs) = expr
+        && let (
             Expr::FunctionCall { name: n1, args: a1 },
             Expr::FunctionCall { name: n2, args: a2 },
         ) = (&**lhs, &**rhs)
-            && n1 == "cos"
-            && n2 == "cos"
-            && a1.len() == 1
-            && a2.len() == 1
-        {
-            return Some((a1[0].clone(), a2[0].clone()));
-        }
+        && n1 == "cos"
+        && n2 == "cos"
+        && a1.len() == 1
+        && a2.len() == 1
+    {
+        return Some((a1[0].clone(), a2[0].clone()));
     }
     None
 }
 
 // Extracts (x, y) from sin(x)*sin(y)
 fn get_sin_sin_args(expr: &Expr) -> Option<(Expr, Expr)> {
-    if let Expr::Mul(lhs, rhs) = expr {
-        if let (
+    if let Expr::Mul(lhs, rhs) = expr
+        && let (
             Expr::FunctionCall { name: n1, args: a1 },
             Expr::FunctionCall { name: n2, args: a2 },
         ) = (&**lhs, &**rhs)
-            && n1 == "sin"
-            && n2 == "sin"
-            && a1.len() == 1
-            && a2.len() == 1
-        {
-            return Some((a1[0].clone(), a2[0].clone()));
-        }
+        && n1 == "sin"
+        && n2 == "sin"
+        && a1.len() == 1
+        && a2.len() == 1
+    {
+        return Some((a1[0].clone(), a2[0].clone()));
     }
     None
 }
