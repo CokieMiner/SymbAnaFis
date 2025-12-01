@@ -24,10 +24,12 @@ impl Rule for SinZeroRule {
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
         if let Expr::FunctionCall { name, args } = expr
-            && name == "sin" && args.len() == 1
-                && matches!(args[0], Expr::Number(n) if n == 0.0) {
-                    return Some(Expr::Number(0.0));
-                }
+            && name == "sin"
+            && args.len() == 1
+            && matches!(args[0], Expr::Number(n) if n == 0.0)
+        {
+            return Some(Expr::Number(0.0));
+        }
         None
     }
 }
@@ -50,10 +52,12 @@ impl Rule for CosZeroRule {
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
         if let Expr::FunctionCall { name, args } = expr
-            && name == "cos" && args.len() == 1
-                && matches!(args[0], Expr::Number(n) if n == 0.0) {
-                    return Some(Expr::Number(1.0));
-                }
+            && name == "cos"
+            && args.len() == 1
+            && matches!(args[0], Expr::Number(n) if n == 0.0)
+        {
+            return Some(Expr::Number(1.0));
+        }
         None
     }
 }
@@ -76,10 +80,12 @@ impl Rule for TanZeroRule {
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
         if let Expr::FunctionCall { name, args } = expr
-            && name == "tan" && args.len() == 1
-                && matches!(args[0], Expr::Number(n) if n == 0.0) {
-                    return Some(Expr::Number(0.0));
-                }
+            && name == "tan"
+            && args.len() == 1
+            && matches!(args[0], Expr::Number(n) if n == 0.0)
+        {
+            return Some(Expr::Number(0.0));
+        }
         None
     }
 }
@@ -105,47 +111,47 @@ impl Rule for PythagoreanIdentityRule {
             // Check for sin^2(x) + cos^2(x)
             if let (Expr::Pow(sin_base, sin_exp), Expr::Pow(cos_base, cos_exp)) = (&**u, &**v)
                 && matches!(**sin_exp, Expr::Number(n) if n == 2.0)
-                    && matches!(**cos_exp, Expr::Number(n) if n == 2.0)
-                    && let (
-                        Expr::FunctionCall {
-                            name: sin_name,
-                            args: sin_args,
-                        },
-                        Expr::FunctionCall {
-                            name: cos_name,
-                            args: cos_args,
-                        },
-                    ) = (&**sin_base, &**cos_base)
-                        && sin_name == "sin"
-                            && cos_name == "cos"
-                            && sin_args.len() == 1
-                            && cos_args.len() == 1
-                            && sin_args[0] == cos_args[0]
-                        {
-                            return Some(Expr::Number(1.0));
-                        }
+                && matches!(**cos_exp, Expr::Number(n) if n == 2.0)
+                && let (
+                    Expr::FunctionCall {
+                        name: sin_name,
+                        args: sin_args,
+                    },
+                    Expr::FunctionCall {
+                        name: cos_name,
+                        args: cos_args,
+                    },
+                ) = (&**sin_base, &**cos_base)
+                && sin_name == "sin"
+                && cos_name == "cos"
+                && sin_args.len() == 1
+                && cos_args.len() == 1
+                && sin_args[0] == cos_args[0]
+            {
+                return Some(Expr::Number(1.0));
+            }
             // Check for cos^2(x) + sin^2(x) (reverse order)
             if let (Expr::Pow(cos_base, cos_exp), Expr::Pow(sin_base, sin_exp)) = (&**u, &**v)
                 && matches!(**cos_exp, Expr::Number(n) if n == 2.0)
-                    && matches!(**sin_exp, Expr::Number(n) if n == 2.0)
-                    && let (
-                        Expr::FunctionCall {
-                            name: cos_name,
-                            args: cos_args,
-                        },
-                        Expr::FunctionCall {
-                            name: sin_name,
-                            args: sin_args,
-                        },
-                    ) = (&**cos_base, &**sin_base)
-                        && cos_name == "cos"
-                            && sin_name == "sin"
-                            && cos_args.len() == 1
-                            && sin_args.len() == 1
-                            && cos_args[0] == sin_args[0]
-                        {
-                            return Some(Expr::Number(1.0));
-                        }
+                && matches!(**sin_exp, Expr::Number(n) if n == 2.0)
+                && let (
+                    Expr::FunctionCall {
+                        name: cos_name,
+                        args: cos_args,
+                    },
+                    Expr::FunctionCall {
+                        name: sin_name,
+                        args: sin_args,
+                    },
+                ) = (&**cos_base, &**sin_base)
+                && cos_name == "cos"
+                && sin_name == "sin"
+                && cos_args.len() == 1
+                && sin_args.len() == 1
+                && cos_args[0] == sin_args[0]
+            {
+                return Some(Expr::Number(1.0));
+            }
         }
         None
     }
@@ -169,135 +175,137 @@ impl Rule for CofunctionIdentityRule {
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
         if let Expr::FunctionCall { name, args } = expr
-            && args.len() == 1 {
-                if let Expr::Sub(lhs, rhs) = &args[0] {
-                    // Check for pi/2 - x (symbolic or direct number)
-                    if (if let Expr::Div(num, den) = &**lhs {
-                        helpers::is_pi(num) && matches!(**den, Expr::Number(n) if n == 2.0)
-                    } else {
-                        false
-                    }) || helpers::approx_eq(
-                        helpers::get_numeric_value(lhs),
-                        std::f64::consts::PI / 2.0,
-                    ) {
-                        match name.as_str() {
-                            "sin" => {
-                                return Some(Expr::FunctionCall {
-                                    name: "cos".to_string(),
-                                    args: vec![*rhs.clone()],
-                                });
-                            }
-                            "cos" => {
-                                return Some(Expr::FunctionCall {
-                                    name: "sin".to_string(),
-                                    args: vec![*rhs.clone()],
-                                });
-                            }
-                            "tan" => {
-                                return Some(Expr::FunctionCall {
-                                    name: "cot".to_string(),
-                                    args: vec![*rhs.clone()],
-                                });
-                            }
-                            "cot" => {
-                                return Some(Expr::FunctionCall {
-                                    name: "tan".to_string(),
-                                    args: vec![*rhs.clone()],
-                                });
-                            }
-                            "sec" => {
-                                return Some(Expr::FunctionCall {
-                                    name: "csc".to_string(),
-                                    args: vec![*rhs.clone()],
-                                });
-                            }
-                            "csc" => {
-                                return Some(Expr::FunctionCall {
-                                    name: "sec".to_string(),
-                                    args: vec![*rhs.clone()],
-                                });
-                            }
-                            _ => {}
+            && args.len() == 1
+        {
+            if let Expr::Sub(lhs, rhs) = &args[0] {
+                // Check for pi/2 - x (symbolic or direct number)
+                if (if let Expr::Div(num, den) = &**lhs {
+                    helpers::is_pi(num) && matches!(**den, Expr::Number(n) if n == 2.0)
+                } else {
+                    false
+                }) || helpers::approx_eq(
+                    helpers::get_numeric_value(lhs),
+                    std::f64::consts::PI / 2.0,
+                ) {
+                    match name.as_str() {
+                        "sin" => {
+                            return Some(Expr::FunctionCall {
+                                name: "cos".to_string(),
+                                args: vec![*rhs.clone()],
+                            });
                         }
+                        "cos" => {
+                            return Some(Expr::FunctionCall {
+                                name: "sin".to_string(),
+                                args: vec![*rhs.clone()],
+                            });
+                        }
+                        "tan" => {
+                            return Some(Expr::FunctionCall {
+                                name: "cot".to_string(),
+                                args: vec![*rhs.clone()],
+                            });
+                        }
+                        "cot" => {
+                            return Some(Expr::FunctionCall {
+                                name: "tan".to_string(),
+                                args: vec![*rhs.clone()],
+                            });
+                        }
+                        "sec" => {
+                            return Some(Expr::FunctionCall {
+                                name: "csc".to_string(),
+                                args: vec![*rhs.clone()],
+                            });
+                        }
+                        "csc" => {
+                            return Some(Expr::FunctionCall {
+                                name: "sec".to_string(),
+                                args: vec![*rhs.clone()],
+                            });
+                        }
+                        _ => {}
                     }
                 }
+            }
 
-                // Check for Add(pi/2, -x)
-                if let Expr::Add(u, v) = &args[0] {
-                    let (_angle, other) = if helpers::approx_eq(
-                        helpers::get_numeric_value(u),
-                        std::f64::consts::PI / 2.0,
-                    ) {
-                        (u, v)
-                    } else if helpers::approx_eq(
-                        helpers::get_numeric_value(v),
-                        std::f64::consts::PI / 2.0,
-                    ) {
-                        (v, u)
-                    } else {
-                        // Check for symbolic pi/2
-                        let is_pi_div_2 = |e: &Expr| {
-                            if let Expr::Div(num, den) = e {
-                                helpers::is_pi(num) && matches!(**den, Expr::Number(n) if n == 2.0)
-                            } else {
-                                false
-                            }
-                        };
-
-                        if is_pi_div_2(u) {
-                            (u, v)
-                        } else if is_pi_div_2(v) {
-                            (v, u)
+            // Check for Add(pi/2, -x)
+            if let Expr::Add(u, v) = &args[0] {
+                let (_angle, other) = if helpers::approx_eq(
+                    helpers::get_numeric_value(u),
+                    std::f64::consts::PI / 2.0,
+                ) {
+                    (u, v)
+                } else if helpers::approx_eq(
+                    helpers::get_numeric_value(v),
+                    std::f64::consts::PI / 2.0,
+                ) {
+                    (v, u)
+                } else {
+                    // Check for symbolic pi/2
+                    let is_pi_div_2 = |e: &Expr| {
+                        if let Expr::Div(num, den) = e {
+                            helpers::is_pi(num) && matches!(**den, Expr::Number(n) if n == 2.0)
                         } else {
-                            return None;
+                            false
                         }
                     };
 
-                    // Check if other is -x
-                    if let Expr::Mul(c, x) = &**other
-                        && matches!(**c, Expr::Number(n) if n == -1.0) {
-                            match name.as_str() {
-                                "sin" => {
-                                    return Some(Expr::FunctionCall {
-                                        name: "cos".to_string(),
-                                        args: vec![*x.clone()],
-                                    });
-                                }
-                                "cos" => {
-                                    return Some(Expr::FunctionCall {
-                                        name: "sin".to_string(),
-                                        args: vec![*x.clone()],
-                                    });
-                                }
-                                "tan" => {
-                                    return Some(Expr::FunctionCall {
-                                        name: "cot".to_string(),
-                                        args: vec![*x.clone()],
-                                    });
-                                }
-                                "cot" => {
-                                    return Some(Expr::FunctionCall {
-                                        name: "tan".to_string(),
-                                        args: vec![*x.clone()],
-                                    });
-                                }
-                                "sec" => {
-                                    return Some(Expr::FunctionCall {
-                                        name: "csc".to_string(),
-                                        args: vec![*x.clone()],
-                                    });
-                                }
-                                "csc" => {
-                                    return Some(Expr::FunctionCall {
-                                        name: "sec".to_string(),
-                                        args: vec![*x.clone()],
-                                    });
-                                }
-                                _ => {}
-                            }
+                    if is_pi_div_2(u) {
+                        (u, v)
+                    } else if is_pi_div_2(v) {
+                        (v, u)
+                    } else {
+                        return None;
+                    }
+                };
+
+                // Check if other is -x
+                if let Expr::Mul(c, x) = &**other
+                    && matches!(**c, Expr::Number(n) if n == -1.0)
+                {
+                    match name.as_str() {
+                        "sin" => {
+                            return Some(Expr::FunctionCall {
+                                name: "cos".to_string(),
+                                args: vec![*x.clone()],
+                            });
                         }
+                        "cos" => {
+                            return Some(Expr::FunctionCall {
+                                name: "sin".to_string(),
+                                args: vec![*x.clone()],
+                            });
+                        }
+                        "tan" => {
+                            return Some(Expr::FunctionCall {
+                                name: "cot".to_string(),
+                                args: vec![*x.clone()],
+                            });
+                        }
+                        "cot" => {
+                            return Some(Expr::FunctionCall {
+                                name: "tan".to_string(),
+                                args: vec![*x.clone()],
+                            });
+                        }
+                        "sec" => {
+                            return Some(Expr::FunctionCall {
+                                name: "csc".to_string(),
+                                args: vec![*x.clone()],
+                            });
+                        }
+                        "csc" => {
+                            return Some(Expr::FunctionCall {
+                                name: "sec".to_string(),
+                                args: vec![*x.clone()],
+                            });
+                        }
+                        _ => {}
+                    }
                 }
             }
+        }
         None
     }
 }
@@ -325,19 +333,20 @@ impl Rule for InverseTrigIdentityRule {
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
         if let Expr::FunctionCall { name, args } = expr
             && args.len() == 1
-                && let Expr::FunctionCall {
-                    name: inner_name,
-                    args: inner_args,
-                } = &args[0]
-                    && inner_args.len() == 1 {
-                        let inner_arg = &inner_args[0];
-                        match (name.as_str(), inner_name.as_str()) {
-                            ("sin", "asin") | ("cos", "acos") | ("tan", "atan") => {
-                                return Some(inner_arg.clone());
-                            }
-                            _ => {}
-                        }
-                    }
+            && let Expr::FunctionCall {
+                name: inner_name,
+                args: inner_args,
+            } = &args[0]
+            && inner_args.len() == 1
+        {
+            let inner_arg = &inner_args[0];
+            match (name.as_str(), inner_name.as_str()) {
+                ("sin", "asin") | ("cos", "acos") | ("tan", "atan") => {
+                    return Some(inner_arg.clone());
+                }
+                _ => {}
+            }
+        }
         None
     }
 }
@@ -365,19 +374,20 @@ impl Rule for InverseTrigCompositionRule {
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
         if let Expr::FunctionCall { name, args } = expr
             && args.len() == 1
-                && let Expr::FunctionCall {
-                    name: inner_name,
-                    args: inner_args,
-                } = &args[0]
-                    && inner_args.len() == 1 {
-                        let inner_arg = &inner_args[0];
-                        match (name.as_str(), inner_name.as_str()) {
-                            ("asin", "sin") | ("acos", "cos") | ("atan", "tan") => {
-                                return Some(inner_arg.clone());
-                            }
-                            _ => {}
-                        }
-                    }
+            && let Expr::FunctionCall {
+                name: inner_name,
+                args: inner_args,
+            } = &args[0]
+            && inner_args.len() == 1
+        {
+            let inner_arg = &inner_args[0];
+            match (name.as_str(), inner_name.as_str()) {
+                ("asin", "sin") | ("acos", "cos") | ("atan", "tan") => {
+                    return Some(inner_arg.clone());
+                }
+                _ => {}
+            }
+        }
         None
     }
 }
@@ -400,10 +410,12 @@ impl Rule for SinPiRule {
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
         if let Expr::FunctionCall { name, args } = expr
-            && name == "sin" && args.len() == 1
-                && helpers::is_pi(&args[0]) {
-                    return Some(Expr::Number(0.0));
-                }
+            && name == "sin"
+            && args.len() == 1
+            && helpers::is_pi(&args[0])
+        {
+            return Some(Expr::Number(0.0));
+        }
         None
     }
 }
@@ -426,10 +438,12 @@ impl Rule for CosPiRule {
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
         if let Expr::FunctionCall { name, args } = expr
-            && name == "cos" && args.len() == 1
-                && helpers::is_pi(&args[0]) {
-                    return Some(Expr::Number(-1.0));
-                }
+            && name == "cos"
+            && args.len() == 1
+            && helpers::is_pi(&args[0])
+        {
+            return Some(Expr::Number(-1.0));
+        }
         None
     }
 }
@@ -452,11 +466,14 @@ impl Rule for SinPiOverTwoRule {
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
         if let Expr::FunctionCall { name, args } = expr
-            && name == "sin" && args.len() == 1
-                && let Expr::Div(num, den) = &args[0]
-                    && helpers::is_pi(num) && matches!(**den, Expr::Number(n) if n == 2.0) {
-                        return Some(Expr::Number(1.0));
-                    }
+            && name == "sin"
+            && args.len() == 1
+            && let Expr::Div(num, den) = &args[0]
+            && helpers::is_pi(num)
+            && matches!(**den, Expr::Number(n) if n == 2.0)
+        {
+            return Some(Expr::Number(1.0));
+        }
         None
     }
 }
@@ -479,11 +496,14 @@ impl Rule for CosPiOverTwoRule {
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
         if let Expr::FunctionCall { name, args } = expr
-            && name == "cos" && args.len() == 1
-                && let Expr::Div(num, den) = &args[0]
-                    && helpers::is_pi(num) && matches!(**den, Expr::Number(n) if n == 2.0) {
-                        return Some(Expr::Number(0.0));
-                    }
+            && name == "cos"
+            && args.len() == 1
+            && let Expr::Div(num, den) = &args[0]
+            && helpers::is_pi(num)
+            && matches!(**den, Expr::Number(n) if n == 2.0)
+        {
+            return Some(Expr::Number(0.0));
+        }
         None
     }
 }
@@ -506,56 +526,58 @@ impl Rule for TrigPeriodicityRule {
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
         if let Expr::FunctionCall { name, args } = expr
-            && (name == "sin" || name == "cos") && args.len() == 1 {
-                if let Expr::Add(lhs, rhs) = &args[0] {
-                    // Check x + 2kπ
-                    if helpers::is_multiple_of_two_pi(rhs) {
-                        return Some(Expr::FunctionCall {
-                            name: name.clone(),
-                            args: vec![*lhs.clone()],
-                        });
-                    }
-                    // Check 2kπ + x
-                    if helpers::is_multiple_of_two_pi(lhs) {
-                        return Some(Expr::FunctionCall {
-                            name: name.clone(),
-                            args: vec![*rhs.clone()],
-                        });
-                    }
+            && (name == "sin" || name == "cos")
+            && args.len() == 1
+        {
+            if let Expr::Add(lhs, rhs) = &args[0] {
+                // Check x + 2kπ
+                if helpers::is_multiple_of_two_pi(rhs) {
+                    return Some(Expr::FunctionCall {
+                        name: name.clone(),
+                        args: vec![*lhs.clone()],
+                    });
                 }
-                if let Expr::Sub(lhs, rhs) = &args[0] {
-                    // Check x - 2kπ
-                    if helpers::is_multiple_of_two_pi(rhs) {
-                        return Some(Expr::FunctionCall {
-                            name: name.clone(),
-                            args: vec![*lhs.clone()],
-                        });
-                    }
-                    // Check 2kπ - x
-                    if helpers::is_multiple_of_two_pi(lhs) {
-                        // sin(2kπ - x) = sin(-x) = -sin(x)
-                        // cos(2kπ - x) = cos(-x) = cos(x)
-                        match name.as_str() {
-                            "sin" => {
-                                return Some(Expr::Mul(
-                                    Box::new(Expr::Number(-1.0)),
-                                    Box::new(Expr::FunctionCall {
-                                        name: "sin".to_string(),
-                                        args: vec![*rhs.clone()],
-                                    }),
-                                ));
-                            }
-                            "cos" => {
-                                return Some(Expr::FunctionCall {
-                                    name: "cos".to_string(),
+                // Check 2kπ + x
+                if helpers::is_multiple_of_two_pi(lhs) {
+                    return Some(Expr::FunctionCall {
+                        name: name.clone(),
+                        args: vec![*rhs.clone()],
+                    });
+                }
+            }
+            if let Expr::Sub(lhs, rhs) = &args[0] {
+                // Check x - 2kπ
+                if helpers::is_multiple_of_two_pi(rhs) {
+                    return Some(Expr::FunctionCall {
+                        name: name.clone(),
+                        args: vec![*lhs.clone()],
+                    });
+                }
+                // Check 2kπ - x
+                if helpers::is_multiple_of_two_pi(lhs) {
+                    // sin(2kπ - x) = sin(-x) = -sin(x)
+                    // cos(2kπ - x) = cos(-x) = cos(x)
+                    match name.as_str() {
+                        "sin" => {
+                            return Some(Expr::Mul(
+                                Box::new(Expr::Number(-1.0)),
+                                Box::new(Expr::FunctionCall {
+                                    name: "sin".to_string(),
                                     args: vec![*rhs.clone()],
-                                });
-                            }
-                            _ => {}
+                                }),
+                            ));
                         }
+                        "cos" => {
+                            return Some(Expr::FunctionCall {
+                                name: "cos".to_string(),
+                                args: vec![*rhs.clone()],
+                            });
+                        }
+                        _ => {}
                     }
                 }
             }
+        }
         None
     }
 }
@@ -578,83 +600,87 @@ impl Rule for TrigReflectionRule {
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
         if let Expr::FunctionCall { name, args } = expr
-            && (name == "sin" || name == "cos") && args.len() == 1 {
-                // Check for Sub(pi, x)
-                if let Expr::Sub(lhs, rhs) = &args[0]
-                    && helpers::is_pi(lhs) {
-                        match name.as_str() {
-                            "sin" => {
-                                return Some(Expr::FunctionCall {
-                                    name: "sin".to_string(),
-                                    args: vec![*rhs.clone()],
-                                });
-                            }
-                            "cos" => {
-                                return Some(Expr::Mul(
-                                    Box::new(Expr::Number(-1.0)),
-                                    Box::new(Expr::FunctionCall {
-                                        name: "cos".to_string(),
-                                        args: vec![*rhs.clone()],
-                                    }),
-                                ));
-                            }
-                            _ => {}
-                        }
+            && (name == "sin" || name == "cos")
+            && args.len() == 1
+        {
+            // Check for Sub(pi, x)
+            if let Expr::Sub(lhs, rhs) = &args[0]
+                && helpers::is_pi(lhs)
+            {
+                match name.as_str() {
+                    "sin" => {
+                        return Some(Expr::FunctionCall {
+                            name: "sin".to_string(),
+                            args: vec![*rhs.clone()],
+                        });
                     }
-                // Check for Add(pi, -x) or Add(-x, pi)
-                if let Expr::Add(u, v) = &args[0] {
-                    let (_, other_term) = if helpers::is_pi(u) {
-                        (u, v)
-                    } else if helpers::is_pi(v) {
-                        (v, u)
-                    } else {
-                        return None;
-                    };
+                    "cos" => {
+                        return Some(Expr::Mul(
+                            Box::new(Expr::Number(-1.0)),
+                            Box::new(Expr::FunctionCall {
+                                name: "cos".to_string(),
+                                args: vec![*rhs.clone()],
+                            }),
+                        ));
+                    }
+                    _ => {}
+                }
+            }
+            // Check for Add(pi, -x) or Add(-x, pi)
+            if let Expr::Add(u, v) = &args[0] {
+                let (_, other_term) = if helpers::is_pi(u) {
+                    (u, v)
+                } else if helpers::is_pi(v) {
+                    (v, u)
+                } else {
+                    return None;
+                };
 
-                    // Check if other_term is -x
-                    let mut is_neg_x = false;
-                    if let Expr::Mul(c, x) = &**other_term
-                        && matches!(**c, Expr::Number(n) if n == -1.0) {
-                            is_neg_x = true;
-                            match name.as_str() {
-                                "sin" => {
-                                    return Some(Expr::FunctionCall {
-                                        name: "sin".to_string(),
-                                        args: vec![*x.clone()],
-                                    });
-                                }
-                                "cos" => {
-                                    return Some(Expr::Mul(
-                                        Box::new(Expr::Number(-1.0)),
-                                        Box::new(Expr::FunctionCall {
-                                            name: "cos".to_string(),
-                                            args: vec![*x.clone()],
-                                        }),
-                                    ));
-                                }
-                                _ => {}
-                            }
+                // Check if other_term is -x
+                let mut is_neg_x = false;
+                if let Expr::Mul(c, x) = &**other_term
+                    && matches!(**c, Expr::Number(n) if n == -1.0)
+                {
+                    is_neg_x = true;
+                    match name.as_str() {
+                        "sin" => {
+                            return Some(Expr::FunctionCall {
+                                name: "sin".to_string(),
+                                args: vec![*x.clone()],
+                            });
                         }
+                        "cos" => {
+                            return Some(Expr::Mul(
+                                Box::new(Expr::Number(-1.0)),
+                                Box::new(Expr::FunctionCall {
+                                    name: "cos".to_string(),
+                                    args: vec![*x.clone()],
+                                }),
+                            ));
+                        }
+                        _ => {}
+                    }
+                }
 
-                    if !is_neg_x {
-                        // pi + x
-                        // sin(pi + x) = -sin(x)
-                        // cos(pi + x) = -cos(x)
-                        match name.as_str() {
-                            "sin" | "cos" => {
-                                return Some(Expr::Mul(
-                                    Box::new(Expr::Number(-1.0)),
-                                    Box::new(Expr::FunctionCall {
-                                        name: name.clone(),
-                                        args: vec![*other_term.clone()],
-                                    }),
-                                ));
-                            }
-                            _ => {}
+                if !is_neg_x {
+                    // pi + x
+                    // sin(pi + x) = -sin(x)
+                    // cos(pi + x) = -cos(x)
+                    match name.as_str() {
+                        "sin" | "cos" => {
+                            return Some(Expr::Mul(
+                                Box::new(Expr::Number(-1.0)),
+                                Box::new(Expr::FunctionCall {
+                                    name: name.clone(),
+                                    args: vec![*other_term.clone()],
+                                }),
+                            ));
                         }
+                        _ => {}
                     }
                 }
             }
+        }
         None
     }
 }
@@ -677,71 +703,75 @@ impl Rule for TrigThreePiOverTwoRule {
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
         if let Expr::FunctionCall { name, args } = expr
-            && (name == "sin" || name == "cos") && args.len() == 1 {
-                if let Expr::Sub(lhs, rhs) = &args[0]
-                    && helpers::is_three_pi_over_two(lhs) {
-                        match name.as_str() {
-                            "sin" => {
-                                return Some(Expr::Mul(
-                                    Box::new(Expr::Number(-1.0)),
-                                    Box::new(Expr::FunctionCall {
-                                        name: "cos".to_string(),
-                                        args: vec![*rhs.clone()],
-                                    }),
-                                ));
-                            }
-                            "cos" => {
-                                return Some(Expr::Mul(
-                                    Box::new(Expr::Number(-1.0)),
-                                    Box::new(Expr::FunctionCall {
-                                        name: "sin".to_string(),
-                                        args: vec![*rhs.clone()],
-                                    }),
-                                ));
-                            }
-                            _ => {}
-                        }
+            && (name == "sin" || name == "cos")
+            && args.len() == 1
+        {
+            if let Expr::Sub(lhs, rhs) = &args[0]
+                && helpers::is_three_pi_over_two(lhs)
+            {
+                match name.as_str() {
+                    "sin" => {
+                        return Some(Expr::Mul(
+                            Box::new(Expr::Number(-1.0)),
+                            Box::new(Expr::FunctionCall {
+                                name: "cos".to_string(),
+                                args: vec![*rhs.clone()],
+                            }),
+                        ));
                     }
-
-                // Check for Add(3pi/2, -x)
-                if let Expr::Add(u, v) = &args[0] {
-                    let (_angle, other) = if helpers::is_three_pi_over_two(u) {
-                        (u, v)
-                    } else if helpers::is_three_pi_over_two(v) {
-                        (v, u)
-                    } else {
-                        return None;
-                    };
-
-                    // Check if other is -x
-                    if let Expr::Mul(c, x) = &**other
-                        && matches!(**c, Expr::Number(n) if n == -1.0) {
-                            // sin(3pi/2 - x) = -cos(x)
-                            // cos(3pi/2 - x) = -sin(x)
-                            match name.as_str() {
-                                "sin" => {
-                                    return Some(Expr::Mul(
-                                        Box::new(Expr::Number(-1.0)),
-                                        Box::new(Expr::FunctionCall {
-                                            name: "cos".to_string(),
-                                            args: vec![*x.clone()],
-                                        }),
-                                    ));
-                                }
-                                "cos" => {
-                                    return Some(Expr::Mul(
-                                        Box::new(Expr::Number(-1.0)),
-                                        Box::new(Expr::FunctionCall {
-                                            name: "sin".to_string(),
-                                            args: vec![*x.clone()],
-                                        }),
-                                    ));
-                                }
-                                _ => {}
-                            }
-                        }
+                    "cos" => {
+                        return Some(Expr::Mul(
+                            Box::new(Expr::Number(-1.0)),
+                            Box::new(Expr::FunctionCall {
+                                name: "sin".to_string(),
+                                args: vec![*rhs.clone()],
+                            }),
+                        ));
+                    }
+                    _ => {}
                 }
             }
+
+            // Check for Add(3pi/2, -x)
+            if let Expr::Add(u, v) = &args[0] {
+                let (_angle, other) = if helpers::is_three_pi_over_two(u) {
+                    (u, v)
+                } else if helpers::is_three_pi_over_two(v) {
+                    (v, u)
+                } else {
+                    return None;
+                };
+
+                // Check if other is -x
+                if let Expr::Mul(c, x) = &**other
+                    && matches!(**c, Expr::Number(n) if n == -1.0)
+                {
+                    // sin(3pi/2 - x) = -cos(x)
+                    // cos(3pi/2 - x) = -sin(x)
+                    match name.as_str() {
+                        "sin" => {
+                            return Some(Expr::Mul(
+                                Box::new(Expr::Number(-1.0)),
+                                Box::new(Expr::FunctionCall {
+                                    name: "cos".to_string(),
+                                    args: vec![*x.clone()],
+                                }),
+                            ));
+                        }
+                        "cos" => {
+                            return Some(Expr::Mul(
+                                Box::new(Expr::Number(-1.0)),
+                                Box::new(Expr::FunctionCall {
+                                    name: "sin".to_string(),
+                                    args: vec![*x.clone()],
+                                }),
+                            ));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
         None
     }
 }
@@ -766,9 +796,39 @@ impl Rule for PythagoreanComplementsRule {
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
         // Handle 1 - cos²(x) or 1 - sin²(x) (direct subtraction form)
         if let Expr::Sub(lhs, rhs) = expr
-            && matches!(**lhs, Expr::Number(n) if n == 1.0) {
-                // 1 - cos²(x) = sin²(x)
-                if let Some(("cos", arg)) = helpers::get_fn_pow_named(rhs, 2.0) {
+            && matches!(**lhs, Expr::Number(n) if n == 1.0)
+        {
+            // 1 - cos²(x) = sin²(x)
+            if let Some(("cos", arg)) = helpers::get_fn_pow_named(rhs, 2.0) {
+                return Some(Expr::Pow(
+                    Box::new(Expr::FunctionCall {
+                        name: "sin".to_string(),
+                        args: vec![arg],
+                    }),
+                    Box::new(Expr::Number(2.0)),
+                ));
+            }
+            // 1 - sin²(x) = cos²(x)
+            if let Some(("sin", arg)) = helpers::get_fn_pow_named(rhs, 2.0) {
+                return Some(Expr::Pow(
+                    Box::new(Expr::FunctionCall {
+                        name: "cos".to_string(),
+                        args: vec![arg],
+                    }),
+                    Box::new(Expr::Number(2.0)),
+                ));
+            }
+        }
+
+        // Handle canonicalized form: -cos²(x) + 1 or -sin²(x) + 1
+        // This is Add(-1 * trig²(x), 1) or Add(1, -1 * trig²(x))
+        if let Expr::Add(lhs, rhs) = expr {
+            // Case: -cos²(x) + 1 or -sin²(x) + 1
+            if matches!(**rhs, Expr::Number(n) if n == 1.0)
+                && let Expr::Mul(coef, rest) = &**lhs
+                && matches!(**coef, Expr::Number(n) if n == -1.0)
+            {
+                if let Some(("cos", arg)) = helpers::get_fn_pow_named(rest, 2.0) {
                     return Some(Expr::Pow(
                         Box::new(Expr::FunctionCall {
                             name: "sin".to_string(),
@@ -777,8 +837,7 @@ impl Rule for PythagoreanComplementsRule {
                         Box::new(Expr::Number(2.0)),
                     ));
                 }
-                // 1 - sin²(x) = cos²(x)
-                if let Some(("sin", arg)) = helpers::get_fn_pow_named(rhs, 2.0) {
+                if let Some(("sin", arg)) = helpers::get_fn_pow_named(rest, 2.0) {
                     return Some(Expr::Pow(
                         Box::new(Expr::FunctionCall {
                             name: "cos".to_string(),
@@ -788,62 +847,32 @@ impl Rule for PythagoreanComplementsRule {
                     ));
                 }
             }
-        
-        // Handle canonicalized form: -cos²(x) + 1 or -sin²(x) + 1
-        // This is Add(-1 * trig²(x), 1) or Add(1, -1 * trig²(x))
-        if let Expr::Add(lhs, rhs) = expr {
-            // Case: -cos²(x) + 1 or -sin²(x) + 1
-            if matches!(**rhs, Expr::Number(n) if n == 1.0) {
-                if let Expr::Mul(coef, rest) = &**lhs {
-                    if matches!(**coef, Expr::Number(n) if n == -1.0) {
-                        if let Some(("cos", arg)) = helpers::get_fn_pow_named(rest, 2.0) {
-                            return Some(Expr::Pow(
-                                Box::new(Expr::FunctionCall {
-                                    name: "sin".to_string(),
-                                    args: vec![arg],
-                                }),
-                                Box::new(Expr::Number(2.0)),
-                            ));
-                        }
-                        if let Some(("sin", arg)) = helpers::get_fn_pow_named(rest, 2.0) {
-                            return Some(Expr::Pow(
-                                Box::new(Expr::FunctionCall {
-                                    name: "cos".to_string(),
-                                    args: vec![arg],
-                                }),
-                                Box::new(Expr::Number(2.0)),
-                            ));
-                        }
-                    }
-                }
-            }
             // Case: 1 + (-cos²(x)) or 1 + (-sin²(x))
-            if matches!(**lhs, Expr::Number(n) if n == 1.0) {
-                if let Expr::Mul(coef, rest) = &**rhs {
-                    if matches!(**coef, Expr::Number(n) if n == -1.0) {
-                        if let Some(("cos", arg)) = helpers::get_fn_pow_named(rest, 2.0) {
-                            return Some(Expr::Pow(
-                                Box::new(Expr::FunctionCall {
-                                    name: "sin".to_string(),
-                                    args: vec![arg],
-                                }),
-                                Box::new(Expr::Number(2.0)),
-                            ));
-                        }
-                        if let Some(("sin", arg)) = helpers::get_fn_pow_named(rest, 2.0) {
-                            return Some(Expr::Pow(
-                                Box::new(Expr::FunctionCall {
-                                    name: "cos".to_string(),
-                                    args: vec![arg],
-                                }),
-                                Box::new(Expr::Number(2.0)),
-                            ));
-                        }
-                    }
+            if matches!(**lhs, Expr::Number(n) if n == 1.0)
+                && let Expr::Mul(coef, rest) = &**rhs
+                && matches!(**coef, Expr::Number(n) if n == -1.0)
+            {
+                if let Some(("cos", arg)) = helpers::get_fn_pow_named(rest, 2.0) {
+                    return Some(Expr::Pow(
+                        Box::new(Expr::FunctionCall {
+                            name: "sin".to_string(),
+                            args: vec![arg],
+                        }),
+                        Box::new(Expr::Number(2.0)),
+                    ));
+                }
+                if let Some(("sin", arg)) = helpers::get_fn_pow_named(rest, 2.0) {
+                    return Some(Expr::Pow(
+                        Box::new(Expr::FunctionCall {
+                            name: "cos".to_string(),
+                            args: vec![arg],
+                        }),
+                        Box::new(Expr::Number(2.0)),
+                    ));
                 }
             }
         }
-        
+
         None
     }
 }
@@ -868,48 +897,52 @@ impl Rule for PythagoreanTangentRule {
         if let Expr::Add(lhs, rhs) = expr {
             // Check for tan^2(x) + 1 = sec^2(x)
             if let Some(("tan", arg)) = helpers::get_fn_pow_named(lhs, 2.0)
-                && matches!(**rhs, Expr::Number(n) if n == 1.0) {
-                    return Some(Expr::Pow(
-                        Box::new(Expr::FunctionCall {
-                            name: "sec".to_string(),
-                            args: vec![arg],
-                        }),
-                        Box::new(Expr::Number(2.0)),
-                    ));
-                }
+                && matches!(**rhs, Expr::Number(n) if n == 1.0)
+            {
+                return Some(Expr::Pow(
+                    Box::new(Expr::FunctionCall {
+                        name: "sec".to_string(),
+                        args: vec![arg],
+                    }),
+                    Box::new(Expr::Number(2.0)),
+                ));
+            }
             // Check for 1 + tan^2(x) = sec^2(x)
             if matches!(**lhs, Expr::Number(n) if n == 1.0)
-                && let Some(("tan", arg)) = helpers::get_fn_pow_named(rhs, 2.0) {
-                    return Some(Expr::Pow(
-                        Box::new(Expr::FunctionCall {
-                            name: "sec".to_string(),
-                            args: vec![arg],
-                        }),
-                        Box::new(Expr::Number(2.0)),
-                    ));
-                }
+                && let Some(("tan", arg)) = helpers::get_fn_pow_named(rhs, 2.0)
+            {
+                return Some(Expr::Pow(
+                    Box::new(Expr::FunctionCall {
+                        name: "sec".to_string(),
+                        args: vec![arg],
+                    }),
+                    Box::new(Expr::Number(2.0)),
+                ));
+            }
             // Check for cot^2(x) + 1 = csc^2(x)
             if let Some(("cot", arg)) = helpers::get_fn_pow_named(lhs, 2.0)
-                && matches!(**rhs, Expr::Number(n) if n == 1.0) {
-                    return Some(Expr::Pow(
-                        Box::new(Expr::FunctionCall {
-                            name: "csc".to_string(),
-                            args: vec![arg],
-                        }),
-                        Box::new(Expr::Number(2.0)),
-                    ));
-                }
+                && matches!(**rhs, Expr::Number(n) if n == 1.0)
+            {
+                return Some(Expr::Pow(
+                    Box::new(Expr::FunctionCall {
+                        name: "csc".to_string(),
+                        args: vec![arg],
+                    }),
+                    Box::new(Expr::Number(2.0)),
+                ));
+            }
             // Check for 1 + cot^2(x) = csc^2(x)
             if matches!(**lhs, Expr::Number(n) if n == 1.0)
-                && let Some(("cot", arg)) = helpers::get_fn_pow_named(rhs, 2.0) {
-                    return Some(Expr::Pow(
-                        Box::new(Expr::FunctionCall {
-                            name: "csc".to_string(),
-                            args: vec![arg],
-                        }),
-                        Box::new(Expr::Number(2.0)),
-                    ));
-                }
+                && let Some(("cot", arg)) = helpers::get_fn_pow_named(rhs, 2.0)
+            {
+                return Some(Expr::Pow(
+                    Box::new(Expr::FunctionCall {
+                        name: "csc".to_string(),
+                        args: vec![arg],
+                    }),
+                    Box::new(Expr::Number(2.0)),
+                ));
+            }
         }
         None
     }
@@ -933,115 +966,116 @@ impl Rule for TrigExactValuesRule {
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
         if let Expr::FunctionCall { name, args } = expr
-            && args.len() == 1 {
-                let arg = &args[0];
-                let arg_val = helpers::get_numeric_value(arg);
-                let is_numeric_input = matches!(arg, Expr::Number(_));
+            && args.len() == 1
+        {
+            let arg = &args[0];
+            let arg_val = helpers::get_numeric_value(arg);
+            let is_numeric_input = matches!(arg, Expr::Number(_));
 
-                // Handle π/6, π/4, π/3 as direct numbers or Div expressions
-                match name.as_str() {
-                    "sin" => {
-                        // sin(π/6) = 1/2
-                        if helpers::approx_eq(arg_val, PI / 6.0)
-                            || (matches!(arg, Expr::Div(num, den) if helpers::is_pi(num) && matches!(**den, Expr::Number(n) if n == 6.0)))
-                        {
-                            return if is_numeric_input {
-                                Some(Expr::Number(0.5))
-                            } else {
-                                Some(Expr::Div(
-                                    Box::new(Expr::Number(1.0)),
-                                    Box::new(Expr::Number(2.0)),
-                                ))
-                            };
-                        }
-                        // sin(π/4) = √2/2
-                        if helpers::approx_eq(arg_val, PI / 4.0)
-                            || (matches!(arg, Expr::Div(num, den) if helpers::is_pi(num) && matches!(**den, Expr::Number(n) if n == 4.0)))
-                        {
-                            return if is_numeric_input {
-                                Some(Expr::Number((2.0f64).sqrt() / 2.0))
-                            } else {
-                                Some(Expr::Div(
-                                    Box::new(Expr::FunctionCall {
-                                        name: "sqrt".to_string(),
-                                        args: vec![Expr::Number(2.0)],
-                                    }),
-                                    Box::new(Expr::Number(2.0)),
-                                ))
-                            };
-                        }
+            // Handle π/6, π/4, π/3 as direct numbers or Div expressions
+            match name.as_str() {
+                "sin" => {
+                    // sin(π/6) = 1/2
+                    if helpers::approx_eq(arg_val, PI / 6.0)
+                        || (matches!(arg, Expr::Div(num, den) if helpers::is_pi(num) && matches!(**den, Expr::Number(n) if n == 6.0)))
+                    {
+                        return if is_numeric_input {
+                            Some(Expr::Number(0.5))
+                        } else {
+                            Some(Expr::Div(
+                                Box::new(Expr::Number(1.0)),
+                                Box::new(Expr::Number(2.0)),
+                            ))
+                        };
                     }
-                    "cos" => {
-                        // cos(π/3) = 1/2
-                        if helpers::approx_eq(arg_val, PI / 3.0)
-                            || (matches!(arg, Expr::Div(num, den) if helpers::is_pi(num) && matches!(**den, Expr::Number(n) if n == 3.0)))
-                        {
-                            return if is_numeric_input {
-                                Some(Expr::Number(0.5))
-                            } else {
-                                Some(Expr::Div(
-                                    Box::new(Expr::Number(1.0)),
-                                    Box::new(Expr::Number(2.0)),
-                                ))
-                            };
-                        }
-                        // cos(π/4) = √2/2
-                        if helpers::approx_eq(arg_val, PI / 4.0)
-                            || (matches!(arg, Expr::Div(num, den) if helpers::is_pi(num) && matches!(**den, Expr::Number(n) if n == 4.0)))
-                        {
-                            return if is_numeric_input {
-                                Some(Expr::Number((2.0f64).sqrt() / 2.0))
-                            } else {
-                                Some(Expr::Div(
-                                    Box::new(Expr::FunctionCall {
-                                        name: "sqrt".to_string(),
-                                        args: vec![Expr::Number(2.0)],
-                                    }),
-                                    Box::new(Expr::Number(2.0)),
-                                ))
-                            };
-                        }
+                    // sin(π/4) = √2/2
+                    if helpers::approx_eq(arg_val, PI / 4.0)
+                        || (matches!(arg, Expr::Div(num, den) if helpers::is_pi(num) && matches!(**den, Expr::Number(n) if n == 4.0)))
+                    {
+                        return if is_numeric_input {
+                            Some(Expr::Number((2.0f64).sqrt() / 2.0))
+                        } else {
+                            Some(Expr::Div(
+                                Box::new(Expr::FunctionCall {
+                                    name: "sqrt".to_string(),
+                                    args: vec![Expr::Number(2.0)],
+                                }),
+                                Box::new(Expr::Number(2.0)),
+                            ))
+                        };
                     }
-                    "tan" => {
-                        // tan(π/4) = 1
-                        if helpers::approx_eq(arg_val, PI / 4.0)
-                            || (matches!(arg, Expr::Div(num, den) if helpers::is_pi(num) && matches!(**den, Expr::Number(n) if n == 4.0)))
-                        {
-                            return Some(Expr::Number(1.0));
-                        }
-                        // tan(π/3) = √3
-                        if helpers::approx_eq(arg_val, PI / 3.0)
-                            || (matches!(arg, Expr::Div(num, den) if helpers::is_pi(num) && matches!(**den, Expr::Number(n) if n == 3.0)))
-                        {
-                            return if is_numeric_input {
-                                Some(Expr::Number((3.0f64).sqrt()))
-                            } else {
-                                Some(Expr::FunctionCall {
+                }
+                "cos" => {
+                    // cos(π/3) = 1/2
+                    if helpers::approx_eq(arg_val, PI / 3.0)
+                        || (matches!(arg, Expr::Div(num, den) if helpers::is_pi(num) && matches!(**den, Expr::Number(n) if n == 3.0)))
+                    {
+                        return if is_numeric_input {
+                            Some(Expr::Number(0.5))
+                        } else {
+                            Some(Expr::Div(
+                                Box::new(Expr::Number(1.0)),
+                                Box::new(Expr::Number(2.0)),
+                            ))
+                        };
+                    }
+                    // cos(π/4) = √2/2
+                    if helpers::approx_eq(arg_val, PI / 4.0)
+                        || (matches!(arg, Expr::Div(num, den) if helpers::is_pi(num) && matches!(**den, Expr::Number(n) if n == 4.0)))
+                    {
+                        return if is_numeric_input {
+                            Some(Expr::Number((2.0f64).sqrt() / 2.0))
+                        } else {
+                            Some(Expr::Div(
+                                Box::new(Expr::FunctionCall {
+                                    name: "sqrt".to_string(),
+                                    args: vec![Expr::Number(2.0)],
+                                }),
+                                Box::new(Expr::Number(2.0)),
+                            ))
+                        };
+                    }
+                }
+                "tan" => {
+                    // tan(π/4) = 1
+                    if helpers::approx_eq(arg_val, PI / 4.0)
+                        || (matches!(arg, Expr::Div(num, den) if helpers::is_pi(num) && matches!(**den, Expr::Number(n) if n == 4.0)))
+                    {
+                        return Some(Expr::Number(1.0));
+                    }
+                    // tan(π/3) = √3
+                    if helpers::approx_eq(arg_val, PI / 3.0)
+                        || (matches!(arg, Expr::Div(num, den) if helpers::is_pi(num) && matches!(**den, Expr::Number(n) if n == 3.0)))
+                    {
+                        return if is_numeric_input {
+                            Some(Expr::Number((3.0f64).sqrt()))
+                        } else {
+                            Some(Expr::FunctionCall {
+                                name: "sqrt".to_string(),
+                                args: vec![Expr::Number(3.0)],
+                            })
+                        };
+                    }
+                    // tan(π/6) = 1/√3 = √3/3
+                    if helpers::approx_eq(arg_val, PI / 6.0)
+                        || (matches!(arg, Expr::Div(num, den) if helpers::is_pi(num) && matches!(**den, Expr::Number(n) if n == 6.0)))
+                    {
+                        return if is_numeric_input {
+                            Some(Expr::Number(1.0 / (3.0f64).sqrt()))
+                        } else {
+                            Some(Expr::Div(
+                                Box::new(Expr::FunctionCall {
                                     name: "sqrt".to_string(),
                                     args: vec![Expr::Number(3.0)],
-                                })
-                            };
-                        }
-                        // tan(π/6) = 1/√3 = √3/3
-                        if helpers::approx_eq(arg_val, PI / 6.0)
-                            || (matches!(arg, Expr::Div(num, den) if helpers::is_pi(num) && matches!(**den, Expr::Number(n) if n == 6.0)))
-                        {
-                            return if is_numeric_input {
-                                Some(Expr::Number(1.0 / (3.0f64).sqrt()))
-                            } else {
-                                Some(Expr::Div(
-                                    Box::new(Expr::FunctionCall {
-                                        name: "sqrt".to_string(),
-                                        args: vec![Expr::Number(3.0)],
-                                    }),
-                                    Box::new(Expr::Number(3.0)),
-                                ))
-                            };
-                        }
+                                }),
+                                Box::new(Expr::Number(3.0)),
+                            ))
+                        };
                     }
-                    _ => {}
                 }
+                _ => {}
             }
+        }
         None
     }
 }
@@ -1065,27 +1099,28 @@ impl Rule for TrigNegArgRule {
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
         if let Some((name, arg)) = get_trig_function(expr)
             && let Expr::Mul(coeff, inner) = &arg
-                && let Expr::Number(n) = **coeff
-                    && n == -1.0 {
-                        match name {
-                            "sin" | "tan" => {
-                                return Some(Expr::Mul(
-                                    Box::new(Expr::Number(-1.0)),
-                                    Box::new(Expr::FunctionCall {
-                                        name: name.to_string(),
-                                        args: vec![*inner.clone()],
-                                    }),
-                                ));
-                            }
-                            "cos" | "sec" => {
-                                return Some(Expr::FunctionCall {
-                                    name: name.to_string(),
-                                    args: vec![*inner.clone()],
-                                });
-                            }
-                            _ => {}
-                        }
-                    }
+            && let Expr::Number(n) = **coeff
+            && n == -1.0
+        {
+            match name {
+                "sin" | "tan" => {
+                    return Some(Expr::Mul(
+                        Box::new(Expr::Number(-1.0)),
+                        Box::new(Expr::FunctionCall {
+                            name: name.to_string(),
+                            args: vec![*inner.clone()],
+                        }),
+                    ));
+                }
+                "cos" | "sec" => {
+                    return Some(Expr::FunctionCall {
+                        name: name.to_string(),
+                        args: vec![*inner.clone()],
+                    });
+                }
+                _ => {}
+            }
+        }
         None
     }
 }
@@ -1195,12 +1230,13 @@ impl Rule for TrigSumDifferenceRule {
                 // cos(x)cos(y) - sin(x)sin(y) = cos(x + y)
                 if let Some((cx, cy)) = helpers::get_product_fn_args(u, "cos", "cos")
                     && let Some((sx, sy)) = helpers::get_product_fn_args(v, "sin", "sin")
-                        && ((cx == sx && cy == sy) || (cx == sy && cy == sx)) {
-                            return Some(Expr::FunctionCall {
-                                name: "cos".to_string(),
-                                args: vec![Expr::Add(Box::new(cx), Box::new(cy))],
-                            });
-                        }
+                    && ((cx == sx && cy == sy) || (cx == sy && cy == sx))
+                {
+                    return Some(Expr::FunctionCall {
+                        name: "cos".to_string(),
+                        args: vec![Expr::Add(Box::new(cx), Box::new(cy))],
+                    });
+                }
 
                 // cos(x)cos(y) + sin(x)sin(y) = cos(x - y) (Add case)
             }
@@ -1265,26 +1301,28 @@ impl Rule for CosDoubleAngleDifferenceRule {
         // pos = cos^2(x), neg = sin^2(x)
         if let Some(("cos", arg1)) = helpers::get_fn_pow_named(pos, 2.0)
             && let Some(("sin", arg2)) = helpers::get_fn_pow_named(neg, 2.0)
-                && arg1 == arg2 {
-                    return Some(Expr::FunctionCall {
-                        name: "cos".to_string(),
-                        args: vec![Expr::Mul(Box::new(Expr::Number(2.0)), Box::new(arg1))],
-                    });
-                }
+            && arg1 == arg2
+        {
+            return Some(Expr::FunctionCall {
+                name: "cos".to_string(),
+                args: vec![Expr::Mul(Box::new(Expr::Number(2.0)), Box::new(arg1))],
+            });
+        }
 
         // Case 2: sin^2(x) - cos^2(x) = -cos(2x)
         // pos = sin^2(x), neg = cos^2(x)
         if let Some(("sin", arg1)) = helpers::get_fn_pow_named(pos, 2.0)
             && let Some(("cos", arg2)) = helpers::get_fn_pow_named(neg, 2.0)
-                && arg1 == arg2 {
-                    return Some(Expr::Mul(
-                        Box::new(Expr::Number(-1.0)),
-                        Box::new(Expr::FunctionCall {
-                            name: "cos".to_string(),
-                            args: vec![Expr::Mul(Box::new(Expr::Number(2.0)), Box::new(arg1))],
-                        }),
-                    ));
-                }
+            && arg1 == arg2
+        {
+            return Some(Expr::Mul(
+                Box::new(Expr::Number(-1.0)),
+                Box::new(Expr::FunctionCall {
+                    name: "cos".to_string(),
+                    args: vec![Expr::Mul(Box::new(Expr::Number(2.0)), Box::new(arg1))],
+                }),
+            ));
+        }
 
         None
     }
@@ -1320,14 +1358,14 @@ impl Rule for TrigProductToDoubleAngleRule {
             // Extract the argument from cos
             if let Some(arg) = get_cos_arg(cos_minus_sin)
                 && get_cos_arg(cos_plus_sin) == Some(arg.clone())
-                    && get_sin_arg(cos_minus_sin) == Some(arg.clone())
-                    && get_sin_arg(cos_plus_sin) == Some(arg.clone())
-                {
-                    return Some(Expr::FunctionCall {
-                        name: "cos".to_string(),
-                        args: vec![Expr::Mul(Box::new(Expr::Number(2.0)), Box::new(arg))],
-                    });
-                }
+                && get_sin_arg(cos_minus_sin) == Some(arg.clone())
+                && get_sin_arg(cos_plus_sin) == Some(arg.clone())
+            {
+                return Some(Expr::FunctionCall {
+                    name: "cos".to_string(),
+                    args: vec![Expr::Mul(Box::new(Expr::Number(2.0)), Box::new(arg))],
+                });
+            }
         }
         None
     }
@@ -1459,21 +1497,21 @@ impl TrigTripleAngleRule {
         // Check for 3sin(x) - 4sin^3(x) or permutations
         if let Expr::Mul(c1, s1) = u
             && matches!(**c1, Expr::Number(n) if n == 3.0 || (n - 3.0).abs() < eps)
-                && let Expr::FunctionCall { name, args } = &**s1
-                    && name == "sin" && args.len() == 1 {
-                        let x = &args[0];
-                        // Check v = 4sin^3(x) or -4sin^3(x)
-                        if let Some((coeff, _is_neg)) = self.extract_sin_cubed(v, x, eps)
-                            && (coeff == 4.0 || (coeff - 4.0).abs() < eps) {
-                                return Some(Expr::FunctionCall {
-                                    name: "sin".to_string(),
-                                    args: vec![Expr::Mul(
-                                        Box::new(Expr::Number(3.0)),
-                                        Box::new(x.clone()),
-                                    )],
-                                });
-                            }
-                    }
+            && let Expr::FunctionCall { name, args } = &**s1
+            && name == "sin"
+            && args.len() == 1
+        {
+            let x = &args[0];
+            // Check v = 4sin^3(x) or -4sin^3(x)
+            if let Some((coeff, _is_neg)) = self.extract_sin_cubed(v, x, eps)
+                && (coeff == 4.0 || (coeff - 4.0).abs() < eps)
+            {
+                return Some(Expr::FunctionCall {
+                    name: "sin".to_string(),
+                    args: vec![Expr::Mul(Box::new(Expr::Number(3.0)), Box::new(x.clone()))],
+                });
+            }
+        }
         None
     }
 
@@ -1482,39 +1520,41 @@ impl TrigTripleAngleRule {
         // u = 3*sin(x), v = (-4)*sin^3(x)
         if let Expr::Mul(c1, s1) = u
             && matches!(**c1, Expr::Number(n) if (n - 3.0).abs() < eps)
-                && let Expr::FunctionCall { name, args } = &**s1
-                    && name == "sin" && args.len() == 1 {
-                        let x = &args[0];
-                        // Check v = (-4)*sin^3(x)
-                        if let Some((coeff, is_neg)) = self.extract_sin_cubed(v, x, eps)
-                            && is_neg && (coeff - 4.0).abs() < eps {
-                                return Some(Expr::FunctionCall {
-                                    name: "sin".to_string(),
-                                    args: vec![Expr::Mul(
-                                        Box::new(Expr::Number(3.0)),
-                                        Box::new(x.clone()),
-                                    )],
-                                });
-                            }
-                    }
+            && let Expr::FunctionCall { name, args } = &**s1
+            && name == "sin"
+            && args.len() == 1
+        {
+            let x = &args[0];
+            // Check v = (-4)*sin^3(x)
+            if let Some((coeff, is_neg)) = self.extract_sin_cubed(v, x, eps)
+                && is_neg
+                && (coeff - 4.0).abs() < eps
+            {
+                return Some(Expr::FunctionCall {
+                    name: "sin".to_string(),
+                    args: vec![Expr::Mul(Box::new(Expr::Number(3.0)), Box::new(x.clone()))],
+                });
+            }
+        }
         // Also check reversed: (-4)*sin^3(x) + 3*sin(x)
         if let Expr::Mul(c1, s1) = v
             && matches!(**c1, Expr::Number(n) if (n - 3.0).abs() < eps)
-                && let Expr::FunctionCall { name, args } = &**s1
-                    && name == "sin" && args.len() == 1 {
-                        let x = &args[0];
-                        // Check u = (-4)*sin^3(x)
-                        if let Some((coeff, is_neg)) = self.extract_sin_cubed(u, x, eps)
-                            && is_neg && (coeff - 4.0).abs() < eps {
-                                return Some(Expr::FunctionCall {
-                                    name: "sin".to_string(),
-                                    args: vec![Expr::Mul(
-                                        Box::new(Expr::Number(3.0)),
-                                        Box::new(x.clone()),
-                                    )],
-                                });
-                            }
-                    }
+            && let Expr::FunctionCall { name, args } = &**s1
+            && name == "sin"
+            && args.len() == 1
+        {
+            let x = &args[0];
+            // Check u = (-4)*sin^3(x)
+            if let Some((coeff, is_neg)) = self.extract_sin_cubed(u, x, eps)
+                && is_neg
+                && (coeff - 4.0).abs() < eps
+            {
+                return Some(Expr::FunctionCall {
+                    name: "sin".to_string(),
+                    args: vec![Expr::Mul(Box::new(Expr::Number(3.0)), Box::new(x.clone()))],
+                });
+            }
+        }
         None
     }
 
@@ -1522,23 +1562,23 @@ impl TrigTripleAngleRule {
         // Check for 4cos^3(x) - 3cos(x) or permutations
         if let Expr::Mul(c1, c3) = u
             && matches!(**c1, Expr::Number(n) if n == 4.0 || (n - 4.0).abs() < eps)
-                && let Expr::Pow(base, exp) = &**c3
-                    && matches!(**exp, Expr::Number(n) if n == 3.0)
-                        && let Expr::FunctionCall { name, args } = &**base
-                            && name == "cos" && args.len() == 1 {
-                                let x = &args[0];
-                                // Check v = 3cos(x) or -3cos(x)
-                                if let Some((coeff, _is_neg)) = self.extract_cos(v, x, eps)
-                                    && (coeff == 3.0 || (coeff - 3.0).abs() < eps) {
-                                        return Some(Expr::FunctionCall {
-                                            name: "cos".to_string(),
-                                            args: vec![Expr::Mul(
-                                                Box::new(Expr::Number(3.0)),
-                                                Box::new(x.clone()),
-                                            )],
-                                        });
-                                    }
-                            }
+            && let Expr::Pow(base, exp) = &**c3
+            && matches!(**exp, Expr::Number(n) if n == 3.0)
+            && let Expr::FunctionCall { name, args } = &**base
+            && name == "cos"
+            && args.len() == 1
+        {
+            let x = &args[0];
+            // Check v = 3cos(x) or -3cos(x)
+            if let Some((coeff, _is_neg)) = self.extract_cos(v, x, eps)
+                && (coeff == 3.0 || (coeff - 3.0).abs() < eps)
+            {
+                return Some(Expr::FunctionCall {
+                    name: "cos".to_string(),
+                    args: vec![Expr::Mul(Box::new(Expr::Number(3.0)), Box::new(x.clone()))],
+                });
+            }
+        }
         None
     }
 
@@ -1547,65 +1587,73 @@ impl TrigTripleAngleRule {
         // u = 4*cos^3(x), v = (-3)*cos(x)
         if let Expr::Mul(c1, c3) = u
             && matches!(**c1, Expr::Number(n) if (n - 4.0).abs() < eps)
-                && let Expr::Pow(base, exp) = &**c3
-                    && matches!(**exp, Expr::Number(n) if n == 3.0)
-                        && let Expr::FunctionCall { name, args } = &**base
-                            && name == "cos" && args.len() == 1 {
-                                let x = &args[0];
-                                // Check v = (-3)*cos(x)
-                                if let Some((coeff, is_neg)) = self.extract_cos(v, x, eps)
-                                    && is_neg && (coeff - 3.0).abs() < eps {
-                                        return Some(Expr::FunctionCall {
-                                            name: "cos".to_string(),
-                                            args: vec![Expr::Mul(
-                                                Box::new(Expr::Number(3.0)),
-                                                Box::new(x.clone()),
-                                            )],
-                                        });
-                                    }
-                            }
+            && let Expr::Pow(base, exp) = &**c3
+            && matches!(**exp, Expr::Number(n) if n == 3.0)
+            && let Expr::FunctionCall { name, args } = &**base
+            && name == "cos"
+            && args.len() == 1
+        {
+            let x = &args[0];
+            // Check v = (-3)*cos(x)
+            if let Some((coeff, is_neg)) = self.extract_cos(v, x, eps)
+                && is_neg
+                && (coeff - 3.0).abs() < eps
+            {
+                return Some(Expr::FunctionCall {
+                    name: "cos".to_string(),
+                    args: vec![Expr::Mul(Box::new(Expr::Number(3.0)), Box::new(x.clone()))],
+                });
+            }
+        }
         // Also check reversed: (-3)*cos(x) + 4*cos^3(x)
         if let Expr::Mul(c1, c3) = v
             && matches!(**c1, Expr::Number(n) if (n - 4.0).abs() < eps)
-                && let Expr::Pow(base, exp) = &**c3
-                    && matches!(**exp, Expr::Number(n) if n == 3.0)
-                        && let Expr::FunctionCall { name, args } = &**base
-                            && name == "cos" && args.len() == 1 {
-                                let x = &args[0];
-                                // Check u = (-3)*cos(x)
-                                if let Some((coeff, is_neg)) = self.extract_cos(u, x, eps)
-                                    && is_neg && (coeff - 3.0).abs() < eps {
-                                        return Some(Expr::FunctionCall {
-                                            name: "cos".to_string(),
-                                            args: vec![Expr::Mul(
-                                                Box::new(Expr::Number(3.0)),
-                                                Box::new(x.clone()),
-                                            )],
-                                        });
-                                    }
-                            }
+            && let Expr::Pow(base, exp) = &**c3
+            && matches!(**exp, Expr::Number(n) if n == 3.0)
+            && let Expr::FunctionCall { name, args } = &**base
+            && name == "cos"
+            && args.len() == 1
+        {
+            let x = &args[0];
+            // Check u = (-3)*cos(x)
+            if let Some((coeff, is_neg)) = self.extract_cos(u, x, eps)
+                && is_neg
+                && (coeff - 3.0).abs() < eps
+            {
+                return Some(Expr::FunctionCall {
+                    name: "cos".to_string(),
+                    args: vec![Expr::Mul(Box::new(Expr::Number(3.0)), Box::new(x.clone()))],
+                });
+            }
+        }
         None
     }
 
     fn extract_sin_cubed(&self, expr: &Expr, x: &Expr, _eps: f64) -> Option<(f64, bool)> {
         if let Expr::Mul(c, s3) = expr
             && let Expr::Pow(base, exp) = &**s3
-                && matches!(**exp, Expr::Number(n) if n == 3.0)
-                    && let Expr::FunctionCall { name, args } = &**base
-                        && name == "sin" && args.len() == 1 && args[0] == *x
-                            && let Expr::Number(n) = **c {
-                                return Some((n.abs(), n < 0.0));
-                            }
+            && matches!(**exp, Expr::Number(n) if n == 3.0)
+            && let Expr::FunctionCall { name, args } = &**base
+            && name == "sin"
+            && args.len() == 1
+            && args[0] == *x
+            && let Expr::Number(n) = **c
+        {
+            return Some((n.abs(), n < 0.0));
+        }
         None
     }
 
     fn extract_cos(&self, expr: &Expr, x: &Expr, _eps: f64) -> Option<(f64, bool)> {
         if let Expr::Mul(c, c1) = expr
             && let Expr::FunctionCall { name, args } = &**c1
-                && name == "cos" && args.len() == 1 && args[0] == *x
-                    && let Expr::Number(n) = **c {
-                        return Some((n.abs(), n < 0.0));
-                    }
+            && name == "cos"
+            && args.len() == 1
+            && args[0] == *x
+            && let Expr::Number(n) = **c
+        {
+            return Some((n.abs(), n < 0.0));
+        }
         None
     }
 }

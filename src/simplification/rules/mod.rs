@@ -33,8 +33,7 @@ pub enum RuleCategory {
 /// - 1-49: Compression/Consolidation rules (combine terms, factor, etc.)
 ///
 /// Context passed to rules during application
-#[derive(Clone, Debug)]
-#[derive(Default)]
+#[derive(Clone, Debug, Default)]
 pub struct RuleContext {
     pub depth: usize,
     pub parent: Option<Expr>,
@@ -42,7 +41,6 @@ pub struct RuleContext {
     pub fixed_vars: HashSet<String>, // User-specified fixed variables (constants)
     pub domain_safe: bool,
 }
-
 
 impl RuleContext {
     pub fn with_depth(mut self, depth: usize) -> Self {
@@ -170,12 +168,13 @@ impl RuleRegistry {
 
         for name in graph.keys() {
             if !visited.contains(name)
-                && let Err(e) = dfs(name, &graph, &mut visited, &mut visiting, &mut order) {
-                    eprintln!("Warning: {}", e);
-                    // Fallback to priority sort
-                    self.rules.sort_by_key(|b| std::cmp::Reverse(b.priority()));
-                    return;
-                }
+                && let Err(e) = dfs(name, &graph, &mut visited, &mut visiting, &mut order)
+            {
+                eprintln!("Warning: {}", e);
+                // Fallback to priority sort
+                self.rules.sort_by_key(|b| std::cmp::Reverse(b.priority()));
+                return;
+            }
         }
 
         // Reorder rules

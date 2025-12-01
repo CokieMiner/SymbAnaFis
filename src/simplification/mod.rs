@@ -84,13 +84,15 @@ fn evaluate_numeric_functions(expr: Expr) -> Expr {
             // Canonical form: 0.5 * expr -> expr / 2 (for fractional coefficients)
             // This makes log2(x^0.5) -> log2(x)/2 instead of 0.5*log2(x)
             if let Expr::Number(n) = &u
-                && *n == 0.5 {
-                    return Expr::Div(Box::new(v), Box::new(Expr::Number(2.0)));
-                }
+                && *n == 0.5
+            {
+                return Expr::Div(Box::new(v), Box::new(Expr::Number(2.0)));
+            }
             if let Expr::Number(n) = &v
-                && *n == 0.5 {
-                    return Expr::Div(Box::new(u), Box::new(Expr::Number(2.0)));
-                }
+                && *n == 0.5
+            {
+                return Expr::Div(Box::new(u), Box::new(Expr::Number(2.0)));
+            }
 
             Expr::Mul(Box::new(u), Box::new(v))
         }
@@ -99,12 +101,13 @@ fn evaluate_numeric_functions(expr: Expr) -> Expr {
             let v = evaluate_numeric_functions(*v);
 
             if let (Expr::Number(n1), Expr::Number(n2)) = (&u, &v)
-                && *n2 != 0.0 {
-                    let result = n1 / n2;
-                    if (result - result.round()).abs() < 1e-10 {
-                        return Expr::Number(result.round());
-                    }
+                && *n2 != 0.0
+            {
+                let result = n1 / n2;
+                if (result - result.round()).abs() < 1e-10 {
+                    return Expr::Number(result.round());
                 }
+            }
 
             Expr::Div(Box::new(u), Box::new(v))
         }
@@ -126,22 +129,26 @@ fn evaluate_numeric_functions(expr: Expr) -> Expr {
             let args: Vec<Expr> = args.into_iter().map(evaluate_numeric_functions).collect();
 
             // Evaluate sqrt(n) if n is a perfect square
-            if name == "sqrt" && args.len() == 1
-                && let Expr::Number(n) = &args[0] {
-                    let sqrt_n = n.sqrt();
-                    if (sqrt_n - sqrt_n.round()).abs() < 1e-10 {
-                        return Expr::Number(sqrt_n.round());
-                    }
+            if name == "sqrt"
+                && args.len() == 1
+                && let Expr::Number(n) = &args[0]
+            {
+                let sqrt_n = n.sqrt();
+                if (sqrt_n - sqrt_n.round()).abs() < 1e-10 {
+                    return Expr::Number(sqrt_n.round());
                 }
+            }
 
             // Evaluate cbrt(n) if n is a perfect cube
-            if name == "cbrt" && args.len() == 1
-                && let Expr::Number(n) = &args[0] {
-                    let cbrt_n = n.cbrt();
-                    if (cbrt_n - cbrt_n.round()).abs() < 1e-10 {
-                        return Expr::Number(cbrt_n.round());
-                    }
+            if name == "cbrt"
+                && args.len() == 1
+                && let Expr::Number(n) = &args[0]
+            {
+                let cbrt_n = n.cbrt();
+                if (cbrt_n - cbrt_n.round()).abs() < 1e-10 {
+                    return Expr::Number(cbrt_n.round());
                 }
+            }
 
             Expr::FunctionCall { name, args }
         }

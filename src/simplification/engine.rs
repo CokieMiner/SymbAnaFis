@@ -4,7 +4,9 @@ use std::collections::{HashMap, HashSet};
 
 /// Check if tracing is enabled via environment variable
 fn trace_enabled() -> bool {
-    std::env::var("SYMB_TRACE").map(|v| v == "1" || v.to_lowercase() == "true").unwrap_or(false)
+    std::env::var("SYMB_TRACE")
+        .map(|v| v == "1" || v.to_lowercase() == "true")
+        .unwrap_or(false)
 }
 
 /// Main simplification engine with rule-based architecture
@@ -103,7 +105,6 @@ impl Simplifier {
             return expr; // Prevent stack overflow
         }
 
-        
         match expr {
             Expr::Add(u, v) => {
                 let u_simplified = self.apply_rules_bottom_up(*u, depth + 1);
@@ -167,15 +168,16 @@ impl Simplifier {
             // Check per-rule cache
             let rule_name = rule.name();
             if let Some(cache) = self.rule_caches.get(rule_name)
-                && let Some(cached_result) = cache.get(&current) {
-                    if let Some(new_expr) = cached_result {
-                        current = new_expr.clone();
-                        continue;
-                    } else {
-                        // Cached None, skip
-                        continue;
-                    }
+                && let Some(cached_result) = cache.get(&current)
+            {
+                if let Some(new_expr) = cached_result {
+                    current = new_expr.clone();
+                    continue;
+                } else {
+                    // Cached None, skip
+                    continue;
                 }
+            }
 
             // Apply rule with context
             if let Some(new_expr) = rule.apply(&current, &context) {
@@ -275,8 +277,7 @@ impl Verifier {
                 }
                 Ok(Self::evaluate_expr(a, env)? / denom)
             }
-            Expr::Pow(a, b) => Ok(Self::evaluate_expr(a, env)?
-                .powf(Self::evaluate_expr(b, env)?)),
+            Expr::Pow(a, b) => Ok(Self::evaluate_expr(a, env)?.powf(Self::evaluate_expr(b, env)?)),
             Expr::FunctionCall { name, args } => match name.as_str() {
                 "sin" => Ok(Self::evaluate_expr(&args[0], env)?.sin()),
                 "cos" => Ok(Self::evaluate_expr(&args[0], env)?.cos()),

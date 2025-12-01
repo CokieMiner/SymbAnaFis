@@ -26,51 +26,54 @@ impl Rule for SqrtPowerRule {
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
         if let Expr::FunctionCall { name, args } = expr
-            && name == "sqrt" && args.len() == 1
-                && let Expr::Pow(base, exp) = &args[0] {
-                    // Special case: sqrt(x^2) should always return abs(x)
-                    if let Expr::Number(n) = &**exp
-                        && *n == 2.0 {
-                            // sqrt(x^2) = |x|
-                            return Some(Expr::FunctionCall {
-                                name: "abs".to_string(),
-                                args: vec![(**base).clone()],
-                            });
-                        }
+            && name == "sqrt"
+            && args.len() == 1
+            && let Expr::Pow(base, exp) = &args[0]
+        {
+            // Special case: sqrt(x^2) should always return abs(x)
+            if let Expr::Number(n) = &**exp
+                && *n == 2.0
+            {
+                // sqrt(x^2) = |x|
+                return Some(Expr::FunctionCall {
+                    name: "abs".to_string(),
+                    args: vec![(**base).clone()],
+                });
+            }
 
-                    // Create new exponent: exp / 2
-                    let new_exp = Expr::Div(exp.clone(), Box::new(Expr::Number(2.0)));
+            // Create new exponent: exp / 2
+            let new_exp = Expr::Div(exp.clone(), Box::new(Expr::Number(2.0)));
 
-                    // Simplify the division immediately
-                    let simplified_exp = match &new_exp {
-                        Expr::Div(u, v) => {
-                            if let (Expr::Number(a), Expr::Number(b)) = (&**u, &**v) {
-                                if *b != 0.0 {
-                                    let result = a / b;
-                                    if (result - result.round()).abs() < 1e-10 {
-                                        Expr::Number(result.round())
-                                    } else {
-                                        new_exp
-                                    }
-                                } else {
-                                    new_exp
-                                }
+            // Simplify the division immediately
+            let simplified_exp = match &new_exp {
+                Expr::Div(u, v) => {
+                    if let (Expr::Number(a), Expr::Number(b)) = (&**u, &**v) {
+                        if *b != 0.0 {
+                            let result = a / b;
+                            if (result - result.round()).abs() < 1e-10 {
+                                Expr::Number(result.round())
                             } else {
                                 new_exp
                             }
+                        } else {
+                            new_exp
                         }
-                        _ => new_exp,
-                    };
-
-                    // If exponent simplified to 1, return base directly
-                    if matches!(simplified_exp, Expr::Number(n) if n == 1.0) {
-                        return Some((**base).clone());
+                    } else {
+                        new_exp
                     }
-
-                    let result = Expr::Pow(base.clone(), Box::new(simplified_exp.clone()));
-
-                    return Some(result);
                 }
+                _ => new_exp,
+            };
+
+            // If exponent simplified to 1, return base directly
+            if matches!(simplified_exp, Expr::Number(n) if n == 1.0) {
+                return Some((**base).clone());
+            }
+
+            let result = Expr::Pow(base.clone(), Box::new(simplified_exp.clone()));
+
+            return Some(result);
+        }
         None
     }
 }
@@ -93,39 +96,41 @@ impl Rule for CbrtPowerRule {
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
         if let Expr::FunctionCall { name, args } = expr
-            && name == "cbrt" && args.len() == 1
-                && let Expr::Pow(base, exp) = &args[0] {
-                    // Create new exponent: exp / 3
-                    let new_exp = Expr::Div(exp.clone(), Box::new(Expr::Number(3.0)));
+            && name == "cbrt"
+            && args.len() == 1
+            && let Expr::Pow(base, exp) = &args[0]
+        {
+            // Create new exponent: exp / 3
+            let new_exp = Expr::Div(exp.clone(), Box::new(Expr::Number(3.0)));
 
-                    // Simplify the division immediately
-                    let simplified_exp = match &new_exp {
-                        Expr::Div(u, v) => {
-                            if let (Expr::Number(a), Expr::Number(b)) = (&**u, &**v) {
-                                if *b != 0.0 {
-                                    let result = a / b;
-                                    if (result - result.round()).abs() < 1e-10 {
-                                        Expr::Number(result.round())
-                                    } else {
-                                        new_exp
-                                    }
-                                } else {
-                                    new_exp
-                                }
+            // Simplify the division immediately
+            let simplified_exp = match &new_exp {
+                Expr::Div(u, v) => {
+                    if let (Expr::Number(a), Expr::Number(b)) = (&**u, &**v) {
+                        if *b != 0.0 {
+                            let result = a / b;
+                            if (result - result.round()).abs() < 1e-10 {
+                                Expr::Number(result.round())
                             } else {
                                 new_exp
                             }
+                        } else {
+                            new_exp
                         }
-                        _ => new_exp,
-                    };
-
-                    // If exponent simplified to 1, return base directly
-                    if matches!(simplified_exp, Expr::Number(n) if n == 1.0) {
-                        return Some((**base).clone());
+                    } else {
+                        new_exp
                     }
-
-                    return Some(Expr::Pow(base.clone(), Box::new(simplified_exp)));
                 }
+                _ => new_exp,
+            };
+
+            // If exponent simplified to 1, return base directly
+            if matches!(simplified_exp, Expr::Number(n) if n == 1.0) {
+                return Some((**base).clone());
+            }
+
+            return Some(Expr::Pow(base.clone(), Box::new(simplified_exp)));
+        }
         None
     }
 }
@@ -166,24 +171,28 @@ impl Rule for SqrtMulRule {
                     args: v_args,
                 },
             ) = (&**u, &**v)
-                && u_name == "sqrt" && v_name == "sqrt" && u_args.len() == 1 && v_args.len() == 1 {
-                    // Check if both arguments are known to be non-negative
-                    let a_non_neg = is_known_non_negative(&u_args[0]);
-                    let b_non_neg = is_known_non_negative(&v_args[0]);
+                && u_name == "sqrt"
+                && v_name == "sqrt"
+                && u_args.len() == 1
+                && v_args.len() == 1
+            {
+                // Check if both arguments are known to be non-negative
+                let a_non_neg = is_known_non_negative(&u_args[0]);
+                let b_non_neg = is_known_non_negative(&v_args[0]);
 
-                    // If in domain-safe mode and we can't prove both are non-negative, skip
-                    if context.domain_safe && !(a_non_neg && b_non_neg) {
-                        return None;
-                    }
-
-                    return Some(Expr::FunctionCall {
-                        name: "sqrt".to_string(),
-                        args: vec![Expr::Mul(
-                            Box::new(u_args[0].clone()),
-                            Box::new(v_args[0].clone()),
-                        )],
-                    });
+                // If in domain-safe mode and we can't prove both are non-negative, skip
+                if context.domain_safe && !(a_non_neg && b_non_neg) {
+                    return None;
                 }
+
+                return Some(Expr::FunctionCall {
+                    name: "sqrt".to_string(),
+                    args: vec![Expr::Mul(
+                        Box::new(u_args[0].clone()),
+                        Box::new(v_args[0].clone()),
+                    )],
+                });
+            }
         }
         None
     }
@@ -225,24 +234,28 @@ impl Rule for SqrtDivRule {
                     args: v_args,
                 },
             ) = (&**u, &**v)
-                && u_name == "sqrt" && v_name == "sqrt" && u_args.len() == 1 && v_args.len() == 1 {
-                    // Check if both arguments are known to be non-negative
-                    let a_non_neg = is_known_non_negative(&u_args[0]);
-                    let b_non_neg = is_known_non_negative(&v_args[0]);
+                && u_name == "sqrt"
+                && v_name == "sqrt"
+                && u_args.len() == 1
+                && v_args.len() == 1
+            {
+                // Check if both arguments are known to be non-negative
+                let a_non_neg = is_known_non_negative(&u_args[0]);
+                let b_non_neg = is_known_non_negative(&v_args[0]);
 
-                    // If in domain-safe mode and we can't prove both are non-negative, skip
-                    if context.domain_safe && !(a_non_neg && b_non_neg) {
-                        return None;
-                    }
-
-                    return Some(Expr::FunctionCall {
-                        name: "sqrt".to_string(),
-                        args: vec![Expr::Div(
-                            Box::new(u_args[0].clone()),
-                            Box::new(v_args[0].clone()),
-                        )],
-                    });
+                // If in domain-safe mode and we can't prove both are non-negative, skip
+                if context.domain_safe && !(a_non_neg && b_non_neg) {
+                    return None;
                 }
+
+                return Some(Expr::FunctionCall {
+                    name: "sqrt".to_string(),
+                    args: vec![Expr::Div(
+                        Box::new(u_args[0].clone()),
+                        Box::new(v_args[0].clone()),
+                    )],
+                });
+            }
         }
         None
     }
@@ -267,20 +280,21 @@ impl Rule for PowerToRootRule {
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
         if let Expr::Pow(base, exp) = expr
             && let Expr::Div(num, den) = &**exp
-                && matches!(**num, Expr::Number(n) if n == 1.0)
-                    && let Expr::Number(n) = &**den {
-                        if *n == 2.0 {
-                            return Some(Expr::FunctionCall {
-                                name: "sqrt".to_string(),
-                                args: vec![(**base).clone()],
-                            });
-                        } else if *n == 3.0 {
-                            return Some(Expr::FunctionCall {
-                                name: "cbrt".to_string(),
-                                args: vec![(**base).clone()],
-                            });
-                        }
-                    }
+            && matches!(**num, Expr::Number(n) if n == 1.0)
+            && let Expr::Number(n) = &**den
+        {
+            if *n == 2.0 {
+                return Some(Expr::FunctionCall {
+                    name: "sqrt".to_string(),
+                    args: vec![(**base).clone()],
+                });
+            } else if *n == 3.0 {
+                return Some(Expr::FunctionCall {
+                    name: "cbrt".to_string(),
+                    args: vec![(**base).clone()],
+                });
+            }
+        }
         None
     }
 }
@@ -303,29 +317,30 @@ impl Rule for NormalizeRootsRule {
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
         if let Expr::FunctionCall { name, args } = expr
-            && args.len() == 1 {
-                match name.as_str() {
-                    "sqrt" => {
-                        return Some(Expr::Pow(
-                            Box::new(args[0].clone()),
-                            Box::new(Expr::Div(
-                                Box::new(Expr::Number(1.0)),
-                                Box::new(Expr::Number(2.0)),
-                            )),
-                        ));
-                    }
-                    "cbrt" => {
-                        return Some(Expr::Pow(
-                            Box::new(args[0].clone()),
-                            Box::new(Expr::Div(
-                                Box::new(Expr::Number(1.0)),
-                                Box::new(Expr::Number(3.0)),
-                            )),
-                        ));
-                    }
-                    _ => {}
+            && args.len() == 1
+        {
+            match name.as_str() {
+                "sqrt" => {
+                    return Some(Expr::Pow(
+                        Box::new(args[0].clone()),
+                        Box::new(Expr::Div(
+                            Box::new(Expr::Number(1.0)),
+                            Box::new(Expr::Number(2.0)),
+                        )),
+                    ));
                 }
+                "cbrt" => {
+                    return Some(Expr::Pow(
+                        Box::new(args[0].clone()),
+                        Box::new(Expr::Div(
+                            Box::new(Expr::Number(1.0)),
+                            Box::new(Expr::Number(3.0)),
+                        )),
+                    ));
+                }
+                _ => {}
             }
+        }
         None
     }
 }

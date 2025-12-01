@@ -57,13 +57,17 @@ pub(crate) fn is_multiple_of_two_pi(expr: &Expr) -> bool {
     // Handle n * pi
     if let Expr::Mul(lhs, rhs) = expr {
         if let (Expr::Number(n), Expr::Symbol(s)) = (&**lhs, &**rhs)
-            && s == "pi" && n % 2.0 == 0.0 {
-                return true;
-            }
+            && s == "pi"
+            && n % 2.0 == 0.0
+        {
+            return true;
+        }
         if let (Expr::Symbol(s), Expr::Number(n)) = (&**lhs, &**rhs)
-            && s == "pi" && n % 2.0 == 0.0 {
-                return true;
-            }
+            && s == "pi"
+            && n % 2.0 == 0.0
+        {
+            return true;
+        }
     }
     false
 }
