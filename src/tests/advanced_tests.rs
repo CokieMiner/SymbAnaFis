@@ -111,10 +111,10 @@ mod simplification_advanced {
         );
         let result = simplify(expr);
         // Should simplify to (x+1)^1, which should further simplify to (x+1)
-        // Due to canonical ordering, it becomes 1 + x
+        // Due to canonical ordering by degree, it becomes x + 1
         let expected = Expr::Add(
-            Box::new(Expr::Number(1.0)),
             Box::new(Expr::Symbol("x".to_string())),
+            Box::new(Expr::Number(1.0)),
         );
         assert_eq!(result, expected);
     }
@@ -139,13 +139,13 @@ mod simplification_advanced {
         );
         let result = simplify(expr);
         // Should simplify to (x^2 + y)^2
-        // Due to canonical ordering, it becomes y + x^2
+        // Due to canonical ordering by degree, it becomes x^2 + y
         let expected_base = Expr::Add(
-            Box::new(Expr::Symbol("y".to_string())),
             Box::new(Expr::Pow(
                 Box::new(Expr::Symbol("x".to_string())),
                 Box::new(Expr::Number(2.0)),
             )),
+            Box::new(Expr::Symbol("y".to_string())),
         );
         let expected = Expr::Pow(Box::new(expected_base), Box::new(Expr::Number(2.0)));
         assert_eq!(result, expected);

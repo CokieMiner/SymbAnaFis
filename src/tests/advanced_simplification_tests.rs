@@ -43,12 +43,14 @@ fn test_exponential_form_recognition() {
     let expr = parse_expr("(exp(x) + exp((-1) * x)) / 2");
     let result = simplify(expr);
     let result_str = format!("{}", result);
+    println!("Result for cosh: {}", result_str);
     assert!(result_str.contains("cosh") || result_str == "cosh(x)");
 
     // (e^x - e^(-x))/2 = sinh(x)
     let expr = parse_expr("(exp(x) - exp((-1) * x)) / 2");
     let result = simplify(expr);
     let result_str = format!("{}", result);
+    println!("Result for sinh: {}", result_str);
     assert!(result_str.contains("sinh") || result_str == "sinh(x)");
 }
 

@@ -126,6 +126,68 @@ impl Expr {
             | Expr::Pow(l, r) => l.contains_var(var) || r.contains_var(var),
         }
     }
+
+    /// Collect all variables in the expression
+    pub fn variables(&self) -> std::collections::HashSet<String> {
+        let mut vars = std::collections::HashSet::new();
+        self.collect_variables(&mut vars);
+        vars
+    }
+
+    fn collect_variables(&self, vars: &mut std::collections::HashSet<String>) {
+        match self {
+            Expr::Symbol(s) => {
+                vars.insert(s.clone());
+            }
+            Expr::FunctionCall { args, .. } => {
+                for arg in args {
+                    arg.collect_variables(vars);
+                }
+            }
+            Expr::Add(l, r)
+            | Expr::Sub(l, r)
+            | Expr::Mul(l, r)
+            | Expr::Div(l, r)
+            | Expr::Pow(l, r) => {
+                l.collect_variables(vars);
+                r.collect_variables(vars);
+            }
+            Expr::Number(_) => {}
+        }
+    }
+}
+
+// Manual Eq implementation since f64 doesn't implement Eq
+// We treat NaN != NaN (standard IEEE 754), but for simplification
+// we can consider two NaN expressions as "equal" for cycle detection
+impl Eq for Expr {}
+
+// Manual Hash implementation for Expr
+// We need this for HashSet<Expr> in cycle detection
+impl std::hash::Hash for Expr {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
+        match self {
+            Expr::Number(n) => {
+                // Hash the bit representation of f64
+                // NaN values will hash the same way
+                n.to_bits().hash(state);
+            }
+            Expr::Symbol(s) => s.hash(state),
+            Expr::FunctionCall { name, args } => {
+                name.hash(state);
+                args.hash(state);
+            }
+            Expr::Add(l, r)
+            | Expr::Sub(l, r)
+            | Expr::Mul(l, r)
+            | Expr::Div(l, r)
+            | Expr::Pow(l, r) => {
+                l.hash(state);
+                r.hash(state);
+            }
+        }
+    }
 }
 
 #[cfg(test)]

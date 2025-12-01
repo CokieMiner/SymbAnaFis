@@ -197,10 +197,11 @@ impl<'a> Parser<'a> {
                 }
             }
 
-            // Unary minus
+            // Unary minus: precedence between Mul (20) and Pow (30)
+            // This ensures -x^2 parses as -(x^2), not (-x)^2
             Token::Operator(Operator::Sub) => {
                 self.advance();
-                let expr = self.parse_expr(40)?; // Highest precedence for unary
+                let expr = self.parse_expr(25)?; // Lower than Pow (30), higher than Mul (20)
                 Ok(Expr::Mul(Box::new(Expr::Number(-1.0)), Box::new(expr)))
             }
 

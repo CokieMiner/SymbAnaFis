@@ -434,7 +434,7 @@ fn test_double_angle_formulas() {
         panic!("Expected cos(2*x), got {:?}", simplified);
     }
 
-    // tan(2x) = 2*tan(x) / (1 - tan^2(x))
+    // tan(2x) stays as tan(2x) (no expansion for simplification)
     let expr = Expr::FunctionCall {
         name: "tan".to_string(),
         args: vec![Expr::Mul(
@@ -443,38 +443,16 @@ fn test_double_angle_formulas() {
         )],
     };
     let simplified = simplify(expr);
-    // Should be 2*tan(x) / (1 - tan^2(x))
-    if let Expr::Div(num, den) = simplified {
-        // Check numerator: 2*tan(x)
-        if let Expr::Mul(a, b) = *num {
-            assert_eq!(*a, Expr::Number(2.0));
-            if let Expr::FunctionCall { name, args } = *b {
-                assert_eq!(name, "tan");
-                assert_eq!(args[0], Expr::Symbol("x".to_string()));
-            } else {
-                panic!("Expected tan(x)");
-            }
+    // Should stay as tan(2x)
+    if let Expr::FunctionCall { name, args } = simplified {
+        assert_eq!(name, "tan");
+        if let Expr::Mul(a, b) = &args[0] {
+            assert_eq!(**a, Expr::Number(2.0));
+            assert_eq!(**b, Expr::Symbol("x".to_string()));
         } else {
-            panic!("Expected 2*tan(x)");
-        }
-        // Check denominator: 1 - tan^2(x) (canonical form prefers Sub for negative terms)
-        if let Expr::Sub(c, d) = *den {
-            assert_eq!(*c, Expr::Number(1.0));
-            if let Expr::Pow(base, exp) = *d {
-                assert_eq!(*exp, Expr::Number(2.0));
-                if let Expr::FunctionCall { name, args } = *base {
-                    assert_eq!(name, "tan");
-                    assert_eq!(args[0], Expr::Symbol("x".to_string()));
-                } else {
-                    panic!("Expected tan(x)");
-                }
-            } else {
-                panic!("Expected tan^2(x)");
-            }
-        } else {
-            panic!("Expected 1 - tan^2(x), got {:?}", *den);
+            panic!("Expected 2*x");
         }
     } else {
-        panic!("Expected 2*tan(x)/(1-tan^2(x)), got {:?}", simplified);
+        panic!("Expected tan(2*x), got {:?}", simplified);
     }
 }

@@ -24,8 +24,8 @@ mod tests {
         // Expected: (x + 1)^2
         let expected = Expr::Pow(
             Box::new(Expr::Add(
-                Box::new(Expr::Number(1.0)),
                 Box::new(Expr::Symbol("x".to_string())),
+                Box::new(Expr::Number(1.0)),
             )),
             Box::new(Expr::Number(2.0)),
         );

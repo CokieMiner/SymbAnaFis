@@ -4,242 +4,148 @@ This document describes all the simplification rules implemented in the SymbAnaF
 
 ## Overview
 
-The simplification system applies rules in a bottom-up manner through the expression tree, using multiple passes until no further simplifications are possible. Rules are organized into modules by mathematical domain.
+The simplification system applies rules in a bottom-up manner through the expression tree, using multiple passes until no further simplifications are possible. Rules are organized into modules by mathematical domain and applied in priority order (higher priority first).
 
-## Rule Application Order
+## Rule Categories and Priorities
 
-Rules are applied in this sequence:
-1. **Numeric rules** - Basic arithmetic simplifications
-2. **Algebraic rules** - Like terms combination and exponent manipulation
-3. **Trigonometric rules** - Trig identities and exact values
-4. **Hyperbolic rules** - Hyperbolic function identities
-5. **Logarithmic/Exponential rules** - Log and exp identities
-6. **Root rules** - Square root and cube root simplifications
+Rules are grouped by category and listed in priority order within each category.
 
-## Numeric Rules (`numeric.rs`)
+### Numeric Rules (Category: Numeric)
+These handle basic arithmetic identities and constant folding.
 
-### Arithmetic Operations
-- **Addition**: `0 + x = x`, `x + 0 = x`
-- **Subtraction**: `x - 0 = x`
-- **Multiplication**: `0 * x = 0`, `x * 0 = 0`, `1 * x = x`, `x * 1 = x`
-- **Division**: `x / 1 = x`, `0 / x = 0` (for x ≠ 0)
+- **add_zero** (priority: 100) - Rule for adding zero: x + 0 = x, 0 + x = x
+- **sub_zero** (priority: 100) - Rule for subtracting zero: x - 0 = x
+- **mul_zero** (priority: 100) - Rule for multiplying by zero: 0 * x = 0, x * 0 = 0
+- **mul_one** (priority: 100) - Rule for multiplying by one: 1 * x = x, x * 1 = x
+- **div_one** (priority: 100) - Rule for dividing by one: x / 1 = x
+- **zero_div** (priority: 100) - Rule for zero divided by something: 0 / x = 0 (when x != 0)
+- **pow_zero** (priority: 100) - Rule for power of zero: x^0 = 1 (when x != 0)
+- **pow_one** (priority: 100) - Rule for power of one: x^1 = x
+- **zero_pow** (priority: 100) - Rule for zero to a power: 0^x = 0 (for x > 0)
+- **one_pow** (priority: 100) - Rule for one to a power: 1^x = 1
+- **constant_fold** (priority: 90) - Rule for constant folding arithmetic operations
+- **fraction_simplify** (priority: 80) - Rule for simplifying fractions with integer coefficients
 
-### Power Rules
-- **Zero power**: `x^0 = 1`
-- **Unit power**: `x^1 = x`
-- **Zero base**: `0^x = 0` (for x > 0)
-- **Unit base**: `1^x = 1`
+### Algebraic Rules (Category: Algebraic)
+These handle polynomial operations, factoring, and structural transformations.
 
-### Constant Folding
-All binary operations with numeric constants are evaluated:
-- `a + b`, `a - b`, `a * b`, `a / b`, `a^b` where a,b are numbers
+- **div_div_flatten** (priority: 95) - Rule for flattening nested divisions: (a/b)/(c/d) -> (a*d)/(b*c)
+- **power_zero** (priority: 95) - Rule for x^0 = 1 (when x != 0)
+- **power_one** (priority: 95) - Rule for x^1 = x
+- **expand_power_for_cancellation** (priority: 95) - Rule for expanding powers to enable cancellation: (a*b)^n / a -> a^n * b^n / a
+- **polynomial_expansion** (priority: 92) - Rule for expanding polynomials
+- **div_self** (priority: 90) - Rule for x / x = 1 (when x != 0) **[alters domain]**
+- **power_to_sqrt** (priority: 90) - Rule for x^(1/2) -> sqrt(x)
+- **power_to_cbrt** (priority: 90) - Rule for x^(1/3) -> cbrt(x)
+- **negative_exponent_to_fraction** (priority: 90) - Rule for x^-n -> 1/x^n where n > 0
+- **fraction_cancellation** (priority: 90) - Rule for cancelling common terms in fractions: (a*b)/(a*c) -> b/c **[alters domain]**
+- **distribute_negation** (priority: 90) - Rule for distributing negation: -(A + B) -> -A - B
+- **e_pow_ln** (priority: 85) - Rule for e^(ln(x)) -> x (handles Symbol("e") form) **[alters domain]**
+- **e_pow_mul_ln** (priority: 85) - Rule for e^(a*ln(b)) -> b^a (handles Symbol("e") form)
+- **power_power** (priority: 85) - Rule for (x^a)^b -> x^(a*b)
+- **power_mul** (priority: 85) - Rule for x^a * x^b -> x^(a+b)
+- **power_div** (priority: 85) - Rule for x^a / x^b -> x^(a-b)
+- **mul_div_combination** (priority: 85) - Rule for a * (b / c) -> (a * b) / c
+- **expand_difference_of_squares_product** (priority: 85) - Rule for expanding difference of squares in products
+- **exp_ln** (priority: 80) - Rule for exp(ln(x)) -> x **[alters domain]**
+- **ln_exp** (priority: 80) - Rule for ln(exp(x)) -> x
+- **exp_mul_ln** (priority: 80) - Rule for exp(a * ln(b)) -> b^a **[alters domain]**
+- **power_collection** (priority: 80) - Rule for collecting powers in multiplication: x^a * x^b -> x^(a+b)
+- **common_exponent_div** (priority: 80) - Rule for x^a / y^a -> (x/y)^a
+- **common_exponent_mul** (priority: 80) - Rule for x^a * y^a -> (x*y)^a
+- **combine_like_terms_addition** (priority: 80) - Rule for combining like terms in addition
+- **perfect_square** (priority: 50) - Rule for perfect squares: a^2 + 2ab + b^2 -> (a+b)^2
+- **perfect_cube** (priority: 50) - Rule for perfect cubes: a^3 + 3a^2b + 3ab^2 + b^3 -> (a+b)^3
+- **combine_terms** (priority: 45) - Rule for combining like terms in addition: 2x + 3x -> 5x
+- **combine_factors** (priority: 45) - Rule for combining like factors in multiplication: x * x -> x^2
+- **numeric_gcd_factoring** (priority: 42) - Rule for factoring out numeric GCD
+- **power_expansion** (priority: 40) - Rule for expanding powers: (a*b)^n -> a^n * b^n
+- **add_fraction** (priority: 40) - Rule for adding fractions: a + b/c -> (a*c + b)/c
+- **canonicalize** (priority: 40) - Rule for canonicalizing expressions (sorting terms)
+- **common_term_factoring** (priority: 40) - Rule for factoring out common terms: ax + bx -> x(a+b)
+- **canonicalize_multiplication** (priority: 15) - Rule for canonical ordering of multiplication terms
+- **canonicalize_addition** (priority: 15) - Rule for canonical ordering of addition terms
+- **canonicalize_subtraction** (priority: 15) - Rule for canonical ordering in subtraction
+- **factor_difference_of_squares** (priority: 10) - Rule for factoring difference of squares: a^2 - b^2 -> (a-b)(a+b)
+- **normalize_add_negation** (priority: 5) - Rule for normalizing addition with negation
 
-## Algebraic Rules (`algebraic.rs`)
+### Trigonometric Rules (Category: Trigonometric)
+These handle trigonometric identities, exact values, and transformations.
 
-### Like Terms Combination
-- **Addition**: `x + x = 2x`, `2x + 3x = 5x`
-- **Multiplication**: `x * x = x^2`, `x^2 * x^3 = x^5`
-- **Normalized terms**: Expressions like `2*cosh(x)*sinh(x)` and `-2*sinh(x)*cosh(x)` are recognized as like terms after normalizing multiplication order
+- **sin_zero** (priority: 95) - Rule for sin(0) = 0
+- **cos_zero** (priority: 95) - Rule for cos(0) = 1
+- **tan_zero** (priority: 95) - Rule for tan(0) = 0
+- **sin_pi** (priority: 95) - Rule for sin(π) = 0
+- **cos_pi** (priority: 95) - Rule for cos(π) = -1
+- **sin_pi_over_two** (priority: 95) - Rule for sin(π/2) = 1
+- **cos_pi_over_two** (priority: 95) - Rule for cos(π/2) = 0
+- **trig_exact_values** (priority: 95) - Rule for sin(π/6) = 1/2, cos(π/3) = 1/2, etc.
+- **inverse_trig_identity** (priority: 90) - Rule for sin(asin(x)) = x and cos(acos(x)) = x **[alters domain]**
+- **trig_neg_arg** (priority: 90) - Rule for sin(-x) = -sin(x), cos(-x) = cos(x), etc.
+- **trig_product_to_double_angle** (priority: 90) - Rule for product-to-double-angle conversions
+- **cofunction_identity** (priority: 85) - Rule for sin(π/2 - x) = cos(x) and cos(π/2 - x) = sin(x)
+- **inverse_trig_composition** (priority: 85) - Rule for asin(sin(x)) = x and acos(cos(x)) = x **[alters domain]**
+- **trig_periodicity** (priority: 85) - Rule for periodicity: sin(x + 2kπ) = sin(x), cos(x + 2kπ) = cos(x)
+- **trig_double_angle** (priority: 85) - Rule for sin(2*x) = 2*sin(x)*cos(x)
+- **cos_double_angle_difference** (priority: 85) - Rule for cosine double angle in difference form
+- **pythagorean_identity** (priority: 80) - Rule for sin^2(x) + cos^2(x) = 1
+- **trig_reflection** (priority: 80) - Rule for reflection: sin(π - x) = sin(x), cos(π - x) = -cos(x)
+- **trig_three_pi_over_two** (priority: 80) - Rule for sin(3π/2 - x) = -cos(x), cos(3π/2 - x) = -sin(x)
+- **pythagorean_complements** (priority: 70) - Rule for 1 - cos²(x) = sin²(x), 1 - sin²(x) = cos²(x)
+- **pythagorean_tangent** (priority: 70) - Rule for tan^2(x) + 1 = sec^2(x) and cot^2(x) + 1 = csc^2(x)
+- **trig_sum_difference** (priority: 70) - Rule for sum/difference identities: sin(x+y), cos(x-y), etc.
+- **trig_triple_angle** (priority: 70) - Rule for triple angle folding: 3sin(x) - 4sin^3(x) -> sin(3x)
 
-### Factoring
-- **Common factor**: `x*y + x*z = x*(y+z)`
-- **Perfect squares**: `x^2 + 2*x*y + y^2 = (x+y)^2`
+### Hyperbolic Rules (Category: Hyperbolic)
+These handle hyperbolic function identities and exponential forms. All exponential conversion rules (sinh, cosh, tanh, sech, csch, coth) now properly handle different term orderings in commutative operations (Addition), making patterns more general and robust.
 
-### Cancellation
-- **Subtraction**: `x - x = 0`
-- **Division**: `x / x = 1`
+- **sinh_zero** (priority: 95) - Rule for sinh(0) = 0
+- **cosh_zero** (priority: 95) - Rule for cosh(0) = 1
+- **sinh_asinh_identity** (priority: 95) - Rule for sinh(asinh(x)) = x
+- **cosh_acosh_identity** (priority: 95) - Rule for cosh(acosh(x)) = x
+- **tanh_atanh_identity** (priority: 95) - Rule for tanh(atanh(x)) = x
+- **hyperbolic_identity** (priority: 95) - Rule for cosh^2(x) - sinh^2(x) = 1, 1 - tanh^2(x) = sech^2(x), coth^2(x) - 1 = csch^2(x)
+- **sinh_negation** (priority: 90) - Rule for sinh(-x) = -sinh(x)
+- **cosh_negation** (priority: 90) - Rule for cosh(-x) = cosh(x)
+- **tanh_negation** (priority: 90) - Rule for tanh(-x) = -tanh(x)
+- **sinh_from_exp** (priority: 80) - Rule for converting (e^x - e^(-x)) / 2 to sinh(x). Handles both Add and Sub patterns with reversed term orderings.
+- **cosh_from_exp** (priority: 80) - Rule for converting (e^x + e^(-x)) / 2 to cosh(x). Now handles reversed order: (e^(-x) + e^x) / 2.
+- **tanh_from_exp** (priority: 80) - Rule for converting (e^x - e^(-x)) / (e^x + e^(-x)) to tanh(x). Denominators with reversed order (e^(-x) + e^x) are also recognized.
+- **sech_from_exp** (priority: 80) - Rule for converting 2 / (e^x + e^(-x)) to sech(x). Now handles reversed denominator order (e^(-x) + e^x).
+- **csch_from_exp** (priority: 80) - Rule for converting 2 / (e^x - e^(-x)) to csch(x). Handles both Add and Sub patterns with reversed term orderings.
+- **coth_from_exp** (priority: 80) - Rule for converting (e^x + e^(-x)) / (e^x - e^(-x)) to coth(x). Numerators with reversed order (e^(-x) + e^x) are also recognized.
+- **hyperbolic_triple_angle** (priority: 70) - Rule for triple angle folding: 4sinh^3(x) + 3sinh(x) -> sinh(3x), 4cosh^3(x) - 3cosh(x) -> cosh(3x)
 
-### Exponent Manipulation
-- **Power of power**: `(x^a)^b = x^(a*b)`
-- **Division with powers**: `x^n / x^m = x^(n-m)`
-- **Division by power**: `x^n / x = x^(n-1)`
-- **Division of power**: `x / x^n = x^(1-n)`
+### Exponential Rules (Category: Exponential)
+These handle logarithmic and exponential function identities.
 
-### Negative Term Handling
-- **Addition with negation**: `a + (-b) = a - b`
-- **Subtraction conversion**: `x - y = x + (-1)*y`
+- **ln_one** (priority: 95) - Rule for ln(1) = 0
+- **ln_e** (priority: 95) - Rule for ln(e) = 1
+- **exp_zero** (priority: 95) - Rule for exp(0) = 1
+- **exp_to_e_pow** (priority: 95) - Rule for exp(x) = e^x
+- **log_base_values** (priority: 95) - Rule for specific log values: log10(1)=0, log10(10)=1, log2(1)=0, log2(2)=1
+- **exp_ln_identity** (priority: 90) - Rule for exp(ln(x)) = x (for x > 0) **[alters domain]**
+- **ln_exp_identity** (priority: 90) - Rule for ln(exp(x)) = x
+- **log_power** (priority: 90) - Rule for log(x^n) = n * log(x) for ln, log10, log2 **[alters domain]**
+- **log_combination** (priority: 85) - Rule for ln(a) + ln(b) = ln(a*b) and ln(a) - ln(b) = ln(a/b)
 
-### Identity Operations
-- **Multiplication by one**: `1 * x = x`, `x * 1 = x`
-- **Addition with zero**: `x + 0 = x`, `0 + x = x`
+### Root Rules (Category: Root)
+These handle square root and cube root simplifications.
 
-### Division Simplification
-- **Factor cancellation**: `(a * b) / (a * c) → b / c`
-- **Exact match cancellation**: Common factors in numerator and denominator are cancelled
-- **Power reduction**: 
-  - `x / x^n → 1 / x^(n-1)`
-  - `x^n / x → x^(n-1) / 1`
-  - `x^n / x^m → x^(n-m)`
-- **Division structure preservation**: When multiplications contain divisions (e.g., `a * (b/c) * d`), they are flattened to `(a*b*d)/c` and the division structure is preserved through subsequent simplification passes
-- **Nested division simplification**:
-  - `(x/y) / (z/a) → (x*a) / (y*z)`
-  - `x / (y/z) → (x*z) / y`
-  - `(x/y) / z → x / (y*z)`
+- **sqrt_power** (priority: 85) - Rule for sqrt(x^n) = x^(n/2) **[alters domain]**
+- **cbrt_power** (priority: 85) - Rule for cbrt(x^n) = x^(n/3)
+- **sqrt_mul** (priority: 80) - Rule for sqrt(x) * sqrt(y) = sqrt(x*y) **[alters domain]**
+- **sqrt_div** (priority: 80) - Rule for sqrt(x)/sqrt(y) = sqrt(x/y) **[alters domain]**
+- **power_to_root** (priority: 75) - Rule for x^(1/n) = nth root of x
+- **normalize_roots** (priority: 50) - Rule that applies the monolithic root normalization
 
-#### Critical Implementation Details
+## Domain Safety
 
-1. **Structure Preservation**: The multiplication simplification includes a critical fix (lines 137-145 in `algebraic.rs`): when `try_flatten_mul_div` successfully creates a single `Div` expression from a multiplication containing divisions, it is returned immediately without further processing by `combine_mul_terms` or `combine_power_terms`. This prevents the division structure from being broken apart.
+Some simplification rules make assumptions about the domain of validity for the expressions they transform. These rules are marked with **[alters domain]** in the rule descriptions above.
 
-2. **Power Expansion Strategy**: To enable cancellation in expressions like `a / (a*b)^n`, the denominator is temporarily expanded to `a^n * b^n` using `expand_pow_mul`.
-   - **Loop Prevention**: To avoid infinite loops (expand → combine → expand), the expanded form is **only kept if a cancellation actually occurs**. If no factors are cancelled, the original unexpanded denominator is returned. This breaks the cycle between `expand_pow_mul` and `combine_power_terms`.
+When domain-safe mode is enabled, rules that alter domains are skipped to ensure that simplifications remain valid across the entire complex plane or real line, depending on the context. This prevents incorrect simplifications that might introduce new singularities or restrict the domain inappropriately.
 
-### Canonical Ordering
-- Terms are sorted and combined in canonical form
-- Multiplication factors are normalized by sorting subexpressions
-
-## Trigonometric Rules (`trig.rs`)
-
-### Exact Values
-- **sin(0) = 0**, **sin(π) = 0**, **sin(π/2) = 1**
-- **sin(π/6) = 1/2**, **sin(π/4) = √2/2**, **sin(π/3) = √3/2**
-- **cos(0) = 1**, **cos(π) = -1**, **cos(π/2) = 0**
-- **cos(π/6) = √3/2**, **cos(π/4) = √2/2**, **cos(π/3) = 1/2**
-- **tan(0) = 0**, **tan(π) = 0**, **tan(π/4) = 1**
-- **tan(π/6) = √3/3**, **tan(π/3) = √3**
-- **cot(π/4) = 1**, **cot(π/2) = 0**
-- **sec(0) = 1**, **csc(π/2) = 1**, **csc(π/6) = 2**
-
-### Parity and Sign Rules
-- **sin(-x) = -sin(x)**
-- **cos(-x) = cos(x)**
-- **tan(-x) = -tan(x)**
-- **cot(-x) = -cot(x)**
-- **sec(-x) = sec(x)**
-- **csc(-x) = -csc(x)**
-
-### Inverse Function Composition
-- **sin(asin(x)) = x**, **asin(sin(x)) = x**
-- **cos(acos(x)) = x**, **acos(cos(x)) = x**
-- **tan(atan(x)) = x**, **atan(tan(x)) = x**
-
-### Cofunction Identities
-- **sin(π/2 - x) = cos(x)**
-- **cos(π/2 - x) = sin(x)**
-- **tan(π/2 - x) = cot(x)**
-- **cot(π/2 - x) = tan(x)**
-
-### Periodicity
-- **sin(x + 2kπ) = sin(x)**
-- **cos(x + 2kπ) = cos(x)**
-
-### Reflection and Shift Identities
-- **sin(π - x) = sin(x)**
-- **sin(π + x) = -sin(x)**
-- **sin(3π/2 - x) = -cos(x)**
-- **sin(3π/2 + x) = -cos(x)**
-- **cos(π - x) = -cos(x)**
-- **cos(π + x) = -cos(x)**
-- **cos(3π/2 - x) = -sin(x)**
-- **cos(3π/2 + x) = sin(x)**
-
-### Double Angle Formulas
-- **sin(2x) = 2* sin(x) *cos(x)**
-- **tan(2x) = 2*tan(x)/(1 - tan²(x))**
-
-### Pythagorean Identities
-- **sin²(x) + cos²(x) = 1**
-- **1 + tan²(x) = sec²(x)**
-- **1 + cot²(x) = csc²(x)**
-
-## Hyperbolic Rules (`hyperbolic.rs`)
-
-### Exact Values
-- **sinh(0) = 0**, **cosh(0) = 1**
-- **tanh(0) = 0**, **sech(0) = 1**
-
-### Parity Rules
-- **sinh(-x) = -sinh(x)**
-- **cosh(-x) = cosh(x)**
-- **tanh(-x) = -tanh(x)**
-
-### Hyperbolic Pythagorean Identities
-- **cosh²(x) - sinh²(x) = 1**
-- **sinh²(x) + cosh²(x) = cosh(2x)**
-- **1 - tanh²(x) = sech²(x)**
-- **coth²(x) - 1 = csch²(x)**
-
-### Hyperbolic Ratio Identities
-- **sinh(x)/cosh(x) = tanh(x)**
-- **cosh(x)/sinh(x) = coth(x)**
-- **1/cosh(x) = sech(x)**
-- **1/sinh(x) = csch(x)**
-
-### Exponential Form Recognition
-- **(e^x - e^-x)/2 = sinh(x)**
-- **(e^x + e^-x)/2 = cosh(x)**
-- **(e^x - e^-x)/(e^x + e^-x) = tanh(x)**
-- **(e^x + e^-x)/(e^x - e^-x) = coth(x)**
-- **2/(e^x + e^-x) = sech(x)**
-- **2/(e^x - e^-x) = csch(x)**
-- **(e^x + (-1)*e^-x)/2 = sinh(x)** (after algebraic simplification)
-- **(e^x + e^-x)/(e^x + (-1)*e^-x) = coth(x)** (after algebraic simplification)
-
-### Canonical Form Handling
-All identities also recognize forms after algebraic simplification:
-- **cosh²(x) + (-1)*sinh²(x) = 1**
-- **(-1)*sinh²(x) + cosh²(x) = 1**
-- **1 + (-1)*tanh²(x) = sech²(x)**
-- **(-1)*tanh²(x) + 1 = sech²(x)**
-- **coth²(x) + (-1) = csch²(x)**
-- **(-1) + coth²(x) = csch²(x)**
-
-## Logarithmic/Exponential Rules (`log_exp.rs`)
-
-### Exponential Rules
-- **exp(0) = 1**
-- **exp(ln(x)) = x**
-
-### Logarithmic Rules
-- **ln(1) = 0**
-- **ln(exp(x)) = x**
-- **ln(x^n) = n * ln(x)**
-- **log10(x^n) = n * log10(x)**
-- **log2(x^n) = n * log2(x)**
-
-### Logarithm Base Rules
-- **log₁₀(1) = 0**, **log₁₀(10) = 1**
-- **log₂(1) = 0**, **log₂(2) = 1**
-
-## Root Rules (`roots.rs`)
-
-### Square Root Rules
-- **√0 = 0**, **√1 = 1**
-- **√(x²) = x** (assuming x ≥ 0)
-
-### Cube Root Rules
-- **∛0 = 0**, **∛1 = 1**
-- **∛(x³) = x**
-
-### Root Simplification
-- **General Powers**: `sqrt(x^n)` simplifies to `x^(n/2)` if `n` is even. `cbrt(x^n)` simplifies to `x^(n/3)` if `n` is a multiple of 3.
-- **Nested Roots**: `sqrt(sqrt(x))` simplifies to `x^(1/4)`.
-- **Power to Root Conversion**: `x^(1/2)` → `sqrt(x)`, `x^(1/3)` → `cbrt(x)`, `x^0.5` → `sqrt(x)`.
-
-### Hyperbolic Simplification
-- **Inverse Composition**:
-    - `sinh(asinh(x))` -> `x`
-    - `cosh(acosh(x))` -> `x`
-    - `tanh(atanh(x))` -> `x`
-
-### Logarithmic and Exponential Simplification
-- **Combination Rules**:
-    - `ln(a) + ln(b)` -> `ln(a * b)`
-    - `ln(a) - ln(b)` -> `ln(a / b)`
-    - `exp(a) * exp(b)` -> `exp(a + b)`
-
-### Trigonometric Simplification
-- **Sum/Difference Combination**:
-    - `sin(x)cos(y) + cos(x)sin(y)` -> `sin(x + y)`
-    - `sin(x)cos(y) - cos(x)sin(y)` -> `sin(x - y)`
-    - `cos(x)cos(y) - sin(x)sin(y)` -> `cos(x + y)`
-    - `cos(x)cos(y) + sin(x)sin(y)` -> `cos(x - y)`
-
-
-## Future Enhancements (TODO)
-
-- **Polynomial GCD**: Implement greatest common divisor for polynomials to enable further factorization and simplification of rational expressions.
-- **Advanced Factoring**: Add support for factoring higher-degree polynomials, including irreducible polynomials and special cases.
-- **Advanced Inverse Trig/Hyperbolic**: Extend inverse trigonometric and hyperbolic function simplifications, such as compositions and identities involving multiple arguments.
+Domain-safe mode can be enabled when creating a simplifier to prioritize mathematical correctness over aggressive simplification.
 
 ## Implementation Details
 

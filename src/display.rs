@@ -34,11 +34,31 @@ impl fmt::Display for Expr {
             }
 
             Expr::Add(u, v) => {
-                write!(f, "{} + {}", u, v)
+                // Check if v is a negative term (Mul with -1) to display as subtraction
+                if let Expr::Mul(left, right) = &**v {
+                    if let Expr::Number(n) = **left {
+                        if n == -1.0 {
+                            let inner_str = format_mul_operand(right);
+                            write!(f, "{} - {}", u, inner_str)
+                        } else {
+                            write!(f, "{} + {}", u, v)
+                        }
+                    } else {
+                        write!(f, "{} + {}", u, v)
+                    }
+                } else {
+                    write!(f, "{} + {}", u, v)
+                }
             }
 
             Expr::Sub(u, v) => {
-                write!(f, "{} - {}", u, v)
+                // Parenthesize RHS when it's an addition or subtraction to preserve
+                // the intended grouping: `a - (b + c)` instead of `a - b + c`.
+                let right_str = match &**v {
+                    Expr::Add(_, _) | Expr::Sub(_, _) => format!("({})", v),
+                    _ => format!("{}", v),
+                };
+                write!(f, "{} - {}", u, right_str)
             }
 
             Expr::Mul(u, v) => {
@@ -73,26 +93,31 @@ impl fmt::Display for Expr {
             }
 
             Expr::Pow(u, v) => {
-                let base_str = format!("{}", u);
-                let exp_str = format!("{}", v);
+                // Special case: e^x displays as exp(x)
+                if let Expr::Symbol(s) = &**u && s == "e" {
+                    write!(f, "exp({})", v)
+                } else {
+                    let base_str = format!("{}", u);
+                    let exp_str = format!("{}", v);
 
-                // Add parentheses around base if it's not a simple expression
-                // CRITICAL: Mul and Div MUST be parenthesized to avoid ambiguity
-                // (C * R)^2 should display as "(C * R)^2", not "C * R^2"
-                let formatted_base = match **u {
-                    Expr::Add(_, _) | Expr::Sub(_, _) | Expr::Mul(_, _) | Expr::Div(_, _) => {
-                        format!("({})", base_str)
-                    }
-                    _ => base_str,
-                };
+                    // Add parentheses around base if it's not a simple expression
+                    // CRITICAL: Mul and Div MUST be parenthesized to avoid ambiguity
+                    // (C * R)^2 should display as "(C * R)^2", not "C * R^2"
+                    let formatted_base = match **u {
+                        Expr::Add(_, _) | Expr::Sub(_, _) | Expr::Mul(_, _) | Expr::Div(_, _) => {
+                            format!("({})", base_str)
+                        }
+                        _ => base_str,
+                    };
 
-                // Add parentheses around exponent if it's not a simple number or symbol
-                let formatted_exp = match **v {
-                    Expr::Number(_) | Expr::Symbol(_) => exp_str,
-                    _ => format!("({})", exp_str),
-                };
+                    // Add parentheses around exponent if it's not a simple number or symbol
+                    let formatted_exp = match **v {
+                        Expr::Number(_) | Expr::Symbol(_) => exp_str,
+                        _ => format!("({})", exp_str),
+                    };
 
-                write!(f, "{}^{}", formatted_base, formatted_exp)
+                    write!(f, "{}^{}", formatted_base, formatted_exp)
+                }
             }
         }
     }

@@ -354,7 +354,33 @@ fn resolve_sequence(
         }
     }
 
-    // Priority 5 (FALLBACK): Split into individual characters
+    // Priority 5 (FALLBACK): Check if it's a pure alphabetic sequence (variable)
+    if seq.chars().all(|c| c.is_alphabetic() || c == '_') {
+        // Check if any prefix is a fixed variable
+        for i in 1..=seq.len() {
+            let prefix = &seq[0..i];
+            if fixed_vars.contains(prefix) {
+                // Found a fixed variable prefix, split here
+                let rest = &seq[i..];
+                let mut tokens = vec![Token::Identifier(prefix.to_string())];
+                if !rest.is_empty() {
+                    // Recursively resolve the rest
+                    tokens.extend(resolve_sequence(
+                        rest,
+                        fixed_vars,
+                        custom_functions,
+                        next_is_paren && i == seq.len(), // Only pass next_is_paren if this is the last part
+                    ));
+                }
+                return tokens;
+            }
+        }
+
+        // No fixed variable prefix found, treat as single identifier
+        return vec![Token::Identifier(seq.to_string())];
+    }
+
+    // Priority 6 (FINAL FALLBACK): Split into individual characters (for complex sequences)
     seq.chars()
         .map(|c| Token::Identifier(c.to_string()))
         .collect()

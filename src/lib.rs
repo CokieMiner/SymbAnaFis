@@ -43,6 +43,15 @@ fn max_nodes() -> usize {
         .unwrap_or(10_000)
 }
 
+/// Get domain safety setting from environment variable or default (false)
+/// Set SYMB_ANAFIS_DOMAIN_SAFETY=true to skip domain-altering simplification rules
+fn domain_safety() -> bool {
+    env::var("SYMB_ANAFIS_DOMAIN_SAFETY")
+        .ok()
+        .map(|s| s.to_lowercase() == "true" || s == "1")
+        .unwrap_or(false)
+}
+
 /// Main API function for symbolic differentiation
 ///
 /// # Arguments
@@ -104,14 +113,18 @@ pub fn diff(
     // Step 5: Differentiate
     let derivative = ast.derive(&var_to_diff, &fixed_set);
 
-    // Step 6: Simplify
-    let simplified = simplification::simplify(derivative);
+    // Step 6: Simplify with configured domain safety
+    let simplified = if domain_safety() {
+        simplification::simplify_domain_safe(derivative)
+    } else {
+        simplification::simplify(derivative)
+    };
 
     // Step 7: Convert to string
     Ok(format!("{}", simplified))
 }
 
-/// Simplify a mathematical expression without differentiation
+/// Simplify a mathematical expression
 ///
 /// # Arguments
 /// * `formula` - Mathematical expression to simplify (e.g., "x^2 + 2*x + 1")
@@ -159,8 +172,12 @@ pub fn simplify(
         return Err(DiffError::MaxNodesExceeded);
     }
 
-    // Step 4: Simplify
-    let simplified = simplification::simplify(ast);
+    // Step 4: Simplify with configured domain safety
+    let simplified = if domain_safety() {
+        simplification::simplify_domain_safe(ast)
+    } else {
+        simplification::simplify(ast)
+    };
 
     // Step 5: Convert to string
     Ok(format!("{}", simplified))
