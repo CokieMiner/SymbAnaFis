@@ -12,7 +12,10 @@ fn test_polynomial_accuracy() {
     let result = diff("5*x^4 + 3*x^2 + 7".to_string(), "x".to_string(), None, None).unwrap();
     assert!(
         (result.contains("20") && result.contains("x^3") && result.contains("6"))
-            || (result.contains("2") && result.contains("10") && result.contains("x^3") && result.contains("3"))
+            || (result.contains("2")
+                && result.contains("10")
+                && result.contains("x^3")
+                && result.contains("3"))
     );
 }
 
@@ -45,7 +48,8 @@ fn test_exponential_log_accuracy() {
     let result = diff("x^x".to_string(), "x".to_string(), None, None).unwrap();
     // After canonicalization, might be reordered but should still contain both parts
     // May also simplify x^(1 + x - 1) to x^x
-    let has_x_power_x = result.contains("x^x") || result.contains("x ^ x") || result.contains("x^(1 + x - 1)");
+    let has_x_power_x =
+        result.contains("x^x") || result.contains("x ^ x") || result.contains("x^(1 + x - 1)");
     assert!(has_x_power_x, "Missing x^x or equivalent in: {}", result);
     assert!(result.contains("ln"), "Missing ln in: {}", result);
 }

@@ -35,7 +35,11 @@ mod tests {
                     **c == Expr::Symbol("y".to_string()) && **d == Expr::Symbol("z".to_string());
                 let is_zy =
                     **c == Expr::Symbol("z".to_string()) && **d == Expr::Symbol("y".to_string());
-                assert!(is_yz || is_zy, "Expected (y+z) or (z+y), got {:?}", sum_part);
+                assert!(
+                    is_yz || is_zy,
+                    "Expected (y+z) or (z+y), got {:?}",
+                    sum_part
+                );
             } else {
                 panic!("Expected Add inside Mul, got {:?}", sum_part);
             }
@@ -138,7 +142,11 @@ mod tests {
         let simplified = simplify(expr);
         // Expected: B - A or B + (-A), which should display as B - A
         let display = format!("{}", simplified);
-        assert!(display == "B - A" || display == "B + (-1) * A", "Got display: {}", display);
+        assert!(
+            display == "B - A" || display == "B + (-1) * A",
+            "Got display: {}",
+            display
+        );
     }
 
     #[test]
@@ -156,7 +164,11 @@ mod tests {
         );
         let simplified = simplify(expr);
         let display = format!("{}", simplified);
-        assert!(display == "B - A" || display == "B + (-1) * A", "Got display: {}", display);
+        assert!(
+            display == "B - A" || display == "B + (-1) * A",
+            "Got display: {}",
+            display
+        );
     }
 
     #[test]

@@ -52,11 +52,10 @@ pub mod rules {
         }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
-            if let Expr::Sub(u, v) = expr {
-                if matches!(**v, Expr::Number(n) if n == 0.0) {
+            if let Expr::Sub(u, v) = expr
+                && matches!(**v, Expr::Number(n) if n == 0.0) {
                     return Some((**u).clone());
                 }
-            }
             None
         }
     }
@@ -136,11 +135,10 @@ pub mod rules {
         }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
-            if let Expr::Div(u, v) = expr {
-                if matches!(**v, Expr::Number(n) if n == 1.0) {
+            if let Expr::Div(u, v) = expr
+                && matches!(**v, Expr::Number(n) if n == 1.0) {
                     return Some((**u).clone());
                 }
-            }
             None
         }
     }
@@ -162,11 +160,10 @@ pub mod rules {
         }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
-            if let Expr::Div(_u, _v) = expr {
-                if matches!(**_u, Expr::Number(n) if n == 0.0) {
+            if let Expr::Div(_u, _v) = expr
+                && matches!(**_u, Expr::Number(n) if n == 0.0) {
                     return Some(Expr::Number(0.0));
                 }
-            }
             None
         }
     }
@@ -191,46 +188,34 @@ pub mod rules {
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
             if let Expr::Div(num, den) = expr {
                 // Check if denominator is negative number
-                if let Expr::Number(d) = **den {
-                    if d < 0.0 {
+                if let Expr::Number(d) = **den
+                    && d < 0.0 {
                         // x / -y -> -x / y
                         return Some(Expr::Div(
-                            Box::new(Expr::Mul(
-                                Box::new(Expr::Number(-1.0)),
-                                num.clone(),
-                            )),
+                            Box::new(Expr::Mul(Box::new(Expr::Number(-1.0)), num.clone())),
                             Box::new(Expr::Number(-d)),
                         ));
                     }
-                }
-                
+
                 // Check if denominator is (-1 * something)
-                if let Expr::Mul(c, rest) = &**den {
-                    if matches!(**c, Expr::Number(n) if n == -1.0) {
+                if let Expr::Mul(c, rest) = &**den
+                    && matches!(**c, Expr::Number(n) if n == -1.0) {
                         // x / (-1 * y) -> -x / y
                         return Some(Expr::Div(
-                            Box::new(Expr::Mul(
-                                Box::new(Expr::Number(-1.0)),
-                                num.clone(),
-                            )),
+                            Box::new(Expr::Mul(Box::new(Expr::Number(-1.0)), num.clone())),
                             rest.clone(),
                         ));
                     }
-                }
-                
+
                 // Check if denominator is (something * -1)
-                if let Expr::Mul(rest, c) = &**den {
-                    if matches!(**c, Expr::Number(n) if n == -1.0) {
+                if let Expr::Mul(rest, c) = &**den
+                    && matches!(**c, Expr::Number(n) if n == -1.0) {
                         // x / (y * -1) -> -x / y
                         return Some(Expr::Div(
-                            Box::new(Expr::Mul(
-                                Box::new(Expr::Number(-1.0)),
-                                num.clone(),
-                            )),
+                            Box::new(Expr::Mul(Box::new(Expr::Number(-1.0)), num.clone())),
                             rest.clone(),
                         ));
                     }
-                }
             }
             None
         }
@@ -253,11 +238,10 @@ pub mod rules {
         }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
-            if let Expr::Pow(_u, v) = expr {
-                if matches!(**v, Expr::Number(n) if n == 0.0) {
+            if let Expr::Pow(_u, v) = expr
+                && matches!(**v, Expr::Number(n) if n == 0.0) {
                     return Some(Expr::Number(1.0));
                 }
-            }
             None
         }
     }
@@ -279,11 +263,10 @@ pub mod rules {
         }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
-            if let Expr::Pow(u, v) = expr {
-                if matches!(**v, Expr::Number(n) if n == 1.0) {
+            if let Expr::Pow(u, v) = expr
+                && matches!(**v, Expr::Number(n) if n == 1.0) {
                     return Some((**u).clone());
                 }
-            }
             None
         }
     }
@@ -305,11 +288,10 @@ pub mod rules {
         }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
-            if let Expr::Pow(_u, _v) = expr {
-                if matches!(**_u, Expr::Number(n) if n == 0.0) {
+            if let Expr::Pow(_u, _v) = expr
+                && matches!(**_u, Expr::Number(n) if n == 0.0) {
                     return Some(Expr::Number(0.0));
                 }
-            }
             None
         }
     }
@@ -331,11 +313,10 @@ pub mod rules {
         }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
-            if let Expr::Pow(_u, _v) = expr {
-                if matches!(**_u, Expr::Number(n) if n == 1.0) {
+            if let Expr::Pow(_u, _v) = expr
+                && matches!(**_u, Expr::Number(n) if n == 1.0) {
                     return Some(Expr::Number(1.0));
                 }
-            }
             None
         }
     }
@@ -381,10 +362,36 @@ pub mod rules {
                             return Some(Expr::Number(result));
                         }
                     }
+                    // Flatten the multiplication and look for multiple numbers to combine
+                    // This handles cases like 3 * (2 * x) -> 6 * x, or (x * 3) * 2 -> 6 * x
+                    // or even deeply nested: 3 * (y * (2 * z)) -> 6 * y * z
+                    let factors = crate::simplification::helpers::flatten_mul(expr);
+                    let mut numbers: Vec<f64> = Vec::new();
+                    let mut non_numbers: Vec<Expr> = Vec::new();
+                    
+                    for factor in &factors {
+                        if let Expr::Number(n) = factor {
+                            numbers.push(*n);
+                        } else {
+                            non_numbers.push(factor.clone());
+                        }
+                    }
+                    
+                    // If we have 2+ numbers, combine them
+                    if numbers.len() >= 2 {
+                        let combined: f64 = numbers.iter().product();
+                        if !combined.is_nan() && !combined.is_infinite() {
+                            // Rebuild with the combined number and the non-numbers
+                            let mut result_factors = vec![Expr::Number(combined)];
+                            result_factors.extend(non_numbers);
+                            return Some(crate::simplification::helpers::rebuild_mul(result_factors));
+                        }
+                    }
+                    
                     // Transform Mul(Number, Div(Number, Number)) to final result
-                    if let (Expr::Number(a), Expr::Div(b, c)) = (&**u, &**v) {
-                        if let (Expr::Number(b_val), Expr::Number(c_val)) = (&**b, &**c) {
-                            if *c_val != 0.0 {
+                    if let (Expr::Number(a), Expr::Div(b, c)) = (&**u, &**v)
+                        && let (Expr::Number(b_val), Expr::Number(c_val)) = (&**b, &**c)
+                            && *c_val != 0.0 {
                                 let result = (a * b_val) / c_val;
                                 // If result is integer, fold completely
                                 if (result - result.round()).abs() < 1e-10 {
@@ -397,12 +404,10 @@ pub mod rules {
                                     ));
                                 }
                             }
-                        }
-                    }
                     // Transform Mul(Div(Number, Number), Number) to final result
-                    if let (Expr::Div(b, c), Expr::Number(a)) = (&**u, &**v) {
-                        if let (Expr::Number(b_val), Expr::Number(c_val)) = (&**b, &**c) {
-                            if *c_val != 0.0 {
+                    if let (Expr::Div(b, c), Expr::Number(a)) = (&**u, &**v)
+                        && let (Expr::Number(b_val), Expr::Number(c_val)) = (&**b, &**c)
+                            && *c_val != 0.0 {
                                 let result = (a * b_val) / c_val;
                                 // If result is integer, fold completely
                                 if (result - result.round()).abs() < 1e-10 {
@@ -415,12 +420,10 @@ pub mod rules {
                                     ));
                                 }
                             }
-                        }
-                    }
                 }
                 Expr::Div(u, v) => {
-                    if let (Expr::Number(a), Expr::Number(b)) = (&**u, &**v) {
-                        if *b != 0.0 {
+                    if let (Expr::Number(a), Expr::Number(b)) = (&**u, &**v)
+                        && *b != 0.0 {
                             let result = a / b;
                             // Conservative: only fold if result is an integer
                             // This preserves symbolic fractions like 7/2
@@ -428,7 +431,6 @@ pub mod rules {
                                 return Some(Expr::Number(result.round()));
                             }
                         }
-                    }
                 }
                 Expr::Pow(u, v) => {
                     if let (Expr::Number(a), Expr::Number(b)) = (&**u, &**v) {
@@ -461,9 +463,9 @@ pub mod rules {
         }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
-            if let Expr::Div(u, v) = expr {
-                if let (Expr::Number(a), Expr::Number(b)) = (&**u, &**v) {
-                    if *b != 0.0 {
+            if let Expr::Div(u, v) = expr
+                && let (Expr::Number(a), Expr::Number(b)) = (&**u, &**v)
+                    && *b != 0.0 {
                         let is_int_a = a.fract() == 0.0;
                         let is_int_b = b.fract() == 0.0;
 
@@ -486,8 +488,6 @@ pub mod rules {
                             }
                         }
                     }
-                }
-            }
             None
         }
     }

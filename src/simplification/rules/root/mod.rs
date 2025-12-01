@@ -1,8 +1,10 @@
 use crate::ast::Expr;
+use crate::simplification::helpers::is_known_non_negative;
 use crate::simplification::rules::{Rule, RuleCategory, RuleContext};
 use std::rc::Rc;
 
 /// Rule for sqrt(x^n) = x^(n/2)
+/// Special case: sqrt(x^2) = abs(x) (since sqrt(x^2) = |x| for all real x)
 pub struct SqrtPowerRule;
 
 impl Rule for SqrtPowerRule {
@@ -19,13 +21,23 @@ impl Rule for SqrtPowerRule {
     }
 
     fn alters_domain(&self) -> bool {
-        true
+        false // No longer alters domain since we use abs(x) for sqrt(x^2)
     }
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
-        if let Expr::FunctionCall { name, args } = expr {
-            if name == "sqrt" && args.len() == 1 {
-                if let Expr::Pow(base, exp) = &args[0] {
+        if let Expr::FunctionCall { name, args } = expr
+            && name == "sqrt" && args.len() == 1
+                && let Expr::Pow(base, exp) = &args[0] {
+                    // Special case: sqrt(x^2) should always return abs(x)
+                    if let Expr::Number(n) = &**exp
+                        && *n == 2.0 {
+                            // sqrt(x^2) = |x|
+                            return Some(Expr::FunctionCall {
+                                name: "abs".to_string(),
+                                args: vec![(**base).clone()],
+                            });
+                        }
+
                     // Create new exponent: exp / 2
                     let new_exp = Expr::Div(exp.clone(), Box::new(Expr::Number(2.0)));
 
@@ -54,13 +66,11 @@ impl Rule for SqrtPowerRule {
                     if matches!(simplified_exp, Expr::Number(n) if n == 1.0) {
                         return Some((**base).clone());
                     }
-                    
+
                     let result = Expr::Pow(base.clone(), Box::new(simplified_exp.clone()));
-                    
+
                     return Some(result);
                 }
-            }
-        }
         None
     }
 }
@@ -82,9 +92,9 @@ impl Rule for CbrtPowerRule {
     }
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
-        if let Expr::FunctionCall { name, args } = expr {
-            if name == "cbrt" && args.len() == 1 {
-                if let Expr::Pow(base, exp) = &args[0] {
+        if let Expr::FunctionCall { name, args } = expr
+            && name == "cbrt" && args.len() == 1
+                && let Expr::Pow(base, exp) = &args[0] {
                     // Create new exponent: exp / 3
                     let new_exp = Expr::Div(exp.clone(), Box::new(Expr::Number(3.0)));
 
@@ -116,13 +126,12 @@ impl Rule for CbrtPowerRule {
 
                     return Some(Expr::Pow(base.clone(), Box::new(simplified_exp)));
                 }
-            }
-        }
         None
     }
 }
 
 /// Rule for sqrt(x) * sqrt(y) = sqrt(x*y)
+/// Safe when both x and y are known to be non-negative
 pub struct SqrtMulRule;
 
 impl Rule for SqrtMulRule {
@@ -139,10 +148,12 @@ impl Rule for SqrtMulRule {
     }
 
     fn alters_domain(&self) -> bool {
-        true
+        // Return false so the engine always calls apply()
+        // We handle domain-safety logic inside apply() based on whether args are known non-negative
+        false
     }
 
-    fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
+    fn apply(&self, expr: &Expr, context: &RuleContext) -> Option<Expr> {
         if let Expr::Mul(u, v) = expr {
             // Check for sqrt(a) * sqrt(b)
             if let (
@@ -155,8 +166,16 @@ impl Rule for SqrtMulRule {
                     args: v_args,
                 },
             ) = (&**u, &**v)
-            {
-                if u_name == "sqrt" && v_name == "sqrt" && u_args.len() == 1 && v_args.len() == 1 {
+                && u_name == "sqrt" && v_name == "sqrt" && u_args.len() == 1 && v_args.len() == 1 {
+                    // Check if both arguments are known to be non-negative
+                    let a_non_neg = is_known_non_negative(&u_args[0]);
+                    let b_non_neg = is_known_non_negative(&v_args[0]);
+
+                    // If in domain-safe mode and we can't prove both are non-negative, skip
+                    if context.domain_safe && !(a_non_neg && b_non_neg) {
+                        return None;
+                    }
+
                     return Some(Expr::FunctionCall {
                         name: "sqrt".to_string(),
                         args: vec![Expr::Mul(
@@ -165,13 +184,13 @@ impl Rule for SqrtMulRule {
                         )],
                     });
                 }
-            }
         }
         None
     }
 }
 
 /// Rule for sqrt(x)/sqrt(y) = sqrt(x/y)
+/// Safe when both x and y are known to be non-negative (and y != 0)
 pub struct SqrtDivRule;
 
 impl Rule for SqrtDivRule {
@@ -188,10 +207,12 @@ impl Rule for SqrtDivRule {
     }
 
     fn alters_domain(&self) -> bool {
-        true
+        // Return false so the engine always calls apply()
+        // We handle domain-safety logic inside apply() based on whether args are known non-negative
+        false
     }
 
-    fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
+    fn apply(&self, expr: &Expr, context: &RuleContext) -> Option<Expr> {
         if let Expr::Div(u, v) = expr {
             // Check for sqrt(a) / sqrt(b)
             if let (
@@ -204,8 +225,16 @@ impl Rule for SqrtDivRule {
                     args: v_args,
                 },
             ) = (&**u, &**v)
-            {
-                if u_name == "sqrt" && v_name == "sqrt" && u_args.len() == 1 && v_args.len() == 1 {
+                && u_name == "sqrt" && v_name == "sqrt" && u_args.len() == 1 && v_args.len() == 1 {
+                    // Check if both arguments are known to be non-negative
+                    let a_non_neg = is_known_non_negative(&u_args[0]);
+                    let b_non_neg = is_known_non_negative(&v_args[0]);
+
+                    // If in domain-safe mode and we can't prove both are non-negative, skip
+                    if context.domain_safe && !(a_non_neg && b_non_neg) {
+                        return None;
+                    }
+
                     return Some(Expr::FunctionCall {
                         name: "sqrt".to_string(),
                         args: vec![Expr::Div(
@@ -214,7 +243,6 @@ impl Rule for SqrtDivRule {
                         )],
                     });
                 }
-            }
         }
         None
     }
@@ -237,10 +265,10 @@ impl Rule for PowerToRootRule {
     }
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
-        if let Expr::Pow(base, exp) = expr {
-            if let Expr::Div(num, den) = &**exp {
-                if matches!(**num, Expr::Number(n) if n == 1.0) {
-                    if let Expr::Number(n) = &**den {
+        if let Expr::Pow(base, exp) = expr
+            && let Expr::Div(num, den) = &**exp
+                && matches!(**num, Expr::Number(n) if n == 1.0)
+                    && let Expr::Number(n) = &**den {
                         if *n == 2.0 {
                             return Some(Expr::FunctionCall {
                                 name: "sqrt".to_string(),
@@ -253,9 +281,6 @@ impl Rule for PowerToRootRule {
                             });
                         }
                     }
-                }
-            }
-        }
         None
     }
 }
@@ -277,8 +302,8 @@ impl Rule for NormalizeRootsRule {
     }
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
-        if let Expr::FunctionCall { name, args } = expr {
-            if args.len() == 1 {
+        if let Expr::FunctionCall { name, args } = expr
+            && args.len() == 1 {
                 match name.as_str() {
                     "sqrt" => {
                         return Some(Expr::Pow(
@@ -301,7 +326,6 @@ impl Rule for NormalizeRootsRule {
                     _ => {}
                 }
             }
-        }
         None
     }
 }

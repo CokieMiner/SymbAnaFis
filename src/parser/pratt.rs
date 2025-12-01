@@ -1,5 +1,5 @@
 // Pratt parser - converts tokens to AST
-use crate::parser::{Operator, Token};
+use crate::parser::tokens::{Operator, Token};
 use crate::{DiffError, Expr};
 
 /// Parse tokens into an AST using Pratt parsing algorithm

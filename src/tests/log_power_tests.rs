@@ -5,7 +5,7 @@ mod tests {
 
     #[test]
     fn test_ln_power() {
-        // ln(x^2) -> 2 * ln(x)
+        // ln(x^2) -> 2 * ln(abs(x)) (mathematically correct for all x ≠ 0)
         let expr = Expr::FunctionCall {
             name: "ln".to_string(),
             args: vec![Expr::Pow(
@@ -15,23 +15,33 @@ mod tests {
         };
         let simplified = simplify(expr);
 
-        // Expected: 2 * ln(x)
+        // Expected: 2 * ln(abs(x))
         if let Expr::Mul(coeff, func) = simplified {
             assert_eq!(*coeff, Expr::Number(2.0));
             if let Expr::FunctionCall { name, args } = *func {
                 assert_eq!(name, "ln");
-                assert_eq!(args[0], Expr::Symbol("x".to_string()));
+                // The argument should be abs(x)
+                if let Expr::FunctionCall {
+                    name: abs_name,
+                    args: abs_args,
+                } = &args[0]
+                {
+                    assert_eq!(abs_name, "abs");
+                    assert_eq!(abs_args[0], Expr::Symbol("x".to_string()));
+                } else {
+                    panic!("Expected abs(x), got {:?}", args[0]);
+                }
             } else {
                 panic!("Expected ln function call");
             }
         } else {
-            panic!("Expected multiplication");
+            panic!("Expected multiplication, got {:?}", simplified);
         }
     }
 
     #[test]
-    fn test_log10_power() {
-        // log10(x^3) -> 3 * log10(x)
+    fn test_log10_power_odd() {
+        // log10(x^3) -> 3 * log10(x) (odd power, no abs needed but assumes x > 0)
         let expr = Expr::FunctionCall {
             name: "log10".to_string(),
             args: vec![Expr::Pow(
@@ -47,6 +57,41 @@ mod tests {
             if let Expr::FunctionCall { name, args } = *func {
                 assert_eq!(name, "log10");
                 assert_eq!(args[0], Expr::Symbol("x".to_string()));
+            } else {
+                panic!("Expected log10 function call");
+            }
+        } else {
+            panic!("Expected multiplication");
+        }
+    }
+
+    #[test]
+    fn test_log10_power_even() {
+        // log10(x^4) -> 4 * log10(abs(x)) (even power, needs abs)
+        let expr = Expr::FunctionCall {
+            name: "log10".to_string(),
+            args: vec![Expr::Pow(
+                Box::new(Expr::Symbol("x".to_string())),
+                Box::new(Expr::Number(4.0)),
+            )],
+        };
+        let simplified = simplify(expr);
+
+        // Expected: 4 * log10(abs(x))
+        if let Expr::Mul(coeff, func) = simplified {
+            assert_eq!(*coeff, Expr::Number(4.0));
+            if let Expr::FunctionCall { name, args } = *func {
+                assert_eq!(name, "log10");
+                if let Expr::FunctionCall {
+                    name: abs_name,
+                    args: abs_args,
+                } = &args[0]
+                {
+                    assert_eq!(abs_name, "abs");
+                    assert_eq!(abs_args[0], Expr::Symbol("x".to_string()));
+                } else {
+                    panic!("Expected abs(x), got {:?}", args[0]);
+                }
             } else {
                 panic!("Expected log10 function call");
             }

@@ -30,7 +30,6 @@ mod tests {
         assert_eq!(simplified.to_string(), "x / 2");
     }
 
-
     #[test]
     fn test_sqrt_product_div_product() {
         let a = Expr::Symbol("a".to_string());

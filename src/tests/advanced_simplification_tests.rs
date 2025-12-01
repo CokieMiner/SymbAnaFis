@@ -126,10 +126,10 @@ fn test_power_simplification() {
 
 #[test]
 fn test_root_simplification() {
-    // sqrt(x^2) = x (assuming x ≥ 0)
+    // sqrt(x^2) = |x| for all real x
     let expr = parse_expr("sqrt(x^2)");
     let result = simplify(expr);
-    assert_eq!(format!("{}", result), "x");
+    assert_eq!(format!("{}", result), "abs(x)");
 
     // cbrt(x^3) = x
     let expr = parse_expr("cbrt(x^3)");

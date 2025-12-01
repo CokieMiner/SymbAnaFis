@@ -9,11 +9,12 @@ mod tests {
         let result = simplify("x^4 - 1".to_string(), None, None).unwrap();
         let result_str = result.to_string();
         println!("x^4 - 1 = {}", result_str);
-        
+
         // Should be factored (accepts both partial and complete factorization)
         assert!(
-            result_str.contains("(x^2 - 1)") || result_str.contains("(x^2 + -1)") ||
-            (result_str.contains("(x - 1)") && result_str.contains("(x + 1)")),
+            result_str.contains("(x^2 - 1)")
+                || result_str.contains("(x^2 + -1)")
+                || (result_str.contains("(x - 1)") && result_str.contains("(x + 1)")),
             "Expected factorization, got: {}",
             result_str
         );
@@ -26,7 +27,7 @@ mod tests {
         let result = simplify("9*x^2 - 16".to_string(), None, None).unwrap();
         let result_str = result.to_string();
         println!("9*x^2 - 16 = {}", result_str);
-        
+
         // For now, just verify it doesn't crash and stays in simplified form
         // Future enhancement: recognize 9 = 3^2, 16 = 4^2 and factor to (3x - 4)(3x + 4)
         assert!(
@@ -42,11 +43,13 @@ mod tests {
         let result = simplify("4*x^2 + 4*x + 1".to_string(), None, None).unwrap();
         let result_str = result.to_string();
         println!("4*x^2 + 4*x + 1 = {}", result_str);
-        
-        // The current implementation may not handle this yet, so we just check it doesn't crash
-        // Ideal would be: (2*x + 1)^2
-        // But current logic might give: 1 + 4 * (x^2 + x)
-        assert!(!result_str.is_empty());
+
+        // Expect (2*x + 1)^2 or equivalent
+        assert!(
+            result_str.contains("(2 * x + 1)^2") || result_str.contains("(1 + 2 * x)^2"),
+            "Expected (2*x + 1)^2, got: {}",
+            result_str
+        );
     }
 
     #[test]
@@ -55,7 +58,7 @@ mod tests {
         let result = simplify("x^2 - 1".to_string(), None, None).unwrap();
         let result_str = result.to_string();
         println!("x^2 - 1 = {}", result_str);
-        
+
         assert!(
             result_str.contains("(x - 1)") || result_str.contains("(x + -1)"),
             "Expected factorization, got: {}",

@@ -1,5 +1,5 @@
 // Implicit multiplication insertion
-use crate::parser::{Operator, Token};
+use crate::parser::tokens::{Operator, Token};
 
 /// Insert implicit multiplication operators between appropriate tokens
 ///

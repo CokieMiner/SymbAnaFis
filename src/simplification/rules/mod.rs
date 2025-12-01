@@ -7,16 +7,20 @@ pub trait Rule {
     fn name(&self) -> &'static str;
     fn priority(&self) -> i32;
     fn category(&self) -> RuleCategory;
-    fn dependencies(&self) -> Vec<&'static str> { Vec::new() } // New: dependencies for ordering
-    fn alters_domain(&self) -> bool { false } // Tag for rules that may change the domain of validity
+    fn dependencies(&self) -> Vec<&'static str> {
+        Vec::new()
+    } // New: dependencies for ordering
+    fn alters_domain(&self) -> bool {
+        false
+    } // Tag for rules that may change the domain of validity
     fn apply(&self, expr: &Expr, context: &RuleContext) -> Option<Expr>;
 }
 
 /// Categories of simplification rules
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum RuleCategory {
-    Numeric,      // Constant folding, identities
-    Algebraic,    // General algebraic rules
+    Numeric,   // Constant folding, identities
+    Algebraic, // General algebraic rules
     Trigonometric,
     Hyperbolic,
     Exponential,
@@ -27,26 +31,18 @@ pub enum RuleCategory {
 /// - 100-199: Expansion rules (distribute, expand powers, etc.)
 /// - 50-99: Identity/Cancellation rules (x/x=1, x-x=0, etc.)
 /// - 1-49: Compression/Consolidation rules (combine terms, factor, etc.)
-
+///
 /// Context passed to rules during application
 #[derive(Clone, Debug)]
+#[derive(Default)]
 pub struct RuleContext {
     pub depth: usize,
     pub parent: Option<Expr>,
     pub variables: HashSet<String>,
+    pub fixed_vars: HashSet<String>, // User-specified fixed variables (constants)
     pub domain_safe: bool,
 }
 
-impl Default for RuleContext {
-    fn default() -> Self {
-        Self {
-            depth: 0,
-            parent: None,
-            variables: HashSet::new(),
-            domain_safe: false,
-        }
-    }
-}
 
 impl RuleContext {
     pub fn with_depth(mut self, depth: usize) -> Self {
@@ -61,6 +57,16 @@ impl RuleContext {
 
     pub fn with_domain_safe(mut self, domain_safe: bool) -> Self {
         self.domain_safe = domain_safe;
+        self
+    }
+
+    pub fn with_variables(mut self, variables: HashSet<String>) -> Self {
+        self.variables = variables;
+        self
+    }
+
+    pub fn with_fixed_vars(mut self, fixed_vars: HashSet<String>) -> Self {
+        self.fixed_vars = fixed_vars;
         self
     }
 }
@@ -103,17 +109,19 @@ impl RuleRegistry {
         self.rules.extend(hyperbolic::get_hyperbolic_rules());
 
         // Sort by category, then by priority (higher first)
-        self.rules.sort_by_key(|r| (
-            match r.category() {
-                RuleCategory::Numeric => 0,
-                RuleCategory::Algebraic => 1,
-                RuleCategory::Trigonometric => 2,
-                RuleCategory::Hyperbolic => 3,
-                RuleCategory::Exponential => 4,
-                RuleCategory::Root => 5,
-            },
-            -r.priority()  // Negative for descending order
-        ));
+        self.rules.sort_by_key(|r| {
+            (
+                match r.category() {
+                    RuleCategory::Numeric => 0,
+                    RuleCategory::Algebraic => 1,
+                    RuleCategory::Trigonometric => 2,
+                    RuleCategory::Hyperbolic => 3,
+                    RuleCategory::Exponential => 4,
+                    RuleCategory::Root => 5,
+                },
+                -r.priority(), // Negative for descending order
+            )
+        });
     }
 
     /// Order rules using topological sort based on dependencies
@@ -121,7 +129,13 @@ impl RuleRegistry {
         // Build graph: rule name -> (rule, dependencies)
         let mut graph: HashMap<String, (usize, Vec<String>)> = HashMap::new();
         for (i, rule) in self.rules.iter().enumerate() {
-            graph.insert(rule.name().to_string(), (i, rule.dependencies().iter().map(|s| s.to_string()).collect()));
+            graph.insert(
+                rule.name().to_string(),
+                (
+                    i,
+                    rule.dependencies().iter().map(|s| s.to_string()).collect(),
+                ),
+            );
         }
 
         // Topological sort
@@ -155,14 +169,13 @@ impl RuleRegistry {
         }
 
         for name in graph.keys() {
-            if !visited.contains(name) {
-                if let Err(e) = dfs(name, &graph, &mut visited, &mut visiting, &mut order) {
+            if !visited.contains(name)
+                && let Err(e) = dfs(name, &graph, &mut visited, &mut visiting, &mut order) {
                     eprintln!("Warning: {}", e);
                     // Fallback to priority sort
-                    self.rules.sort_by(|a, b| b.priority().cmp(&a.priority()));
+                    self.rules.sort_by_key(|b| std::cmp::Reverse(b.priority()));
                     return;
                 }
-            }
         }
 
         // Reorder rules
@@ -173,7 +186,7 @@ impl RuleRegistry {
         self.rules = ordered;
 
         // Finally, sort by priority descending to ensure high-priority rules run first
-        self.rules.sort_by(|a, b| b.priority().cmp(&a.priority()));
+        self.rules.sort_by_key(|b| std::cmp::Reverse(b.priority()));
     }
 
     pub fn get_rules(&self) -> &Vec<Rc<dyn Rule>> {

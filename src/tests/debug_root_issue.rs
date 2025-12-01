@@ -26,12 +26,12 @@ mod tests {
         println!("Full Simplified Display: {}", result);
         assert_eq!(format!("{}", result), "x");
 
-        // Test sqrt(x^2)
+        // Test sqrt(x^2) = |x| for all real x
         let expr_sqrt = parse("sqrt(x^2)", &HashSet::new(), &HashSet::new()).unwrap();
         println!("AST sqrt: {:?}", expr_sqrt);
         let result_sqrt = simplify(expr_sqrt);
         println!("Result sqrt: {}", result_sqrt);
-        assert_eq!(format!("{}", result_sqrt), "x");
+        assert_eq!(format!("{}", result_sqrt), "abs(x)");
 
         // Test cbrt(x^3)
         let expr_cbrt = parse("cbrt(x^3)", &HashSet::new(), &HashSet::new()).unwrap();

@@ -2,6 +2,11 @@ use super::rules::{RuleContext, RuleRegistry};
 use crate::Expr;
 use std::collections::{HashMap, HashSet};
 
+/// Check if tracing is enabled via environment variable
+fn trace_enabled() -> bool {
+    std::env::var("SYMB_TRACE").map(|v| v == "1" || v.to_lowercase() == "true").unwrap_or(false)
+}
+
 /// Main simplification engine with rule-based architecture
 pub struct Simplifier {
     registry: RuleRegistry,
@@ -49,6 +54,16 @@ impl Simplifier {
         self
     }
 
+    pub fn with_variables(mut self, variables: HashSet<String>) -> Self {
+        self.context = self.context.with_variables(variables);
+        self
+    }
+
+    pub fn with_fixed_vars(mut self, fixed_vars: HashSet<String>) -> Self {
+        self.context = self.context.with_fixed_vars(fixed_vars);
+        self
+    }
+
     /// Main simplification entry point
     pub fn simplify(&mut self, expr: Expr) -> Expr {
         let mut current = expr;
@@ -88,7 +103,8 @@ impl Simplifier {
             return expr; // Prevent stack overflow
         }
 
-        let result = match expr {
+        
+        match expr {
             Expr::Add(u, v) => {
                 let u_simplified = self.apply_rules_bottom_up(*u, depth + 1);
                 let v_simplified = self.apply_rules_bottom_up(*v, depth + 1);
@@ -131,13 +147,16 @@ impl Simplifier {
                 self.apply_rules_to_node(new_expr, depth)
             }
             other => self.apply_rules_to_node(other, depth),
-        };
-        result
+        }
     }
 
     /// Apply all applicable rules to a single node in dependency order
     fn apply_rules_to_node(&mut self, mut current: Expr, depth: usize) -> Expr {
-        let mut context = self.context.clone().with_depth(depth).with_domain_safe(self.domain_safe);
+        let mut context = self
+            .context
+            .clone()
+            .with_depth(depth)
+            .with_domain_safe(self.domain_safe);
 
         for rule in self.registry.get_rules() {
             // Skip rules that alter domains if domain_safe is enabled
@@ -147,8 +166,8 @@ impl Simplifier {
 
             // Check per-rule cache
             let rule_name = rule.name();
-            if let Some(cache) = self.rule_caches.get(rule_name) {
-                if let Some(cached_result) = cache.get(&current) {
+            if let Some(cache) = self.rule_caches.get(rule_name)
+                && let Some(cached_result) = cache.get(&current) {
                     if let Some(new_expr) = cached_result {
                         current = new_expr.clone();
                         continue;
@@ -157,10 +176,12 @@ impl Simplifier {
                         continue;
                     }
                 }
-            }
 
             // Apply rule with context
             if let Some(new_expr) = rule.apply(&current, &context) {
+                if trace_enabled() {
+                    eprintln!("[TRACE] {} : {} => {}", rule_name, current, new_expr);
+                }
                 current = new_expr;
                 // Update context with new parent
                 context = context.with_parent(current.clone());
@@ -168,8 +189,13 @@ impl Simplifier {
 
             // Cache the result (None if no change)
             let changed = true; // Assume changed for simplicity
-            self.rule_caches.entry(rule_name.to_string()).or_insert(HashMap::new())
-                .insert(current.clone(), if changed { Some(current.clone()) } else { None });
+            self.rule_caches
+                .entry(rule_name.to_string())
+                .or_default()
+                .insert(
+                    current.clone(),
+                    if changed { Some(current.clone()) } else { None },
+                );
         }
 
         current
@@ -177,7 +203,7 @@ impl Simplifier {
 }
 
 /// Verifier for post-simplification equivalence checking
-pub struct Verifier;
+struct Verifier;
 
 impl Default for Verifier {
     fn default() -> Self {
@@ -186,12 +212,17 @@ impl Default for Verifier {
 }
 
 impl Verifier {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self
     }
 
     /// Check if original and simplified expressions are equivalent by sampling
-    pub fn verify_equivalence(&self, original: &Expr, simplified: &Expr, variables: &HashSet<String>) -> Result<(), String> {
+    pub(crate) fn verify_equivalence(
+        &self,
+        original: &Expr,
+        simplified: &Expr,
+        variables: &HashSet<String>,
+    ) -> Result<(), String> {
         let test_points = [-2.0, -1.0, 0.0, 1.0, 2.0]; // Simple test points
 
         for &val in &test_points {
@@ -200,13 +231,16 @@ impl Verifier {
                 env.insert(var.clone(), val);
             }
 
-            let orig_val = self.evaluate_expr(original, &env);
-            let simp_val = self.evaluate_expr(simplified, &env);
+            let orig_val = Self::evaluate_expr(original, &env);
+            let simp_val = Self::evaluate_expr(simplified, &env);
 
             match (orig_val, simp_val) {
                 (Ok(o), Ok(s)) => {
                     if !o.is_nan() && !s.is_nan() && (o - s).abs() > 1e-6 {
-                        return Err(format!("Equivalence check failed at {}: original={}, simplified={}", val, o, s));
+                        return Err(format!(
+                            "Equivalence check failed at {}: original={}, simplified={}",
+                            val, o, s
+                        ));
                     }
                 }
                 _ => {
@@ -217,7 +251,7 @@ impl Verifier {
         Ok(())
     }
 
-    fn evaluate_expr(&self, expr: &Expr, env: &HashMap<String, f64>) -> Result<f64, String> {
+    fn evaluate_expr(expr: &Expr, env: &HashMap<String, f64>) -> Result<f64, String> {
         match expr {
             Expr::Number(n) => Ok(*n),
             Expr::Symbol(s) => {
@@ -226,63 +260,82 @@ impl Verifier {
                 } else if s == "pi" {
                     Ok(std::f64::consts::PI)
                 } else {
-                    env.get(s).copied().ok_or_else(|| format!("Variable {} not found", s))
+                    env.get(s)
+                        .copied()
+                        .ok_or_else(|| format!("Variable {} not found", s))
                 }
             }
-            Expr::Add(a, b) => Ok(self.evaluate_expr(a, env)? + self.evaluate_expr(b, env)?),
-            Expr::Sub(a, b) => Ok(self.evaluate_expr(a, env)? - self.evaluate_expr(b, env)?),
-            Expr::Mul(a, b) => Ok(self.evaluate_expr(a, env)? * self.evaluate_expr(b, env)?),
+            Expr::Add(a, b) => Ok(Self::evaluate_expr(a, env)? + Self::evaluate_expr(b, env)?),
+            Expr::Sub(a, b) => Ok(Self::evaluate_expr(a, env)? - Self::evaluate_expr(b, env)?),
+            Expr::Mul(a, b) => Ok(Self::evaluate_expr(a, env)? * Self::evaluate_expr(b, env)?),
             Expr::Div(a, b) => {
-                let denom = self.evaluate_expr(b, env)?;
-                if denom == 0.0 { return Err("Division by zero".to_string()); }
-                Ok(self.evaluate_expr(a, env)? / denom)
-            }
-            Expr::Pow(a, b) => Ok(self.evaluate_expr(a, env)?.powf(self.evaluate_expr(b, env)?)),
-            Expr::FunctionCall { name, args } => {
-                match name.as_str() {
-                    "sin" => Ok(self.evaluate_expr(&args[0], env)?.sin()),
-                    "cos" => Ok(self.evaluate_expr(&args[0], env)?.cos()),
-                    "tan" => Ok(self.evaluate_expr(&args[0], env)?.tan()),
-                    "sinh" => Ok(self.evaluate_expr(&args[0], env)?.sinh()),
-                    "cosh" => Ok(self.evaluate_expr(&args[0], env)?.cosh()),
-                    "tanh" => Ok(self.evaluate_expr(&args[0], env)?.tanh()),
-                    "coth" => Ok(1.0 / self.evaluate_expr(&args[0], env)?.tanh()),
-                    "sech" => Ok(1.0 / self.evaluate_expr(&args[0], env)?.cosh()),
-                    "csch" => Ok(1.0 / self.evaluate_expr(&args[0], env)?.sinh()),
-                    "sqrt" => Ok(self.evaluate_expr(&args[0], env)?.sqrt()),
-                    "cbrt" => Ok(self.evaluate_expr(&args[0], env)?.cbrt()),
-                    "exp" => Ok(self.evaluate_expr(&args[0], env)?.exp()),
-                    "ln" => Ok(self.evaluate_expr(&args[0], env)?.ln()),
-                    _ => Err(format!("Unsupported function: {}", name)),
+                let denom = Self::evaluate_expr(b, env)?;
+                if denom == 0.0 {
+                    return Err("Division by zero".to_string());
                 }
+                Ok(Self::evaluate_expr(a, env)? / denom)
             }
+            Expr::Pow(a, b) => Ok(Self::evaluate_expr(a, env)?
+                .powf(Self::evaluate_expr(b, env)?)),
+            Expr::FunctionCall { name, args } => match name.as_str() {
+                "sin" => Ok(Self::evaluate_expr(&args[0], env)?.sin()),
+                "cos" => Ok(Self::evaluate_expr(&args[0], env)?.cos()),
+                "tan" => Ok(Self::evaluate_expr(&args[0], env)?.tan()),
+                "sinh" => Ok(Self::evaluate_expr(&args[0], env)?.sinh()),
+                "cosh" => Ok(Self::evaluate_expr(&args[0], env)?.cosh()),
+                "tanh" => Ok(Self::evaluate_expr(&args[0], env)?.tanh()),
+                "coth" => Ok(1.0 / Self::evaluate_expr(&args[0], env)?.tanh()),
+                "sech" => Ok(1.0 / Self::evaluate_expr(&args[0], env)?.cosh()),
+                "csch" => Ok(1.0 / Self::evaluate_expr(&args[0], env)?.sinh()),
+                "sqrt" => Ok(Self::evaluate_expr(&args[0], env)?.sqrt()),
+                "cbrt" => Ok(Self::evaluate_expr(&args[0], env)?.cbrt()),
+                "exp" => Ok(Self::evaluate_expr(&args[0], env)?.exp()),
+                "ln" => Ok(Self::evaluate_expr(&args[0], env)?.ln()),
+                _ => Err(format!("Unsupported function: {}", name)),
+            },
         }
     }
 }
 
-
-// Convenience function for one-off simplifications
-pub fn simplify_expr(expr: Expr) -> Expr {
+/// Convenience function with user-specified fixed variables
+pub fn simplify_expr_with_fixed_vars(expr: Expr, fixed_vars: HashSet<String>) -> Expr {
     let variables = expr.variables();
-    match simplify_expr_with_verification(expr.clone(), variables, false) {
+    match simplify_expr_with_verification_and_fixed_vars(
+        expr.clone(),
+        variables.clone(),
+        fixed_vars.clone(),
+        false,
+    ) {
         Ok(e) => e,
         Err(e) => {
-            eprintln!("Verification failed: {}, falling back to unverified simplification", e);
+            eprintln!(
+                "Verification failed: {}, falling back to unverified simplification",
+                e
+            );
             let mut simplifier = Simplifier::new()
                 .with_max_iterations(1000)
-                .with_max_depth(20);
+                .with_max_depth(20)
+                .with_variables(variables)
+                .with_fixed_vars(fixed_vars);
             simplifier.simplify(expr)
         }
     }
 }
 
-/// Convenience function with verification
-pub fn simplify_expr_with_verification(expr: Expr, variables: HashSet<String>, domain_safe: bool) -> Result<Expr, String> {
+/// Convenience function with verification and fixed variables
+pub fn simplify_expr_with_verification_and_fixed_vars(
+    expr: Expr,
+    variables: HashSet<String>,
+    fixed_vars: HashSet<String>,
+    domain_safe: bool,
+) -> Result<Expr, String> {
     let original = expr.clone();
     let mut simplifier = Simplifier::new()
         .with_max_iterations(1000)
         .with_max_depth(20)
-        .with_domain_safe(domain_safe);
+        .with_domain_safe(domain_safe)
+        .with_variables(variables.clone())
+        .with_fixed_vars(fixed_vars);
     let simplified = simplifier.simplify(expr);
 
     let verifier = Verifier::new();

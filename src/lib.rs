@@ -113,11 +113,11 @@ pub fn diff(
     // Step 5: Differentiate
     let derivative = ast.derive(&var_to_diff, &fixed_set);
 
-    // Step 6: Simplify with configured domain safety
+    // Step 6: Simplify with configured domain safety and fixed vars
     let simplified = if domain_safety() {
-        simplification::simplify_domain_safe(derivative)
+        simplification::simplify_domain_safe_with_fixed_vars(derivative, fixed_set)
     } else {
-        simplification::simplify(derivative)
+        simplification::simplify_with_fixed_vars(derivative, fixed_set)
     };
 
     // Step 7: Convert to string
@@ -172,11 +172,11 @@ pub fn simplify(
         return Err(DiffError::MaxNodesExceeded);
     }
 
-    // Step 4: Simplify with configured domain safety
+    // Step 4: Simplify with configured domain safety and fixed vars
     let simplified = if domain_safety() {
-        simplification::simplify_domain_safe(ast)
+        simplification::simplify_domain_safe_with_fixed_vars(ast, fixed_set)
     } else {
-        simplification::simplify(ast)
+        simplification::simplify_with_fixed_vars(ast, fixed_set)
     };
 
     // Step 5: Convert to string

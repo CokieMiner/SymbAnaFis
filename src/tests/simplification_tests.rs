@@ -7,15 +7,20 @@ mod tests {
     fn test_fraction_difference_issue() {
         use crate::parser;
         use std::collections::HashSet;
-        
+
         // Test case: 1/(x^2 - 1) - 1/(x^2 + 1)
         // Should simplify properly, canceling -1 + 1 and removing * 1
-        let expr = parser::parse("1/(x^2 - 1) - 1/(x^2 + 1)", &HashSet::new(), &HashSet::new()).unwrap();
+        let expr = parser::parse(
+            "1/(x^2 - 1) - 1/(x^2 + 1)",
+            &HashSet::new(),
+            &HashSet::new(),
+        )
+        .unwrap();
         let result = simplify(expr.clone());
-        
+
         println!("Original: {}", expr);
         println!("Simplified: {}", result);
-        
+
         // Test simpler cases that should work
         let test1 = parser::parse("x^2 + 1 - x^2 + 1", &HashSet::new(), &HashSet::new()).unwrap();
         let result1 = simplify(test1.clone());
@@ -23,20 +28,25 @@ mod tests {
         println!("  Original: {}", test1);
         println!("  Simplified: {}", result1);
         assert_eq!(format!("{}", result1), "2");
-        
+
         let test2 = parser::parse("(1 + x) * (1 - x)", &HashSet::new(), &HashSet::new()).unwrap();
         let result2 = simplify(test2.clone());
         println!("\nTest (1 + x) * (1 - x):");
         println!("  Original: {}", test2);
         println!("  Simplified: {}", result2);
-        
-        let test3 = parser::parse("x^2 + (1 + x) * (1 - x) + 1", &HashSet::new(), &HashSet::new()).unwrap();
+
+        let test3 = parser::parse(
+            "x^2 + (1 + x) * (1 - x) + 1",
+            &HashSet::new(),
+            &HashSet::new(),
+        )
+        .unwrap();
         let result3 = simplify(test3.clone());
         println!("\nTest x^2 + (1 + x) * (1 - x) + 1:");
         println!("  Original: {}", test3);
         println!("  Simplified: {}", result3);
         println!("  Expected: 2");
-        
+
         // This is what we're seeing - let me check if it further simplifies
         let test4 = parser::parse("x^2 + 1 - x^2 + 1", &HashSet::new(), &HashSet::new()).unwrap();
         let result4 = simplify(test4.clone());
@@ -44,42 +54,19 @@ mod tests {
         println!("  Original: {}", test4);
         println!("  Simplified: {}", result4);
         println!("  Expected: 2");
-        assert_eq!(format!("{}", result4), "2", "Should simplify x^2 + 1 - x^2 + 1 to 2");
-        
+        assert_eq!(
+            format!("{}", result4),
+            "2",
+            "Should simplify x^2 + 1 - x^2 + 1 to 2"
+        );
+
         // Check that simplification actually reduced the expression
         let original_len = format!("{}", expr).len();
         let simplified_len = format!("{}", result).len();
-        println!("\nMain expression length: {} -> {}", original_len, simplified_len);
-    }
-
-    #[test]
-    fn test_verifier_equivalence() {
-        use crate::simplification::Verifier;
-        use std::collections::HashSet;
-
-        let original = Expr::Add(
-            Box::new(Expr::Symbol("x".to_string())),
-            Box::new(Expr::Number(0.0)),
+        println!(
+            "\nMain expression length: {} -> {}",
+            original_len, simplified_len
         );
-        let simplified = Expr::Symbol("x".to_string());
-        let variables = HashSet::from(["x".to_string()]);
-        let verifier = Verifier::new();
-        assert!(verifier.verify_equivalence(&original, &simplified, &variables).is_ok());
-    }
-
-    #[test]
-    fn test_simplify_with_verification() {
-        use crate::simplification::simplify_expr_with_verification;
-        use std::collections::HashSet;
-
-        let expr = Expr::Add(
-            Box::new(Expr::Symbol("x".to_string())),
-            Box::new(Expr::Number(0.0)),
-        );
-        let variables = HashSet::from(["x".to_string()]);
-        let result = simplify_expr_with_verification(expr, variables, false);
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), Expr::Symbol("x".to_string()));
     }
 
     #[test]

@@ -21,7 +21,7 @@ mod tests {
         let result = simplify("1 - x^2".to_string(), None, None).unwrap();
         let result_str = result.to_string();
         println!("1 - x^2 = {}", result_str);
-        
+
         // Should be (1-x)(1+x) which is correct
         // The bug was it was giving (x-1)(x+1) which equals x^2-1
         assert!(
@@ -42,7 +42,7 @@ mod tests {
         let result = simplify("-x^2 + 1".to_string(), None, None).unwrap();
         let result_str = result.to_string();
         println!("-x^2 + 1 = {}", result_str);
-        
+
         assert!(
             result_str.contains("(1 - x)") || result_str.contains("(1 + -x)"),
             "Expected (1-x)(1+x) form, got: {}",
@@ -56,10 +56,11 @@ mod tests {
         let result = simplify("x / -2".to_string(), None, None).unwrap();
         let result_str = result.to_string();
         println!("x / -2 = {}", result_str);
-        
+
         // Should normalize to -x / 2 or -1 * x / 2
         assert!(
-            (result_str.contains("-x") || result_str.contains("-1 * x")) && result_str.contains("/ 2"),
+            (result_str.contains("-x") || result_str.contains("-1 * x"))
+                && result_str.contains("/ 2"),
             "Expected negative in numerator, got: {}",
             result_str
         );
@@ -71,7 +72,7 @@ mod tests {
         let result = simplify("x / (-1 * y)".to_string(), None, None).unwrap();
         let result_str = result.to_string();
         println!("x / (-1 * y) = {}", result_str);
-        
+
         // Should normalize to -x / y
         assert!(
             result_str.contains("-x") || result_str.contains("-1 * x"),
@@ -91,7 +92,7 @@ mod tests {
         let result = simplify("x / (y * -1)".to_string(), None, None).unwrap();
         let result_str = result.to_string();
         println!("x / (y * -1) = {}", result_str);
-        
+
         // Should normalize to -x / y
         assert!(
             result_str.contains("-x") || result_str.contains("-1 * x"),
@@ -106,11 +107,14 @@ mod tests {
         let result = simplify("(-1 * x) / (-1 * y)".to_string(), None, None).unwrap();
         let result_str = result.to_string();
         println!("(-1 * x) / (-1 * y) = {}", result_str);
-        
+
         // After normalization and simplification, should be x / y
         // The -1's should cancel out
         assert!(
-            result_str == "x / y" || result_str.contains("x") && result_str.contains("y") && !result_str.contains("-"),
+            result_str == "x / y"
+                || result_str.contains("x")
+                    && result_str.contains("y")
+                    && !result_str.contains("-"),
             "Expected x/y without negatives, got: {}",
             result_str
         );

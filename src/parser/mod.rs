@@ -4,8 +4,6 @@ mod lexer;
 mod pratt;
 mod tokens;
 
-pub use tokens::{Operator, Token};
-
 use crate::{DiffError, Expr};
 use std::collections::HashSet;
 

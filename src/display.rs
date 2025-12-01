@@ -94,7 +94,9 @@ impl fmt::Display for Expr {
 
             Expr::Pow(u, v) => {
                 // Special case: e^x displays as exp(x)
-                if let Expr::Symbol(s) = &**u && s == "e" {
+                if let Expr::Symbol(s) = &**u
+                    && s == "e"
+                {
                     write!(f, "exp({})", v)
                 } else {
                     let base_str = format!("{}", u);

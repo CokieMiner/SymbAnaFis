@@ -1,7 +1,7 @@
 use crate::Expr;
 
 // Extracts (name, arg) for pow of function: name(arg)^power
-pub fn get_fn_pow_named(expr: &Expr, power: f64) -> Option<(&str, Expr)> {
+pub(crate) fn get_fn_pow_named(expr: &Expr, power: f64) -> Option<(&str, Expr)> {
     if let Expr::Pow(base, exp) = expr
         && matches!(**exp, Expr::Number(n) if n == power)
         && let Expr::FunctionCall { name, args } = &**base
@@ -13,7 +13,7 @@ pub fn get_fn_pow_named(expr: &Expr, power: f64) -> Option<(&str, Expr)> {
 }
 
 // Generic helper to extract arguments from product of two function calls, order-insensitive
-pub fn get_product_fn_args(expr: &Expr, fname1: &str, fname2: &str) -> Option<(Expr, Expr)> {
+pub(crate) fn get_product_fn_args(expr: &Expr, fname1: &str, fname2: &str) -> Option<(Expr, Expr)> {
     if let Expr::Mul(lhs, rhs) = expr
         && let (
             Expr::FunctionCall { name: n1, args: a1 },
@@ -33,12 +33,12 @@ pub fn get_product_fn_args(expr: &Expr, fname1: &str, fname2: &str) -> Option<(E
 }
 
 // Floating point approx equality used for numeric pattern matching
-pub fn approx_eq(a: f64, b: f64) -> bool {
+pub(crate) fn approx_eq(a: f64, b: f64) -> bool {
     (a - b).abs() < 1e-10
 }
 
 // Get numeric value from expression if it's a Number
-pub fn get_numeric_value(expr: &Expr) -> f64 {
+pub(crate) fn get_numeric_value(expr: &Expr) -> f64 {
     if let Expr::Number(n) = expr {
         *n
     } else {
@@ -48,7 +48,7 @@ pub fn get_numeric_value(expr: &Expr) -> f64 {
 
 // Trigonometric helpers
 use std::f64::consts::PI;
-pub fn is_multiple_of_two_pi(expr: &Expr) -> bool {
+pub(crate) fn is_multiple_of_two_pi(expr: &Expr) -> bool {
     if let Expr::Number(n) = expr {
         let two_pi = 2.0 * PI;
         let k = n / two_pi;
@@ -56,28 +56,26 @@ pub fn is_multiple_of_two_pi(expr: &Expr) -> bool {
     }
     // Handle n * pi
     if let Expr::Mul(lhs, rhs) = expr {
-        if let (Expr::Number(n), Expr::Symbol(s)) = (&**lhs, &**rhs) {
-            if s == "pi" && n % 2.0 == 0.0 {
+        if let (Expr::Number(n), Expr::Symbol(s)) = (&**lhs, &**rhs)
+            && s == "pi" && n % 2.0 == 0.0 {
                 return true;
             }
-        }
-        if let (Expr::Symbol(s), Expr::Number(n)) = (&**lhs, &**rhs) {
-            if s == "pi" && n % 2.0 == 0.0 {
+        if let (Expr::Symbol(s), Expr::Number(n)) = (&**lhs, &**rhs)
+            && s == "pi" && n % 2.0 == 0.0 {
                 return true;
             }
-        }
     }
     false
 }
 
-pub fn is_pi(expr: &Expr) -> bool {
+pub(crate) fn is_pi(expr: &Expr) -> bool {
     if let Expr::Number(n) = expr {
         return (n - PI).abs() < 1e-10;
     }
     false
 }
 
-pub fn is_three_pi_over_two(expr: &Expr) -> bool {
+pub(crate) fn is_three_pi_over_two(expr: &Expr) -> bool {
     if let Expr::Number(n) = expr {
         return (n - 3.0 * PI / 2.0).abs() < 1e-10;
     }
@@ -85,7 +83,7 @@ pub fn is_three_pi_over_two(expr: &Expr) -> bool {
 }
 
 /// Flatten nested multiplication into a list of factors
-pub fn flatten_mul(expr: &Expr) -> Vec<Expr> {
+pub(crate) fn flatten_mul(expr: &Expr) -> Vec<Expr> {
     let mut factors = Vec::new();
     let mut stack = vec![expr.clone()];
 
@@ -102,7 +100,7 @@ pub fn flatten_mul(expr: &Expr) -> Vec<Expr> {
 
 /// Compare expressions for canonical ordering
 /// Order: Number < Symbol < FunctionCall < Add < Sub < Mul < Div < Pow
-pub fn compare_expr(a: &Expr, b: &Expr) -> std::cmp::Ordering {
+pub(crate) fn compare_expr(a: &Expr, b: &Expr) -> std::cmp::Ordering {
     use crate::Expr::*;
     use std::cmp::Ordering;
 
@@ -154,19 +152,52 @@ pub fn compare_expr(a: &Expr, b: &Expr) -> std::cmp::Ordering {
 }
 
 /// Helper: Flatten nested additions
-pub fn flatten_add(expr: Expr) -> Vec<Expr> {
+pub(crate) fn flatten_add(expr: Expr) -> Vec<Expr> {
     match expr {
         Expr::Add(l, r) => {
             let mut terms = flatten_add(*l);
             terms.extend(flatten_add(*r));
             terms
         }
+        Expr::Sub(l, r) => {
+            // a - b becomes [a, -1*b]
+            let mut terms = flatten_add(*l);
+            // Negate each term from the right side
+            for term in flatten_add(*r) {
+                terms.push(negate_term(term));
+            }
+            terms
+        }
         _ => vec![expr],
     }
 }
 
+/// Helper: Negate a term (multiply by -1, or simplify if already negative)
+fn negate_term(expr: Expr) -> Expr {
+    match expr {
+        Expr::Number(n) => Expr::Number(-n),
+        Expr::Mul(l, r) => {
+            // Check if already has -1 coefficient
+            if let Expr::Number(n) = *l {
+                if n == -1.0 {
+                    return *r; // -1 * x becomes x when negated
+                }
+                return Expr::Mul(Box::new(Expr::Number(-n)), r);
+            }
+            if let Expr::Number(n) = *r {
+                if n == -1.0 {
+                    return *l;
+                }
+                return Expr::Mul(l, Box::new(Expr::Number(-n)));
+            }
+            Expr::Mul(Box::new(Expr::Number(-1.0)), Box::new(Expr::Mul(l, r)))
+        }
+        other => Expr::Mul(Box::new(Expr::Number(-1.0)), Box::new(other)),
+    }
+}
+
 /// Helper: Rebuild addition tree (left-associative)
-pub fn rebuild_add(terms: Vec<Expr>) -> Expr {
+pub(crate) fn rebuild_add(terms: Vec<Expr>) -> Expr {
     if terms.is_empty() {
         return Expr::Number(0.0);
     }
@@ -179,7 +210,7 @@ pub fn rebuild_add(terms: Vec<Expr>) -> Expr {
 }
 
 /// Helper: Rebuild multiplication tree
-pub fn rebuild_mul(terms: Vec<Expr>) -> Expr {
+pub(crate) fn rebuild_mul(terms: Vec<Expr>) -> Expr {
     if terms.is_empty() {
         return Expr::Number(1.0);
     }
@@ -192,7 +223,7 @@ pub fn rebuild_mul(terms: Vec<Expr>) -> Expr {
 }
 
 /// Helper: Normalize expression by sorting factors in multiplication
-pub fn normalize_expr(expr: Expr) -> Expr {
+pub(crate) fn normalize_expr(expr: Expr) -> Expr {
     match expr {
         Expr::Mul(u, v) => {
             let mut factors = flatten_mul(&Expr::Mul(u, v));
@@ -207,7 +238,7 @@ pub fn normalize_expr(expr: Expr) -> Expr {
 /// Returns (coefficient, base_expr)
 /// e.g. 2*x -> (2.0, x)
 ///      x   -> (1.0, x)
-pub fn extract_coeff(expr: &Expr) -> (f64, Expr) {
+pub(crate) fn extract_coeff(expr: &Expr) -> (f64, Expr) {
     let flattened = flatten_mul(expr);
     let mut coeff = 1.0;
     let mut non_num = Vec::new();
@@ -231,7 +262,7 @@ pub fn extract_coeff(expr: &Expr) -> (f64, Expr) {
 /// Convert fractional powers back to roots for display
 /// x^(1/2) -> sqrt(x)
 /// x^(1/3) -> cbrt(x)
-pub fn prettify_roots(expr: Expr) -> Expr {
+pub(crate) fn prettify_roots(expr: Expr) -> Expr {
     match expr {
         Expr::Pow(base, exp) => {
             let base = prettify_roots(*base);
@@ -257,18 +288,9 @@ pub fn prettify_roots(expr: Expr) -> Expr {
                 };
             }
 
-            // x^-0.5 -> 1/sqrt(x)
-            if let Expr::Number(n) = &exp
-                && (n + 0.5).abs() < 1e-10
-            {
-                return Expr::Div(
-                    Box::new(Expr::Number(1.0)),
-                    Box::new(Expr::FunctionCall {
-                        name: "sqrt".to_string(),
-                        args: vec![base],
-                    }),
-                );
-            }
+            // Note: x^-0.5 is NOT converted to 1/sqrt(x) because that would
+            // interfere with fraction consolidation rules. The NegativeExponentToFractionRule
+            // handles x^(-n) -> 1/x^n, then prettify_roots converts x^(1/2) -> sqrt(x).
 
             // x^(1/3) -> cbrt(x)
             if let Expr::Div(num, den) = &exp
@@ -279,22 +301,6 @@ pub fn prettify_roots(expr: Expr) -> Expr {
                     name: "cbrt".to_string(),
                     args: vec![base],
                 };
-            }
-
-            // x^(1/-2) or x^(-1/2) -> 1/sqrt(x)
-            if let Expr::Div(num, den) = &exp {
-                if let (Expr::Number(n1), Expr::Number(n2)) = (&**num, &**den) {
-                    let val = n1 / n2;
-                    if (val + 0.5).abs() < 1e-10 {
-                        return Expr::Div(
-                            Box::new(Expr::Number(1.0)),
-                            Box::new(Expr::FunctionCall {
-                                name: "sqrt".to_string(),
-                                args: vec![base],
-                            }),
-                        );
-                    }
-                }
             }
 
             Expr::Pow(Box::new(base), Box::new(exp))
@@ -309,5 +315,79 @@ pub fn prettify_roots(expr: Expr) -> Expr {
             args: args.into_iter().map(prettify_roots).collect(),
         },
         _ => expr,
+    }
+}
+
+/// Check if an expression is known to be non-negative for all real values of its variables.
+/// This is a conservative check - returns true only when we can prove non-negativity.
+pub(crate) fn is_known_non_negative(expr: &Expr) -> bool {
+    match expr {
+        // Positive numbers
+        Expr::Number(n) => *n >= 0.0,
+
+        // x^2, x^4, x^6, ... are always non-negative
+        Expr::Pow(_, exp) => {
+            if let Expr::Number(n) = &**exp {
+                // Even positive integer exponents
+                *n > 0.0 && n.fract() == 0.0 && (*n as i64) % 2 == 0
+            } else {
+                false
+            }
+        }
+
+        // abs(x) is always non-negative
+        Expr::FunctionCall { name, args } if args.len() == 1 => {
+            match name.as_str() {
+                "abs" | "Abs" => true,
+                // exp(x) is always positive
+                "exp" => true,
+                // cosh(x) >= 1 for all real x
+                "cosh" => true,
+                // sqrt, cbrt of non-negative is non-negative (but we can't always prove input is non-negative)
+                "sqrt" => is_known_non_negative(&args[0]),
+                _ => false,
+            }
+        }
+
+        // Product of two non-negatives is non-negative
+        Expr::Mul(a, b) => is_known_non_negative(a) && is_known_non_negative(b),
+
+        // Sum of two non-negatives is non-negative
+        Expr::Add(a, b) => is_known_non_negative(a) && is_known_non_negative(b),
+
+        // Division of non-negative by positive is non-negative (but we can't easily check "positive")
+        // Be conservative here
+        _ => false,
+    }
+}
+
+/// Check if an exponent represents a fractional power that requires non-negative base
+/// (i.e., exponents like 1/2, 1/4, 3/2, etc. where denominator is even)
+pub(crate) fn is_fractional_root_exponent(expr: &Expr) -> bool {
+    match expr {
+        // Direct fraction: 1/2, 1/4, 3/4, etc.
+        Expr::Div(_, den) => {
+            if let Expr::Number(d) = &**den {
+                // Check if denominator is an even integer
+                d.fract() == 0.0 && (*d as i64) % 2 == 0
+            } else {
+                // Can't determine, be conservative
+                false
+            }
+        }
+        // Decimal like 0.5
+        Expr::Number(n) => {
+            // Check if it's a fractional power (not an integer)
+            // For 0.5, 0.25, 1.5, etc. - these involve even roots
+            if n.fract() != 0.0 {
+                // Check if it's k/2^n for some integers
+                // Simple check: 0.5 = 1/2, 0.25 = 1/4, 0.75 = 3/4, etc.
+                let doubled = *n * 2.0;
+                doubled.fract() == 0.0 // If 2*n is integer, then n = k/2
+            } else {
+                false
+            }
+        }
+        _ => false,
     }
 }

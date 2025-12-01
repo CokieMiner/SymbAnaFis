@@ -68,11 +68,7 @@ fn main() {
 
     println!("\nExample: Polynomial with constants");
     let expr = "(x + alpha)^2";
-    match symb_anafis::simplify(
-        expr.to_string(),
-        Some(&["alpha".to_string()]),
-        None,
-    ) {
+    match symb_anafis::simplify(expr.to_string(), Some(&["alpha".to_string()]), None) {
         Ok(result) => println!("  {} → {}", expr, result),
         Err(e) => println!("  Error: {}", e),
     }

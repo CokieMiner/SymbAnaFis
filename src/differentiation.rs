@@ -1023,6 +1023,26 @@ impl Expr {
                         Expr::Mul(Box::new(derivative), Box::new(x_prime))
                     }
 
+                    // Absolute value and sign functions
+                    "abs" => {
+                        let (content, u_prime) = get_single_arg();
+                        // d/dx[|u|] = sign(u) * u'
+                        // Note: derivative is undefined at u = 0, but we use sign(u) for simplicity
+                        Expr::Mul(
+                            Box::new(Expr::FunctionCall {
+                                name: "sign".to_string(),
+                                args: vec![content.clone()],
+                            }),
+                            Box::new(u_prime),
+                        )
+                    }
+
+                    "sign" | "sgn" => {
+                        // d/dx[sign(u)] = 0 everywhere (technically undefined at u = 0)
+                        // For simplicity, we return 0 as the derivative
+                        Expr::Number(0.0)
+                    }
+
                     _ => {
                         // Implicit/custom function - use multi-variable chain rule
                         // d/dx f(u1, u2, ...) = sum( (df/du_i) * (du_i/dx) )
@@ -1135,9 +1155,17 @@ impl Expr {
                     let v_prime = v.derive(var, fixed_vars);
 
                     // Term 1: v' * ln(u)
-                    let ln_u = Expr::FunctionCall {
-                        name: "ln".to_string(),
-                        args: vec![*u.clone()],
+                    // Check if u is 'e' (Euler's number) - if so, ln(e) = 1
+                    let ln_u = if matches!(&**u, Expr::Symbol(name) if name == "e")
+                        && !fixed_vars.contains("e")
+                    {
+                        // ln(e) = 1
+                        Expr::Number(1.0)
+                    } else {
+                        Expr::FunctionCall {
+                            name: "ln".to_string(),
+                            args: vec![*u.clone()],
+                        }
                     };
                     let term1 = Expr::Mul(Box::new(v_prime), Box::new(ln_u));
 

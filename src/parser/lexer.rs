@@ -1,6 +1,6 @@
 // Lexer implementation - two-pass context-aware tokenization
 use crate::DiffError;
-use crate::parser::{Operator, Token};
+use crate::parser::tokens::{Operator, Token};
 use std::collections::HashSet;
 
 const BUILTINS: &[&str] = &[

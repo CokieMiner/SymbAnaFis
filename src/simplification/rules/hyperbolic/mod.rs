@@ -2,6 +2,407 @@ use crate::ast::Expr;
 use crate::simplification::rules::{Rule, RuleCategory, RuleContext};
 use std::rc::Rc;
 
+// ============================================================================
+// SHARED HELPER FUNCTIONS FOR HYPERBOLIC PATTERN MATCHING
+// ============================================================================
+
+/// Represents an exponential term with its argument
+/// e^x has argument x, e^(-x) has argument -x, 1/e^x has argument -x
+#[derive(Debug, Clone)]
+struct ExpTerm {
+    arg: Expr,
+}
+
+impl ExpTerm {
+    /// Try to extract an exponential term from various forms:
+    /// - e^x -> ExpTerm { arg: x }
+    /// - exp(x) -> ExpTerm { arg: x }  
+    /// - 1/e^x -> ExpTerm { arg: -x }
+    /// - 1/exp(x) -> ExpTerm { arg: -x }
+    fn from_expr(expr: &Expr) -> Option<Self> {
+        // Direct form: e^x or exp(x)
+        if let Some(arg) = Self::get_direct_exp_arg(expr) {
+            return Some(ExpTerm { arg });
+        }
+
+        // Reciprocal form: 1/e^x or 1/exp(x)
+        if let Expr::Div(num, den) = expr
+            && let Expr::Number(n) = &**num
+                && *n == 1.0
+                    && let Some(arg) = Self::get_direct_exp_arg(den) {
+                        // 1/e^x = e^(-x)
+                        return Some(ExpTerm {
+                            arg: Self::negate(&arg),
+                        });
+                    }
+
+        None
+    }
+
+    /// Get the argument from e^x or exp(x) directly (not handling 1/e^x)
+    fn get_direct_exp_arg(expr: &Expr) -> Option<Expr> {
+        match expr {
+            Expr::Pow(base, exp) => {
+                if let Expr::Symbol(b) = &**base
+                    && b == "e" {
+                        return Some((**exp).clone());
+                    }
+                None
+            }
+            Expr::FunctionCall { name, args } => {
+                if name == "exp" && args.len() == 1 {
+                    return Some(args[0].clone());
+                }
+                None
+            }
+            _ => None,
+        }
+    }
+
+    /// Check if this argument is the negation of another
+    fn is_negation_of(&self, other: &Expr) -> bool {
+        Self::args_are_negations(&self.arg, other)
+    }
+
+    /// Check if two arguments are negations of each other: arg1 = -arg2
+    fn args_are_negations(arg1: &Expr, arg2: &Expr) -> bool {
+        // Check if arg1 = -1 * arg2
+        if let Expr::Mul(lhs, rhs) = arg1 {
+            if let Expr::Number(n) = &**lhs
+                && *n == -1.0 && **rhs == *arg2 {
+                    return true;
+                }
+            if let Expr::Number(n) = &**rhs
+                && *n == -1.0 && **lhs == *arg2 {
+                    return true;
+                }
+        }
+        // Check if arg2 = -1 * arg1
+        if let Expr::Mul(lhs, rhs) = arg2 {
+            if let Expr::Number(n) = &**lhs
+                && *n == -1.0 && **rhs == *arg1 {
+                    return true;
+                }
+            if let Expr::Number(n) = &**rhs
+                && *n == -1.0 && **lhs == *arg1 {
+                    return true;
+                }
+        }
+        false
+    }
+
+    /// Create the negation of an expression: x -> -1 * x
+    fn negate(expr: &Expr) -> Expr {
+        // If it's already a negation, return the inner part
+        if let Expr::Mul(lhs, rhs) = expr {
+            if let Expr::Number(n) = &**lhs
+                && *n == -1.0 {
+                    return (**rhs).clone();
+                }
+            if let Expr::Number(n) = &**rhs
+                && *n == -1.0 {
+                    return (**lhs).clone();
+                }
+        }
+        Expr::Mul(Box::new(Expr::Number(-1.0)), Box::new(expr.clone()))
+    }
+}
+
+/// Try to match the pattern (e^x + e^(-x)) for cosh detection
+/// Returns Some(x) if pattern matches (always returns the positive argument)
+fn match_cosh_pattern(u: &Expr, v: &Expr) -> Option<Expr> {
+    let exp1 = ExpTerm::from_expr(u)?;
+    let exp2 = ExpTerm::from_expr(v)?;
+
+    // Check if exp2.arg = -exp1.arg, return the positive one
+    if exp2.is_negation_of(&exp1.arg) {
+        // exp1.arg is positive if exp2.arg is its negation
+        return Some(get_positive_form(&exp1.arg));
+    }
+    // Check reverse: exp1.arg = -exp2.arg
+    if exp1.is_negation_of(&exp2.arg) {
+        return Some(get_positive_form(&exp2.arg));
+    }
+    None
+}
+
+/// Try to match the pattern (e^x - e^(-x)) for sinh detection
+/// Returns Some(x) if pattern matches (always returns the positive argument)
+fn match_sinh_pattern_sub(u: &Expr, v: &Expr) -> Option<Expr> {
+    // u should be e^x, v should be e^(-x)
+    let exp1 = ExpTerm::from_expr(u)?;
+    let exp2 = ExpTerm::from_expr(v)?;
+
+    // Check if exp2.arg = -exp1.arg (so u = e^x, v = e^(-x))
+    if exp2.is_negation_of(&exp1.arg) {
+        return Some(get_positive_form(&exp1.arg));
+    }
+    None
+}
+
+/// Get the positive form of an expression
+/// If expr is -x (i.e., Mul(-1, x)), return x
+/// Otherwise return expr as-is
+fn get_positive_form(expr: &Expr) -> Expr {
+    if let Expr::Mul(lhs, rhs) = expr {
+        if let Expr::Number(n) = &**lhs
+            && *n == -1.0 {
+                return (**rhs).clone();
+            }
+        if let Expr::Number(n) = &**rhs
+            && *n == -1.0 {
+                return (**lhs).clone();
+            }
+    }
+    expr.clone()
+}
+
+/// Try to match alternative cosh pattern: (e^(2x) + 1) / (2 * e^x) = cosh(x)
+/// Returns Some(x) if pattern matches
+fn match_alt_cosh_pattern(numerator: &Expr, denominator: &Expr) -> Option<Expr> {
+    // Denominator must be 2 * e^x
+    let x = match_two_times_exp(denominator)?;
+
+    // Numerator must be e^(2x) + 1
+    if let Expr::Add(u, v) = numerator {
+        // Check for e^(2x) + 1 or 1 + e^(2x)
+        let (exp_term, _) = if matches!(&**v, Expr::Number(n) if *n == 1.0) {
+            (u.as_ref(), v.as_ref())
+        } else if matches!(&**u, Expr::Number(n) if *n == 1.0) {
+            (v.as_ref(), u.as_ref())
+        } else {
+            return None;
+        };
+
+        // Check exp_term = e^(2x)
+        if let Some(exp_arg) = ExpTerm::get_direct_exp_arg(exp_term)
+            && is_double_of(&exp_arg, &x) {
+                return Some(x);
+            }
+    }
+    None
+}
+
+/// Try to match alternative sinh pattern: (e^(2x) - 1) / (2 * e^x) = sinh(x)
+/// Returns Some(x) if pattern matches
+fn match_alt_sinh_pattern(numerator: &Expr, denominator: &Expr) -> Option<Expr> {
+    // Denominator must be 2 * e^x
+    let x = match_two_times_exp(denominator)?;
+
+    // Numerator must be e^(2x) - 1
+    if let Expr::Sub(u, v) = numerator {
+        // Check for e^(2x) - 1
+        if matches!(&**v, Expr::Number(n) if *n == 1.0)
+            && let Some(exp_arg) = ExpTerm::get_direct_exp_arg(u)
+                && is_double_of(&exp_arg, &x) {
+                    return Some(x);
+                }
+    }
+    None
+}
+
+/// Match pattern: 2 * e^x or e^x * 2
+/// Returns the argument x if pattern matches
+fn match_two_times_exp(expr: &Expr) -> Option<Expr> {
+    if let Expr::Mul(lhs, rhs) = expr {
+        // 2 * e^x
+        if let Expr::Number(n) = &**lhs
+            && *n == 2.0 {
+                return ExpTerm::get_direct_exp_arg(rhs);
+            }
+        // e^x * 2
+        if let Expr::Number(n) = &**rhs
+            && *n == 2.0 {
+                return ExpTerm::get_direct_exp_arg(lhs);
+            }
+    }
+    None
+}
+
+/// Check if expr = 2 * other (i.e., expr is double of other)
+fn is_double_of(expr: &Expr, other: &Expr) -> bool {
+    if let Expr::Mul(lhs, rhs) = expr {
+        if let Expr::Number(n) = &**lhs
+            && *n == 2.0 && **rhs == *other {
+                return true;
+            }
+        if let Expr::Number(n) = &**rhs
+            && *n == 2.0 && **lhs == *other {
+                return true;
+            }
+    }
+    false
+}
+
+/// Try to match alternative sech pattern: (2 * e^x) / (e^(2x) + 1) = sech(x)
+/// This is the reciprocal of the alt_cosh form
+/// Returns Some(x) if pattern matches
+fn match_alt_sech_pattern(numerator: &Expr, denominator: &Expr) -> Option<Expr> {
+    // Numerator must be 2 * e^x
+    let x = match_two_times_exp(numerator)?;
+
+    // Denominator must be e^(2x) + 1
+    if let Expr::Add(u, v) = denominator {
+        // Check for e^(2x) + 1 or 1 + e^(2x)
+        let exp_term = if matches!(&**v, Expr::Number(n) if *n == 1.0) {
+            u.as_ref()
+        } else if matches!(&**u, Expr::Number(n) if *n == 1.0) {
+            v.as_ref()
+        } else {
+            return None;
+        };
+
+        // Check exp_term = e^(2x)
+        if let Some(exp_arg) = ExpTerm::get_direct_exp_arg(exp_term)
+            && is_double_of(&exp_arg, &x) {
+                return Some(x);
+            }
+    }
+    None
+}
+
+/// Try to match pattern: (e^x - 1/e^x) * e^x = e^(2x) - 1 (for sinh numerator in tanh)
+/// Returns Some(x) if pattern matches
+fn match_e2x_minus_1_factored(expr: &Expr) -> Option<Expr> {
+    // Pattern: (e^x - 1/e^x) * e^x or e^x * (e^x - 1/e^x)
+    if let Expr::Mul(lhs, rhs) = expr {
+        // Check both orderings
+        if let Some(x) = try_match_factored_sinh_times_exp(lhs, rhs) {
+            return Some(x);
+        }
+        if let Some(x) = try_match_factored_sinh_times_exp(rhs, lhs) {
+            return Some(x);
+        }
+    }
+    None
+}
+
+/// Helper: try to match (e^x - 1/e^x) * e^x
+fn try_match_factored_sinh_times_exp(factor: &Expr, exp_part: &Expr) -> Option<Expr> {
+    // exp_part should be e^x
+    let x = ExpTerm::get_direct_exp_arg(exp_part)?;
+
+    // factor should be (e^x - 1/e^x)
+    if let Expr::Sub(u, v) = factor {
+        // u = e^x
+        if let Some(arg_u) = ExpTerm::get_direct_exp_arg(u)
+            && arg_u == x {
+                // v = 1/e^x
+                if let Expr::Div(num, den) = &**v
+                    && matches!(&**num, Expr::Number(n) if *n == 1.0)
+                        && let Some(arg_v) = ExpTerm::get_direct_exp_arg(den)
+                            && arg_v == x {
+                                return Some(x);
+                            }
+            }
+    }
+    None
+}
+
+/// Match pattern: e^(2x) + 1 directly
+/// Returns Some(x) if pattern matches
+fn match_e2x_plus_1(expr: &Expr) -> Option<Expr> {
+    if let Expr::Add(u, v) = expr {
+        // Check for e^(2x) + 1 or 1 + e^(2x)
+        let (exp_term, _const_term) = if matches!(&**v, Expr::Number(n) if *n == 1.0) {
+            (u.as_ref(), v.as_ref())
+        } else if matches!(&**u, Expr::Number(n) if *n == 1.0) {
+            (v.as_ref(), u.as_ref())
+        } else {
+            return None;
+        };
+
+        // Check exp_term = e^(2x)
+        if let Some(exp_arg) = ExpTerm::get_direct_exp_arg(exp_term) {
+            // exp_arg should be 2*x
+            if let Expr::Mul(lhs, rhs) = &exp_arg
+                && let Expr::Number(n) = &**lhs
+                    && *n == 2.0 {
+                        return Some((**rhs).clone());
+                    }
+            if let Expr::Mul(lhs, rhs) = &exp_arg
+                && let Expr::Number(n) = &**rhs
+                    && *n == 2.0 {
+                        return Some((**lhs).clone());
+                    }
+        }
+    }
+    None
+}
+
+/// Match pattern: e^(2x) - 1 directly (not factored form)
+/// Returns Some(x) if pattern matches
+fn match_e2x_minus_1_direct(expr: &Expr) -> Option<Expr> {
+    if let Expr::Sub(u, v) = expr {
+        // Check for e^(2x) - 1
+        if matches!(&**v, Expr::Number(n) if *n == 1.0) {
+            // Check u = e^(2x)
+            if let Some(exp_arg) = ExpTerm::get_direct_exp_arg(u) {
+                // exp_arg should be 2*x
+                if let Expr::Mul(lhs, rhs) = &exp_arg
+                    && let Expr::Number(n) = &**lhs
+                        && *n == 2.0 {
+                            return Some((**rhs).clone());
+                        }
+                if let Expr::Mul(lhs, rhs) = &exp_arg
+                    && let Expr::Number(n) = &**rhs
+                        && *n == 2.0 {
+                            return Some((**lhs).clone());
+                        }
+            }
+        }
+    }
+    // Also check Add form where second term is -1: e^(2x) + (-1)
+    if let Expr::Add(u, v) = expr {
+        // Check for e^(2x) + (-1) (i.e., -1 as a number)
+        if matches!(&**v, Expr::Number(n) if *n == -1.0)
+            && let Some(exp_arg) = ExpTerm::get_direct_exp_arg(u)
+                && let Expr::Mul(lhs, rhs) = &exp_arg {
+                    if let Expr::Number(n) = &**lhs
+                        && *n == 2.0 {
+                            return Some((**rhs).clone());
+                        }
+                    if let Expr::Number(n) = &**rhs
+                        && *n == 2.0 {
+                            return Some((**lhs).clone());
+                        }
+                }
+        // Check (-1) + e^(2x)
+        if matches!(&**u, Expr::Number(n) if *n == -1.0)
+            && let Some(exp_arg) = ExpTerm::get_direct_exp_arg(v)
+                && let Expr::Mul(lhs, rhs) = &exp_arg {
+                    if let Expr::Number(n) = &**lhs
+                        && *n == 2.0 {
+                            return Some((**rhs).clone());
+                        }
+                    if let Expr::Number(n) = &**rhs
+                        && *n == 2.0 {
+                            return Some((**lhs).clone());
+                        }
+                }
+    }
+    None
+}
+
+/// Try to extract the inner expression from -1 * expr
+fn extract_negated_term(expr: &Expr) -> Option<&Expr> {
+    if let Expr::Mul(lhs, rhs) = expr {
+        if let Expr::Number(n) = &**lhs
+            && *n == -1.0 {
+                return Some(rhs);
+            }
+        if let Expr::Number(n) = &**rhs
+            && *n == -1.0 {
+                return Some(lhs);
+            }
+    }
+    None
+}
+
+// ============================================================================
+// HYPERBOLIC FUNCTION RULES
+// ============================================================================
+
 /// Rule for sinh(0) = 0
 pub struct SinhZeroRule;
 
@@ -19,13 +420,11 @@ impl Rule for SinhZeroRule {
     }
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
-        if let Expr::FunctionCall { name, args } = expr {
-            if name == "sinh" && args.len() == 1 {
-                if matches!(args[0], Expr::Number(n) if n == 0.0) {
+        if let Expr::FunctionCall { name, args } = expr
+            && name == "sinh" && args.len() == 1
+                && matches!(args[0], Expr::Number(n) if n == 0.0) {
                     return Some(Expr::Number(0.0));
                 }
-            }
-        }
         None
     }
 }
@@ -47,18 +446,17 @@ impl Rule for CoshZeroRule {
     }
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
-        if let Expr::FunctionCall { name, args } = expr {
-            if name == "cosh" && args.len() == 1 {
-                if matches!(args[0], Expr::Number(n) if n == 0.0) {
+        if let Expr::FunctionCall { name, args } = expr
+            && name == "cosh" && args.len() == 1
+                && matches!(args[0], Expr::Number(n) if n == 0.0) {
                     return Some(Expr::Number(1.0));
                 }
-            }
-        }
         None
     }
 }
 
 /// Rule for converting (e^x - e^-x) / 2 to sinh(x)
+/// Handles: e^x, exp(x), 1/e^x forms
 pub struct SinhFromExpRule;
 
 impl Rule for SinhFromExpRule {
@@ -76,119 +474,51 @@ impl Rule for SinhFromExpRule {
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
         if let Expr::Div(numerator, denominator) = expr {
-            if let Expr::Number(d) = **denominator {
-                if d == 2.0 {
-                    // Try both Add(e^x, -e^(-x)) and Sub(e^x, e^(-x)) patterns
-                    let pattern_result = match &**numerator {
-                        Expr::Add(u, v) => Self::match_sinh_pattern(u, v, true),
-                        Expr::Sub(u, v) => Self::match_sinh_pattern(u, v, false),
-                        _ => None,
-                    };
-                    
-                    if let Some((pos_exp, neg_exp)) = pattern_result {
-                        if Self::is_negation(&neg_exp, &pos_exp) {
+            // Standard form: (e^x - e^(-x)) / 2
+            if let Expr::Number(d) = &**denominator
+                && *d == 2.0 {
+                    // Pattern: (e^x - e^(-x)) / 2
+                    if let Expr::Sub(u, v) = &**numerator
+                        && let Some(x) = match_sinh_pattern_sub(u, v) {
                             return Some(Expr::FunctionCall {
                                 name: "sinh".to_string(),
-                                args: vec![pos_exp],
+                                args: vec![x],
                             });
                         }
+                    // Pattern: (e^x + (-1)*e^(-x)) / 2
+                    if let Expr::Add(u, v) = &**numerator {
+                        // Look for negated term
+                        if let Some(neg_inner) = extract_negated_term(v)
+                            && let Some(x) = match_sinh_pattern_sub(u, neg_inner) {
+                                return Some(Expr::FunctionCall {
+                                    name: "sinh".to_string(),
+                                    args: vec![x],
+                                });
+                            }
+                        if let Some(neg_inner) = extract_negated_term(u)
+                            && let Some(x) = match_sinh_pattern_sub(v, neg_inner) {
+                                return Some(Expr::FunctionCall {
+                                    name: "sinh".to_string(),
+                                    args: vec![x],
+                                });
+                            }
                     }
                 }
-            }
-        }
-        None
-    }
-}
 
-impl SinhFromExpRule {
-    /// Match patterns for sinh: (e^x - e^(-x)) or (e^x + (-1)*e^(-x))
-    /// is_add: true for Add node, false for Sub node
-    /// Returns (pos_exp, neg_exp) if pattern matches
-    fn match_sinh_pattern(u: &Expr, v: &Expr, is_add: bool) -> Option<(Expr, Expr)> {
-        // For Add: e^x + (-1)*e^(-x)
-        // For Sub: e^x - e^(-x)
-        
-        // Try: u = e^x, v = e^(-x) or -e^(-x)
-        if let Expr::Pow(base1, exp1) = u {
-            if let Expr::Symbol(b1) = &**base1 {
-                if b1 == "e" {
-                    let v_inner = if is_add {
-                        // For Add, expect v = Mul(-1, e^(-x))
-                        if let Expr::Mul(lhs, w) = v {
-                            if let Expr::Number(n) = **lhs {
-                                if n == -1.0 {
-                                    Some(&**w)
-                                } else {
-                                    None
-                                }
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    } else {
-                        // For Sub, v is directly e^(-x)
-                        Some(v)
-                    };
-                    
-                    if let Some(v_expr) = v_inner {
-                        if let Expr::Pow(base2, exp2) = v_expr {
-                            if let Expr::Symbol(b2) = &**base2 {
-                                if b2 == "e" {
-                                    return Some((*exp1.clone(), *exp2.clone()));
-                                }
-                            }
-                        }
-                    }
-                }
+            // Alternative form: (e^(2x) - 1) / (2 * e^x) = sinh(x)
+            if let Some(x) = match_alt_sinh_pattern(numerator, denominator) {
+                return Some(Expr::FunctionCall {
+                    name: "sinh".to_string(),
+                    args: vec![x],
+                });
             }
         }
-        
-        // Try: u = -e^(-x), v = e^x (for Add only)
-        if is_add {
-            if let Expr::Mul(lhs, w) = u {
-                if let Expr::Number(n) = **lhs {
-                    if n == -1.0 {
-                        if let Expr::Pow(base1, exp2) = &**w {
-                            if let Expr::Symbol(b1) = &**base1 {
-                                if b1 == "e" {
-                                    if let Expr::Pow(base2, exp1) = v {
-                                        if let Expr::Symbol(b2) = &**base2 {
-                                            if b2 == "e" {
-                                                return Some((*exp1.clone(), *exp2.clone()));
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        
         None
-    }
-    
-    fn is_negation(expr: &Expr, other: &Expr) -> bool {
-        if let Expr::Mul(lhs, rhs) = expr {
-            if let Expr::Number(n) = **lhs {
-                if n == -1.0 && **rhs == *other {
-                    return true;
-                }
-            }
-            if let Expr::Number(n) = **rhs {
-                if n == -1.0 && **lhs == *other {
-                    return true;
-                }
-            }
-        }
-        false
     }
 }
 
 /// Rule for converting (e^x + e^-x) / 2 to cosh(x)
+/// Handles: e^x, exp(x), 1/e^x forms and alternative form (e^(2x) + 1) / (2 * e^x)
 pub struct CoshFromExpRule;
 
 impl Rule for CoshFromExpRule {
@@ -206,57 +536,31 @@ impl Rule for CoshFromExpRule {
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
         if let Expr::Div(numerator, denominator) = expr {
-            if let Expr::Number(d) = **denominator {
-                if d == 2.0 {
-                    if let Expr::Add(u, v) = &**numerator {
-                        // Check both orderings: (e^x + e^(-x)) and (e^(-x) + e^x)
-                        if let (Expr::Pow(base1, exp1), Expr::Pow(base2, exp2)) = (&**u, &**v) {
-                            if let (Expr::Symbol(b1), Expr::Symbol(b2)) = (&**base1, &**base2) {
-                                if b1 == "e" && b2 == "e" {
-                                    // Check if exp2 is -exp1 (u = e^x, v = e^(-x))
-                                    if Self::is_negation(exp2, exp1) {
-                                        return Some(Expr::FunctionCall {
-                                            name: "cosh".to_string(),
-                                            args: vec![*exp1.clone()],
-                                        });
-                                    }
-                                    // Check if exp1 is -exp2 (u = e^(-x), v = e^x) - commutative
-                                    if Self::is_negation(exp1, exp2) {
-                                        return Some(Expr::FunctionCall {
-                                            name: "cosh".to_string(),
-                                            args: vec![*exp2.clone()],
-                                        });
-                                    }
-                                }
-                            }
+            // Standard form: (e^x + e^(-x)) / 2
+            if let Expr::Number(d) = &**denominator
+                && *d == 2.0
+                    && let Expr::Add(u, v) = &**numerator
+                        && let Some(x) = match_cosh_pattern(u, v) {
+                            return Some(Expr::FunctionCall {
+                                name: "cosh".to_string(),
+                                args: vec![x],
+                            });
                         }
-                    }
-                }
+
+            // Alternative form: (e^(2x) + 1) / (2 * e^x) = cosh(x)
+            if let Some(x) = match_alt_cosh_pattern(numerator, denominator) {
+                return Some(Expr::FunctionCall {
+                    name: "cosh".to_string(),
+                    args: vec![x],
+                });
             }
         }
         None
     }
 }
 
-impl CoshFromExpRule {
-    fn is_negation(expr: &Expr, other: &Expr) -> bool {
-        if let Expr::Mul(lhs, rhs) = expr {
-            if let Expr::Number(n) = **lhs {
-                if n == -1.0 && **rhs == *other {
-                    return true;
-                }
-            }
-            if let Expr::Number(n) = **rhs {
-                if n == -1.0 && **lhs == *other {
-                    return true;
-                }
-            }
-        }
-        false
-    }
-}
-
 /// Rule for converting (e^x - e^-x) / (e^x + e^-x) to tanh(x)
+/// Handles: e^x, exp(x), 1/e^x forms
 pub struct TanhFromExpRule;
 
 impl Rule for TanhFromExpRule {
@@ -274,136 +578,53 @@ impl Rule for TanhFromExpRule {
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
         if let Expr::Div(numerator, denominator) = expr {
-            // Handle both Add and Sub in numerator and denominator
-            let (num_u, num_v, num_is_add) = match &**numerator {
-                Expr::Add(u, v) => (u, v, true),
-                Expr::Sub(u, v) => (u, v, false),
-                _ => return None,
-            };
-            
-            let (den_u, den_v, _den_is_add) = match &**denominator {
-                Expr::Add(u, v) => (u, v, true),
-                Expr::Sub(u, v) => (u, v, false),
-                _ => return None,
-            };
-            
-            // Match numerator pattern
-            let (num_pos, num_neg) = if let Some(result) = Self::match_sinh_pattern(num_u, num_v, num_is_add) {
-                result
+            // Standard form: (e^x - e^(-x)) / (e^x + e^(-x))
+            let num_arg = if let Expr::Sub(u, v) = &**numerator {
+                match_sinh_pattern_sub(u, v)
             } else {
-                return None;
+                None
             };
-            
-            // Match denominator pattern (cosh: e^x + e^(-x))
-            // Check both orderings for commutative Add
-            if let (Expr::Pow(dbase1, dexp1), Expr::Pow(dbase2, dexp2)) = (&**den_u, &**den_v) {
-                if let (Expr::Symbol(db1), Expr::Symbol(db2)) = (&**dbase1, &**dbase2) {
-                    if db1 == "e" && db2 == "e" {
-                        // Case 1: den_u = e^x, den_v = e^(-x)
-                        if Self::is_negation(dexp2, dexp1) && **dexp1 == num_pos && num_neg == **dexp2 {
-                            return Some(Expr::FunctionCall {
-                                name: "tanh".to_string(),
-                                args: vec![num_pos],
-                            });
-                        }
-                        // Case 2: den_u = e^(-x), den_v = e^x (commutative)
-                        if Self::is_negation(dexp1, dexp2) && **dexp2 == num_pos && num_neg == **dexp1 {
-                            return Some(Expr::FunctionCall {
-                                name: "tanh".to_string(),
-                                args: vec![num_pos],
-                            });
-                        }
-                    }
-                }
-            }
-        }
-        None
-    }
-}
 
-impl TanhFromExpRule {
-    /// Match patterns for sinh: (e^x - e^(-x)) or (e^x + (-1)*e^(-x))
-    fn match_sinh_pattern(u: &Expr, v: &Expr, is_add: bool) -> Option<(Expr, Expr)> {
-        // For Add: e^x + (-1)*e^(-x)
-        // For Sub: e^x - e^(-x)
-        
-        if let Expr::Pow(base1, exp1) = u {
-            if let Expr::Symbol(b1) = &**base1 {
-                if b1 == "e" {
-                    let v_inner = if is_add {
-                        if let Expr::Mul(lhs, w) = v {
-                            if let Expr::Number(n) = **lhs {
-                                if n == -1.0 {
-                                    Some(&**w)
-                                } else {
-                                    None
-                                }
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    } else {
-                        Some(v)
-                    };
-                    
-                    if let Some(v_expr) = v_inner {
-                        if let Expr::Pow(base2, exp2) = v_expr {
-                            if let Expr::Symbol(b2) = &**base2 {
-                                if b2 == "e" {
-                                    return Some((*exp1.clone(), *exp2.clone()));
-                                }
-                            }
-                        }
-                    }
+            let den_arg = if let Expr::Add(u, v) = &**denominator {
+                match_cosh_pattern(u, v)
+            } else {
+                None
+            };
+
+            if let (Some(n_arg), Some(d_arg)) = (num_arg, den_arg)
+                && n_arg == d_arg {
+                    return Some(Expr::FunctionCall {
+                        name: "tanh".to_string(),
+                        args: vec![n_arg],
+                    });
                 }
-            }
-        }
-        
-        if is_add {
-            if let Expr::Mul(lhs, w) = u {
-                if let Expr::Number(n) = **lhs {
-                    if n == -1.0 {
-                        if let Expr::Pow(base1, exp2) = &**w {
-                            if let Expr::Symbol(b1) = &**base1 {
-                                if b1 == "e" {
-                                    if let Expr::Pow(base2, exp1) = v {
-                                        if let Expr::Symbol(b2) = &**base2 {
-                                            if b2 == "e" {
-                                                return Some((*exp1.clone(), *exp2.clone()));
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
+
+            // Alternative form: ((e^x - 1/e^x) * e^x) / (e^(2x) + 1) = (e^(2x) - 1) / (e^(2x) + 1) = tanh(x)
+            if let Some(x_num) = match_e2x_minus_1_factored(numerator)
+                && let Some(x_den) = match_e2x_plus_1(denominator)
+                    && x_num == x_den {
+                        return Some(Expr::FunctionCall {
+                            name: "tanh".to_string(),
+                            args: vec![x_num],
+                        });
                     }
-                }
-            }
+
+            // Direct form: (e^(2x) - 1) / (e^(2x) + 1) = tanh(x)
+            if let Some(x_num) = match_e2x_minus_1_direct(numerator)
+                && let Some(x_den) = match_e2x_plus_1(denominator)
+                    && x_num == x_den {
+                        return Some(Expr::FunctionCall {
+                            name: "tanh".to_string(),
+                            args: vec![x_num],
+                        });
+                    }
         }
-        
         None
-    }
-    
-    fn is_negation(expr: &Expr, other: &Expr) -> bool {
-        if let Expr::Mul(lhs, rhs) = expr {
-            if let Expr::Number(n) = **lhs {
-                if n == -1.0 && **rhs == *other {
-                    return true;
-                }
-            }
-            if let Expr::Number(n) = **rhs {
-                if n == -1.0 && **lhs == *other {
-                    return true;
-                }
-            }
-        }
-        false
     }
 }
 
 /// Rule for converting 2 / (e^x + e^-x) to sech(x)
+/// Handles: e^x, exp(x), 1/e^x forms
 pub struct SechFromExpRule;
 
 impl Rule for SechFromExpRule {
@@ -421,57 +642,33 @@ impl Rule for SechFromExpRule {
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
         if let Expr::Div(numerator, denominator) = expr {
-            if let Expr::Number(n) = **numerator {
-                if n == 2.0 {
-                    if let Expr::Add(u, v) = &**denominator {
-                        // Check both orderings: (e^x + e^(-x)) and (e^(-x) + e^x)
-                        if let (Expr::Pow(base1, exp1), Expr::Pow(base2, exp2)) = (&**u, &**v) {
-                            if let (Expr::Symbol(b1), Expr::Symbol(b2)) = (&**base1, &**base2) {
-                                if b1 == "e" && b2 == "e" {
-                                    // Case 1: u = e^x, v = e^(-x)
-                                    if Self::is_negation(exp2, exp1) {
-                                        return Some(Expr::FunctionCall {
-                                            name: "sech".to_string(),
-                                            args: vec![*exp1.clone()],
-                                        });
-                                    }
-                                    // Case 2: u = e^(-x), v = e^x (commutative)
-                                    if Self::is_negation(exp1, exp2) {
-                                        return Some(Expr::FunctionCall {
-                                            name: "sech".to_string(),
-                                            args: vec![*exp2.clone()],
-                                        });
-                                    }
-                                }
-                            }
+            // Standard form: 2 / (e^x + e^(-x))
+            if let Expr::Number(n) = &**numerator
+                && *n == 2.0 {
+                    // Denominator: (e^x + e^(-x)) -> cosh pattern
+                    if let Expr::Add(u, v) = &**denominator
+                        && let Some(x) = match_cosh_pattern(u, v) {
+                            return Some(Expr::FunctionCall {
+                                name: "sech".to_string(),
+                                args: vec![x],
+                            });
                         }
-                    }
                 }
+
+            // Alternative form: (2 * e^x) / (e^(2x) + 1) = sech(x)
+            if let Some(x) = match_alt_sech_pattern(numerator, denominator) {
+                return Some(Expr::FunctionCall {
+                    name: "sech".to_string(),
+                    args: vec![x],
+                });
             }
         }
         None
     }
 }
 
-impl SechFromExpRule {
-    fn is_negation(expr: &Expr, other: &Expr) -> bool {
-        if let Expr::Mul(lhs, rhs) = expr {
-            if let Expr::Number(n) = **lhs {
-                if n == -1.0 && **rhs == *other {
-                    return true;
-                }
-            }
-            if let Expr::Number(n) = **rhs {
-                if n == -1.0 && **lhs == *other {
-                    return true;
-                }
-            }
-        }
-        false
-    }
-}
-
 /// Rule for converting 2 / (e^x - e^-x) to csch(x)
+/// Handles: e^x, exp(x), 1/e^x forms
 pub struct CschFromExpRule;
 
 impl Rule for CschFromExpRule {
@@ -488,50 +685,24 @@ impl Rule for CschFromExpRule {
     }
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
-        if let Expr::Div(numerator, denominator) = expr {
-            if let Expr::Number(n) = **numerator {
-                if n == 2.0 {
-                    // Handle both Add and Sub patterns
-                    let pattern_result = match &**denominator {
-                        Expr::Add(u, v) => SinhFromExpRule::match_sinh_pattern(u, v, true),
-                        Expr::Sub(u, v) => SinhFromExpRule::match_sinh_pattern(u, v, false),
-                        _ => None,
-                    };
-                    
-                    if let Some((pos_exp, neg_exp)) = pattern_result {
-                        if Self::is_negation(&neg_exp, &pos_exp) {
+        if let Expr::Div(numerator, denominator) = expr
+            && let Expr::Number(n) = &**numerator
+                && *n == 2.0 {
+                    // Denominator: (e^x - e^(-x)) -> sinh pattern
+                    if let Expr::Sub(u, v) = &**denominator
+                        && let Some(x) = match_sinh_pattern_sub(u, v) {
                             return Some(Expr::FunctionCall {
                                 name: "csch".to_string(),
-                                args: vec![pos_exp],
+                                args: vec![x],
                             });
                         }
-                    }
                 }
-            }
-        }
         None
     }
 }
 
-impl CschFromExpRule {
-    fn is_negation(expr: &Expr, other: &Expr) -> bool {
-        if let Expr::Mul(lhs, rhs) = expr {
-            if let Expr::Number(n) = **lhs {
-                if n == -1.0 && **rhs == *other {
-                    return true;
-                }
-            }
-            if let Expr::Number(n) = **rhs {
-                if n == -1.0 && **lhs == *other {
-                    return true;
-                }
-            }
-        }
-        false
-    }
-}
-
 /// Rule for converting (e^x + e^-x) / (e^x - e^-x) to coth(x)
+/// Handles: e^x, exp(x), 1/e^x forms
 pub struct CothFromExpRule;
 
 impl Rule for CothFromExpRule {
@@ -549,68 +720,48 @@ impl Rule for CothFromExpRule {
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
         if let Expr::Div(numerator, denominator) = expr {
-            // Handle both Add and Sub in numerator and denominator
-            let (num_u, num_v, _num_is_add) = match &**numerator {
-                Expr::Add(u, v) => (u, v, true),
-                Expr::Sub(u, v) => (u, v, false),
-                _ => return None,
-            };
-            
-            let (den_u, den_v, den_is_add) = match &**denominator {
-                Expr::Add(u, v) => (u, v, true),
-                Expr::Sub(u, v) => (u, v, false),
-                _ => return None,
-            };
-            
-            // Match denominator pattern (sinh pattern)
-            let (den_pos, den_neg) = if let Some(result) = TanhFromExpRule::match_sinh_pattern(den_u, den_v, den_is_add) {
-                result
+            // Standard form: (e^x + e^(-x)) / (e^x - e^(-x))
+            let num_arg = if let Expr::Add(u, v) = &**numerator {
+                match_cosh_pattern(u, v)
             } else {
-                return None;
+                None
             };
-            
-            // Check numerator (cosh pattern: e^x + e^(-x))
-            // Try both orderings
-            if let (Expr::Pow(nbase1, nexp1), Expr::Pow(nbase2, nexp2)) = (&**num_u, &**num_v) {
-                if let (Expr::Symbol(nb1), Expr::Symbol(nb2)) = (&**nbase1, &**nbase2) {
-                    if nb1 == "e" && nb2 == "e" {
-                        // Case 1: num_u = e^x, num_v = e^(-x)
-                        if Self::is_negation(nexp2, nexp1) && Self::is_negation(&den_neg, &den_pos) && **nexp1 == den_pos && **nexp2 == den_neg {
-                            return Some(Expr::FunctionCall {
-                                name: "coth".to_string(),
-                                args: vec![den_pos],
-                            });
-                        }
-                        // Case 2: num_u = e^(-x), num_v = e^x (commutative)
-                        if Self::is_negation(nexp1, nexp2) && Self::is_negation(&den_neg, &den_pos) && **nexp2 == den_pos && **nexp1 == den_neg {
-                            return Some(Expr::FunctionCall {
-                                name: "coth".to_string(),
-                                args: vec![den_pos],
-                            });
-                        }
-                    }
+
+            let den_arg = if let Expr::Sub(u, v) = &**denominator {
+                match_sinh_pattern_sub(u, v)
+            } else {
+                None
+            };
+
+            if let (Some(n_arg), Some(d_arg)) = (num_arg, den_arg)
+                && n_arg == d_arg {
+                    return Some(Expr::FunctionCall {
+                        name: "coth".to_string(),
+                        args: vec![n_arg],
+                    });
                 }
-            }
+
+            // Alternative form: (e^(2x) + 1) / ((e^x - 1/e^x) * e^x) = (e^(2x) + 1) / (e^(2x) - 1) = coth(x)
+            if let Some(x_num) = match_e2x_plus_1(numerator)
+                && let Some(x_den) = match_e2x_minus_1_factored(denominator)
+                    && x_num == x_den {
+                        return Some(Expr::FunctionCall {
+                            name: "coth".to_string(),
+                            args: vec![x_num],
+                        });
+                    }
+
+            // Direct form: (e^(2x) + 1) / (e^(2x) - 1) = coth(x)
+            if let Some(x_num) = match_e2x_plus_1(numerator)
+                && let Some(x_den) = match_e2x_minus_1_direct(denominator)
+                    && x_num == x_den {
+                        return Some(Expr::FunctionCall {
+                            name: "coth".to_string(),
+                            args: vec![x_num],
+                        });
+                    }
         }
         None
-    }
-}
-
-impl CothFromExpRule {
-    fn is_negation(expr: &Expr, other: &Expr) -> bool {
-        if let Expr::Mul(lhs, rhs) = expr {
-            if let Expr::Number(n) = **lhs {
-                if n == -1.0 && **rhs == *other {
-                    return true;
-                }
-            }
-            if let Expr::Number(n) = **rhs {
-                if n == -1.0 && **lhs == *other {
-                    return true;
-                }
-            }
-        }
-        false
     }
 }
 
@@ -632,82 +783,66 @@ impl Rule for HyperbolicIdentityRule {
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
         // Check for cosh^2(x) - sinh^2(x)
-        if let Expr::Sub(u, v) = expr {
-            if let (Some((name1, arg1)), Some((name2, arg2))) = (
+        if let Expr::Sub(u, v) = expr
+            && let (Some((name1, arg1)), Some((name2, arg2))) = (
                 Self::get_hyperbolic_power(u, 2.0),
                 Self::get_hyperbolic_power(v, 2.0),
-            ) {
-                if arg1 == arg2 && name1 == "cosh" && name2 == "sinh" {
+            )
+                && arg1 == arg2 && name1 == "cosh" && name2 == "sinh" {
                     return Some(Expr::Number(1.0));
                 }
-            }
-        }
 
         // Check for cosh^2(x) + (-1 * sinh^2(x))
         if let Expr::Add(u, v) = expr {
             // Check u = cosh^2, v = -sinh^2
-            if let Some((name1, arg1)) = Self::get_hyperbolic_power(u, 2.0) {
-                if name1 == "cosh" {
+            if let Some((name1, arg1)) = Self::get_hyperbolic_power(u, 2.0)
+                && name1 == "cosh" {
                     // Check v
                     if let Expr::Mul(lhs, rhs) = &**v {
-                        if let Expr::Number(n) = **lhs {
-                            if n == -1.0 {
-                                if let Some((name2, arg2)) = Self::get_hyperbolic_power(rhs, 2.0) {
-                                    if name2 == "sinh" && arg1 == arg2 {
+                        if let Expr::Number(n) = **lhs
+                            && n == -1.0
+                                && let Some((name2, arg2)) = Self::get_hyperbolic_power(rhs, 2.0)
+                                    && name2 == "sinh" && arg1 == arg2 {
                                         return Some(Expr::Number(1.0));
                                     }
-                                }
-                            }
-                        }
                         // Check rhs is -1 (commutative)
-                        if let Expr::Number(n) = **rhs {
-                            if n == -1.0 {
-                                if let Some((name2, arg2)) = Self::get_hyperbolic_power(lhs, 2.0) {
-                                    if name2 == "sinh" && arg1 == arg2 {
+                        if let Expr::Number(n) = **rhs
+                            && n == -1.0
+                                && let Some((name2, arg2)) = Self::get_hyperbolic_power(lhs, 2.0)
+                                    && name2 == "sinh" && arg1 == arg2 {
                                         return Some(Expr::Number(1.0));
                                     }
-                                }
-                            }
-                        }
                     }
                 }
-            }
 
             // Check v = cosh^2, u = -sinh^2 (commutative add)
-            if let Some((name1, arg1)) = Self::get_hyperbolic_power(v, 2.0) {
-                if name1 == "cosh" {
+            if let Some((name1, arg1)) = Self::get_hyperbolic_power(v, 2.0)
+                && name1 == "cosh" {
                     // Check u
                     if let Expr::Mul(lhs, rhs) = &**u {
-                        if let Expr::Number(n) = **lhs {
-                            if n == -1.0 {
-                                if let Some((name2, arg2)) = Self::get_hyperbolic_power(rhs, 2.0) {
-                                    if name2 == "sinh" && arg1 == arg2 {
+                        if let Expr::Number(n) = **lhs
+                            && n == -1.0
+                                && let Some((name2, arg2)) = Self::get_hyperbolic_power(rhs, 2.0)
+                                    && name2 == "sinh" && arg1 == arg2 {
                                         return Some(Expr::Number(1.0));
                                     }
-                                }
-                            }
-                        }
                         // Check rhs is -1
-                        if let Expr::Number(n) = **rhs {
-                            if n == -1.0 {
-                                if let Some((name2, arg2)) = Self::get_hyperbolic_power(lhs, 2.0) {
-                                    if name2 == "sinh" && arg1 == arg2 {
+                        if let Expr::Number(n) = **rhs
+                            && n == -1.0
+                                && let Some((name2, arg2)) = Self::get_hyperbolic_power(lhs, 2.0)
+                                    && name2 == "sinh" && arg1 == arg2 {
                                         return Some(Expr::Number(1.0));
                                     }
-                                }
-                            }
-                        }
                     }
                 }
-            }
         }
 
         // Check for 1 - tanh^2(x) = sech^2(x)
-        if let Expr::Sub(u, v) = expr {
-            if let Expr::Number(n) = **u {
-                if n == 1.0 {
-                    if let Some((name, arg)) = Self::get_hyperbolic_power(v, 2.0) {
-                        if name == "tanh" {
+        if let Expr::Sub(u, v) = expr
+            && let Expr::Number(n) = **u
+                && n == 1.0
+                    && let Some((name, arg)) = Self::get_hyperbolic_power(v, 2.0)
+                        && name == "tanh" {
                             return Some(Expr::Pow(
                                 Box::new(Expr::FunctionCall {
                                     name: "sech".to_string(),
@@ -716,20 +851,16 @@ impl Rule for HyperbolicIdentityRule {
                                 Box::new(Expr::Number(2.0)),
                             ));
                         }
-                    }
-                }
-            }
-        }
 
         // Check for 1 + (-1 * tanh^2(x)) = sech^2(x) (normalized form)
-        if let Expr::Add(u, v) = expr {
-            if let Expr::Number(n) = **u {
-                if n == 1.0 {
-                    if let Expr::Mul(lhs, rhs) = &**v {
-                        if let Expr::Number(nn) = **lhs {
-                            if nn == -1.0 {
-                                if let Some((name, arg)) = Self::get_hyperbolic_power(rhs, 2.0) {
-                                    if name == "tanh" {
+        if let Expr::Add(u, v) = expr
+            && let Expr::Number(n) = **u
+                && n == 1.0
+                    && let Expr::Mul(lhs, rhs) = &**v
+                        && let Expr::Number(nn) = **lhs
+                            && nn == -1.0
+                                && let Some((name, arg)) = Self::get_hyperbolic_power(rhs, 2.0)
+                                    && name == "tanh" {
                                         return Some(Expr::Pow(
                                             Box::new(Expr::FunctionCall {
                                                 name: "sech".to_string(),
@@ -738,21 +869,14 @@ impl Rule for HyperbolicIdentityRule {
                                             Box::new(Expr::Number(2.0)),
                                         ));
                                     }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
 
         // Check for tanh^2(x) + (-1) = -sech^2(x) or commutative
-        if let Expr::Add(u, v) = expr {
-            if let Some((name, arg)) = Self::get_hyperbolic_power(u, 2.0) {
-                if name == "tanh" {
-                    if let Expr::Mul(lhs, rhs) = &**v {
-                        if let Expr::Number(n) = **lhs {
-                            if n == -1.0 && **rhs == Expr::Number(1.0) {
+        if let Expr::Add(u, v) = expr
+            && let Some((name, arg)) = Self::get_hyperbolic_power(u, 2.0)
+                && name == "tanh"
+                    && let Expr::Mul(lhs, rhs) = &**v
+                        && let Expr::Number(n) = **lhs
+                            && n == -1.0 && **rhs == Expr::Number(1.0) {
                                 return Some(Expr::Mul(
                                     Box::new(Expr::Number(-1.0)),
                                     Box::new(Expr::Pow(
@@ -764,18 +888,13 @@ impl Rule for HyperbolicIdentityRule {
                                     )),
                                 ));
                             }
-                        }
-                    }
-                }
-            }
-        }
 
         // Check for coth^2(x) - 1 = csch^2(x)
-        if let Expr::Sub(u, v) = expr {
-            if let Expr::Number(n) = **v {
-                if n == 1.0 {
-                    if let Some((name, arg)) = Self::get_hyperbolic_power(u, 2.0) {
-                        if name == "coth" {
+        if let Expr::Sub(u, v) = expr
+            && let Expr::Number(n) = **v
+                && n == 1.0
+                    && let Some((name, arg)) = Self::get_hyperbolic_power(u, 2.0)
+                        && name == "coth" {
                             return Some(Expr::Pow(
                                 Box::new(Expr::FunctionCall {
                                     name: "csch".to_string(),
@@ -784,17 +903,13 @@ impl Rule for HyperbolicIdentityRule {
                                 Box::new(Expr::Number(2.0)),
                             ));
                         }
-                    }
-                }
-            }
-        }
 
         // Check for coth^2(x) + (-1) = csch^2(x) (normalized form)
-        if let Expr::Add(u, v) = expr {
-            if let Some((name, arg)) = Self::get_hyperbolic_power(u, 2.0) {
-                if name == "coth" {
-                    if let Expr::Number(n) = **v {
-                        if n == -1.0 {
+        if let Expr::Add(u, v) = expr
+            && let Some((name, arg)) = Self::get_hyperbolic_power(u, 2.0)
+                && name == "coth"
+                    && let Expr::Number(n) = **v
+                        && n == -1.0 {
                             return Some(Expr::Pow(
                                 Box::new(Expr::FunctionCall {
                                     name: "csch".to_string(),
@@ -803,29 +918,23 @@ impl Rule for HyperbolicIdentityRule {
                                 Box::new(Expr::Number(2.0)),
                             ));
                         }
-                    }
-                }
-            }
-        }
 
         // Check for (cosh(x) - sinh(x)) * (cosh(x) + sinh(x)) = 1
         if let Expr::Mul(u, v) = expr {
             if let (Some(arg1), Some(arg2)) = (
                 Self::is_cosh_minus_sinh_term(u),
                 Self::is_cosh_plus_sinh_term(v),
-            ) {
-                if arg1 == arg2 {
+            )
+                && arg1 == arg2 {
                     return Some(Expr::Number(1.0));
                 }
-            }
             if let (Some(arg1), Some(arg2)) = (
                 Self::is_cosh_minus_sinh_term(v),
                 Self::is_cosh_plus_sinh_term(u),
-            ) {
-                if arg1 == arg2 {
+            )
+                && arg1 == arg2 {
                     return Some(Expr::Number(1.0));
                 }
-            }
         }
 
         None
@@ -834,67 +943,53 @@ impl Rule for HyperbolicIdentityRule {
 
 impl HyperbolicIdentityRule {
     fn get_hyperbolic_power(expr: &Expr, power: f64) -> Option<(&str, Expr)> {
-        if let Expr::Pow(base, exp) = expr {
-            if let Expr::Number(p) = **exp {
-                if p == power {
-                    if let Expr::FunctionCall { name, args } = &**base {
-                        if args.len() == 1 && (name == "sinh" || name == "cosh" || name == "tanh" || name == "coth") {
+        if let Expr::Pow(base, exp) = expr
+            && let Expr::Number(p) = **exp
+                && p == power
+                    && let Expr::FunctionCall { name, args } = &**base
+                        && args.len() == 1
+                            && (name == "sinh"
+                                || name == "cosh"
+                                || name == "tanh"
+                                || name == "coth")
+                        {
                             return Some((name, args[0].clone()));
                         }
-                    }
-                }
-            }
-        }
         None
     }
 
     fn is_cosh_minus_sinh_term(expr: &Expr) -> Option<Expr> {
         // Check for cosh - sinh: Sub(cosh, sinh)
-        if let Expr::Sub(u, v) = expr {
-            if let Expr::FunctionCall { name: n1, args: a1 } = &**u {
-                if n1 == "cosh" && a1.len() == 1 {
-                    if let Expr::FunctionCall { name: n2, args: a2 } = &**v {
-                        if n2 == "sinh" && a2.len() == 1 && a1[0] == a2[0] {
+        if let Expr::Sub(u, v) = expr
+            && let Expr::FunctionCall { name: n1, args: a1 } = &**u
+                && n1 == "cosh" && a1.len() == 1
+                    && let Expr::FunctionCall { name: n2, args: a2 } = &**v
+                        && n2 == "sinh" && a2.len() == 1 && a1[0] == a2[0] {
                             return Some(a1[0].clone());
                         }
-                    }
-                }
-            }
-        }
         // Check for normalized cosh - sinh: Add(cosh, Mul(-1, sinh))
-        if let Expr::Add(u, v) = expr {
-            if let Expr::FunctionCall { name: n1, args: a1 } = &**u {
-                if n1 == "cosh" && a1.len() == 1 {
-                    if let Expr::Mul(lhs, rhs) = &**v {
-                        if let Expr::Number(n) = **lhs {
-                            if n == -1.0 {
-                                if let Expr::FunctionCall { name: n2, args: a2 } = &**rhs {
-                                    if n2 == "sinh" && a2.len() == 1 && a1[0] == a2[0] {
+        if let Expr::Add(u, v) = expr
+            && let Expr::FunctionCall { name: n1, args: a1 } = &**u
+                && n1 == "cosh" && a1.len() == 1
+                    && let Expr::Mul(lhs, rhs) = &**v
+                        && let Expr::Number(n) = **lhs
+                            && n == -1.0
+                                && let Expr::FunctionCall { name: n2, args: a2 } = &**rhs
+                                    && n2 == "sinh" && a2.len() == 1 && a1[0] == a2[0] {
                                         return Some(a1[0].clone());
                                     }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
         None
     }
 
     fn is_cosh_plus_sinh_term(expr: &Expr) -> Option<Expr> {
         // Check for cosh + sinh: Add(cosh, sinh)
-        if let Expr::Add(u, v) = expr {
-            if let Expr::FunctionCall { name: n1, args: a1 } = &**u {
-                if n1 == "cosh" && a1.len() == 1 {
-                    if let Expr::FunctionCall { name: n2, args: a2 } = &**v {
-                        if n2 == "sinh" && a2.len() == 1 && a1[0] == a2[0] {
+        if let Expr::Add(u, v) = expr
+            && let Expr::FunctionCall { name: n1, args: a1 } = &**u
+                && n1 == "cosh" && a1.len() == 1
+                    && let Expr::FunctionCall { name: n2, args: a2 } = &**v
+                        && n2 == "sinh" && a2.len() == 1 && a1[0] == a2[0] {
                             return Some(a1[0].clone());
                         }
-                    }
-                }
-            }
-        }
         None
     }
 }
@@ -916,9 +1011,9 @@ impl Rule for SinhNegationRule {
     }
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
-        if let Expr::FunctionCall { name, args } = expr {
-            if name == "sinh" && args.len() == 1 {
-                if Self::is_negation(&args[0]) {
+        if let Expr::FunctionCall { name, args } = expr
+            && name == "sinh" && args.len() == 1
+                && Self::is_negation(&args[0]) {
                     let inner = Self::negate_arg(&args[0]);
                     return Some(Expr::Mul(
                         Box::new(Expr::Number(-1.0)),
@@ -928,8 +1023,6 @@ impl Rule for SinhNegationRule {
                         }),
                     ));
                 }
-            }
-        }
         None
     }
 }
@@ -937,32 +1030,28 @@ impl Rule for SinhNegationRule {
 impl SinhNegationRule {
     fn is_negation(expr: &Expr) -> bool {
         if let Expr::Mul(lhs, rhs) = expr {
-            if let Expr::Number(n) = **lhs {
-                if n == -1.0 {
+            if let Expr::Number(n) = **lhs
+                && n == -1.0 {
                     return true;
                 }
-            }
-            if let Expr::Number(n) = **rhs {
-                if n == -1.0 {
+            if let Expr::Number(n) = **rhs
+                && n == -1.0 {
                     return true;
                 }
-            }
         }
         false
     }
 
     fn negate_arg(expr: &Expr) -> Expr {
         if let Expr::Mul(lhs, rhs) = expr {
-            if let Expr::Number(n) = **lhs {
-                if n == -1.0 {
+            if let Expr::Number(n) = **lhs
+                && n == -1.0 {
                     return *rhs.clone();
                 }
-            }
-            if let Expr::Number(n) = **rhs {
-                if n == -1.0 {
+            if let Expr::Number(n) = **rhs
+                && n == -1.0 {
                     return *lhs.clone();
                 }
-            }
         }
         expr.clone() // fallback, shouldn't happen
     }
@@ -985,20 +1074,16 @@ impl Rule for CoshNegationRule {
     }
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
-        if let Expr::FunctionCall { name, args } = expr {
-            if name == "cosh" && args.len() == 1 {
-                if let Expr::Mul(lhs, rhs) = &args[0] {
-                    if let Expr::Number(n) = **lhs {
-                        if n == -1.0 {
+        if let Expr::FunctionCall { name, args } = expr
+            && name == "cosh" && args.len() == 1
+                && let Expr::Mul(lhs, rhs) = &args[0]
+                    && let Expr::Number(n) = **lhs
+                        && n == -1.0 {
                             return Some(Expr::FunctionCall {
                                 name: "cosh".to_string(),
                                 args: vec![*rhs.clone()],
                             });
                         }
-                    }
-                }
-            }
-        }
         None
     }
 }
@@ -1020,9 +1105,9 @@ impl Rule for TanhNegationRule {
     }
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
-        if let Expr::FunctionCall { name, args } = expr {
-            if name == "tanh" && args.len() == 1 {
-                if Self::is_negation(&args[0]) {
+        if let Expr::FunctionCall { name, args } = expr
+            && name == "tanh" && args.len() == 1
+                && Self::is_negation(&args[0]) {
                     let inner = Self::negate_arg(&args[0]);
                     return Some(Expr::Mul(
                         Box::new(Expr::Number(-1.0)),
@@ -1032,8 +1117,6 @@ impl Rule for TanhNegationRule {
                         }),
                     ));
                 }
-            }
-        }
         None
     }
 }
@@ -1041,32 +1124,28 @@ impl Rule for TanhNegationRule {
 impl TanhNegationRule {
     fn is_negation(expr: &Expr) -> bool {
         if let Expr::Mul(lhs, rhs) = expr {
-            if let Expr::Number(n) = **lhs {
-                if n == -1.0 {
+            if let Expr::Number(n) = **lhs
+                && n == -1.0 {
                     return true;
                 }
-            }
-            if let Expr::Number(n) = **rhs {
-                if n == -1.0 {
+            if let Expr::Number(n) = **rhs
+                && n == -1.0 {
                     return true;
                 }
-            }
         }
         false
     }
 
     fn negate_arg(expr: &Expr) -> Expr {
         if let Expr::Mul(lhs, rhs) = expr {
-            if let Expr::Number(n) = **lhs {
-                if n == -1.0 {
+            if let Expr::Number(n) = **lhs
+                && n == -1.0 {
                     return *rhs.clone();
                 }
-            }
-            if let Expr::Number(n) = **rhs {
-                if n == -1.0 {
+            if let Expr::Number(n) = **rhs
+                && n == -1.0 {
                     return *lhs.clone();
                 }
-            }
         }
         expr.clone() // fallback
     }
@@ -1089,19 +1168,15 @@ impl Rule for SinhAsinhIdentityRule {
     }
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
-        if let Expr::FunctionCall { name, args } = expr {
-            if name == "sinh" && args.len() == 1 {
-                if let Expr::FunctionCall {
+        if let Expr::FunctionCall { name, args } = expr
+            && name == "sinh" && args.len() == 1
+                && let Expr::FunctionCall {
                     name: inner_name,
                     args: inner_args,
                 } = &args[0]
-                {
-                    if inner_name == "asinh" && inner_args.len() == 1 {
+                    && inner_name == "asinh" && inner_args.len() == 1 {
                         return Some(inner_args[0].clone());
                     }
-                }
-            }
-        }
         None
     }
 }
@@ -1123,19 +1198,15 @@ impl Rule for CoshAcoshIdentityRule {
     }
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
-        if let Expr::FunctionCall { name, args } = expr {
-            if name == "cosh" && args.len() == 1 {
-                if let Expr::FunctionCall {
+        if let Expr::FunctionCall { name, args } = expr
+            && name == "cosh" && args.len() == 1
+                && let Expr::FunctionCall {
                     name: inner_name,
                     args: inner_args,
                 } = &args[0]
-                {
-                    if inner_name == "acosh" && inner_args.len() == 1 {
+                    && inner_name == "acosh" && inner_args.len() == 1 {
                         return Some(inner_args[0].clone());
                     }
-                }
-            }
-        }
         None
     }
 }
@@ -1157,19 +1228,15 @@ impl Rule for TanhAtanhIdentityRule {
     }
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
-        if let Expr::FunctionCall { name, args } = expr {
-            if name == "tanh" && args.len() == 1 {
-                if let Expr::FunctionCall {
+        if let Expr::FunctionCall { name, args } = expr
+            && name == "tanh" && args.len() == 1
+                && let Expr::FunctionCall {
                     name: inner_name,
                     args: inner_args,
                 } = &args[0]
-                {
-                    if inner_name == "atanh" && inner_args.len() == 1 {
+                    && inner_name == "atanh" && inner_args.len() == 1 {
                         return Some(inner_args[0].clone());
                     }
-                }
-            }
-        }
         None
     }
 }
@@ -1222,17 +1289,17 @@ impl HyperbolicTripleAngleRule {
         if let (Some((c1, arg1, p1)), Some((c2, arg2, p2))) = (
             Self::parse_fn_term(u, "sinh"),
             Self::parse_fn_term(v, "sinh"),
-        ) {
-            if arg1 == arg2 {
+        )
+            && arg1 == arg2 {
                 // Allow small floating point tolerance
                 let eps = 1e-10;
                 if ((c1 == 4.0 || (c1 - 4.0).abs() < eps) && p1 == 3.0) && (c2 == 3.0 && p2 == 1.0)
-                    || ((c2 == 4.0 || (c2 - 4.0).abs() < eps) && p2 == 3.0) && (c1 == 3.0 && p1 == 1.0)
+                    || ((c2 == 4.0 || (c2 - 4.0).abs() < eps) && p2 == 3.0)
+                        && (c1 == 3.0 && p1 == 1.0)
                 {
                     return Some(arg1);
                 }
             }
-        }
         None
     }
 
@@ -1242,59 +1309,235 @@ impl HyperbolicTripleAngleRule {
         if let (Some((c1, arg1, p1)), Some((c2, arg2, p2))) = (
             Self::parse_fn_term(u, "cosh"),
             Self::parse_fn_term(v, "cosh"),
-        ) {
-            if arg1 == arg2 {
+        )
+            && arg1 == arg2 {
                 // Allow small floating point tolerance
                 let eps = 1e-10;
                 if (c1 == 4.0 || (c1 - 4.0).abs() < eps) && p1 == 3.0 && c2 == 3.0 && p2 == 1.0 {
                     return Some(arg1);
                 }
             }
-        }
         None
     }
 
     // Helper to parse c * func(arg)^p
     fn parse_fn_term(expr: &Expr, func_name: &str) -> Option<(f64, Expr, f64)> {
         // Case 1: func(arg)  -> c=1, p=1
-        if let Expr::FunctionCall { name, args } = expr {
-            if name == func_name && args.len() == 1 {
+        if let Expr::FunctionCall { name, args } = expr
+            && name == func_name && args.len() == 1 {
                 return Some((1.0, args[0].clone(), 1.0));
             }
-        }
         // Case 2: c * func(arg) -> p=1
-        if let Expr::Mul(lhs, rhs) = expr {
-            if let Expr::Number(c) = **lhs {
-                if let Expr::FunctionCall { name, args } = &**rhs {
-                    if name == func_name && args.len() == 1 {
+        if let Expr::Mul(lhs, rhs) = expr
+            && let Expr::Number(c) = **lhs
+                && let Expr::FunctionCall { name, args } = &**rhs
+                    && name == func_name && args.len() == 1 {
                         return Some((c, args[0].clone(), 1.0));
                     }
-                }
-            }
-        }
         // Case 3: func(arg)^p -> c=1
-        if let Expr::Pow(base, exp) = expr {
-            if let Expr::Number(p) = **exp {
-                if let Expr::FunctionCall { name, args } = &**base {
-                    if name == func_name && args.len() == 1 {
+        if let Expr::Pow(base, exp) = expr
+            && let Expr::Number(p) = **exp
+                && let Expr::FunctionCall { name, args } = &**base
+                    && name == func_name && args.len() == 1 {
                         return Some((1.0, args[0].clone(), p));
                     }
-                }
-            }
-        }
         // Case 4: c * func(arg)^p
-        if let Expr::Mul(lhs, rhs) = expr {
-            if let Expr::Number(c) = **lhs {
-                if let Expr::Pow(base, exp) = &**rhs {
-                    if let Expr::Number(p) = **exp {
-                        if let Expr::FunctionCall { name, args } = &**base {
-                            if name == func_name && args.len() == 1 {
+        if let Expr::Mul(lhs, rhs) = expr
+            && let Expr::Number(c) = **lhs
+                && let Expr::Pow(base, exp) = &**rhs
+                    && let Expr::Number(p) = **exp
+                        && let Expr::FunctionCall { name, args } = &**base
+                            && name == func_name && args.len() == 1 {
                                 return Some((c, args[0].clone(), p));
                             }
-                        }
+        None
+    }
+}
+
+// ============================================================================
+// HYPERBOLIC RATIO RULES
+// ============================================================================
+
+/// Rule for sinh(x)/cosh(x) -> tanh(x)
+pub struct SinhCoshToTanhRule;
+
+impl Rule for SinhCoshToTanhRule {
+    fn name(&self) -> &'static str {
+        "sinh_cosh_to_tanh"
+    }
+
+    fn priority(&self) -> i32 {
+        85
+    }
+
+    fn category(&self) -> RuleCategory {
+        RuleCategory::Hyperbolic
+    }
+
+    fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
+        if let Expr::Div(num, den) = expr {
+            // sinh(x) / cosh(x) -> tanh(x)
+            if let Expr::FunctionCall {
+                name: num_name,
+                args: num_args,
+            } = &**num
+                && let Expr::FunctionCall {
+                    name: den_name,
+                    args: den_args,
+                } = &**den
+                    && num_name == "sinh"
+                        && den_name == "cosh"
+                        && num_args.len() == 1
+                        && den_args.len() == 1
+                        && num_args[0] == den_args[0]
+                    {
+                        return Some(Expr::FunctionCall {
+                            name: "tanh".to_string(),
+                            args: vec![num_args[0].clone()],
+                        });
                     }
-                }
-            }
+        }
+        None
+    }
+}
+
+/// Rule for cosh(x)/sinh(x) -> coth(x)
+pub struct CoshSinhToCothRule;
+
+impl Rule for CoshSinhToCothRule {
+    fn name(&self) -> &'static str {
+        "cosh_sinh_to_coth"
+    }
+
+    fn priority(&self) -> i32 {
+        85
+    }
+
+    fn category(&self) -> RuleCategory {
+        RuleCategory::Hyperbolic
+    }
+
+    fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
+        if let Expr::Div(num, den) = expr {
+            // cosh(x) / sinh(x) -> coth(x)
+            if let Expr::FunctionCall {
+                name: num_name,
+                args: num_args,
+            } = &**num
+                && let Expr::FunctionCall {
+                    name: den_name,
+                    args: den_args,
+                } = &**den
+                    && num_name == "cosh"
+                        && den_name == "sinh"
+                        && num_args.len() == 1
+                        && den_args.len() == 1
+                        && num_args[0] == den_args[0]
+                    {
+                        return Some(Expr::FunctionCall {
+                            name: "coth".to_string(),
+                            args: vec![num_args[0].clone()],
+                        });
+                    }
+        }
+        None
+    }
+}
+
+/// Rule for 1/cosh(x) -> sech(x)
+pub struct OneCoshToSechRule;
+
+impl Rule for OneCoshToSechRule {
+    fn name(&self) -> &'static str {
+        "one_cosh_to_sech"
+    }
+
+    fn priority(&self) -> i32 {
+        85
+    }
+
+    fn category(&self) -> RuleCategory {
+        RuleCategory::Hyperbolic
+    }
+
+    fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
+        if let Expr::Div(num, den) = expr {
+            // 1 / cosh(x) -> sech(x)
+            if let Expr::Number(n) = &**num
+                && (*n - 1.0).abs() < 1e-10
+                    && let Expr::FunctionCall { name, args } = &**den
+                        && name == "cosh" && args.len() == 1 {
+                            return Some(Expr::FunctionCall {
+                                name: "sech".to_string(),
+                                args: args.clone(),
+                            });
+                        }
+        }
+        None
+    }
+}
+
+/// Rule for 1/sinh(x) -> csch(x)
+pub struct OneSinhToCschRule;
+
+impl Rule for OneSinhToCschRule {
+    fn name(&self) -> &'static str {
+        "one_sinh_to_csch"
+    }
+
+    fn priority(&self) -> i32 {
+        85
+    }
+
+    fn category(&self) -> RuleCategory {
+        RuleCategory::Hyperbolic
+    }
+
+    fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
+        if let Expr::Div(num, den) = expr {
+            // 1 / sinh(x) -> csch(x)
+            if let Expr::Number(n) = &**num
+                && (*n - 1.0).abs() < 1e-10
+                    && let Expr::FunctionCall { name, args } = &**den
+                        && name == "sinh" && args.len() == 1 {
+                            return Some(Expr::FunctionCall {
+                                name: "csch".to_string(),
+                                args: args.clone(),
+                            });
+                        }
+        }
+        None
+    }
+}
+
+/// Rule for 1/tanh(x) -> coth(x)
+pub struct OneTanhToCothRule;
+
+impl Rule for OneTanhToCothRule {
+    fn name(&self) -> &'static str {
+        "one_tanh_to_coth"
+    }
+
+    fn priority(&self) -> i32 {
+        85
+    }
+
+    fn category(&self) -> RuleCategory {
+        RuleCategory::Hyperbolic
+    }
+
+    fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
+        if let Expr::Div(num, den) = expr {
+            // 1 / tanh(x) -> coth(x)
+            if let Expr::Number(n) = &**num
+                && (*n - 1.0).abs() < 1e-10
+                    && let Expr::FunctionCall { name, args } = &**den
+                        && name == "tanh" && args.len() == 1 {
+                            return Some(Expr::FunctionCall {
+                                name: "coth".to_string(),
+                                args: args.clone(),
+                            });
+                        }
         }
         None
     }
@@ -1314,6 +1557,12 @@ pub fn get_hyperbolic_rules() -> Vec<Rc<dyn Rule>> {
         Rc::new(TanhNegationRule),
         // Identity rules
         Rc::new(HyperbolicIdentityRule),
+        // Ratio rules - convert to tanh, coth, sech, csch
+        Rc::new(SinhCoshToTanhRule),
+        Rc::new(CoshSinhToCothRule),
+        Rc::new(OneCoshToSechRule),
+        Rc::new(OneSinhToCschRule),
+        Rc::new(OneTanhToCothRule),
         // Conversion from exponential forms
         Rc::new(SinhFromExpRule),
         Rc::new(CoshFromExpRule),

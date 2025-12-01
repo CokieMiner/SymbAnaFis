@@ -19,13 +19,11 @@ impl Rule for LnOneRule {
     }
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
-        if let Expr::FunctionCall { name, args } = expr {
-            if name == "ln" && args.len() == 1 {
-                if matches!(args[0], Expr::Number(n) if n == 1.0) {
+        if let Expr::FunctionCall { name, args } = expr
+            && name == "ln" && args.len() == 1
+                && matches!(args[0], Expr::Number(n) if n == 1.0) {
                     return Some(Expr::Number(0.0));
                 }
-            }
-        }
         None
     }
 }
@@ -46,23 +44,21 @@ impl Rule for LnERule {
         RuleCategory::Exponential
     }
 
-    fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
-        if let Expr::FunctionCall { name, args } = expr {
-            if name == "ln" && args.len() == 1 {
+    fn apply(&self, expr: &Expr, context: &RuleContext) -> Option<Expr> {
+        if let Expr::FunctionCall { name, args } = expr
+            && name == "ln" && args.len() == 1 {
                 // Check for ln(exp(1))
                 if matches!(&args[0], Expr::FunctionCall { name: exp_name, args: exp_args }
                            if exp_name == "exp" && exp_args.len() == 1 && matches!(exp_args[0], Expr::Number(n) if n == 1.0))
                 {
                     return Some(Expr::Number(1.0));
                 }
-                // Check for ln(e) where e is a symbol
-                if let Expr::Symbol(s) = &args[0] {
-                    if s == "e" && !_context.variables.contains("e") {
+                // Check for ln(e) where e is a symbol (and not a user-defined variable)
+                if let Expr::Symbol(s) = &args[0]
+                    && s == "e" && !context.fixed_vars.contains("e") {
                         return Some(Expr::Number(1.0));
                     }
-                }
             }
-        }
         None
     }
 }
@@ -84,13 +80,11 @@ impl Rule for ExpZeroRule {
     }
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
-        if let Expr::FunctionCall { name, args } = expr {
-            if name == "exp" && args.len() == 1 {
-                if matches!(args[0], Expr::Number(n) if n == 0.0) {
+        if let Expr::FunctionCall { name, args } = expr
+            && name == "exp" && args.len() == 1
+                && matches!(args[0], Expr::Number(n) if n == 0.0) {
                     return Some(Expr::Number(1.0));
                 }
-            }
-        }
         None
     }
 }
@@ -116,19 +110,15 @@ impl Rule for ExpLnIdentityRule {
     }
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
-        if let Expr::FunctionCall { name, args } = expr {
-            if name == "exp" && args.len() == 1 {
-                if let Expr::FunctionCall {
+        if let Expr::FunctionCall { name, args } = expr
+            && name == "exp" && args.len() == 1
+                && let Expr::FunctionCall {
                     name: inner_name,
                     args: inner_args,
                 } = &args[0]
-                {
-                    if inner_name == "ln" && inner_args.len() == 1 {
+                    && inner_name == "ln" && inner_args.len() == 1 {
                         return Some(inner_args[0].clone());
                     }
-                }
-            }
-        }
         None
     }
 }
@@ -150,33 +140,30 @@ impl Rule for LnExpIdentityRule {
     }
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
-        if let Expr::FunctionCall { name, args } = expr {
-            if name == "ln" && args.len() == 1 {
+        if let Expr::FunctionCall { name, args } = expr
+            && name == "ln" && args.len() == 1 {
                 // Check for ln(exp(x))
                 if let Expr::FunctionCall {
                     name: inner_name,
                     args: inner_args,
                 } = &args[0]
-                {
-                    if inner_name == "exp" && inner_args.len() == 1 {
+                    && inner_name == "exp" && inner_args.len() == 1 {
                         return Some(inner_args[0].clone());
                     }
-                }
                 // Check for ln(e^x)
-                if let Expr::Pow(base, exp) = &args[0] {
-                    if let Expr::Symbol(b) = &**base {
-                        if b == "e" {
+                if let Expr::Pow(base, exp) = &args[0]
+                    && let Expr::Symbol(b) = &**base
+                        && b == "e" {
                             return Some(*exp.clone());
                         }
-                    }
-                }
             }
-        }
         None
     }
 }
 
 /// Rule for log(x^n) = n * log(x) for ln, log10, log2
+/// For even integer exponents: log(x^2) = 2*log(|x|) - always correct
+/// For odd integer exponents: log(x^3) = 3*log(x) - only for x > 0, alters domain
 pub struct LogPowerRule;
 
 impl Rule for LogPowerRule {
@@ -193,30 +180,82 @@ impl Rule for LogPowerRule {
     }
 
     fn alters_domain(&self) -> bool {
-        true
+        // We handle domain safety dynamically in apply()
+        false
     }
 
-    fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
-        if let Expr::FunctionCall { name, args } = expr {
-            if args.len() == 1 && (name == "ln" || name == "log10" || name == "log2") {
+    fn apply(&self, expr: &Expr, context: &RuleContext) -> Option<Expr> {
+        if let Expr::FunctionCall { name, args } = expr
+            && args.len() == 1 && (name == "ln" || name == "log10" || name == "log2") {
                 let content = &args[0];
                 // log(x^n) = n * log(x)
                 if let Expr::Pow(base, exp) = content {
+                    // Check if exponent is an even integer
+                    if let Expr::Number(n) = &**exp {
+                        let is_even_int = n.fract() == 0.0 && (*n as i64) % 2 == 0;
+                        let is_odd_int = n.fract() == 0.0 && (*n as i64) % 2 != 0;
+
+                        if is_even_int && *n != 0.0 {
+                            // ln(x^2) = 2*ln(|x|) - always correct for x ≠ 0
+                            return Some(Expr::Mul(
+                                exp.clone(),
+                                Box::new(Expr::FunctionCall {
+                                    name: name.clone(),
+                                    args: vec![Expr::FunctionCall {
+                                        name: "abs".to_string(),
+                                        args: vec![(**base).clone()],
+                                    }],
+                                }),
+                            ));
+                        } else if is_odd_int {
+                            // ln(x^3) = 3*ln(x) - only valid for x > 0
+                            // In domain-safe mode, skip unless base is known positive
+                            if context.domain_safe {
+                                // Check if base is known to be positive (exp, cosh, etc.)
+                                let is_positive = matches!(&**base,
+                                    Expr::FunctionCall { name: fn_name, .. }
+                                    if fn_name == "exp" || fn_name == "cosh"
+                                );
+                                if !is_positive {
+                                    return None;
+                                }
+                            }
+                            return Some(Expr::Mul(
+                                exp.clone(),
+                                Box::new(Expr::FunctionCall {
+                                    name: name.clone(),
+                                    args: vec![(**base).clone()],
+                                }),
+                            ));
+                        }
+                    }
+
+                    // For non-integer or symbolic exponents, only apply in aggressive mode
+                    // Don't use abs(x) - for odd exponents it would expand the domain
+                    // For symbolic n, we can't know if it's even/odd, so we assume x > 0
+                    if context.domain_safe {
+                        return None;
+                    }
+
                     return Some(Expr::Mul(
                         exp.clone(),
                         Box::new(Expr::FunctionCall {
                             name: name.clone(),
-                            args: vec![*base.clone()],
+                            args: vec![(**base).clone()],
                         }),
                     ));
                 }
-                // log(sqrt(x)) = 0.5 * log(x)
+                // log(sqrt(x)) = 0.5 * log(x) - only for x > 0
                 if let Expr::FunctionCall {
                     name: inner_name,
                     args: inner_args,
                 } = content
                 {
                     if inner_name == "sqrt" && inner_args.len() == 1 {
+                        // In domain-safe mode, skip unless we know x > 0
+                        if context.domain_safe {
+                            return None;
+                        }
                         return Some(Expr::Mul(
                             Box::new(Expr::Number(0.5)),
                             Box::new(Expr::FunctionCall {
@@ -227,6 +266,10 @@ impl Rule for LogPowerRule {
                     }
                     // log(cbrt(x)) = (1/3) * log(x)
                     if inner_name == "cbrt" && inner_args.len() == 1 {
+                        // cbrt is defined for all reals, but log needs positive argument
+                        if context.domain_safe {
+                            return None;
+                        }
                         return Some(Expr::Mul(
                             Box::new(Expr::Div(
                                 Box::new(Expr::Number(1.0)),
@@ -240,7 +283,6 @@ impl Rule for LogPowerRule {
                     }
                 }
             }
-        }
         None
     }
 }
@@ -262,8 +304,8 @@ impl Rule for LogBaseRules {
     }
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
-        if let Expr::FunctionCall { name, args } = expr {
-            if args.len() == 1 {
+        if let Expr::FunctionCall { name, args } = expr
+            && args.len() == 1 {
                 if name == "log10" {
                     if matches!(args[0], Expr::Number(n) if n == 1.0) {
                         return Some(Expr::Number(0.0));
@@ -280,7 +322,6 @@ impl Rule for LogBaseRules {
                     }
                 }
             }
-        }
         None
     }
 }
@@ -302,14 +343,13 @@ impl Rule for ExpToEPowRule {
     }
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
-        if let Expr::FunctionCall { name, args } = expr {
-            if name == "exp" && args.len() == 1 {
+        if let Expr::FunctionCall { name, args } = expr
+            && name == "exp" && args.len() == 1 {
                 return Some(Expr::Pow(
                     Box::new(Expr::Symbol("e".to_string())),
                     Box::new(args[0].clone()),
                 ));
             }
-        }
         None
     }
 }
@@ -358,11 +398,10 @@ impl Rule for LogCombinationRule {
 
 impl LogCombinationRule {
     fn get_ln_arg(expr: &Expr) -> Option<Expr> {
-        if let Expr::FunctionCall { name, args } = expr {
-            if name == "ln" && args.len() == 1 {
+        if let Expr::FunctionCall { name, args } = expr
+            && name == "ln" && args.len() == 1 {
                 return Some(args[0].clone());
             }
-        }
         None
     }
 }

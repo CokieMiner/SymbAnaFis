@@ -27,9 +27,9 @@ pub mod rules {
         }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
-            if let Expr::FunctionCall { name, args } = expr {
-                if name == "exp" && args.len() == 1 {
-                    if let Expr::FunctionCall {
+            if let Expr::FunctionCall { name, args } = expr
+                && name == "exp" && args.len() == 1
+                    && let Expr::FunctionCall {
                         name: inner_name,
                         args: inner_args,
                     } = &args[0]
@@ -38,8 +38,6 @@ pub mod rules {
                     {
                         return Some(inner_args[0].clone());
                     }
-                }
-            }
             None
         }
     }
@@ -60,9 +58,9 @@ pub mod rules {
         }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
-            if let Expr::FunctionCall { name, args } = expr {
-                if name == "ln" && args.len() == 1 {
-                    if let Expr::FunctionCall {
+            if let Expr::FunctionCall { name, args } = expr
+                && name == "ln" && args.len() == 1
+                    && let Expr::FunctionCall {
                         name: inner_name,
                         args: inner_args,
                     } = &args[0]
@@ -71,8 +69,6 @@ pub mod rules {
                     {
                         return Some(inner_args[0].clone());
                     }
-                }
-            }
             None
         }
     }
@@ -94,9 +90,9 @@ pub mod rules {
         }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
-            if let Expr::FunctionCall { name, args } = expr {
-                if name == "exp" && args.len() == 1 {
-                    if let Expr::Mul(a, b) = &args[0] {
+            if let Expr::FunctionCall { name, args } = expr
+                && name == "exp" && args.len() == 1
+                    && let Expr::Mul(a, b) = &args[0] {
                         // Check if b is ln(x)
                         if let Expr::FunctionCall {
                             name: inner_name,
@@ -118,8 +114,6 @@ pub mod rules {
                             return Some(Expr::Pow(Box::new(inner_args[0].clone()), b.clone()));
                         }
                     }
-                }
-            }
             None
         }
     }
@@ -146,17 +140,15 @@ pub mod rules {
 
         fn apply(&self, expr: &Expr, context: &RuleContext) -> Option<Expr> {
             if let Expr::Pow(base, exp) = expr {
-                // Check if base is Symbol("e") AND "e" is not a user variable
-                if let Expr::Symbol(ref s) = **base {
-                    if s == "e" && !context.variables.contains("e") {
+                // Check if base is Symbol("e") AND "e" is not a user-specified fixed variable
+                if let Expr::Symbol(ref s) = **base
+                    && s == "e" && !context.fixed_vars.contains("e") {
                         // Check if exponent is ln(x)
-                        if let Expr::FunctionCall { name, args } = &**exp {
-                            if name == "ln" && args.len() == 1 {
+                        if let Expr::FunctionCall { name, args } = &**exp
+                            && name == "ln" && args.len() == 1 {
                                 return Some(args[0].clone());
                             }
-                        }
                     }
-                }
             }
             None
         }
@@ -179,9 +171,9 @@ pub mod rules {
 
         fn apply(&self, expr: &Expr, context: &RuleContext) -> Option<Expr> {
             if let Expr::Pow(base, exp) = expr {
-                // Check if base is Symbol("e") AND "e" is not a user variable
-                if let Expr::Symbol(ref s) = **base {
-                    if s == "e" && !context.variables.contains("e") {
+                // Check if base is Symbol("e") AND "e" is not a user-specified fixed variable
+                if let Expr::Symbol(ref s) = **base
+                    && s == "e" && !context.fixed_vars.contains("e") {
                         // Check if exponent is a*ln(b) or ln(b)*a
                         if let Expr::Mul(a, b) = &**exp {
                             // Check if b is ln(x)
@@ -189,30 +181,25 @@ pub mod rules {
                                 name: inner_name,
                                 args: inner_args,
                             } = &**b
-                            {
-                                if inner_name == "ln" && inner_args.len() == 1 {
+                                && inner_name == "ln" && inner_args.len() == 1 {
                                     return Some(Expr::Pow(
                                         Box::new(inner_args[0].clone()),
                                         a.clone(),
                                     ));
                                 }
-                            }
                             // Check if a is ln(x) (commutative)
                             if let Expr::FunctionCall {
                                 name: inner_name,
                                 args: inner_args,
                             } = &**a
-                            {
-                                if inner_name == "ln" && inner_args.len() == 1 {
+                                && inner_name == "ln" && inner_args.len() == 1 {
                                     return Some(Expr::Pow(
                                         Box::new(inner_args[0].clone()),
                                         b.clone(),
                                     ));
                                 }
-                            }
                         }
                     }
-                }
             }
             None
         }
@@ -262,6 +249,379 @@ pub mod rules {
         }
     }
 
+    /// Rule for combining nested fractions in numerator:
+    /// (a + b/c) / d -> (a*c + b) / (c*d)
+    /// (a - b/c) / d -> (a*c - b) / (c*d)
+    pub struct CombineNestedFractionRule;
+
+    impl Rule for CombineNestedFractionRule {
+        fn name(&self) -> &'static str {
+            "combine_nested_fraction"
+        }
+
+        fn priority(&self) -> i32 {
+            94 // Just below DivDivRule (95) to run after outer div flattening
+        }
+
+        fn category(&self) -> RuleCategory {
+            RuleCategory::Algebraic
+        }
+
+        fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
+            if let Expr::Div(num, outer_den) = expr {
+                // Case 1: (a + b/c) / d -> (a*c + b) / (c*d)
+                if let Expr::Add(a, v) = &**num {
+                    if let Expr::Div(b, c) = &**v {
+                        // (a*c + b) / (c*d)
+                        let new_num = Expr::Add(
+                            Box::new(Expr::Mul(a.clone(), c.clone())),
+                            b.clone(),
+                        );
+                        let new_den = Expr::Mul(c.clone(), outer_den.clone());
+                        return Some(Expr::Div(Box::new(new_num), Box::new(new_den)));
+                    }
+                }
+                // Case 2: (b/c + a) / d -> (b + a*c) / (c*d)
+                if let Expr::Add(u, a) = &**num {
+                    if let Expr::Div(b, c) = &**u {
+                        let new_num = Expr::Add(
+                            b.clone(),
+                            Box::new(Expr::Mul(a.clone(), c.clone())),
+                        );
+                        let new_den = Expr::Mul(c.clone(), outer_den.clone());
+                        return Some(Expr::Div(Box::new(new_num), Box::new(new_den)));
+                    }
+                }
+                // Case 3: (a - b/c) / d -> (a*c - b) / (c*d)
+                if let Expr::Sub(a, v) = &**num {
+                    if let Expr::Div(b, c) = &**v {
+                        let new_num = Expr::Sub(
+                            Box::new(Expr::Mul(a.clone(), c.clone())),
+                            b.clone(),
+                        );
+                        let new_den = Expr::Mul(c.clone(), outer_den.clone());
+                        return Some(Expr::Div(Box::new(new_num), Box::new(new_den)));
+                    }
+                }
+                // Case 4: (b/c - a) / d -> (b - a*c) / (c*d)
+                if let Expr::Sub(u, a) = &**num {
+                    if let Expr::Div(b, c) = &**u {
+                        let new_num = Expr::Sub(
+                            b.clone(),
+                            Box::new(Expr::Mul(a.clone(), c.clone())),
+                        );
+                        let new_den = Expr::Mul(c.clone(), outer_den.clone());
+                        return Some(Expr::Div(Box::new(new_num), Box::new(new_den)));
+                    }
+                }
+            }
+            None
+        }
+    }
+
+    // ==================== Absolute Value and Sign Rules ====================
+
+    /// Rule for abs(number) -> |number|
+    pub struct AbsNumericRule;
+
+    impl Rule for AbsNumericRule {
+        fn name(&self) -> &'static str {
+            "abs_numeric"
+        }
+
+        fn priority(&self) -> i32 {
+            95
+        }
+
+        fn category(&self) -> RuleCategory {
+            RuleCategory::Algebraic
+        }
+
+        fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
+            if let Expr::FunctionCall { name, args } = expr
+                && (name == "abs" || name == "Abs") && args.len() == 1
+                    && let Expr::Number(n) = &args[0] {
+                        return Some(Expr::Number(n.abs()));
+                    }
+            None
+        }
+    }
+
+    /// Rule for abs(abs(x)) -> abs(x)
+    pub struct AbsAbsRule;
+
+    impl Rule for AbsAbsRule {
+        fn name(&self) -> &'static str {
+            "abs_abs"
+        }
+
+        fn priority(&self) -> i32 {
+            90
+        }
+
+        fn category(&self) -> RuleCategory {
+            RuleCategory::Algebraic
+        }
+
+        fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
+            if let Expr::FunctionCall { name, args } = expr
+                && (name == "abs" || name == "Abs") && args.len() == 1
+                    && let Expr::FunctionCall {
+                        name: inner_name,
+                        args: inner_args,
+                    } = &args[0]
+                        && (inner_name == "abs" || inner_name == "Abs") && inner_args.len() == 1 {
+                            return Some(args[0].clone());
+                        }
+            None
+        }
+    }
+
+    /// Rule for abs(-x) -> abs(x)
+    pub struct AbsNegRule;
+
+    impl Rule for AbsNegRule {
+        fn name(&self) -> &'static str {
+            "abs_neg"
+        }
+
+        fn priority(&self) -> i32 {
+            90
+        }
+
+        fn category(&self) -> RuleCategory {
+            RuleCategory::Algebraic
+        }
+
+        fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
+            if let Expr::FunctionCall { name, args } = expr
+                && (name == "abs" || name == "Abs") && args.len() == 1 {
+                    // Check for -x (represented as Mul(-1, x))
+                    if let Expr::Mul(a, b) = &args[0]
+                        && let Expr::Number(n) = &**a
+                            && *n == -1.0 {
+                                return Some(Expr::FunctionCall {
+                                    name: "abs".to_string(),
+                                    args: vec![(**b).clone()],
+                                });
+                            }
+                }
+            None
+        }
+    }
+
+    /// Rule for abs(x^2) -> x^2 (since x^2 is always non-negative for real x)
+    pub struct AbsSquareRule;
+
+    impl Rule for AbsSquareRule {
+        fn name(&self) -> &'static str {
+            "abs_square"
+        }
+
+        fn priority(&self) -> i32 {
+            85
+        }
+
+        fn category(&self) -> RuleCategory {
+            RuleCategory::Algebraic
+        }
+
+        fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
+            if let Expr::FunctionCall { name, args } = expr
+                && (name == "abs" || name == "Abs") && args.len() == 1 {
+                    // Check for x^(even number)
+                    if let Expr::Pow(_, exp) = &args[0]
+                        && let Expr::Number(n) = &**exp {
+                            // Check if exponent is a positive even integer
+                            if *n > 0.0 && n.fract() == 0.0 && (*n as i64) % 2 == 0 {
+                                return Some(args[0].clone());
+                            }
+                        }
+                }
+            None
+        }
+    }
+
+    /// Rule for abs(x)^(even) -> x^(even) (since |x|^2 = x^2 for all real x)
+    pub struct AbsPowEvenRule;
+
+    impl Rule for AbsPowEvenRule {
+        fn name(&self) -> &'static str {
+            "abs_pow_even"
+        }
+
+        fn priority(&self) -> i32 {
+            85
+        }
+
+        fn category(&self) -> RuleCategory {
+            RuleCategory::Algebraic
+        }
+
+        fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
+            // abs(x)^n where n is positive even integer -> x^n
+            if let Expr::Pow(base, exp) = expr
+                && let Expr::FunctionCall { name, args } = &**base
+                    && (name == "abs" || name == "Abs") && args.len() == 1
+                        && let Expr::Number(n) = &**exp {
+                            // Check if exponent is a positive even integer
+                            if *n > 0.0 && n.fract() == 0.0 && (*n as i64) % 2 == 0 {
+                                return Some(Expr::Pow(Box::new(args[0].clone()), exp.clone()));
+                            }
+                        }
+            None
+        }
+    }
+
+    /// Rule for sign(number) -> -1, 0, or 1
+    pub struct SignNumericRule;
+
+    impl Rule for SignNumericRule {
+        fn name(&self) -> &'static str {
+            "sign_numeric"
+        }
+
+        fn priority(&self) -> i32 {
+            95
+        }
+
+        fn category(&self) -> RuleCategory {
+            RuleCategory::Algebraic
+        }
+
+        fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
+            if let Expr::FunctionCall { name, args } = expr
+                && (name == "sign" || name == "sgn") && args.len() == 1
+                    && let Expr::Number(n) = &args[0] {
+                        if *n > 0.0 {
+                            return Some(Expr::Number(1.0));
+                        } else if *n < 0.0 {
+                            return Some(Expr::Number(-1.0));
+                        } else {
+                            return Some(Expr::Number(0.0));
+                        }
+                    }
+            None
+        }
+    }
+
+    /// Rule for sign(sign(x)) -> sign(x)
+    pub struct SignSignRule;
+
+    impl Rule for SignSignRule {
+        fn name(&self) -> &'static str {
+            "sign_sign"
+        }
+
+        fn priority(&self) -> i32 {
+            90
+        }
+
+        fn category(&self) -> RuleCategory {
+            RuleCategory::Algebraic
+        }
+
+        fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
+            if let Expr::FunctionCall { name, args } = expr
+                && (name == "sign" || name == "sgn") && args.len() == 1
+                    && let Expr::FunctionCall {
+                        name: inner_name, ..
+                    } = &args[0]
+                        && (inner_name == "sign" || inner_name == "sgn") {
+                            return Some(args[0].clone());
+                        }
+            None
+        }
+    }
+
+    /// review TODo
+    /// Rule for sign(abs(x)) -> 1 when x != 0 (abs is always non-negative)
+    /// Note: This rule assumes x != 0; at x = 0, sign(abs(0)) = sign(0) = 0
+    pub struct SignAbsRule;
+
+    impl Rule for SignAbsRule {
+        fn name(&self) -> &'static str {
+            "sign_abs"
+        }
+
+        fn priority(&self) -> i32 {
+            85
+        }
+
+        fn category(&self) -> RuleCategory {
+            RuleCategory::Algebraic
+        }
+
+        fn alters_domain(&self) -> bool {
+            true // May alter domain at x = 0
+        }
+
+        fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
+            if let Expr::FunctionCall { name, args } = expr
+                && (name == "sign" || name == "sgn") && args.len() == 1
+                    && let Expr::FunctionCall {
+                        name: inner_name, ..
+                    } = &args[0]
+                        && (inner_name == "abs" || inner_name == "Abs") {
+                            // sign(abs(x)) = 1 for x != 0
+                            return Some(Expr::Number(1.0));
+                        }
+            None
+        }
+    }
+
+    /// Rule for abs(x) * sign(x) -> x
+    pub struct AbsSignMulRule;
+
+    impl Rule for AbsSignMulRule {
+        fn name(&self) -> &'static str {
+            "abs_sign_mul"
+        }
+
+        fn priority(&self) -> i32 {
+            85
+        }
+
+        fn category(&self) -> RuleCategory {
+            RuleCategory::Algebraic
+        }
+
+        fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
+            if let Expr::Mul(a, b) = expr {
+                // Check for abs(x) * sign(x) or sign(x) * abs(x)
+                let check_pair = |left: &Expr, right: &Expr| -> Option<Expr> {
+                    if let (
+                        Expr::FunctionCall {
+                            name: name1,
+                            args: args1,
+                        },
+                        Expr::FunctionCall {
+                            name: name2,
+                            args: args2,
+                        },
+                    ) = (left, right)
+                        && (name1 == "abs" || name1 == "Abs")
+                            && (name2 == "sign" || name2 == "sgn")
+                            && args1.len() == 1
+                            && args2.len() == 1
+                            && args1[0] == args2[0]
+                        {
+                            return Some(args1[0].clone());
+                        }
+                    None
+                };
+
+                if let Some(result) = check_pair(a, b) {
+                    return Some(result);
+                }
+                if let Some(result) = check_pair(b, a) {
+                    return Some(result);
+                }
+            }
+            None
+        }
+    }
+
     /// Rule for x / x = 1 (when x != 0)
     pub struct DivSelfRule;
 
@@ -283,21 +643,16 @@ pub mod rules {
         }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
-            if let Expr::Div(u, v) = expr {
-                if let (Expr::Number(n1), Expr::Number(n2)) = (&**u, &**v) {
-                    if *n1 == 2.0 && *n2 == 2.0 {
-                        println!("DivSelfRule seeing 2/2. Equal? {}", u == v);
-                    }
-                }
-                if u == v {
+            if let Expr::Div(u, v) = expr
+                && u == v {
                     return Some(Expr::Number(1.0));
                 }
-            }
             None
         }
     }
 
     /// Rule for (x^a)^b -> x^(a*b)
+    /// Special case: (x^even)^(1/even) -> abs(x) when result would be x^1
     pub struct PowerPowerRule;
 
     impl Rule for PowerPowerRule {
@@ -314,8 +669,43 @@ pub mod rules {
         }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
-            if let Expr::Pow(u, v) = expr {
-                if let Expr::Pow(base, exp_inner) = &**u {
+            if let Expr::Pow(u, v) = expr
+                && let Expr::Pow(base, exp_inner) = &**u {
+                    // Check for special case: (x^even)^(1/even) where result = 1
+                    // This should become abs(x), not x
+                    if let Expr::Number(inner_n) = &**exp_inner {
+                        // Check if inner exponent is a positive even integer
+                        let inner_is_even =
+                            *inner_n > 0.0 && inner_n.fract() == 0.0 && (*inner_n as i64) % 2 == 0;
+
+                        if inner_is_even {
+                            // Check if outer exponent is 1/inner_n (so result would be x^1)
+                            if let Expr::Div(num, den) = &**v
+                                && let (Expr::Number(num_val), Expr::Number(den_val)) =
+                                    (&**num, &**den)
+                                    && *num_val == 1.0 && (*den_val - *inner_n).abs() < 1e-10 {
+                                        // (x^even)^(1/even) = abs(x)
+                                        return Some(Expr::FunctionCall {
+                                            name: "abs".to_string(),
+                                            args: vec![(**base).clone()],
+                                        });
+                                    }
+                                    // Also check for cases like (x^4)^(1/2) = x^2 -> should remain as is
+                                    // since x^2 is always non-negative
+                            // Check for numeric outer exponent that would result in x^1
+                            if let Expr::Number(outer_n) = &**v {
+                                let product = *inner_n * *outer_n;
+                                if (product - 1.0).abs() < 1e-10 {
+                                    // (x^even)^(something) = x^1 should be abs(x)
+                                    return Some(Expr::FunctionCall {
+                                        name: "abs".to_string(),
+                                        args: vec![(**base).clone()],
+                                    });
+                                }
+                            }
+                        }
+                    }
+
                     // Create new exponent: exp_inner * v
                     let new_exp = Expr::Mul(exp_inner.clone(), v.clone());
 
@@ -325,7 +715,6 @@ pub mod rules {
 
                     return Some(Expr::Pow(base.clone(), Box::new(simplified_exp)));
                 }
-            }
             None
         }
     }
@@ -355,11 +744,10 @@ pub mod rules {
         }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
-            if let Expr::Pow(_u, _v) = expr {
-                if matches!(**_v, Expr::Number(n) if n == 0.0) {
+            if let Expr::Pow(_u, _v) = expr
+                && matches!(**_v, Expr::Number(n) if n == 0.0) {
                     return Some(Expr::Number(1.0));
                 }
-            }
             None
         }
     }
@@ -381,11 +769,10 @@ pub mod rules {
         }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
-            if let Expr::Pow(u, v) = expr {
-                if matches!(**v, Expr::Number(n) if n == 1.0) {
+            if let Expr::Pow(u, v) = expr
+                && matches!(**v, Expr::Number(n) if n == 1.0) {
                     return Some((**u).clone());
                 }
-            }
             None
         }
     }
@@ -409,31 +796,28 @@ pub mod rules {
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
             if let Expr::Mul(u, v) = expr {
                 // Check if both terms are powers with the same base
-                if let (Expr::Pow(base_u, exp_u), Expr::Pow(base_v, exp_v)) = (&**u, &**v) {
-                    if base_u == base_v {
+                if let (Expr::Pow(base_u, exp_u), Expr::Pow(base_v, exp_v)) = (&**u, &**v)
+                    && base_u == base_v {
                         return Some(Expr::Pow(
                             base_u.clone(),
                             Box::new(Expr::Add(exp_u.clone(), exp_v.clone())),
                         ));
                     }
-                }
                 // Check if one is a power and the other is the same base
-                if let Expr::Pow(base_u, exp_u) = &**u {
-                    if base_u == &*v {
+                if let Expr::Pow(base_u, exp_u) = &**u
+                    && base_u == v {
                         return Some(Expr::Pow(
                             base_u.clone(),
                             Box::new(Expr::Add(exp_u.clone(), Box::new(Expr::Number(1.0)))),
                         ));
                     }
-                }
-                if let Expr::Pow(base_v, exp_v) = &**v {
-                    if base_v == &*u {
+                if let Expr::Pow(base_v, exp_v) = &**v
+                    && base_v == u {
                         return Some(Expr::Pow(
                             base_v.clone(),
                             Box::new(Expr::Add(Box::new(Expr::Number(1.0)), exp_v.clone())),
                         ));
                     }
-                }
             }
             None
         }
@@ -448,7 +832,7 @@ pub mod rules {
         }
 
         fn priority(&self) -> i32 {
-            85
+            93 // Higher than polynomial_expansion (92) to cancel powers before expanding
         }
 
         fn category(&self) -> RuleCategory {
@@ -462,32 +846,29 @@ pub mod rules {
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
             if let Expr::Div(u, v) = expr {
                 // Check if both numerator and denominator are powers with the same base
-                if let (Expr::Pow(base_u, exp_u), Expr::Pow(base_v, exp_v)) = (&**u, &**v) {
-                    if base_u == base_v {
+                if let (Expr::Pow(base_u, exp_u), Expr::Pow(base_v, exp_v)) = (&**u, &**v)
+                    && base_u == base_v {
                         return Some(Expr::Pow(
                             base_u.clone(),
                             Box::new(Expr::Sub(exp_u.clone(), exp_v.clone())),
                         ));
                     }
-                }
                 // Check if numerator is a power and denominator is the same base
-                if let Expr::Pow(base_u, exp_u) = &**u {
-                    if base_u == &*v {
+                if let Expr::Pow(base_u, exp_u) = &**u
+                    && base_u == v {
                         return Some(Expr::Pow(
                             base_u.clone(),
                             Box::new(Expr::Sub(exp_u.clone(), Box::new(Expr::Number(1.0)))),
                         ));
                     }
-                }
                 // Check if denominator is a power and numerator is the same base
-                if let Expr::Pow(base_v, exp_v) = &**v {
-                    if base_v == &*u {
+                if let Expr::Pow(base_v, exp_v) = &**v
+                    && base_v == u {
                         return Some(Expr::Pow(
                             base_v.clone(),
                             Box::new(Expr::Sub(Box::new(Expr::Number(1.0)), exp_v.clone())),
                         ));
                     }
-                }
             }
             None
         }
@@ -524,9 +905,9 @@ pub mod rules {
 
                 // Helper to check if expansion is useful
                 let check_and_expand = |target: &Expr, other: &Expr| -> Option<Expr> {
-                    if let Expr::Pow(base, exp) = target {
-                        if let Expr::Mul(_, _) = &**base {
-                            let base_factors = crate::simplification::helpers::flatten_mul(&**base);
+                    if let Expr::Pow(base, exp) = target
+                        && let Expr::Mul(_, _) = &**base {
+                            let base_factors = crate::simplification::helpers::flatten_mul(base);
                             // Check if any base factor is present in 'other'
                             let mut useful = false;
                             for factor in &base_factors {
@@ -546,14 +927,13 @@ pub mod rules {
                                 ));
                             }
                         }
-                    }
                     None
                 };
 
                 // Check numerator for expandable powers
                 match &**num {
                     Expr::Mul(_, _) => {
-                        let num_factors = crate::simplification::helpers::flatten_mul(&**num);
+                        let num_factors = crate::simplification::helpers::flatten_mul(num);
                         let mut new_num_factors = Vec::new();
                         let mut changed = false;
                         for factor in num_factors {
@@ -583,7 +963,7 @@ pub mod rules {
                 // Check denominator for expandable powers
                 match &**den {
                     Expr::Mul(_, _) => {
-                        let den_factors = crate::simplification::helpers::flatten_mul(&**den);
+                        let den_factors = crate::simplification::helpers::flatten_mul(den);
                         let mut new_den_factors = Vec::new();
                         let mut changed = false;
                         for factor in den_factors {
@@ -663,17 +1043,17 @@ pub mod rules {
                             let mut factors = Vec::new();
                             match &**base {
                                 Expr::Mul(_, _) => factors
-                                    .extend(crate::simplification::helpers::flatten_mul(&**base)),
+                                    .extend(crate::simplification::helpers::flatten_mul(base)),
                                 Expr::Div(n, d) => {
                                     match &**n {
                                         Expr::Mul(_, _) => factors.extend(
-                                            crate::simplification::helpers::flatten_mul(&**n),
+                                            crate::simplification::helpers::flatten_mul(n),
                                         ),
                                         _ => factors.push(*n.clone()),
                                     }
                                     match &**d {
                                         Expr::Mul(_, _) => factors.extend(
-                                            crate::simplification::helpers::flatten_mul(&**d),
+                                            crate::simplification::helpers::flatten_mul(d),
                                         ),
                                         _ => factors.push(*d.clone()),
                                     }
@@ -720,7 +1100,7 @@ pub mod rules {
 
                 if should_expand {
                     if let Expr::Mul(_, _) = &**base {
-                        let base_factors = crate::simplification::helpers::flatten_mul(&**base);
+                        let base_factors = crate::simplification::helpers::flatten_mul(base);
                         let mut pow_factors: Vec<Expr> = Vec::new();
                         for factor in base_factors.into_iter() {
                             pow_factors.push(Expr::Pow(Box::new(factor), exp.clone()));
@@ -766,13 +1146,13 @@ pub mod rules {
                     if let Expr::Pow(base, exp) = factor {
                         base_to_exponents
                             .entry(*base)
-                            .or_insert(Vec::new())
+                            .or_default()
                             .push(*exp);
                     } else {
                         // Non-power factor, treat as base^1
                         base_to_exponents
                             .entry(factor)
-                            .or_insert(Vec::new())
+                            .or_default()
                             .push(Expr::Number(1.0));
                     }
                 }
@@ -814,6 +1194,7 @@ pub mod rules {
     }
 
     /// Rule for x^a / y^a -> (x/y)^a
+    /// For fractional exponents (like 1/2), only applies if both bases are known non-negative
     pub struct CommonExponentDivRule;
 
     impl Rule for CommonExponentDivRule {
@@ -829,24 +1210,41 @@ pub mod rules {
             RuleCategory::Algebraic
         }
 
-        fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
-            if let Expr::Div(num, den) = expr {
-                if let (Expr::Pow(base_num, exp_num), Expr::Pow(base_den, exp_den)) =
+        fn alters_domain(&self) -> bool {
+            // We handle domain safety dynamically in apply()
+            false
+        }
+
+        fn apply(&self, expr: &Expr, context: &RuleContext) -> Option<Expr> {
+            if let Expr::Div(num, den) = expr
+                && let (Expr::Pow(base_num, exp_num), Expr::Pow(base_den, exp_den)) =
                     (&**num, &**den)
-                {
-                    if exp_num == exp_den {
+                    && exp_num == exp_den {
+                        // Check if this is a fractional root exponent (like 1/2)
+                        // If so, in domain-safe mode, we need both bases to be non-negative
+                        if context.domain_safe
+                            && crate::simplification::helpers::is_fractional_root_exponent(exp_num)
+                        {
+                            let num_non_neg =
+                                crate::simplification::helpers::is_known_non_negative(base_num);
+                            let den_non_neg =
+                                crate::simplification::helpers::is_known_non_negative(base_den);
+                            if !(num_non_neg && den_non_neg) {
+                                return None;
+                            }
+                        }
+
                         return Some(Expr::Pow(
                             Box::new(Expr::Div(base_num.clone(), base_den.clone())),
                             exp_num.clone(),
                         ));
                     }
-                }
-            }
             None
         }
     }
 
     /// Rule for x^a * y^a -> (x*y)^a
+    /// For fractional exponents (like 1/2), only applies if both bases are known non-negative
     pub struct CommonExponentMulRule;
 
     impl Rule for CommonExponentMulRule {
@@ -862,19 +1260,35 @@ pub mod rules {
             RuleCategory::Algebraic
         }
 
-        fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
-            if let Expr::Mul(left, right) = expr {
-                if let (Expr::Pow(base_left, exp_left), Expr::Pow(base_right, exp_right)) =
+        fn alters_domain(&self) -> bool {
+            // We handle domain safety dynamically in apply()
+            false
+        }
+
+        fn apply(&self, expr: &Expr, context: &RuleContext) -> Option<Expr> {
+            if let Expr::Mul(left, right) = expr
+                && let (Expr::Pow(base_left, exp_left), Expr::Pow(base_right, exp_right)) =
                     (&**left, &**right)
-                {
-                    if exp_left == exp_right {
+                    && exp_left == exp_right {
+                        // Check if this is a fractional root exponent (like 1/2)
+                        // If so, in domain-safe mode, we need both bases to be non-negative
+                        if context.domain_safe
+                            && crate::simplification::helpers::is_fractional_root_exponent(exp_left)
+                        {
+                            let left_non_neg =
+                                crate::simplification::helpers::is_known_non_negative(base_left);
+                            let right_non_neg =
+                                crate::simplification::helpers::is_known_non_negative(base_right);
+                            if !(left_non_neg && right_non_neg) {
+                                return None;
+                            }
+                        }
+
                         return Some(Expr::Pow(
                             Box::new(Expr::Mul(base_left.clone(), base_right.clone())),
                             exp_left.clone(),
                         ));
                     }
-                }
-            }
             None
         }
     }
@@ -934,9 +1348,9 @@ pub mod rules {
         }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
-            if let Expr::Pow(base, exp) = expr {
-                if let Expr::Div(num, den) = &**exp {
-                    if matches!(**num, Expr::Number(n) if n == 1.0)
+            if let Expr::Pow(base, exp) = expr
+                && let Expr::Div(num, den) = &**exp
+                    && matches!(**num, Expr::Number(n) if n == 1.0)
                         && matches!(**den, Expr::Number(n) if n == 3.0)
                     {
                         return Some(Expr::FunctionCall {
@@ -944,8 +1358,6 @@ pub mod rules {
                             args: vec![(**base).clone()],
                         });
                     }
-                }
-            }
             None
         }
     }
@@ -959,7 +1371,7 @@ pub mod rules {
         }
 
         fn priority(&self) -> i32 {
-            90
+            95 // High priority - must run before FractionToEndRule (93)
         }
 
         fn category(&self) -> RuleCategory {
@@ -968,8 +1380,9 @@ pub mod rules {
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
             if let Expr::Pow(base, exp) = expr {
-                if let Expr::Number(n) = **exp {
-                    if n < 0.0 {
+                // Handle negative number exponent: x^-n -> 1/x^n
+                if let Expr::Number(n) = **exp
+                    && n < 0.0 {
                         let positive_exp = Expr::Number(-n);
                         let denominator = Expr::Pow(base.clone(), Box::new(positive_exp));
                         return Some(Expr::Div(
@@ -977,13 +1390,41 @@ pub mod rules {
                             Box::new(denominator),
                         ));
                     }
-                }
+                // Handle negative fraction exponent: x^(-a/b) -> 1/x^(a/b)
+                if let Expr::Div(num, den) = &**exp
+                    && let Expr::Number(n) = &**num
+                        && *n < 0.0 {
+                            let positive_num = Expr::Number(-n);
+                            let positive_exp = Expr::Div(Box::new(positive_num), den.clone());
+                            let denominator = Expr::Pow(base.clone(), Box::new(positive_exp));
+                            return Some(Expr::Div(
+                                Box::new(Expr::Number(1.0)),
+                                Box::new(denominator),
+                            ));
+                        }
+                // Handle Mul(-1, exp): x^(-1 * a) -> 1/x^a
+                if let Expr::Mul(left, right) = &**exp
+                    && let Expr::Number(n) = &**left
+                        && *n == -1.0 {
+                            let denominator = Expr::Pow(base.clone(), right.clone());
+                            return Some(Expr::Div(
+                                Box::new(Expr::Number(1.0)),
+                                Box::new(denominator),
+                            ));
+                        }
             }
             None
         }
     }
     /// Rule for cancelling common terms in fractions: (a*b)/(a*c) -> b/c
     /// Also handles powers: x^a / x^b -> x^(a-b)
+    /// 
+    /// In domain-safe mode:
+    /// - Numeric coefficient simplification is always applied (safe: nonzero constants)
+    /// - Symbolic factor cancellation only applies to nonzero numeric constants
+    /// 
+    /// In normal mode:
+    /// - All cancellations are applied (may alter domain by removing x≠0 constraints)
     pub struct FractionCancellationRule;
 
     impl Rule for FractionCancellationRule {
@@ -999,16 +1440,16 @@ pub mod rules {
             RuleCategory::Algebraic
         }
 
-        fn alters_domain(&self) -> bool {
-            true
-        }
+        // Note: We don't set alters_domain to true because the rule handles
+        // domain safety internally - it always applies safe numeric simplifications
+        // and only applies symbolic cancellation when not in domain-safe mode.
 
-        fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
+        fn apply(&self, expr: &Expr, context: &RuleContext) -> Option<Expr> {
             if let Expr::Div(u, v) = expr {
                 let num_factors = crate::simplification::helpers::flatten_mul(u);
                 let den_factors = crate::simplification::helpers::flatten_mul(v);
 
-                // 1. Handle numeric coefficients
+                // 1. Handle numeric coefficients (always safe - nonzero constants)
                 let mut num_coeff = 1.0;
                 let mut den_coeff = 1.0;
                 let mut new_num_factors = Vec::new();
@@ -1030,31 +1471,31 @@ pub mod rules {
                     }
                 }
 
-                // Simplify coefficients (e.g. 2/4 -> 1/2)
+                // Simplify coefficients (e.g. 2/4 -> 1/2) - always safe
                 let ratio = num_coeff / den_coeff;
                 if ratio.abs() < 1e-10 {
                     return Some(Expr::Number(0.0));
                 }
 
                 // Check if ratio or 1/ratio is integer-ish
+                // Always keep negative sign in numerator, not denominator
                 if (ratio - ratio.round()).abs() < 1e-10 {
                     num_coeff = ratio.round();
                     den_coeff = 1.0;
                 } else if (1.0 / ratio - (1.0 / ratio).round()).abs() < 1e-10 {
-                    num_coeff = 1.0;
-                    den_coeff = (1.0 / ratio).round();
+                    // 1/ratio is an integer, so ratio = 1/n for some integer n
+                    // Keep sign in numerator: -1/2 should become -1/2, not 1/-2
+                    let inv = (1.0 / ratio).round();
+                    if inv < 0.0 {
+                        // negative, put -1 in numerator and positive in denominator
+                        num_coeff = -1.0;
+                        den_coeff = -inv;
+                    } else {
+                        num_coeff = 1.0;
+                        den_coeff = inv;
+                    }
                 }
-                // Else keep original coefficients (or maybe we should use the ratio if it simplifies?)
-                // For now, if we can't simplify to integer num or den, we keep as is?
-                // But wait, if we have 2/3, ratio is 0.666.
-                // num_coeff becomes 2, den_coeff becomes 3 (if we didn't change them).
-                // If we set num=ratio, den=1, we get 0.666/1.
-                // We want to preserve integers if possible.
-                // So only update if we found a simplification.
-                // The logic above updates num_coeff/den_coeff ONLY if one becomes 1.0.
-                // This handles 2/4 -> 1/2.
-                // It handles 4/2 -> 2/1.
-                // It does NOT handle 2/3 -> 2/3 (keeps 2 and 3). Correct.
+                // Else keep original coefficients
 
                 // Helper to get base and exponent
                 fn get_base_exp(e: &Expr) -> (Expr, Expr) {
@@ -1079,8 +1520,17 @@ pub mod rules {
                     }
                 }
 
+                // Helper to check if a base is a nonzero numeric constant (safe to cancel)
+                fn is_safe_to_cancel(base: &Expr) -> bool {
+                    match base {
+                        Expr::Number(n) => n.abs() > 1e-10, // nonzero number
+                        _ => false,
+                    }
+                }
+
                 // 2. Symbolic cancellation
-                // Iterate through numerator factors and look for matches in denominator
+                // In domain-safe mode, only cancel factors that are nonzero constants
+                // In normal mode, cancel all matching factors
                 let mut i = 0;
                 while i < new_num_factors.len() {
                     let (base_i, exp_i) = get_base_exp(&new_num_factors[i]);
@@ -1090,6 +1540,13 @@ pub mod rules {
                         let (base_j, exp_j) = get_base_exp(&new_den_factors[j]);
 
                         if base_i == base_j {
+                            // In domain-safe mode, skip cancellation of symbolic factors
+                            // (only allow nonzero numeric constants)
+                            if context.domain_safe && !is_safe_to_cancel(&base_i) {
+                                // Skip this cancellation - it would alter the domain
+                                break;
+                            }
+
                             // Found same base, subtract exponents: new_exp = exp_i - exp_j
                             let new_exp =
                                 Expr::Sub(Box::new(exp_i.clone()), Box::new(exp_j.clone()));
@@ -1176,11 +1633,10 @@ pub mod rules {
                 };
 
                 // If denominator is 1, return numerator
-                if let Expr::Number(n) = new_den {
-                    if n == 1.0 {
+                if let Expr::Number(n) = new_den
+                    && n == 1.0 {
                         return Some(new_num);
                     }
-                }
 
                 let res = Expr::Div(Box::new(new_num), Box::new(new_den));
                 if res != *expr {
@@ -1229,15 +1685,25 @@ pub mod rules {
 
                 // Case 2: a + b/c
                 if let Expr::Div(n, d) = &**v {
-                    // (u*d + n) / d
-                    let new_num = Expr::Add(Box::new(Expr::Mul(u.clone(), d.clone())), n.clone());
+                    // (u*d + n) / d, but if u is 1, just use d
+                    let u_times_d = if matches!(&**u, Expr::Number(x) if (*x - 1.0).abs() < 1e-10) {
+                        (**d).clone()
+                    } else {
+                        Expr::Mul(u.clone(), d.clone())
+                    };
+                    let new_num = Expr::Add(Box::new(u_times_d), n.clone());
                     return Some(Expr::Div(Box::new(new_num), d.clone()));
                 }
 
                 // Case 3: a/b + c
                 if let Expr::Div(n, d) = &**u {
-                    // (n + v*d) / d
-                    let new_num = Expr::Add(n.clone(), Box::new(Expr::Mul(v.clone(), d.clone())));
+                    // (n + v*d) / d, but if v is 1, just use d
+                    let v_times_d = if matches!(&**v, Expr::Number(x) if (*x - 1.0).abs() < 1e-10) {
+                        (**d).clone()
+                    } else {
+                        Expr::Mul(v.clone(), d.clone())
+                    };
+                    let new_num = Expr::Add(n.clone(), Box::new(v_times_d));
                     return Some(Expr::Div(Box::new(new_num), d.clone()));
                 }
             }
@@ -1249,11 +1715,10 @@ pub mod rules {
     fn get_polynomial_degree(expr: &Expr) -> i32 {
         match expr {
             Expr::Pow(_, exp) => {
-                if let Expr::Number(n) = &**exp {
-                    if n.fract() == 0.0 && *n >= 0.0 {
+                if let Expr::Number(n) = &**exp
+                    && n.fract() == 0.0 && *n >= 0.0 {
                         return *n as i32;
                     }
-                }
                 0 // Non-integer or negative exponent
             }
             Expr::Mul(_, _) => {
@@ -1304,7 +1769,7 @@ pub mod rules {
                     }
 
                     if !sorted {
-                        factors.sort_by(|a, b| crate::simplification::helpers::compare_expr(a, b));
+                        factors.sort_by(crate::simplification::helpers::compare_expr);
 
                         // Rebuild left-associative to match standard parsing
                         let res = crate::simplification::helpers::rebuild_mul(factors);
@@ -1354,6 +1819,126 @@ pub mod rules {
         }
     }
 
+    /// Rule to consolidate all divisions in a multiplication chain into a single fraction
+    /// e.g., (1/a) * b * (1/c) * d -> (b * d) / (a * c)
+    /// Also handles: ((1/a) * b) / c -> b / (a * c)
+    /// This makes expressions cleaner by having one division at the end
+    pub struct FractionToEndRule;
+
+    impl Rule for FractionToEndRule {
+        fn name(&self) -> &'static str {
+            "fraction_to_end"
+        }
+
+        fn priority(&self) -> i32 {
+            93 // High priority, run before MulDivCombinationRule (85)
+        }
+
+        fn category(&self) -> RuleCategory {
+            RuleCategory::Algebraic
+        }
+
+        fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
+            // Helper to check if expression contains any Div inside Mul
+            fn mul_contains_div(e: &Expr) -> bool {
+                match e {
+                    Expr::Div(_, _) => true,
+                    Expr::Mul(a, b) => mul_contains_div(a) || mul_contains_div(b),
+                    _ => false,
+                }
+            }
+
+            // Helper to extract all factors from a multiplication, separating numerators and denominators
+            fn extract_factors(e: &Expr, numerators: &mut Vec<Expr>, denominators: &mut Vec<Expr>) {
+                match e {
+                    Expr::Mul(a, b) => {
+                        extract_factors(a, numerators, denominators);
+                        extract_factors(b, numerators, denominators);
+                    }
+                    Expr::Div(num, den) => {
+                        extract_factors(num, numerators, denominators);
+                        denominators.push((**den).clone());
+                    }
+                    other => {
+                        numerators.push(other.clone());
+                    }
+                }
+            }
+
+            // Case 1: Div where numerator is a Mul containing Divs
+            // e.g., ((1/a) * b * (1/c)) / d -> b / (a * c * d)
+            if let Expr::Div(num, den) = expr
+                && mul_contains_div(num) {
+                    let mut numerators = Vec::new();
+                    let mut denominators = Vec::new();
+                    extract_factors(num, &mut numerators, &mut denominators);
+
+                    // Add the outer denominator
+                    denominators.push((**den).clone());
+
+                    // Filter out 1s from numerators (they're identity elements)
+                    let filtered_nums: Vec<Expr> = numerators
+                        .into_iter()
+                        .filter(|e| !matches!(e, Expr::Number(n) if (*n - 1.0).abs() < 1e-10))
+                        .collect();
+
+                    let num_expr = if filtered_nums.is_empty() {
+                        Expr::Number(1.0)
+                    } else {
+                        crate::simplification::helpers::rebuild_mul(filtered_nums)
+                    };
+
+                    let den_expr = crate::simplification::helpers::rebuild_mul(denominators);
+
+                    let result = Expr::Div(Box::new(num_expr), Box::new(den_expr));
+
+                    if result != *expr {
+                        return Some(result);
+                    }
+                }
+
+            // Case 2: Mul containing at least one Div
+            if let Expr::Mul(_, _) = expr {
+                if !mul_contains_div(expr) {
+                    return None;
+                }
+
+                let mut numerators = Vec::new();
+                let mut denominators = Vec::new();
+                extract_factors(expr, &mut numerators, &mut denominators);
+
+                // Only transform if we have denominators
+                if denominators.is_empty() {
+                    return None;
+                }
+
+                // Filter out 1s from numerators (they're identity elements)
+                let filtered_nums: Vec<Expr> = numerators
+                    .into_iter()
+                    .filter(|e| !matches!(e, Expr::Number(n) if (*n - 1.0).abs() < 1e-10))
+                    .collect();
+
+                // Build the result: (num1 * num2 * ...) / (den1 * den2 * ...)
+                let num_expr = if filtered_nums.is_empty() {
+                    Expr::Number(1.0)
+                } else {
+                    crate::simplification::helpers::rebuild_mul(filtered_nums)
+                };
+
+                let den_expr = crate::simplification::helpers::rebuild_mul(denominators);
+
+                let result = Expr::Div(Box::new(num_expr), Box::new(den_expr));
+
+                // Only return if we actually changed something
+                if result != *expr {
+                    return Some(result);
+                }
+            }
+
+            None
+        }
+    }
+
     /// Rule for a * (b / c) -> (a * b) / c
     pub struct MulDivCombinationRule;
 
@@ -1379,13 +1964,7 @@ pub mod rules {
                         den.clone(),
                     ));
                 }
-                // Case 2: (a / b) * c -> (a * c) / b
-                if let Expr::Div(num, den) = &**u {
-                    return Some(Expr::Div(
-                        Box::new(Expr::Mul(num.clone(), v.clone())),
-                        den.clone(),
-                    ));
-                }
+                // Note: Case 2 (a/b) * c is handled by FractionToEndRule
             }
             None
         }
@@ -1428,7 +2007,7 @@ pub mod rules {
 
             // Sort terms to bring like terms together
             let mut sorted_terms = terms;
-            sorted_terms.sort_by(|a, b| crate::simplification::helpers::compare_expr(a, b));
+            sorted_terms.sort_by(crate::simplification::helpers::compare_expr);
 
             let mut result = Vec::new();
             let mut iter = sorted_terms.into_iter();
@@ -1446,26 +2025,24 @@ pub mod rules {
                     // Push current
                     if current_coeff == 0.0 {
                         // Drop
+                    } else if current_coeff == 1.0 {
+                        result.push(current_base);
                     } else {
-                        if current_coeff == 1.0 {
-                            result.push(current_base);
-                        } else {
-                            // Check if base is 1.0 (number)
-                            if let Expr::Number(n) = &current_base {
-                                if *n == 1.0 {
-                                    result.push(Expr::Number(current_coeff));
-                                } else {
-                                    result.push(Expr::Mul(
-                                        Box::new(Expr::Number(current_coeff)),
-                                        Box::new(current_base),
-                                    ));
-                                }
+                        // Check if base is 1.0 (number)
+                        if let Expr::Number(n) = &current_base {
+                            if *n == 1.0 {
+                                result.push(Expr::Number(current_coeff));
                             } else {
                                 result.push(Expr::Mul(
                                     Box::new(Expr::Number(current_coeff)),
                                     Box::new(current_base),
                                 ));
                             }
+                        } else {
+                            result.push(Expr::Mul(
+                                Box::new(Expr::Number(current_coeff)),
+                                Box::new(current_base),
+                            ));
                         }
                     }
                     current_coeff = coeff;
@@ -1477,22 +2054,20 @@ pub mod rules {
             if current_coeff != 0.0 {
                 if current_coeff == 1.0 {
                     result.push(current_base);
-                } else {
-                    if let Expr::Number(n) = &current_base {
-                        if *n == 1.0 {
-                            result.push(Expr::Number(current_coeff));
-                        } else {
-                            result.push(Expr::Mul(
-                                Box::new(Expr::Number(current_coeff)),
-                                Box::new(current_base),
-                            ));
-                        }
+                } else if let Expr::Number(n) = &current_base {
+                    if *n == 1.0 {
+                        result.push(Expr::Number(current_coeff));
                     } else {
                         result.push(Expr::Mul(
                             Box::new(Expr::Number(current_coeff)),
                             Box::new(current_base),
                         ));
                     }
+                } else {
+                    result.push(Expr::Mul(
+                        Box::new(Expr::Number(current_coeff)),
+                        Box::new(current_base),
+                    ));
                 }
             }
 
@@ -1517,7 +2092,7 @@ pub mod rules {
         }
 
         fn priority(&self) -> i32 {
-            50 // Higher priority to catch specific patterns before general factoring
+            55 // Higher priority than CommonTermFactoringRule (40) to catch perfect squares first
         }
 
         fn category(&self) -> RuleCategory {
@@ -1528,50 +2103,62 @@ pub mod rules {
             if let Expr::Add(_, _) = expr {
                 let terms = crate::simplification::helpers::flatten_add(expr.clone());
 
-                if terms.len() != 3 {
-                    return None;
-                } else {
+                if terms.len() == 3 {
                     // Try to match pattern: c1*a^2 + c2*a*b + c3*b^2
                     let mut square_terms: Vec<(f64, Expr)> = Vec::new(); // (coefficient, base)
                     let mut linear_terms: Vec<(f64, Expr, Expr)> = Vec::new(); // (coefficient, base1, base2)
                     let mut constants = Vec::new();
 
-                    for term in &terms {
-                        match term {
-                            // Match c*x^2 or x^2
-                            Expr::Pow(base, exp) if matches!(**exp, Expr::Number(n) if n == 2.0) => {
-                                square_terms.push((1.0, *base.clone()));
+                    // Helper to extract coefficient and base from a multiplication
+                    fn extract_coeff_and_rest(term: &Expr) -> Option<(f64, &Expr)> {
+                        if let Expr::Mul(lhs, rhs) = term {
+                            if let Expr::Number(c) = &**lhs {
+                                return Some((*c, &**rhs));
                             }
-                            // Match c*(x^2) where c is a number
-                            Expr::Mul(coeff, rest) if matches!(**coeff, Expr::Number(_)) => {
-                                if let Expr::Number(c) = **coeff {
-                                    match &**rest {
-                                        Expr::Pow(base, exp) if matches!(**exp, Expr::Number(n) if n == 2.0) =>
-                                        {
-                                            square_terms.push((c, *base.clone()));
-                                        }
-                                        Expr::Mul(a, b) => {
-                                            // c*a*b
-                                            linear_terms.push((c, *a.clone(), *b.clone()));
-                                        }
-                                        other => {
-                                            // c*a means cross term 2*sqrt(c)*a*1, treat as c*a*1
-                                            linear_terms.push((
-                                                c,
-                                                other.clone(),
-                                                Expr::Number(1.0),
-                                            ));
-                                        }
-                                    }
+                            if let Expr::Number(c) = &**rhs {
+                                return Some((*c, &**lhs));
+                            }
+                        }
+                        None
+                    }
+
+                    for term in &terms {
+                        // First try to extract coefficient
+                        if let Some((c, rest)) = extract_coeff_and_rest(term) {
+                            // c * something
+                            match rest {
+                                Expr::Pow(base, exp) if matches!(**exp, Expr::Number(n) if n == 2.0) =>
+                                {
+                                    // c * x^2
+                                    square_terms.push((c, (**base).clone()));
+                                }
+                                Expr::Mul(a, b) => {
+                                    // c * a * b (nested mul)
+                                    linear_terms.push((c, (**a).clone(), (**b).clone()));
+                                }
+                                Expr::Symbol(_) => {
+                                    // c * x -> linear term with implicit 1
+                                    linear_terms.push((c, rest.clone(), Expr::Number(1.0)));
+                                }
+                                _ => {
+                                    // Other cases: treat as linear term
+                                    linear_terms.push((c, rest.clone(), Expr::Number(1.0)));
                                 }
                             }
-                            Expr::Number(n) => {
-                                constants.push(*n);
-                            }
-                            // Handle implicit coefficient 1 for linear terms (e.g. x)
-                            other => {
-                                // Treat as 1 * other * 1
-                                linear_terms.push((1.0, other.clone(), Expr::Number(1.0)));
+                        } else {
+                            // No coefficient extraction possible
+                            match term {
+                                Expr::Pow(base, exp) if matches!(**exp, Expr::Number(n) if n == 2.0) =>
+                                {
+                                    square_terms.push((1.0, (**base).clone()));
+                                }
+                                Expr::Number(n) => {
+                                    constants.push(*n);
+                                }
+                                other => {
+                                    // Treat as 1 * other * 1
+                                    linear_terms.push((1.0, other.clone(), Expr::Number(1.0)));
+                                }
                             }
                         }
                     }
@@ -1698,13 +2285,125 @@ pub mod rules {
                         }
                     }
                 }
+
+                // Case 3: Factored form c * (a^2 + a) + d -> (sqrt(c)*a + sqrt(d))^2
+                // This handles cases where numeric_gcd_factoring has already run
+                // E.g., 4 * (x^2 + x) + 1 = (2x + 1)^2
+                if terms.len() == 2 {
+                    // Try both orderings: [c*(a^2+a), d] and [d, c*(a^2+a)]
+                    for (mul_term, const_term) in [(&terms[0], &terms[1]), (&terms[1], &terms[0])] {
+                        // Check if const_term is a number
+                        let d = match const_term {
+                            Expr::Number(n) => *n,
+                            _ => continue,
+                        };
+
+                        // Check if mul_term is c * (inner_sum)
+                        let (c, inner_sum) = match mul_term {
+                            Expr::Mul(lhs, rhs) => {
+                                if let Expr::Number(n) = &**lhs {
+                                    (*n, &**rhs)
+                                } else if let Expr::Number(n) = &**rhs {
+                                    (*n, &**lhs)
+                                } else {
+                                    continue;
+                                }
+                            }
+                            _ => continue,
+                        };
+
+                        // Check if inner_sum is a^2 + a (quadratic in some variable)
+                        let inner_terms = match inner_sum {
+                            Expr::Add(_, _) => {
+                                crate::simplification::helpers::flatten_add(inner_sum.clone())
+                            }
+                            _ => continue,
+                        };
+
+                        if inner_terms.len() != 2 {
+                            continue;
+                        }
+
+                        // Try to identify a^2 and a terms
+                        let mut square_base: Option<Expr> = None;
+                        let mut linear_coeff: f64 = 0.0;
+                        let mut linear_base: Option<Expr> = None;
+
+                        for term in &inner_terms {
+                            // Check for a^2
+                            if let Expr::Pow(base, exp) = term
+                                && matches!(**exp, Expr::Number(n) if n == 2.0) {
+                                    square_base = Some((**base).clone());
+                                    continue;
+                                }
+                            // Check for coeff * a or just a
+                            let (coeff, base) = crate::simplification::helpers::extract_coeff(term);
+                            linear_coeff = coeff;
+                            linear_base = Some(base);
+                        }
+
+                        // Check if we found both parts and they match
+                        if let (Some(sq_base), Some(lin_base)) = (&square_base, &linear_base)
+                            && sq_base == lin_base {
+                                // We have c * (a^2 + k*a) + d
+                                // For perfect square: c*(a^2 + 2*sqrt(d/c)*a) + d = (sqrt(c)*a + sqrt(d))^2
+                                // So we need: linear_coeff = 2 * sqrt(d/c)
+                                // Which means: linear_coeff^2 * c / 4 = d
+
+                                if c > 0.0 && d > 0.0 {
+                                    let sqrt_c = c.sqrt();
+                                    let sqrt_d = d.sqrt();
+
+                                    // Check if coefficients form perfect square
+                                    // linear_coeff should be +/- 2 * sqrt(d/c) = +/- 2 * sqrt_d / sqrt_c
+                                    let expected_linear_abs = (2.0 * sqrt_d / sqrt_c).abs();
+
+                                    if (linear_coeff.abs() - expected_linear_abs).abs() < 1e-10 {
+                                        // Perfect square detected!
+                                        let sign = linear_coeff.signum();
+
+                                        // Build sqrt(c)*a
+                                        let term_a = if (sqrt_c - 1.0).abs() < 1e-10 {
+                                            sq_base.clone()
+                                        } else {
+                                            Expr::Mul(
+                                                Box::new(Expr::Number(sqrt_c)),
+                                                Box::new(sq_base.clone()),
+                                            )
+                                        };
+
+                                        // Build sqrt(d)
+                                        let term_b = Expr::Number(sqrt_d);
+
+                                        let inner = if sign > 0.0 {
+                                            Expr::Add(Box::new(term_a), Box::new(term_b))
+                                        } else {
+                                            Expr::Add(
+                                                Box::new(term_a),
+                                                Box::new(Expr::Mul(
+                                                    Box::new(Expr::Number(-1.0)),
+                                                    Box::new(term_b),
+                                                )),
+                                            )
+                                        };
+
+                                        return Some(Expr::Pow(
+                                            Box::new(inner),
+                                            Box::new(Expr::Number(2.0)),
+                                        ));
+                                    }
+                                }
+                            }
+                    }
+                }
             }
             None
         }
     }
 
     /// Rule for expanding difference of squares products: (a-b)(a+b) -> a^2 - b^2
-    /// High priority to enable cancellations
+    /// Only expands when factors contain NO user variables (constants only)
+    /// When factors contain variables, keeps factored form for cleaner derivatives
     pub struct ExpandDifferenceOfSquaresProductRule;
 
     impl Rule for ExpandDifferenceOfSquaresProductRule {
@@ -1720,9 +2419,33 @@ pub mod rules {
             RuleCategory::Algebraic
         }
 
-        fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
+        fn apply(&self, expr: &Expr, context: &RuleContext) -> Option<Expr> {
             // Detect (a-b)(a+b) pattern in products and expand to a^2 - b^2
             if let Expr::Mul(u, v) = expr {
+                // Helper to check if expression contains any user variables
+                fn contains_user_var(e: &Expr, vars: &std::collections::HashSet<String>) -> bool {
+                    match e {
+                        Expr::Symbol(s) => vars.contains(s),
+                        Expr::Add(a, b)
+                        | Expr::Sub(a, b)
+                        | Expr::Mul(a, b)
+                        | Expr::Div(a, b)
+                        | Expr::Pow(a, b) => {
+                            contains_user_var(a, vars) || contains_user_var(b, vars)
+                        }
+                        Expr::FunctionCall { args, .. } => {
+                            args.iter().any(|a| contains_user_var(a, vars))
+                        }
+                        _ => false,
+                    }
+                }
+
+                // Only expand if the expression does NOT contain user variables
+                // This keeps (1+ecc)*(1-ecc) factored when ecc is a variable
+                if contains_user_var(expr, &context.variables) {
+                    return None;
+                }
+
                 // Check for (a-b)(a+b) -> a^2 - b^2
                 // Handle (a-b) as Add(a, -b) or Sub(a, b)
                 // Handle (a+b) as Add(a, b)
@@ -1751,20 +2474,24 @@ pub mod rules {
 
                     let is_neg = |x: &Expr, y: &Expr| -> bool {
                         // Check if x == -y
-                        if let Expr::Mul(c, inner) = x {
-                            if matches!(**c, Expr::Number(n) if n == -1.0) && **inner == *y {
+                        if let Expr::Mul(c, inner) = x
+                            && matches!(**c, Expr::Number(n) if n == -1.0) && **inner == *y {
                                 return true;
                             }
-                        }
-                        if let Expr::Mul(c, inner) = y {
-                            if matches!(**c, Expr::Number(n) if n == -1.0) && **inner == *x {
+                        if let Expr::Mul(c, inner) = y
+                            && matches!(**c, Expr::Number(n) if n == -1.0) && **inner == *x {
                                 return true;
                             }
-                        }
                         false
                     };
 
-                    if a1 == a2 && is_neg(&b1, &b2) {
+                    // Check all conditions
+                    let cond1 = a1 == a2 && is_neg(&b1, &b2);
+                    let cond2 = a1 == b2 && is_neg(&b1, &a2);
+                    let cond3 = b1 == a2 && is_neg(&a1, &b2);
+                    let cond4 = b1 == b2 && is_neg(&a1, &a2);
+
+                    if cond1 {
                         // (A + B)(A - B) -> A^2 - B^2
                         // B is the one that is negated.
                         // The positive one in the pair is B.
@@ -1792,7 +2519,7 @@ pub mod rules {
                         ));
                     }
 
-                    if a1 == b2 && is_neg(&b1, &a2) {
+                    if cond2 {
                         let b_abs = if let Expr::Mul(c, inner) = &b1 {
                             if matches!(**c, Expr::Number(n) if n == -1.0) {
                                 *inner.clone()
@@ -1808,7 +2535,7 @@ pub mod rules {
                         ));
                     }
 
-                    if b1 == a2 && is_neg(&a1, &b2) {
+                    if cond3 {
                         let a_abs = if let Expr::Mul(c, inner) = &a1 {
                             if matches!(**c, Expr::Number(n) if n == -1.0) {
                                 *inner.clone()
@@ -1824,7 +2551,7 @@ pub mod rules {
                         ));
                     }
 
-                    if b1 == b2 && is_neg(&a1, &a2) {
+                    if cond4 {
                         let a_abs = if let Expr::Mul(c, inner) = &a1 {
                             if matches!(**c, Expr::Number(n) if n == -1.0) {
                                 *inner.clone()
@@ -1846,7 +2573,8 @@ pub mod rules {
     }
 
     /// Rule for factoring difference of squares: a^2 - b^2 -> (a-b)(a+b)
-    /// Low priority - only factors if expansion didn't lead to cancellations
+    /// Only factors when expression contains user variables (keeps factored for cleaner derivatives)
+    /// When expression is constants only, keeps expanded form a^2 - b^2
     pub struct FactorDifferenceOfSquaresRule;
 
     impl Rule for FactorDifferenceOfSquaresRule {
@@ -1862,7 +2590,29 @@ pub mod rules {
             RuleCategory::Algebraic
         }
 
-        fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
+        fn apply(&self, expr: &Expr, context: &RuleContext) -> Option<Expr> {
+            // Helper to check if expression contains any user variables
+            fn contains_user_var(e: &Expr, vars: &std::collections::HashSet<String>) -> bool {
+                match e {
+                    Expr::Symbol(s) => vars.contains(s),
+                    Expr::Add(a, b)
+                    | Expr::Sub(a, b)
+                    | Expr::Mul(a, b)
+                    | Expr::Div(a, b)
+                    | Expr::Pow(a, b) => contains_user_var(a, vars) || contains_user_var(b, vars),
+                    Expr::FunctionCall { args, .. } => {
+                        args.iter().any(|a| contains_user_var(a, vars))
+                    }
+                    _ => false,
+                }
+            }
+
+            // Only factor if the expression DOES contain user variables
+            // This keeps 1^2 - x^2 factored as (1-x)(1+x) when x is a variable
+            if !contains_user_var(expr, &context.variables) {
+                return None;
+            }
+
             // Detect a^2 - b^2 pattern and factor to (a-b)(a+b)
             if let Some((term1, term2, is_sub)) = match expr {
                 Expr::Add(u, v) => Some((&**u, &**v, false)),
@@ -1879,7 +2629,8 @@ pub mod rules {
                                 // Handle even powers: x^4 = (x^2)^2, x^6 = (x^3)^2, etc.
                                 if n > 0.0 && (n % 2.0).abs() < 1e-10 {
                                     let half_exp = n / 2.0;
-                                    let new_base = Expr::Pow(base.clone(), Box::new(Expr::Number(half_exp)));
+                                    let new_base =
+                                        Expr::Pow(base.clone(), Box::new(Expr::Number(half_exp)));
                                     return Some((1.0, new_base));
                                 }
                             }
@@ -1887,49 +2638,47 @@ pub mod rules {
                         }
                         Expr::Mul(coeff, rest) => {
                             if let Expr::Number(c) = **coeff {
-                                if let Expr::Pow(base, exp) = &**rest {
-                                    if matches!(**exp, Expr::Number(n) if n == 2.0) {
+                                if let Expr::Pow(base, exp) = &**rest
+                                    && matches!(**exp, Expr::Number(n) if n == 2.0) {
                                         return Some((c, *base.clone()));
                                     }
-                                }
                                 // Handle Mul(-1, Number(1)) as -1 = -1 * 1^2
-                                if let Expr::Number(n) = **rest {
-                                    if n.abs() == 1.0 {
+                                if let Expr::Number(n) = **rest
+                                    && n.abs() == 1.0 {
                                         return Some((c * n, Expr::Number(1.0)));
                                     }
-                                }
                             }
                             None
                         }
                         // Handle standalone numbers as coefficient * 1^2
-                        Expr::Number(n) if n.abs() == 1.0 => {
-                            Some((*n, Expr::Number(1.0)))
-                        }
+                        Expr::Number(n) if n.abs() == 1.0 => Some((*n, Expr::Number(1.0))),
                         _ => None,
                     }
                 };
-                
-                if let (Some((c1, base1)), Some((c2, base2))) = (is_square(term1), is_square(term2)) {
+
+                if let (Some((c1, base1)), Some((c2, base2))) = (is_square(term1), is_square(term2))
+                {
                     // For Sub: both coefficients should be positive
                     // For Add: c1 positive, c2 negative (canonical form)
                     let (c1_final, c2_final) = if is_sub {
-                        (c1, -c2)  // Convert Sub to Add form for checking
+                        (c1, -c2) // Convert Sub to Add form for checking
                     } else {
                         (c1, c2)
                     };
-                    
+
                     let sqrt_c1 = c1_final.abs().sqrt();
                     let sqrt_c2 = c2_final.abs().sqrt();
-                    
+
                     // Check if both coefficients are perfect squares and have opposite signs
-                    if (sqrt_c1 - sqrt_c1.round()).abs() < 1e-10 
+                    if (sqrt_c1 - sqrt_c1.round()).abs() < 1e-10
                         && (sqrt_c2 - sqrt_c2.round()).abs() < 1e-10
                         && (c1_final * c2_final) < 0.0  // Opposite signs
-                        && (sqrt_c1.round() - sqrt_c2.round()).abs() < 1e-10 // Same magnitude
+                        && (sqrt_c1.round() - sqrt_c2.round()).abs() < 1e-10
+                    // Same magnitude
                     {
                         // We have sqrt(c)^2 * a^2 - sqrt(c)^2 * b^2 = (sqrt(c)*a)^2 - (sqrt(c)*b)^2
                         let sqrt_c = sqrt_c1.round();
-                        
+
                         let make_term = |base: &Expr| -> Expr {
                             if (sqrt_c - 1.0).abs() < 1e-10 {
                                 base.clone()
@@ -1937,7 +2686,7 @@ pub mod rules {
                                 Expr::Mul(Box::new(Expr::Number(sqrt_c)), Box::new(base.clone()))
                             }
                         };
-                        
+
                         // Determine which term is positive and which is negative
                         // If c1_final is negative (like in 1 - x^2 = 1 - 1*x^2), we need to negate
                         let (a, b, needs_negation) = if c1_final > 0.0 {
@@ -1948,13 +2697,13 @@ pub mod rules {
                             // Or equivalently: b^2 - a^2 = (b-a)(b+a)
                             (make_term(&base2), make_term(&base1), false)
                         };
-                        
+
                         // (a - b)(a + b)
                         let factored = Expr::Mul(
                             Box::new(Expr::Sub(Box::new(a.clone()), Box::new(b.clone()))),
                             Box::new(Expr::Add(Box::new(a), Box::new(b))),
                         );
-                        
+
                         return Some(if needs_negation {
                             Expr::Mul(Box::new(Expr::Number(-1.0)), Box::new(factored))
                         } else {
@@ -2023,18 +2772,16 @@ pub mod rules {
                                 } else if let Expr::Mul(inner1, inner2) = &**rest {
                                     // c*inner1*inner2 - could be 3*a^2*b or 3*a*b^2
                                     // Check if inner1 or inner2 is a square
-                                    if let Expr::Pow(base, exp) = &**inner1 {
-                                        if matches!(**exp, Expr::Number(n) if n == 2.0) {
+                                    if let Expr::Pow(base, exp) = &**inner1
+                                        && matches!(**exp, Expr::Number(n) if n == 2.0) {
                                             // c*(a^2)*b
                                             square_linear.push((c, *base.clone(), *inner2.clone()));
                                         }
-                                    }
-                                    if let Expr::Pow(base, exp) = &**inner2 {
-                                        if matches!(**exp, Expr::Number(n) if n == 2.0) {
+                                    if let Expr::Pow(base, exp) = &**inner2
+                                        && matches!(**exp, Expr::Number(n) if n == 2.0) {
                                             // c*a*(b^2)
                                             linear_square.push((c, *inner1.clone(), *base.clone()));
                                         }
-                                    }
                                 } else {
                                     // c*a means c*a*1^2
                                     linear_square.push((c, *rest.clone(), Expr::Number(1.0)));
@@ -2231,8 +2978,8 @@ pub mod rules {
                     };
 
                     let mut merged = false;
-                    if let Some((last_base, last_exp)) = grouped_terms.last_mut() {
-                        if *last_base == term_base {
+                    if let Some((last_base, last_exp)) = grouped_terms.last_mut()
+                        && *last_base == term_base {
                             // Simplify exponent sum if both are numbers
                             let new_exp = if let (Expr::Number(n1), Expr::Number(n2)) =
                                 (last_exp.clone(), term_exp.clone())
@@ -2244,7 +2991,6 @@ pub mod rules {
                             *last_exp = new_exp;
                             merged = true;
                         }
-                    }
 
                     if !merged {
                         grouped_terms.push((term_base, term_exp));
@@ -2287,67 +3033,67 @@ pub mod rules {
         }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
-            if let Expr::Add(_, _) = expr {
-                // Flatten all nested additions
-                let terms = crate::simplification::helpers::flatten_add(expr.clone());
-                
-                if terms.len() < 2 {
-                    return None;
-                }
-                
-                // Group terms by their "base" (the part without numeric coefficient)
-                // Map from base expression to coefficient sum
-                use std::collections::HashMap;
-                let mut term_groups: HashMap<String, (f64, Expr)> = HashMap::new();
-                
-                for term in terms {
-                    let (coeff, base) = crate::simplification::helpers::extract_coeff(&term);
-                    let base_key = format!("{:?}", base);
-                    
-                    term_groups.entry(base_key)
-                        .and_modify(|(c, _)| *c += coeff)
-                        .or_insert((coeff, base));
-                }
-                
-                // Rebuild terms
-                let mut result_terms = Vec::new();
-                for (_key, (coeff, base)) in term_groups {
-                    if coeff.abs() < 1e-10 {
-                        // Coefficient is zero, skip this term
-                        continue;
-                    } else if (coeff - 1.0).abs() < 1e-10 {
-                        // Coefficient is 1, just add the base
-                        result_terms.push(base);
-                    } else if (coeff + 1.0).abs() < 1e-10 {
-                        // Coefficient is -1
-                        result_terms.push(Expr::Mul(
-                            Box::new(Expr::Number(-1.0)),
-                            Box::new(base),
-                        ));
-                    } else {
-                        // General case: coeff * base
-                        result_terms.push(Expr::Mul(
-                            Box::new(Expr::Number(coeff)),
-                            Box::new(base),
-                        ));
-                    }
-                }
-                
-                if result_terms.is_empty() {
-                    return Some(Expr::Number(0.0));
-                }
-                
-                if result_terms.len() == 1 {
-                    return Some(result_terms.into_iter().next().unwrap());
-                }
-                
-                let new_expr = crate::simplification::helpers::rebuild_add(result_terms);
-                
-                // Only return if something changed
-                if new_expr != *expr {
-                    return Some(new_expr);
+            // Handle both Add and Sub expressions
+            let is_additive = matches!(expr, Expr::Add(_, _) | Expr::Sub(_, _));
+            if !is_additive {
+                return None;
+            }
+
+            // Flatten all nested additions (also handles Sub now)
+            let terms = crate::simplification::helpers::flatten_add(expr.clone());
+
+            if terms.len() < 2 {
+                return None;
+            }
+
+            // Group terms by their "base" (the part without numeric coefficient)
+            // Map from base expression to coefficient sum
+            use std::collections::HashMap;
+            let mut term_groups: HashMap<String, (f64, Expr)> = HashMap::new();
+
+            for term in terms {
+                let (coeff, base) = crate::simplification::helpers::extract_coeff(&term);
+                let base_key = format!("{:?}", base);
+
+                term_groups
+                    .entry(base_key)
+                    .and_modify(|(c, _)| *c += coeff)
+                    .or_insert((coeff, base));
+            }
+
+            // Rebuild terms
+            let mut result_terms = Vec::new();
+            for (_key, (coeff, base)) in term_groups {
+                if coeff.abs() < 1e-10 {
+                    // Coefficient is zero, skip this term
+                    continue;
+                } else if (coeff - 1.0).abs() < 1e-10 {
+                    // Coefficient is 1, just add the base
+                    result_terms.push(base);
+                } else if (coeff + 1.0).abs() < 1e-10 {
+                    // Coefficient is -1
+                    result_terms.push(Expr::Mul(Box::new(Expr::Number(-1.0)), Box::new(base)));
+                } else {
+                    // General case: coeff * base
+                    result_terms.push(Expr::Mul(Box::new(Expr::Number(coeff)), Box::new(base)));
                 }
             }
+
+            if result_terms.is_empty() {
+                return Some(Expr::Number(0.0));
+            }
+
+            if result_terms.len() == 1 {
+                return Some(result_terms.into_iter().next().unwrap());
+            }
+
+            let new_expr = crate::simplification::helpers::rebuild_add(result_terms);
+
+            // Only return if something changed
+            if new_expr != *expr {
+                return Some(new_expr);
+            }
+
             None
         }
     }
@@ -2373,15 +3119,15 @@ pub mod rules {
             if let Expr::Mul(_, _) = expr {
                 // Flatten all nested multiplications
                 let factors = crate::simplification::helpers::flatten_mul(expr);
-                
+
                 if factors.len() < 2 {
                     return None;
                 }
-                
+
                 // Separate numeric coefficients from symbolic terms
                 let mut coeff = 1.0;
                 let mut symbolic_terms = Vec::new();
-                
+
                 for factor in factors {
                     if let Expr::Number(n) = factor {
                         coeff *= n;
@@ -2389,27 +3135,27 @@ pub mod rules {
                         symbolic_terms.push(factor);
                     }
                 }
-                
+
                 if symbolic_terms.is_empty() {
                     return Some(Expr::Number(coeff));
                 }
-                
+
                 // Sort symbolic terms: alphabetically by variable name, then by power (descending)
                 symbolic_terms.sort_by(|a, b| {
                     let a_key = Self::get_sort_key(a);
                     let b_key = Self::get_sort_key(b);
                     a_key.cmp(&b_key)
                 });
-                
+
                 // Build result with coefficient first (if not 1)
                 let mut result_terms = Vec::new();
                 if (coeff - 1.0).abs() > 1e-10 {
                     result_terms.push(Expr::Number(coeff));
                 }
                 result_terms.extend(symbolic_terms);
-                
+
                 let new_expr = crate::simplification::helpers::rebuild_mul(result_terms);
-                
+
                 // Only return if something changed
                 if new_expr != *expr {
                     return Some(new_expr);
@@ -2432,7 +3178,7 @@ pub mod rules {
                     };
                     let power = match &**exp {
                         Expr::Number(n) => -(*n as i32), // Negative for descending order
-                        _ => -999, // Complex exponents sorted first
+                        _ => -999,                       // Complex exponents sorted first
                     };
                     (base_name, power)
                 }
@@ -2462,15 +3208,15 @@ pub mod rules {
             if let Expr::Add(_, _) = expr {
                 // Flatten all nested additions
                 let terms = crate::simplification::helpers::flatten_add(expr.clone());
-                
+
                 if terms.len() < 2 {
                     return None;
                 }
-                
+
                 // Separate numeric constants from symbolic terms
                 let mut constant = 0.0;
                 let mut symbolic_terms = Vec::new();
-                
+
                 for term in terms {
                     if let Expr::Number(n) = term {
                         constant += n;
@@ -2478,7 +3224,7 @@ pub mod rules {
                         symbolic_terms.push(term);
                     }
                 }
-                
+
                 // Sort symbolic terms: by polynomial degree (descending), then alphabetically
                 symbolic_terms.sort_by(|a, b| {
                     let deg_a = get_polynomial_degree(a);
@@ -2493,19 +3239,19 @@ pub mod rules {
                         ord => ord,
                     }
                 });
-                
+
                 // Build result with symbolic terms first, then constant (if not 0)
                 let mut result_terms = symbolic_terms;
                 if constant.abs() > 1e-10 {
                     result_terms.push(Expr::Number(constant));
                 }
-                
+
                 if result_terms.is_empty() {
                     return Some(Expr::Number(0.0));
                 }
-                
+
                 let new_expr = crate::simplification::helpers::rebuild_add(result_terms);
-                
+
                 // Only return if something changed
                 if new_expr != *expr {
                     return Some(new_expr);
@@ -2538,15 +3284,14 @@ pub mod rules {
                     for factor in &factors {
                         if let Expr::Symbol(name) = factor {
                             return (1, name.clone(), -1);
-                        } else if let Expr::Pow(base, exp) = factor {
-                            if let Expr::Symbol(name) = &**base {
+                        } else if let Expr::Pow(base, exp) = factor
+                            && let Expr::Symbol(name) = &**base {
                                 let power = match &**exp {
                                     Expr::Number(n) => -(*n as i32),
                                     _ => -999,
                                 };
                                 return (0, name.clone(), power);
                             }
-                        }
                     }
                     (2, format!("{:?}", expr), 0)
                 }
@@ -2577,15 +3322,15 @@ pub mod rules {
                 // Recursively canonicalize the subtracted expression if it's an addition
                 if let Expr::Add(_, _) = &**b {
                     let terms = crate::simplification::helpers::flatten_add(*b.clone());
-                    
+
                     if terms.len() < 2 {
                         return None;
                     }
-                    
+
                     // Separate numeric constants from symbolic terms
                     let mut constant = 0.0;
                     let mut symbolic_terms = Vec::new();
-                    
+
                     for term in terms {
                         if let Expr::Number(n) = term {
                             constant += n;
@@ -2593,7 +3338,7 @@ pub mod rules {
                             symbolic_terms.push(term);
                         }
                     }
-                    
+
                     // Sort symbolic terms
                     symbolic_terms.sort_by(|x, y| {
                         let deg_x = get_polynomial_degree(x);
@@ -2607,17 +3352,17 @@ pub mod rules {
                             ord => ord,
                         }
                     });
-                    
+
                     // Build result
                     let mut result_terms = symbolic_terms;
                     if constant.abs() > 1e-10 {
                         result_terms.push(Expr::Number(constant));
                     }
-                    
+
                     if !result_terms.is_empty() {
                         let new_b = crate::simplification::helpers::rebuild_add(result_terms);
                         let new_expr = Expr::Sub(a.clone(), Box::new(new_b));
-                        
+
                         if new_expr != *expr {
                             return Some(new_expr);
                         }
@@ -2717,22 +3462,20 @@ pub mod rules {
         }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
-            if let Expr::Mul(c, inner) = expr {
-                if matches!(**c, Expr::Number(n) if n == -1.0) {
+            if let Expr::Mul(c, inner) = expr
+                && matches!(**c, Expr::Number(n) if n == -1.0) {
                     // -(A + B) -> -A - B
                     if let Expr::Add(a, b) = &**inner {
                         // Check if b is -1 * B -> -(A - B) -> B - A
-                        if let Expr::Mul(c_b, val_b) = &**b {
-                            if matches!(**c_b, Expr::Number(n) if n == -1.0) {
+                        if let Expr::Mul(c_b, val_b) = &**b
+                            && matches!(**c_b, Expr::Number(n) if n == -1.0) {
                                 return Some(Expr::Sub(val_b.clone(), a.clone()));
                             }
-                        }
                         // Check if a is -1 * A -> -(-A + B) -> A - B
-                        if let Expr::Mul(c_a, val_a) = &**a {
-                            if matches!(**c_a, Expr::Number(n) if n == -1.0) {
+                        if let Expr::Mul(c_a, val_a) = &**a
+                            && matches!(**c_a, Expr::Number(n) if n == -1.0) {
                                 return Some(Expr::Sub(val_a.clone(), b.clone()));
                             }
-                        }
 
                         return Some(Expr::Sub(
                             Box::new(Expr::Mul(Box::new(Expr::Number(-1.0)), a.clone())),
@@ -2744,7 +3487,6 @@ pub mod rules {
                         return Some(Expr::Sub(b.clone(), a.clone()));
                     }
                 }
-            }
             None
         }
     }
@@ -2753,7 +3495,7 @@ pub mod rules {
     fn gcd_f64(a: f64, b: f64) -> f64 {
         let a = a.abs();
         let b = b.abs();
-        
+
         // Handle near-zero values
         if a < 1e-10 {
             return b;
@@ -2761,7 +3503,7 @@ pub mod rules {
         if b < 1e-10 {
             return a;
         }
-        
+
         // For integers, use Euclidean algorithm
         if (a - a.round()).abs() < 1e-10 && (b - b.round()).abs() < 1e-10 {
             let mut a = a.round() as i64;
@@ -2773,7 +3515,7 @@ pub mod rules {
             }
             return a.abs() as f64;
         }
-        
+
         // For non-integers, return 1
         1.0
     }
@@ -2834,7 +3576,7 @@ pub mod rules {
             let mut new_terms = Vec::new();
             for i in 0..terms.len() {
                 let new_coeff = coefficients[i] / result_gcd;
-                
+
                 if (new_coeff - 1.0).abs() < 1e-10 {
                     // Coefficient is 1
                     new_terms.push(symbolic_parts[i].clone());
@@ -2972,7 +3714,209 @@ pub mod rules {
             // 5. Build result: common_factor * (sum of remaining terms)
             // Always use Add form since we already normalized Sub to Add with -1 coefficients
             let sum_remaining = crate::simplification::helpers::rebuild_add(remaining_terms);
-            return Some(Expr::Mul(Box::new(common_factor), Box::new(sum_remaining)));
+            Some(Expr::Mul(Box::new(common_factor), Box::new(sum_remaining)))
+        }
+    }
+
+    /// Rule for factoring out common powers from sums
+    /// Handles cases like x³ + x² → x²(x + 1) where the common factor is a power
+    /// Only applies when ALL terms are powers of variables (no coefficients, no constant terms)
+    pub struct CommonPowerFactoringRule;
+
+    impl Rule for CommonPowerFactoringRule {
+        fn name(&self) -> &'static str {
+            "common_power_factoring"
+        }
+
+        fn priority(&self) -> i32 {
+            39 // Run just after CommonTermFactoringRule
+        }
+
+        fn category(&self) -> RuleCategory {
+            RuleCategory::Algebraic
+        }
+
+        fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
+            // Handle both Add and Sub
+            let terms = match expr {
+                Expr::Add(_, _) => crate::simplification::helpers::flatten_add(expr.clone()),
+                Expr::Sub(a, b) => vec![
+                    (**a).clone(),
+                    Expr::Mul(Box::new(Expr::Number(-1.0)), b.clone()),
+                ],
+                _ => return None,
+            };
+
+            if terms.len() < 2 {
+                return None;
+            }
+
+            // Only apply to sums of pure power terms (no numeric coefficients or constants)
+            // This prevents interfering with perfect square detection like x² + 2x + 1
+            // Check that each term is either:
+            // - A pure power: base^exp where base is Symbol and exp is Number
+            // - A pure symbol: x (treated as x^1)
+            let is_pure_power_term = |term: &Expr| -> bool {
+                match term {
+                    Expr::Pow(base, exp) => {
+                        matches!(**base, Expr::Symbol(_)) && matches!(**exp, Expr::Number(_))
+                    }
+                    Expr::Symbol(_) => true,
+                    _ => false,
+                }
+            };
+
+            for term in &terms {
+                if !is_pure_power_term(term) {
+                    return None;
+                }
+            }
+
+            // Extract base -> minimum exponent map for each term
+            // For a term like 2*x^3*y^2, we get {x: 3, y: 2}
+            // For a term like x (which is x^1), we get {x: 1}
+            let extract_base_exponents = |term: &Expr| -> std::collections::HashMap<Expr, f64> {
+                let mut map = std::collections::HashMap::new();
+                let factors = crate::simplification::helpers::flatten_mul(term);
+
+                for factor in factors {
+                    match &factor {
+                        Expr::Pow(base, exp) => {
+                            if let Expr::Number(n) = &**exp
+                                && *n > 0.0 {
+                                    // Only consider positive integer exponents for factoring
+                                    let base_expr = (**base).clone();
+                                    let entry = map.entry(base_expr).or_insert(0.0);
+                                    *entry += n;
+                                }
+                        }
+                        Expr::Symbol(_) => {
+                            // Symbol alone is base^1
+                            let entry = map.entry(factor.clone()).or_insert(0.0);
+                            *entry += 1.0;
+                        }
+                        _ => {}
+                    }
+                }
+                map
+            };
+
+            // Get base-exponent maps for all terms
+            let term_maps: Vec<_> = terms.iter().map(extract_base_exponents).collect();
+
+            // Find common bases and their minimum exponents
+            if term_maps.is_empty() {
+                return None;
+            }
+
+            let first_map = &term_maps[0];
+            let mut common_bases: std::collections::HashMap<Expr, f64> =
+                std::collections::HashMap::new();
+
+            for (base, &exp) in first_map {
+                // Check if this base appears in all other terms
+                let mut min_exp = exp;
+                let mut found_in_all = true;
+
+                for map in &term_maps[1..] {
+                    if let Some(&other_exp) = map.get(base) {
+                        min_exp = min_exp.min(other_exp);
+                    } else {
+                        found_in_all = false;
+                        break;
+                    }
+                }
+
+                if found_in_all && min_exp >= 1.0 {
+                    common_bases.insert(base.clone(), min_exp);
+                }
+            }
+
+            if common_bases.is_empty() {
+                return None;
+            }
+
+            // Build the common factor
+            let mut common_factor_parts: Vec<Expr> = Vec::new();
+            for (base, exp) in &common_bases {
+                if *exp == 1.0 {
+                    common_factor_parts.push(base.clone());
+                } else {
+                    common_factor_parts.push(Expr::Pow(
+                        Box::new(base.clone()),
+                        Box::new(Expr::Number(*exp)),
+                    ));
+                }
+            }
+
+            let common_factor = crate::simplification::helpers::rebuild_mul(common_factor_parts);
+
+            // Build remaining terms after factoring out common bases
+            let mut remaining_terms: Vec<Expr> = Vec::new();
+
+            for (term, _) in terms.iter().zip(term_maps.iter()) {
+                let factors = crate::simplification::helpers::flatten_mul(term);
+                let mut new_factors: Vec<Expr> = Vec::new();
+
+                for factor in factors {
+                    match &factor {
+                        Expr::Pow(base, exp) => {
+                            if let Expr::Number(n) = &**exp {
+                                if let Some(&common_exp) = common_bases.get(&**base) {
+                                    let remaining_exp = n - common_exp;
+                                    if remaining_exp > 1.0 {
+                                        new_factors.push(Expr::Pow(
+                                            base.clone(),
+                                            Box::new(Expr::Number(remaining_exp)),
+                                        ));
+                                    } else if (remaining_exp - 1.0).abs() < 1e-10 {
+                                        new_factors.push((**base).clone());
+                                    }
+                                    // If remaining_exp is 0, don't add anything
+                                } else {
+                                    new_factors.push(factor.clone());
+                                }
+                            } else {
+                                new_factors.push(factor.clone());
+                            }
+                        }
+                        Expr::Symbol(_) => {
+                            if let Some(&common_exp) = common_bases.get(&factor) {
+                                // This symbol has exponent 1, and common_exp is being factored out
+                                // If common_exp is 1, nothing remains
+                                // This shouldn't happen since the symbol would contribute 1 and min would be 1
+                                let remaining_exp = 1.0 - common_exp;
+                                if remaining_exp > 0.0 {
+                                    if (remaining_exp - 1.0).abs() < 1e-10 {
+                                        new_factors.push(factor.clone());
+                                    } else {
+                                        new_factors.push(Expr::Pow(
+                                            Box::new(factor.clone()),
+                                            Box::new(Expr::Number(remaining_exp)),
+                                        ));
+                                    }
+                                }
+                                // If remaining_exp is 0, don't add anything
+                            } else {
+                                new_factors.push(factor.clone());
+                            }
+                        }
+                        Expr::Number(_) => {
+                            // Keep numeric coefficients
+                            new_factors.push(factor.clone());
+                        }
+                        _ => {
+                            new_factors.push(factor.clone());
+                        }
+                    }
+                }
+
+                remaining_terms.push(crate::simplification::helpers::rebuild_mul(new_factors));
+            }
+
+            // Build result: common_factor * (sum of remaining terms)
+            let sum_remaining = crate::simplification::helpers::rebuild_add(remaining_terms);
+            Some(Expr::Mul(Box::new(common_factor), Box::new(sum_remaining)))
         }
     }
 
@@ -3007,18 +3951,21 @@ pub mod rules {
                                 }
                                 match expr {
                                     Expr::Mul(_, _) => {
-                                        let factors = crate::simplification::helpers::flatten_mul(expr);
+                                        let factors =
+                                            crate::simplification::helpers::flatten_mul(expr);
                                         factors.iter().any(|f| f == component)
                                     }
                                     Expr::Add(_, _) | Expr::Sub(_, _) => {
-                                        let terms = crate::simplification::helpers::flatten_add(expr.clone());
+                                        let terms = crate::simplification::helpers::flatten_add(
+                                            expr.clone(),
+                                        );
                                         terms.iter().any(|t| t == component)
                                     }
                                     Expr::Pow(b, _) => b.as_ref() == component,
                                     _ => false,
                                 }
                             };
-                            
+
                             // Only expand if components appear in other side (potential for cancellation)
                             contains_component(other_side, a) || contains_component(other_side, b)
                         }
@@ -3030,81 +3977,80 @@ pub mod rules {
             };
 
             // Only expand powers in division contexts when beneficial
-            match expr {
-                Expr::Div(num, den) => {
-                    let expand_if_beneficial = |e: &Expr, other: &Expr| -> Option<Expr> {
-                        if let Expr::Pow(base, exp) = e {
-                            if let Expr::Number(n) = **exp {
-                                if (n == 2.0 || n == 3.0) && would_help_cancellation(e, other) {
-                                    // Check if base is a sum/difference
-                                    match &**base {
-                                        Expr::Add(a, b) => {
-                                            return Some(Self::expand_binomial(a, b, n as i32, false));
-                                        }
-                                        Expr::Sub(a, b) => {
-                                            return Some(Self::expand_binomial(a, b, n as i32, true));
-                                        }
-                                        _ => {}
+            if let Expr::Div(num, den) = expr {
+                let expand_if_beneficial = |e: &Expr, other: &Expr| -> Option<Expr> {
+                    if let Expr::Pow(base, exp) = e
+                        && let Expr::Number(n) = **exp
+                            && (n == 2.0 || n == 3.0) && would_help_cancellation(e, other) {
+                                // Check if base is a sum/difference
+                                match &**base {
+                                    Expr::Add(a, b) => {
+                                        return Some(Self::expand_binomial(
+                                            a, b, n as i32, false,
+                                        ));
                                     }
+                                    Expr::Sub(a, b) => {
+                                        return Some(Self::expand_binomial(
+                                            a, b, n as i32, true,
+                                        ));
+                                    }
+                                    _ => {}
                                 }
                             }
-                        }
-                        None
-                    };
+                    None
+                };
 
-                    // Try expanding numerator if beneficial
-                    if let Some(expanded_num) = expand_if_beneficial(num, den) {
-                        return Some(Expr::Div(Box::new(expanded_num), den.clone()));
-                    }
+                // Try expanding numerator if beneficial
+                if let Some(expanded_num) = expand_if_beneficial(num, den) {
+                    return Some(Expr::Div(Box::new(expanded_num), den.clone()));
+                }
 
-                    // Try expanding denominator if beneficial
-                    if let Some(expanded_den) = expand_if_beneficial(den, num) {
-                        return Some(Expr::Div(num.clone(), Box::new(expanded_den)));
-                    }
+                // Try expanding denominator if beneficial
+                if let Some(expanded_den) = expand_if_beneficial(den, num) {
+                    return Some(Expr::Div(num.clone(), Box::new(expanded_den)));
+                }
 
-                    // Check if numerator is a product containing expandable polynomial
-                    if let Expr::Mul(_, _) = &**num {
-                        let factors = crate::simplification::helpers::flatten_mul(num);
-                        let mut changed = false;
-                        let mut new_factors = Vec::new();
+                // Check if numerator is a product containing expandable polynomial
+                if let Expr::Mul(_, _) = &**num {
+                    let factors = crate::simplification::helpers::flatten_mul(num);
+                    let mut changed = false;
+                    let mut new_factors = Vec::new();
 
-                        for factor in factors {
-                            if let Some(expanded) = expand_if_beneficial(&factor, den) {
-                                new_factors.push(expanded);
-                                changed = true;
-                            } else {
-                                new_factors.push(factor);
-                            }
-                        }
-
-                        if changed {
-                            let new_num = crate::simplification::helpers::rebuild_mul(new_factors);
-                            return Some(Expr::Div(Box::new(new_num), den.clone()));
+                    for factor in factors {
+                        if let Some(expanded) = expand_if_beneficial(&factor, den) {
+                            new_factors.push(expanded);
+                            changed = true;
+                        } else {
+                            new_factors.push(factor);
                         }
                     }
 
-                    // Check if denominator is a product containing expandable polynomial
-                    if let Expr::Mul(_, _) = &**den {
-                        let factors = crate::simplification::helpers::flatten_mul(den);
-                        let mut changed = false;
-                        let mut new_factors = Vec::new();
-
-                        for factor in factors {
-                            if let Some(expanded) = expand_if_beneficial(&factor, num) {
-                                new_factors.push(expanded);
-                                changed = true;
-                            } else {
-                                new_factors.push(factor);
-                            }
-                        }
-
-                        if changed {
-                            let new_den = crate::simplification::helpers::rebuild_mul(new_factors);
-                            return Some(Expr::Div(num.clone(), Box::new(new_den)));
-                        }
+                    if changed {
+                        let new_num = crate::simplification::helpers::rebuild_mul(new_factors);
+                        return Some(Expr::Div(Box::new(new_num), den.clone()));
                     }
                 }
-                _ => {}
+
+                // Check if denominator is a product containing expandable polynomial
+                if let Expr::Mul(_, _) = &**den {
+                    let factors = crate::simplification::helpers::flatten_mul(den);
+                    let mut changed = false;
+                    let mut new_factors = Vec::new();
+
+                    for factor in factors {
+                        if let Some(expanded) = expand_if_beneficial(&factor, num) {
+                            new_factors.push(expanded);
+                            changed = true;
+                        } else {
+                            new_factors.push(factor);
+                        }
+                    }
+
+                    if changed {
+                        let new_den = crate::simplification::helpers::rebuild_mul(new_factors);
+                        return Some(Expr::Div(num.clone(), Box::new(new_den)));
+                    }
+                }
             }
             None
         }
@@ -3112,7 +4058,7 @@ pub mod rules {
 
     impl PolynomialExpansionRule {
         /// Expand (a ± b)^n for n = 2 or 3
-        fn expand_binomial(a: &Box<Expr>, b: &Box<Expr>, n: i32, is_sub: bool) -> Expr {
+        fn expand_binomial(a: &Expr, b: &Expr, n: i32, is_sub: bool) -> Expr {
             // Helper to avoid creating unnecessary operations with 1
             let smart_mul = |coeff: f64, base: Expr| -> Expr {
                 if (coeff - 1.0).abs() < 1e-10 {
@@ -3124,20 +4070,24 @@ pub mod rules {
                 }
             };
 
-            let smart_pow = |base: &Box<Expr>, exp: i32| -> Expr {
+            let smart_pow = |base: &Expr, exp: i32| -> Expr {
                 if exp == 1 {
-                    (**base).clone()
-                } else if let Expr::Number(n) = **base {
+                    base.clone()
+                } else if let Expr::Number(n) = base {
                     Expr::Number(n.powi(exp))
                 } else {
-                    Expr::Pow(base.clone(), Box::new(Expr::Number(exp as f64)))
+                    Expr::Pow(Box::new(base.clone()), Box::new(Expr::Number(exp as f64)))
                 }
             };
 
             let smart_product = |term1: Expr, term2: Expr| -> Expr {
                 match (&term1, &term2) {
                     (Expr::Number(n1), Expr::Number(n2)) => Expr::Number(n1 * n2),
-                    (Expr::Number(n), other) | (other, Expr::Number(n)) if (*n - 1.0).abs() < 1e-10 => other.clone(),
+                    (Expr::Number(n), other) | (other, Expr::Number(n))
+                        if (*n - 1.0).abs() < 1e-10 =>
+                    {
+                        other.clone()
+                    }
                     _ => Expr::Mul(Box::new(term1), Box::new(term2)),
                 }
             };
@@ -3148,11 +4098,11 @@ pub mod rules {
                     // (a-b)^2 = a^2 - 2ab + b^2
                     let a_sq = smart_pow(a, 2);
                     let b_sq = smart_pow(b, 2);
-                    let ab = smart_product((**a).clone(), (**b).clone());
+                    let ab = smart_product(a.clone(), b.clone());
                     let two_ab = smart_mul(2.0, ab);
 
                     let middle_term = if is_sub {
-                        smart_mul(-2.0, smart_product((**a).clone(), (**b).clone()))
+                        smart_mul(-2.0, smart_product(a.clone(), b.clone()))
                     } else {
                         two_ab
                     };
@@ -3167,13 +4117,13 @@ pub mod rules {
                     // (a-b)^3 = a^3 - 3a^2b + 3ab^2 - b^3
                     let a_cu = smart_pow(a, 3);
                     let b_cu = smart_pow(b, 3);
-                    
+
                     let a_sq = smart_pow(a, 2);
                     let b_sq = smart_pow(b, 2);
-                    
-                    let a2b = smart_product(a_sq, (**b).clone());
-                    let ab2 = smart_product((**a).clone(), b_sq);
-                    
+
+                    let a2b = smart_product(a_sq, b.clone());
+                    let ab2 = smart_product(a.clone(), b_sq);
+
                     let three_a2b = smart_mul(3.0, a2b);
                     let three_ab2 = smart_mul(3.0, ab2);
 
@@ -3181,12 +4131,12 @@ pub mod rules {
                         // a^3 - 3a^2b + 3ab^2 - b^3
                         let term1 = Expr::Add(
                             Box::new(a_cu),
-                            Box::new(smart_mul(-3.0, smart_product(smart_pow(a, 2), (**b).clone()))),
+                            Box::new(smart_mul(
+                                -3.0,
+                                smart_product(smart_pow(a, 2), b.clone()),
+                            )),
                         );
-                        let term2 = Expr::Add(
-                            Box::new(three_ab2),
-                            Box::new(smart_mul(-1.0, b_cu)),
-                        );
+                        let term2 = Expr::Add(Box::new(three_ab2), Box::new(smart_mul(-1.0, b_cu)));
                         Expr::Add(Box::new(term1), Box::new(term2))
                     } else {
                         // a^3 + 3a^2b + 3ab^2 + b^3
@@ -3198,12 +4148,176 @@ pub mod rules {
                 _ => {
                     // Shouldn't reach here based on the filter above
                     if is_sub {
-                        Expr::Pow(Box::new(Expr::Sub(a.clone(), b.clone())), Box::new(Expr::Number(n as f64)))
+                        Expr::Pow(
+                            Box::new(Expr::Sub(Box::new(a.clone()), Box::new(b.clone()))),
+                            Box::new(Expr::Number(n as f64)),
+                        )
                     } else {
-                        Expr::Pow(Box::new(Expr::Add(a.clone(), b.clone())), Box::new(Expr::Number(n as f64)))
+                        Expr::Pow(
+                            Box::new(Expr::Add(Box::new(a.clone()), Box::new(b.clone()))),
+                            Box::new(Expr::Number(n as f64)),
+                        )
                     }
                 }
             }
+        }
+    }
+
+    /// Rule for distributing multiplication in division numerators to enable term combination
+    /// Expands a * (b + c) → a*b + a*c when inside a division numerator
+    /// This helps combine like terms after quotient rule differentiation
+    pub struct DistributeMulInNumeratorRule;
+
+    impl Rule for DistributeMulInNumeratorRule {
+        fn name(&self) -> &'static str {
+            "distribute_mul_in_numerator"
+        }
+
+        fn priority(&self) -> i32 {
+            35 // Lower than CommonTermFactoringRule (40) so factoring takes precedence
+        }
+
+        fn category(&self) -> RuleCategory {
+            RuleCategory::Algebraic
+        }
+
+        fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
+            // Only apply in division contexts to avoid infinite expansion
+            if let Expr::Div(num, den) = expr {
+                // Don't distribute if numerator is already a product of factors
+                // This prevents undoing factoring like (a+b)*(c+d) -> ac + ad + bc + bd
+                if let Expr::Mul(_, _) = &**num {
+                    let factors = crate::simplification::helpers::flatten_mul(&**num);
+                    // If any factor is Add/Sub, it's a factored form - don't distribute
+                    let has_sum_factor = factors.iter().any(|f| matches!(f, Expr::Add(_, _) | Expr::Sub(_, _)));
+                    if has_sum_factor {
+                        return None;
+                    }
+                }
+                
+                // Try to distribute in the numerator
+                if let Some(expanded_num) = Self::distribute_in_expr(num) {
+                    return Some(Expr::Div(Box::new(expanded_num), den.clone()));
+                }
+            }
+            None
+        }
+    }
+
+    impl DistributeMulInNumeratorRule {
+        /// Distribute multiplication over addition/subtraction in an expression
+        fn distribute_in_expr(expr: &Expr) -> Option<Expr> {
+            match expr {
+                // Handle Add/Sub containing distributable Mul terms
+                Expr::Add(a, b) => {
+                    let dist_a = Self::distribute_single_mul(a);
+                    let dist_b = Self::distribute_single_mul(b);
+                    if dist_a.is_some() || dist_b.is_some() {
+                        let new_a = dist_a.unwrap_or_else(|| (**a).clone());
+                        let new_b = dist_b.unwrap_or_else(|| (**b).clone());
+                        // Flatten the result - each distributed term might be Add/Sub
+                        let terms_a = crate::simplification::helpers::flatten_add(new_a);
+                        let terms_b = crate::simplification::helpers::flatten_add(new_b);
+                        let all_terms: Vec<Expr> = terms_a.into_iter().chain(terms_b).collect();
+                        return Some(crate::simplification::helpers::rebuild_add(all_terms));
+                    }
+                    None
+                }
+                Expr::Sub(a, b) => {
+                    let dist_a = Self::distribute_single_mul(a);
+                    let dist_b = Self::distribute_single_mul(b);
+                    if dist_a.is_some() || dist_b.is_some() {
+                        let new_a = dist_a.unwrap_or_else(|| (**a).clone());
+                        let new_b = dist_b.unwrap_or_else(|| (**b).clone());
+                        // Flatten and handle subtraction properly
+                        let terms_a = crate::simplification::helpers::flatten_add(new_a);
+                        let terms_b = crate::simplification::helpers::flatten_add(new_b);
+                        // Negate all terms from b
+                        let negated_b: Vec<Expr> = terms_b
+                            .into_iter()
+                            .map(|t| Expr::Mul(Box::new(Expr::Number(-1.0)), Box::new(t)))
+                            .collect();
+                        let all_terms: Vec<Expr> = terms_a.into_iter().chain(negated_b).collect();
+                        return Some(crate::simplification::helpers::rebuild_add(all_terms));
+                    }
+                    None
+                }
+                // Also check if the expression itself is distributable
+                Expr::Mul(_, _) => Self::distribute_single_mul(expr),
+                _ => None,
+            }
+        }
+
+        /// Distribute a single multiplication: a * (b + c) → a*b + a*c
+        /// Also folds numeric constants immediately to avoid 3 * (2 * x) -> 3 * 2 * x
+        fn distribute_single_mul(expr: &Expr) -> Option<Expr> {
+            if let Expr::Mul(_, _) = expr {
+                let factors = crate::simplification::helpers::flatten_mul(expr);
+
+                // Find an Add/Sub factor to distribute
+                for (i, factor) in factors.iter().enumerate() {
+                    match factor {
+                        Expr::Add(a, b) | Expr::Sub(a, b) => {
+                            let is_sub = matches!(factor, Expr::Sub(_, _));
+                            // Collect other factors
+                            let other_factors: Vec<Expr> = factors
+                                .iter()
+                                .enumerate()
+                                .filter(|(j, _)| *j != i)
+                                .map(|(_, f)| f.clone())
+                                .collect();
+
+                            if other_factors.is_empty() {
+                                return None; // No other factors to distribute
+                            }
+
+                            // Helper to build distributed term with constant folding
+                            let build_term = |inner: &Box<Expr>| -> Expr {
+                                // Flatten the inner term and the outer factors
+                                let inner_factors = crate::simplification::helpers::flatten_mul(inner);
+                                let all_factors: Vec<Expr> = other_factors.iter()
+                                    .cloned()
+                                    .chain(inner_factors.into_iter())
+                                    .collect();
+                                
+                                // Separate numbers and non-numbers
+                                let mut numbers: Vec<f64> = Vec::new();
+                                let mut non_numbers: Vec<Expr> = Vec::new();
+                                
+                                for f in &all_factors {
+                                    if let Expr::Number(n) = f {
+                                        numbers.push(*n);
+                                    } else {
+                                        non_numbers.push(f.clone());
+                                    }
+                                }
+                                
+                                // Combine numbers if there are multiple
+                                let mut result_factors = if numbers.len() >= 2 {
+                                    let combined: f64 = numbers.iter().product();
+                                    vec![Expr::Number(combined)]
+                                } else {
+                                    numbers.into_iter().map(Expr::Number).collect()
+                                };
+                                result_factors.extend(non_numbers);
+                                
+                                crate::simplification::helpers::rebuild_mul(result_factors)
+                            };
+
+                            let term_a = build_term(a);
+                            let term_b = build_term(b);
+
+                            return Some(if is_sub {
+                                Expr::Sub(Box::new(term_a), Box::new(term_b))
+                            } else {
+                                Expr::Add(Box::new(term_a), Box::new(term_b))
+                            });
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            None
         }
     }
 }
@@ -3213,12 +4327,26 @@ pub fn get_algebraic_rules() -> Vec<Rc<dyn Rule>> {
     vec![
         //Rc::new(rules::NormalizeAddNegationRule),       // Priority 98 - Normalize a + (-b) early
         Rc::new(rules::ExpandPowerForCancellationRule), // Priority 95
-        Rc::new(rules::PolynomialExpansionRule),        // Priority 92 - Expand polynomials for cancellation
-        Rc::new(rules::FractionCancellationRule),       // Priority 90
+        Rc::new(rules::FractionToEndRule), // Priority 93 - Move fractions to end of multiplication
+        Rc::new(rules::PolynomialExpansionRule), // Priority 92 - Expand polynomials for cancellation
+        Rc::new(rules::DistributeMulInNumeratorRule), // Priority 35 - Distribute mul in numerator (lower than factoring)
+        Rc::new(rules::FractionCancellationRule),     // Priority 90
         Rc::new(rules::PowerZeroRule),
         Rc::new(rules::PowerOneRule),
         Rc::new(rules::DivDivRule), // NEW: Flatten nested divisions early
+        Rc::new(rules::CombineNestedFractionRule), // Priority 94 - Combine (a-b/c)/d -> (a*c-b)/(c*d)
         Rc::new(rules::DivSelfRule),
+        // Absolute value and sign rules
+        Rc::new(rules::AbsNumericRule),  // Priority 95 - abs(number)
+        Rc::new(rules::SignNumericRule), // Priority 95 - sign(number)
+        Rc::new(rules::AbsAbsRule),      // Priority 90 - abs(abs(x))
+        Rc::new(rules::AbsNegRule),      // Priority 90 - abs(-x)
+        Rc::new(rules::SignSignRule),    // Priority 90 - sign(sign(x))
+        Rc::new(rules::AbsSquareRule),   // Priority 85 - abs(x^2)
+        Rc::new(rules::AbsPowEvenRule),  // Priority 85 - abs(x)^2
+        Rc::new(rules::SignAbsRule),     // Priority 85 - sign(abs(x))
+        Rc::new(rules::AbsSignMulRule),  // Priority 85 - abs(x)*sign(x)
+        // Exponential/logarithmic rules
         Rc::new(rules::ExpLnRule),
         Rc::new(rules::LnExpRule),
         Rc::new(rules::ExpMulLnRule),
@@ -3240,12 +4368,13 @@ pub fn get_algebraic_rules() -> Vec<Rc<dyn Rule>> {
         Rc::new(rules::CanonicalizeRule),
         Rc::new(rules::CombineFactorsRule),
         Rc::new(rules::CombineTermsRule),
-        Rc::new(rules::NumericGcdFactoringRule),    // Priority 42 - Factor out numeric GCD
+        Rc::new(rules::NumericGcdFactoringRule), // Priority 42 - Factor out numeric GCD
         Rc::new(rules::CommonTermFactoringRule),
+        Rc::new(rules::CommonPowerFactoringRule), // Priority 39 - Factor out common powers like x³+x² → x²(x+1)
         Rc::new(rules::PerfectSquareRule),
-        Rc::new(rules::ExpandDifferenceOfSquaresProductRule),  // Priority 85 - Expand (a+b)(a-b) early for cancellations
-        Rc::new(rules::CombineLikeTermsInAdditionRule),        // Priority 80 - Combine like terms for cancellations
-        Rc::new(rules::FactorDifferenceOfSquaresRule),          // Priority 10 - Factor a^2-b^2 late if no cancellation
+        Rc::new(rules::ExpandDifferenceOfSquaresProductRule), // Priority 85 - Expand (a+b)(a-b) early for cancellations
+        Rc::new(rules::CombineLikeTermsInAdditionRule), // Priority 80 - Combine like terms for cancellations
+        Rc::new(rules::FactorDifferenceOfSquaresRule), // Priority 10 - Factor a^2-b^2 for roots
         Rc::new(rules::PerfectCubeRule),
         Rc::new(rules::DistributeNegationRule),
         Rc::new(rules::CanonicalizeMultiplicationRule), // Priority 15 - Order and flatten multiplication

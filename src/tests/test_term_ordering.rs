@@ -185,11 +185,11 @@ mod tests {
         // (exp(-x) - exp(x)) / 2 should give us -(exp(x) - exp(-x))/2 = -sinh(x)
         // But let's test the canonical form: (exp(x) - exp(-x)) / 2 reversed in subtraction
         // Actually for sinh we need to test: (exp(x) - exp(-x))/2 in different forms
-        
+
         // The pattern matcher in SinhFromExpRule handles both Add and Sub
         // Let's verify it handles reversed subtraction: since Sub is not commutative,
         // we test that the match_sinh_pattern handles both u and v positions
-        
+
         // This is already tested in the original tests, but let's add a variant
         // where the terms appear in a different order due to Add with negation
         let expr = Expr::Div(
