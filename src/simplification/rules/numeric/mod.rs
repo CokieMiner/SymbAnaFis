@@ -21,7 +21,7 @@ pub mod rules {
         fn category(&self) -> RuleCategory {
             RuleCategory::Numeric
         }
-        
+
         fn applies_to(&self) -> &'static [ExprKind] {
             &[ExprKind::Add]
         }
@@ -54,7 +54,7 @@ pub mod rules {
         fn category(&self) -> RuleCategory {
             RuleCategory::Numeric
         }
-        
+
         fn applies_to(&self) -> &'static [ExprKind] {
             &[ExprKind::Sub]
         }
@@ -84,7 +84,7 @@ pub mod rules {
         fn category(&self) -> RuleCategory {
             RuleCategory::Numeric
         }
-        
+
         fn applies_to(&self) -> &'static [ExprKind] {
             &[ExprKind::Mul]
         }
@@ -117,7 +117,7 @@ pub mod rules {
         fn category(&self) -> RuleCategory {
             RuleCategory::Numeric
         }
-        
+
         fn applies_to(&self) -> &'static [ExprKind] {
             &[ExprKind::Mul]
         }
@@ -150,7 +150,7 @@ pub mod rules {
         fn category(&self) -> RuleCategory {
             RuleCategory::Numeric
         }
-        
+
         fn applies_to(&self) -> &'static [ExprKind] {
             &[ExprKind::Div]
         }
@@ -180,7 +180,7 @@ pub mod rules {
         fn category(&self) -> RuleCategory {
             RuleCategory::Numeric
         }
-        
+
         fn applies_to(&self) -> &'static [ExprKind] {
             &[ExprKind::Div]
         }
@@ -211,7 +211,7 @@ pub mod rules {
         fn category(&self) -> RuleCategory {
             RuleCategory::Numeric
         }
-        
+
         fn applies_to(&self) -> &'static [ExprKind] {
             &[ExprKind::Div]
         }
@@ -270,7 +270,7 @@ pub mod rules {
         fn category(&self) -> RuleCategory {
             RuleCategory::Numeric
         }
-        
+
         fn applies_to(&self) -> &'static [ExprKind] {
             &[ExprKind::Pow]
         }
@@ -300,7 +300,7 @@ pub mod rules {
         fn category(&self) -> RuleCategory {
             RuleCategory::Numeric
         }
-        
+
         fn applies_to(&self) -> &'static [ExprKind] {
             &[ExprKind::Pow]
         }
@@ -330,7 +330,7 @@ pub mod rules {
         fn category(&self) -> RuleCategory {
             RuleCategory::Numeric
         }
-        
+
         fn applies_to(&self) -> &'static [ExprKind] {
             &[ExprKind::Pow]
         }
@@ -360,7 +360,7 @@ pub mod rules {
         fn category(&self) -> RuleCategory {
             RuleCategory::Numeric
         }
-        
+
         fn applies_to(&self) -> &'static [ExprKind] {
             &[ExprKind::Pow]
         }
@@ -390,9 +390,15 @@ pub mod rules {
         fn category(&self) -> RuleCategory {
             RuleCategory::Numeric
         }
-        
+
         fn applies_to(&self) -> &'static [ExprKind] {
-            &[ExprKind::Add, ExprKind::Sub, ExprKind::Mul, ExprKind::Div, ExprKind::Pow]
+            &[
+                ExprKind::Add,
+                ExprKind::Sub,
+                ExprKind::Mul,
+                ExprKind::Div,
+                ExprKind::Pow,
+            ]
         }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
@@ -596,7 +602,7 @@ pub mod rules {
         fn category(&self) -> RuleCategory {
             RuleCategory::Numeric
         }
-        
+
         fn applies_to(&self) -> &'static [ExprKind] {
             &[ExprKind::Div]
         }

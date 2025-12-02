@@ -44,7 +44,7 @@ pub trait Rule {
     fn alters_domain(&self) -> bool {
         false
     }
-    
+
     /// Which expression kinds this rule can apply to.
     /// Rules will ONLY be checked against expressions matching these kinds.
     /// Default: all kinds (for backwards compatibility during migration)
@@ -60,7 +60,7 @@ pub trait Rule {
             ExprKind::Function,
         ]
     }
-    
+
     fn apply(&self, expr: &Expr, context: &RuleContext) -> Option<Expr>;
 }
 
@@ -144,7 +144,7 @@ pub struct RuleRegistry {
 
 impl RuleRegistry {
     pub fn new() -> Self {
-        Self { 
+        Self {
             rules: Vec::new(),
             rules_by_kind: HashMap::new(),
         }
@@ -240,15 +240,15 @@ impl RuleRegistry {
 
         // Finally, sort by priority descending to ensure high-priority rules run first
         self.rules.sort_by_key(|b| std::cmp::Reverse(b.priority()));
-        
+
         // Build the kind index after final ordering
         self.build_kind_index();
     }
-    
+
     /// Build the index of rules by expression kind
     fn build_kind_index(&mut self) {
         self.rules_by_kind.clear();
-        
+
         // Initialize all kinds
         for kind in [
             ExprKind::Number,
@@ -262,7 +262,7 @@ impl RuleRegistry {
         ] {
             self.rules_by_kind.insert(kind, Vec::new());
         }
-        
+
         // Index each rule by the kinds it applies to
         for rule in &self.rules {
             for &kind in rule.applies_to() {
@@ -273,10 +273,12 @@ impl RuleRegistry {
         }
     }
 
-    
     /// Get only rules that apply to a specific expression kind
     #[inline]
     pub fn get_rules_for_kind(&self, kind: ExprKind) -> &[Rc<dyn Rule>] {
-        self.rules_by_kind.get(&kind).map(|v| v.as_slice()).unwrap_or(&[])
+        self.rules_by_kind
+            .get(&kind)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
     }
 }

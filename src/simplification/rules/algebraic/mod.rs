@@ -1611,13 +1611,11 @@ pub mod rules {
                             }
                             None
                         }
-                        Expr::Div(num, den) => {
-                            Some((vec![], (**num).clone(), (**den).clone()))
-                        }
+                        Expr::Div(num, den) => Some((vec![], (**num).clone(), (**den).clone())),
                         _ => None,
                     }
                 }
-                
+
                 if let Some((extra_factors, num, den)) = find_div_in_mul(expr) {
                     // Combine extra factors with numerator
                     let mut all_num_factors = crate::simplification::helpers::flatten_mul(&num);
@@ -1629,7 +1627,7 @@ pub mod rules {
                 }
                 return None;
             }
-            
+
             if let Expr::Div(u, v) = expr {
                 let num_factors = crate::simplification::helpers::flatten_mul(u);
                 let den_factors = crate::simplification::helpers::flatten_mul(v);
