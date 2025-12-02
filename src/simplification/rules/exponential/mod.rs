@@ -1,5 +1,5 @@
 use crate::ast::Expr;
-use crate::simplification::rules::{Rule, RuleCategory, RuleContext};
+use crate::simplification::rules::{ExprKind, Rule, RuleCategory, RuleContext};
 use std::rc::Rc;
 
 /// Rule for ln(1) = 0
@@ -16,6 +16,10 @@ impl Rule for LnOneRule {
 
     fn category(&self) -> RuleCategory {
         RuleCategory::Exponential
+    }
+
+    fn applies_to(&self) -> &'static [ExprKind] {
+        &[ExprKind::Function]
     }
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
@@ -44,6 +48,10 @@ impl Rule for LnERule {
 
     fn category(&self) -> RuleCategory {
         RuleCategory::Exponential
+    }
+
+    fn applies_to(&self) -> &'static [ExprKind] {
+        &[ExprKind::Function]
     }
 
     fn apply(&self, expr: &Expr, context: &RuleContext) -> Option<Expr> {
@@ -85,6 +93,10 @@ impl Rule for ExpZeroRule {
         RuleCategory::Exponential
     }
 
+    fn applies_to(&self) -> &'static [ExprKind] {
+        &[ExprKind::Function]
+    }
+
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
         if let Expr::FunctionCall { name, args } = expr
             && name == "exp"
@@ -115,6 +127,10 @@ impl Rule for ExpLnIdentityRule {
 
     fn alters_domain(&self) -> bool {
         true
+    }
+
+    fn applies_to(&self) -> &'static [ExprKind] {
+        &[ExprKind::Function]
     }
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
@@ -148,6 +164,10 @@ impl Rule for LnExpIdentityRule {
 
     fn category(&self) -> RuleCategory {
         RuleCategory::Exponential
+    }
+
+    fn applies_to(&self) -> &'static [ExprKind] {
+        &[ExprKind::Function]
     }
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
@@ -198,6 +218,10 @@ impl Rule for LogPowerRule {
     fn alters_domain(&self) -> bool {
         // We handle domain safety dynamically in apply()
         false
+    }
+
+    fn applies_to(&self) -> &'static [ExprKind] {
+        &[ExprKind::Function]
     }
 
     fn apply(&self, expr: &Expr, context: &RuleContext) -> Option<Expr> {
@@ -321,6 +345,10 @@ impl Rule for LogBaseRules {
         RuleCategory::Exponential
     }
 
+    fn applies_to(&self) -> &'static [ExprKind] {
+        &[ExprKind::Function]
+    }
+
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
         if let Expr::FunctionCall { name, args } = expr
             && args.len() == 1
@@ -361,6 +389,10 @@ impl Rule for ExpToEPowRule {
         RuleCategory::Exponential
     }
 
+    fn applies_to(&self) -> &'static [ExprKind] {
+        &[ExprKind::Function]
+    }
+
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
         if let Expr::FunctionCall { name, args } = expr
             && name == "exp"
@@ -389,6 +421,10 @@ impl Rule for LogCombinationRule {
 
     fn category(&self) -> RuleCategory {
         RuleCategory::Exponential
+    }
+
+    fn applies_to(&self) -> &'static [ExprKind] {
+        &[ExprKind::Add, ExprKind::Sub]
     }
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {

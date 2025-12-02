@@ -1,5 +1,5 @@
 use crate::Expr;
-use crate::simplification::rules::{Rule, RuleCategory, RuleContext};
+use crate::simplification::rules::{ExprKind, Rule, RuleCategory, RuleContext};
 use std::rc::Rc;
 
 /// Numeric simplification rules
@@ -20,6 +20,10 @@ pub mod rules {
 
         fn category(&self) -> RuleCategory {
             RuleCategory::Numeric
+        }
+        
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Add]
         }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
@@ -50,6 +54,10 @@ pub mod rules {
         fn category(&self) -> RuleCategory {
             RuleCategory::Numeric
         }
+        
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Sub]
+        }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
             if let Expr::Sub(u, v) = expr
@@ -75,6 +83,10 @@ pub mod rules {
 
         fn category(&self) -> RuleCategory {
             RuleCategory::Numeric
+        }
+        
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Mul]
         }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
@@ -105,6 +117,10 @@ pub mod rules {
         fn category(&self) -> RuleCategory {
             RuleCategory::Numeric
         }
+        
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Mul]
+        }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
             if let Expr::Mul(u, v) = expr {
@@ -134,6 +150,10 @@ pub mod rules {
         fn category(&self) -> RuleCategory {
             RuleCategory::Numeric
         }
+        
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Div]
+        }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
             if let Expr::Div(u, v) = expr
@@ -159,6 +179,10 @@ pub mod rules {
 
         fn category(&self) -> RuleCategory {
             RuleCategory::Numeric
+        }
+        
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Div]
         }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
@@ -186,6 +210,10 @@ pub mod rules {
 
         fn category(&self) -> RuleCategory {
             RuleCategory::Numeric
+        }
+        
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Div]
         }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
@@ -242,6 +270,10 @@ pub mod rules {
         fn category(&self) -> RuleCategory {
             RuleCategory::Numeric
         }
+        
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Pow]
+        }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
             if let Expr::Pow(_u, v) = expr
@@ -267,6 +299,10 @@ pub mod rules {
 
         fn category(&self) -> RuleCategory {
             RuleCategory::Numeric
+        }
+        
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Pow]
         }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
@@ -294,6 +330,10 @@ pub mod rules {
         fn category(&self) -> RuleCategory {
             RuleCategory::Numeric
         }
+        
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Pow]
+        }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
             if let Expr::Pow(_u, _v) = expr
@@ -319,6 +359,10 @@ pub mod rules {
 
         fn category(&self) -> RuleCategory {
             RuleCategory::Numeric
+        }
+        
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Pow]
         }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
@@ -346,6 +390,10 @@ pub mod rules {
         fn category(&self) -> RuleCategory {
             RuleCategory::Numeric
         }
+        
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Add, ExprKind::Sub, ExprKind::Mul, ExprKind::Div, ExprKind::Pow]
+        }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
             match expr {
@@ -356,6 +404,42 @@ pub mod rules {
                             return Some(Expr::Number(result));
                         }
                     }
+                    // Handle Div(Number, Number) + Number => simplified fraction or number
+                    if let (Expr::Div(num, den), Expr::Number(b)) = (&**u, &**v)
+                        && let (Expr::Number(num_val), Expr::Number(den_val)) = (&**num, &**den)
+                        && *den_val != 0.0
+                    {
+                        // (num_val / den_val) + b = (num_val + b * den_val) / den_val
+                        let new_num = num_val + b * den_val;
+                        let result = new_num / den_val;
+                        // Check if result is a clean integer
+                        if (result - result.round()).abs() < 1e-10 {
+                            return Some(Expr::Number(result.round()));
+                        }
+                        // Otherwise return as simplified fraction
+                        return Some(Expr::Div(
+                            Box::new(Expr::Number(new_num)),
+                            Box::new(Expr::Number(*den_val)),
+                        ));
+                    }
+                    // Handle Number + Div(Number, Number) => simplified fraction or number
+                    if let (Expr::Number(a), Expr::Div(num, den)) = (&**u, &**v)
+                        && let (Expr::Number(num_val), Expr::Number(den_val)) = (&**num, &**den)
+                        && *den_val != 0.0
+                    {
+                        // a + (num_val / den_val) = (a * den_val + num_val) / den_val
+                        let new_num = a * den_val + num_val;
+                        let result = new_num / den_val;
+                        // Check if result is a clean integer
+                        if (result - result.round()).abs() < 1e-10 {
+                            return Some(Expr::Number(result.round()));
+                        }
+                        // Otherwise return as simplified fraction
+                        return Some(Expr::Div(
+                            Box::new(Expr::Number(new_num)),
+                            Box::new(Expr::Number(*den_val)),
+                        ));
+                    }
                 }
                 Expr::Sub(u, v) => {
                     if let (Expr::Number(a), Expr::Number(b)) = (&**u, &**v) {
@@ -363,6 +447,42 @@ pub mod rules {
                         if !result.is_nan() && !result.is_infinite() {
                             return Some(Expr::Number(result));
                         }
+                    }
+                    // Handle Div(Number, Number) - Number => simplified fraction or number
+                    if let (Expr::Div(num, den), Expr::Number(b)) = (&**u, &**v)
+                        && let (Expr::Number(num_val), Expr::Number(den_val)) = (&**num, &**den)
+                        && *den_val != 0.0
+                    {
+                        // (num_val / den_val) - b = (num_val - b * den_val) / den_val
+                        let new_num = num_val - b * den_val;
+                        let result = new_num / den_val;
+                        // Check if result is a clean integer
+                        if (result - result.round()).abs() < 1e-10 {
+                            return Some(Expr::Number(result.round()));
+                        }
+                        // Otherwise return as simplified fraction
+                        return Some(Expr::Div(
+                            Box::new(Expr::Number(new_num)),
+                            Box::new(Expr::Number(*den_val)),
+                        ));
+                    }
+                    // Handle Number - Div(Number, Number) => simplified fraction or number
+                    if let (Expr::Number(a), Expr::Div(num, den)) = (&**u, &**v)
+                        && let (Expr::Number(num_val), Expr::Number(den_val)) = (&**num, &**den)
+                        && *den_val != 0.0
+                    {
+                        // a - (num_val / den_val) = (a * den_val - num_val) / den_val
+                        let new_num = a * den_val - num_val;
+                        let result = new_num / den_val;
+                        // Check if result is a clean integer
+                        if (result - result.round()).abs() < 1e-10 {
+                            return Some(Expr::Number(result.round()));
+                        }
+                        // Otherwise return as simplified fraction
+                        return Some(Expr::Div(
+                            Box::new(Expr::Number(new_num)),
+                            Box::new(Expr::Number(*den_val)),
+                        ));
                     }
                 }
                 Expr::Mul(u, v) => {
@@ -475,6 +595,10 @@ pub mod rules {
 
         fn category(&self) -> RuleCategory {
             RuleCategory::Numeric
+        }
+        
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Div]
         }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {

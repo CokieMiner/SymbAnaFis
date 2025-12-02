@@ -1,5 +1,5 @@
 use crate::Expr;
-use crate::simplification::rules::{Rule, RuleCategory, RuleContext};
+use crate::simplification::rules::{ExprKind, Rule, RuleCategory, RuleContext};
 use std::rc::Rc;
 
 /// Algebraic simplification rules
@@ -24,6 +24,10 @@ pub mod rules {
 
         fn alters_domain(&self) -> bool {
             true
+        }
+
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Function]
         }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
@@ -58,6 +62,10 @@ pub mod rules {
             RuleCategory::Algebraic
         }
 
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Function]
+        }
+
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
             if let Expr::FunctionCall { name, args } = expr
                 && name == "ln"
@@ -89,6 +97,10 @@ pub mod rules {
 
         fn category(&self) -> RuleCategory {
             RuleCategory::Algebraic
+        }
+
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Function]
         }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
@@ -142,6 +154,10 @@ pub mod rules {
             true
         }
 
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Pow]
+        }
+
         fn apply(&self, expr: &Expr, context: &RuleContext) -> Option<Expr> {
             if let Expr::Pow(base, exp) = expr {
                 // Check if base is Symbol("e") AND "e" is not a user-specified fixed variable
@@ -175,6 +191,10 @@ pub mod rules {
 
         fn category(&self) -> RuleCategory {
             RuleCategory::Algebraic
+        }
+
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Pow]
         }
 
         fn apply(&self, expr: &Expr, context: &RuleContext) -> Option<Expr> {
@@ -229,6 +249,10 @@ pub mod rules {
             RuleCategory::Algebraic
         }
 
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Div]
+        }
+
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
             if let Expr::Div(num, den) = expr {
                 // Case 1: (a/b)/(c/d) -> (a*d)/(b*c)
@@ -273,6 +297,10 @@ pub mod rules {
 
         fn category(&self) -> RuleCategory {
             RuleCategory::Algebraic
+        }
+
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Div]
         }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
@@ -333,6 +361,10 @@ pub mod rules {
             RuleCategory::Algebraic
         }
 
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Function]
+        }
+
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
             if let Expr::FunctionCall { name, args } = expr
                 && (name == "abs" || name == "Abs")
@@ -359,6 +391,10 @@ pub mod rules {
 
         fn category(&self) -> RuleCategory {
             RuleCategory::Algebraic
+        }
+
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Function]
         }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
@@ -392,6 +428,10 @@ pub mod rules {
 
         fn category(&self) -> RuleCategory {
             RuleCategory::Algebraic
+        }
+
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Function]
         }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
@@ -430,6 +470,10 @@ pub mod rules {
             RuleCategory::Algebraic
         }
 
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Function]
+        }
+
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
             if let Expr::FunctionCall { name, args } = expr
                 && (name == "abs" || name == "Abs")
@@ -465,6 +509,10 @@ pub mod rules {
             RuleCategory::Algebraic
         }
 
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Pow]
+        }
+
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
             // abs(x)^n where n is positive even integer -> x^n
             if let Expr::Pow(base, exp) = expr
@@ -496,6 +544,10 @@ pub mod rules {
 
         fn category(&self) -> RuleCategory {
             RuleCategory::Algebraic
+        }
+
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Function]
         }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
@@ -530,6 +582,10 @@ pub mod rules {
 
         fn category(&self) -> RuleCategory {
             RuleCategory::Algebraic
+        }
+
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Function]
         }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
@@ -569,6 +625,10 @@ pub mod rules {
             true // May alter domain at x = 0
         }
 
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Function]
+        }
+
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
             if let Expr::FunctionCall { name, args } = expr
                 && (name == "sign" || name == "sgn")
@@ -599,6 +659,10 @@ pub mod rules {
 
         fn category(&self) -> RuleCategory {
             RuleCategory::Algebraic
+        }
+
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Mul]
         }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
@@ -657,6 +721,10 @@ pub mod rules {
             true
         }
 
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Div]
+        }
+
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
             if let Expr::Div(u, v) = expr
                 && u == v
@@ -682,6 +750,10 @@ pub mod rules {
 
         fn category(&self) -> RuleCategory {
             RuleCategory::Algebraic
+        }
+
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Pow]
         }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
@@ -761,6 +833,10 @@ pub mod rules {
             vec![] // No dependencies
         }
 
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Pow]
+        }
+
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
             if let Expr::Pow(_u, _v) = expr
                 && matches!(**_v, Expr::Number(n) if n == 0.0)
@@ -787,6 +863,10 @@ pub mod rules {
             RuleCategory::Algebraic
         }
 
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Pow]
+        }
+
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
             if let Expr::Pow(u, v) = expr
                 && matches!(**v, Expr::Number(n) if n == 1.0)
@@ -811,6 +891,10 @@ pub mod rules {
 
         fn category(&self) -> RuleCategory {
             RuleCategory::Algebraic
+        }
+
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Mul]
         }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
@@ -866,6 +950,10 @@ pub mod rules {
             true
         }
 
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Div]
+        }
+
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
             if let Expr::Div(u, v) = expr {
                 // Check if both numerator and denominator are powers with the same base
@@ -914,6 +1002,10 @@ pub mod rules {
 
         fn category(&self) -> RuleCategory {
             RuleCategory::Algebraic
+        }
+
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Div]
         }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
@@ -1034,6 +1126,10 @@ pub mod rules {
 
         fn category(&self) -> RuleCategory {
             RuleCategory::Algebraic
+        }
+
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Pow]
         }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
@@ -1157,6 +1253,10 @@ pub mod rules {
             RuleCategory::Algebraic
         }
 
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Mul]
+        }
+
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
             if let Expr::Mul(_, _) = expr {
                 let factors = crate::simplification::helpers::flatten_mul(expr);
@@ -1235,6 +1335,10 @@ pub mod rules {
             false
         }
 
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Div]
+        }
+
         fn apply(&self, expr: &Expr, context: &RuleContext) -> Option<Expr> {
             if let Expr::Div(num, den) = expr
                 && let (Expr::Pow(base_num, exp_num), Expr::Pow(base_den, exp_den)) =
@@ -1286,6 +1390,10 @@ pub mod rules {
             false
         }
 
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Mul]
+        }
+
         fn apply(&self, expr: &Expr, context: &RuleContext) -> Option<Expr> {
             if let Expr::Mul(left, right) = expr
                 && let (Expr::Pow(base_left, exp_left), Expr::Pow(base_right, exp_right)) =
@@ -1331,6 +1439,10 @@ pub mod rules {
             RuleCategory::Algebraic
         }
 
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Pow]
+        }
+
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
             if let Expr::Pow(base, exp) = expr {
                 if let Expr::Div(num, den) = &**exp {
@@ -1369,6 +1481,10 @@ pub mod rules {
             RuleCategory::Algebraic
         }
 
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Pow]
+        }
+
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
             if let Expr::Pow(base, exp) = expr
                 && let Expr::Div(num, den) = &**exp
@@ -1398,6 +1514,10 @@ pub mod rules {
 
         fn category(&self) -> RuleCategory {
             RuleCategory::Algebraic
+        }
+
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Pow]
         }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
@@ -1465,11 +1585,51 @@ pub mod rules {
             RuleCategory::Algebraic
         }
 
+        fn applies_to(&self) -> &'static [ExprKind] {
+            // Include Mul because sometimes Div is nested inside Mul and needs to be found
+            &[ExprKind::Div, ExprKind::Mul]
+        }
+
         // Note: We don't set alters_domain to true because the rule handles
         // domain safety internally - it always applies safe numeric simplifications
         // and only applies symbolic cancellation when not in domain-safe mode.
 
         fn apply(&self, expr: &Expr, context: &RuleContext) -> Option<Expr> {
+            // For Mul expressions, check if there's a Div nested inside that we can simplify
+            if let Expr::Mul(_, _) = expr {
+                // Extract all factors including any divisions
+                fn find_div_in_mul(e: &Expr) -> Option<(Vec<Expr>, Expr, Expr)> {
+                    match e {
+                        Expr::Mul(a, b) => {
+                            if let Some((mut factors, num, den)) = find_div_in_mul(a) {
+                                factors.push((**b).clone());
+                                return Some((factors, num, den));
+                            }
+                            if let Some((mut factors, num, den)) = find_div_in_mul(b) {
+                                factors.push((**a).clone());
+                                return Some((factors, num, den));
+                            }
+                            None
+                        }
+                        Expr::Div(num, den) => {
+                            Some((vec![], (**num).clone(), (**den).clone()))
+                        }
+                        _ => None,
+                    }
+                }
+                
+                if let Some((extra_factors, num, den)) = find_div_in_mul(expr) {
+                    // Combine extra factors with numerator
+                    let mut all_num_factors = crate::simplification::helpers::flatten_mul(&num);
+                    all_num_factors.extend(extra_factors);
+                    let combined_num = crate::simplification::helpers::rebuild_mul(all_num_factors);
+                    let new_div = Expr::Div(Box::new(combined_num), Box::new(den));
+                    // Let the Div case below handle the cancellation
+                    return self.apply(&new_div, context);
+                }
+                return None;
+            }
+            
             if let Expr::Div(u, v) = expr {
                 let num_factors = crate::simplification::helpers::flatten_mul(u);
                 let den_factors = crate::simplification::helpers::flatten_mul(v);
@@ -1689,6 +1849,10 @@ pub mod rules {
             RuleCategory::Algebraic
         }
 
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Add]
+        }
+
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
             if let Expr::Add(u, v) = expr {
                 // Case 1: a/b + c/d
@@ -1779,6 +1943,10 @@ pub mod rules {
             RuleCategory::Algebraic
         }
 
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Mul, ExprKind::Add]
+        }
+
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
             match expr {
                 Expr::Mul(_u, _v) => {
@@ -1864,6 +2032,10 @@ pub mod rules {
 
         fn category(&self) -> RuleCategory {
             RuleCategory::Algebraic
+        }
+
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Div, ExprKind::Mul]
         }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
@@ -1984,6 +2156,10 @@ pub mod rules {
             RuleCategory::Algebraic
         }
 
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Mul]
+        }
+
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
             if let Expr::Mul(u, v) = expr {
                 // Case 1: a * (b / c) -> (a * b) / c
@@ -2013,6 +2189,10 @@ pub mod rules {
 
         fn category(&self) -> RuleCategory {
             RuleCategory::Algebraic
+        }
+
+        fn applies_to(&self) -> &'static [ExprKind] {
+            &[ExprKind::Add, ExprKind::Sub]
         }
 
         fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {

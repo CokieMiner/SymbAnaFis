@@ -24,6 +24,9 @@ pub use ast::Expr;
 pub use error::DiffError;
 pub use parser::parse;
 
+// Re-export simplification module for AST-level operations
+pub use simplification::{simplify as simplify_ast, simplify_with_fixed_vars as simplify_ast_with_fixed_vars};
+
 use std::collections::HashSet;
 use std::env;
 

@@ -1,6 +1,6 @@
 [package]
 name = "symb_anafis"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 authors = ["CokieMiner"]
 description = "Fast symbolic differentiation library for Rust"
@@ -14,3 +14,6 @@ categories = ["mathematics", "science"]
 [dev-dependencies]
 criterion = "0.8.0"
 
+[[bench]]
+name = "benchmark"
+harness = false

@@ -1,5 +1,5 @@
 use crate::ast::Expr;
-use crate::simplification::rules::{Rule, RuleCategory, RuleContext};
+use crate::simplification::rules::{ExprKind, Rule, RuleCategory, RuleContext};
 use std::rc::Rc;
 
 // ============================================================================
@@ -456,6 +456,10 @@ impl Rule for SinhZeroRule {
         RuleCategory::Hyperbolic
     }
 
+    fn applies_to(&self) -> &'static [ExprKind] {
+        &[ExprKind::Function]
+    }
+
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
         if let Expr::FunctionCall { name, args } = expr
             && name == "sinh"
@@ -482,6 +486,10 @@ impl Rule for CoshZeroRule {
 
     fn category(&self) -> RuleCategory {
         RuleCategory::Hyperbolic
+    }
+
+    fn applies_to(&self) -> &'static [ExprKind] {
+        &[ExprKind::Function]
     }
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
@@ -511,6 +519,10 @@ impl Rule for SinhFromExpRule {
 
     fn category(&self) -> RuleCategory {
         RuleCategory::Hyperbolic
+    }
+
+    fn applies_to(&self) -> &'static [ExprKind] {
+        &[ExprKind::Div]
     }
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
@@ -579,6 +591,10 @@ impl Rule for CoshFromExpRule {
         RuleCategory::Hyperbolic
     }
 
+    fn applies_to(&self) -> &'static [ExprKind] {
+        &[ExprKind::Div]
+    }
+
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
         if let Expr::Div(numerator, denominator) = expr {
             // Standard form: (e^x + e^(-x)) / 2
@@ -620,6 +636,10 @@ impl Rule for TanhFromExpRule {
 
     fn category(&self) -> RuleCategory {
         RuleCategory::Hyperbolic
+    }
+
+    fn applies_to(&self) -> &'static [ExprKind] {
+        &[ExprKind::Div]
     }
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
@@ -689,6 +709,10 @@ impl Rule for SechFromExpRule {
         RuleCategory::Hyperbolic
     }
 
+    fn applies_to(&self) -> &'static [ExprKind] {
+        &[ExprKind::Div]
+    }
+
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
         if let Expr::Div(numerator, denominator) = expr {
             // Standard form: 2 / (e^x + e^(-x))
@@ -735,6 +759,10 @@ impl Rule for CschFromExpRule {
         RuleCategory::Hyperbolic
     }
 
+    fn applies_to(&self) -> &'static [ExprKind] {
+        &[ExprKind::Div]
+    }
+
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
         if let Expr::Div(numerator, denominator) = expr
             && let Expr::Number(n) = &**numerator
@@ -769,6 +797,10 @@ impl Rule for CothFromExpRule {
 
     fn category(&self) -> RuleCategory {
         RuleCategory::Hyperbolic
+    }
+
+    fn applies_to(&self) -> &'static [ExprKind] {
+        &[ExprKind::Div]
     }
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {

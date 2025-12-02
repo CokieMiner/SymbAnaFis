@@ -1,6 +1,6 @@
 use crate::ast::Expr;
 use crate::simplification::helpers::is_known_non_negative;
-use crate::simplification::rules::{Rule, RuleCategory, RuleContext};
+use crate::simplification::rules::{ExprKind, Rule, RuleCategory, RuleContext};
 use std::rc::Rc;
 
 /// Rule for sqrt(x^n) = x^(n/2)
@@ -22,6 +22,10 @@ impl Rule for SqrtPowerRule {
 
     fn alters_domain(&self) -> bool {
         false // No longer alters domain since we use abs(x) for sqrt(x^2)
+    }
+
+    fn applies_to(&self) -> &'static [ExprKind] {
+        &[ExprKind::Function]
     }
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
@@ -94,6 +98,10 @@ impl Rule for CbrtPowerRule {
         RuleCategory::Root
     }
 
+    fn applies_to(&self) -> &'static [ExprKind] {
+        &[ExprKind::Function]
+    }
+
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
         if let Expr::FunctionCall { name, args } = expr
             && name == "cbrt"
@@ -156,6 +164,10 @@ impl Rule for SqrtMulRule {
         // Return false so the engine always calls apply()
         // We handle domain-safety logic inside apply() based on whether args are known non-negative
         false
+    }
+
+    fn applies_to(&self) -> &'static [ExprKind] {
+        &[ExprKind::Mul]
     }
 
     fn apply(&self, expr: &Expr, context: &RuleContext) -> Option<Expr> {
@@ -221,6 +233,10 @@ impl Rule for SqrtDivRule {
         false
     }
 
+    fn applies_to(&self) -> &'static [ExprKind] {
+        &[ExprKind::Div]
+    }
+
     fn apply(&self, expr: &Expr, context: &RuleContext) -> Option<Expr> {
         if let Expr::Div(u, v) = expr {
             // Check for sqrt(a) / sqrt(b)
@@ -277,6 +293,10 @@ impl Rule for PowerToRootRule {
         RuleCategory::Root
     }
 
+    fn applies_to(&self) -> &'static [ExprKind] {
+        &[ExprKind::Pow]
+    }
+
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
         if let Expr::Pow(base, exp) = expr
             && let Expr::Div(num, den) = &**exp
@@ -313,6 +333,10 @@ impl Rule for NormalizeRootsRule {
 
     fn category(&self) -> RuleCategory {
         RuleCategory::Root
+    }
+
+    fn applies_to(&self) -> &'static [ExprKind] {
+        &[ExprKind::Function]
     }
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {

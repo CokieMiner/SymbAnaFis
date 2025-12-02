@@ -1,4 +1,4 @@
-use super::rules::{RuleContext, RuleRegistry};
+use super::rules::{ExprKind, RuleContext, RuleRegistry};
 use crate::Expr;
 use std::collections::{HashMap, HashSet};
 
@@ -159,7 +159,11 @@ impl Simplifier {
             .with_depth(depth)
             .with_domain_safe(self.domain_safe);
 
-        for rule in self.registry.get_rules() {
+        // Get the expression kind once and only check rules that apply to it
+        let kind = ExprKind::of(&current);
+        let applicable_rules = self.registry.get_rules_for_kind(kind);
+
+        for rule in applicable_rules {
             // Skip rules that alter domains if domain_safe is enabled
             if context.domain_safe && rule.alters_domain() {
                 continue;
@@ -301,26 +305,13 @@ impl Verifier {
 /// Convenience function with user-specified fixed variables
 pub fn simplify_expr_with_fixed_vars(expr: Expr, fixed_vars: HashSet<String>) -> Expr {
     let variables = expr.variables();
-    match simplify_expr_with_verification_and_fixed_vars(
-        expr.clone(),
-        variables.clone(),
-        fixed_vars.clone(),
-        false,
-    ) {
-        Ok(e) => e,
-        Err(e) => {
-            eprintln!(
-                "Verification failed: {}, falling back to unverified simplification",
-                e
-            );
-            let mut simplifier = Simplifier::new()
-                .with_max_iterations(1000)
-                .with_max_depth(20)
-                .with_variables(variables)
-                .with_fixed_vars(fixed_vars);
-            simplifier.simplify(expr)
-        }
-    }
+    // Skip verification for performance - just simplify directly
+    let mut simplifier = Simplifier::new()
+        .with_max_iterations(1000)
+        .with_max_depth(20)
+        .with_variables(variables)
+        .with_fixed_vars(fixed_vars);
+    simplifier.simplify(expr)
 }
 
 /// Convenience function with verification and fixed variables

@@ -2,6 +2,37 @@ use crate::Expr;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
+/// Expression kind for fast rule filtering
+/// Rules declare which expression kinds they can apply to
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum ExprKind {
+    Number,
+    Symbol,
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Pow,
+    Function, // Any function call
+}
+
+impl ExprKind {
+    /// Get the kind of an expression (cheap O(1) operation)
+    #[inline]
+    pub fn of(expr: &Expr) -> Self {
+        match expr {
+            Expr::Number(_) => ExprKind::Number,
+            Expr::Symbol(_) => ExprKind::Symbol,
+            Expr::Add(_, _) => ExprKind::Add,
+            Expr::Sub(_, _) => ExprKind::Sub,
+            Expr::Mul(_, _) => ExprKind::Mul,
+            Expr::Div(_, _) => ExprKind::Div,
+            Expr::Pow(_, _) => ExprKind::Pow,
+            Expr::FunctionCall { .. } => ExprKind::Function,
+        }
+    }
+}
+
 /// Core trait for all simplification rules
 pub trait Rule {
     fn name(&self) -> &'static str;
@@ -9,10 +40,27 @@ pub trait Rule {
     fn category(&self) -> RuleCategory;
     fn dependencies(&self) -> Vec<&'static str> {
         Vec::new()
-    } // New: dependencies for ordering
+    }
     fn alters_domain(&self) -> bool {
         false
-    } // Tag for rules that may change the domain of validity
+    }
+    
+    /// Which expression kinds this rule can apply to.
+    /// Rules will ONLY be checked against expressions matching these kinds.
+    /// Default: all kinds (for backwards compatibility during migration)
+    fn applies_to(&self) -> &'static [ExprKind] {
+        &[
+            ExprKind::Number,
+            ExprKind::Symbol,
+            ExprKind::Add,
+            ExprKind::Sub,
+            ExprKind::Mul,
+            ExprKind::Div,
+            ExprKind::Pow,
+            ExprKind::Function,
+        ]
+    }
+    
     fn apply(&self, expr: &Expr, context: &RuleContext) -> Option<Expr>;
 }
 
@@ -90,11 +138,16 @@ pub mod hyperbolic;
 /// Rule Registry for dynamic loading and dependency management
 pub struct RuleRegistry {
     pub(crate) rules: Vec<Rc<dyn Rule>>,
+    /// Rules indexed by expression kind for fast lookup
+    rules_by_kind: HashMap<ExprKind, Vec<Rc<dyn Rule>>>,
 }
 
 impl RuleRegistry {
     pub fn new() -> Self {
-        Self { rules: Vec::new() }
+        Self { 
+            rules: Vec::new(),
+            rules_by_kind: HashMap::new(),
+        }
     }
 
     pub fn load_all_rules(&mut self) {
@@ -173,6 +226,7 @@ impl RuleRegistry {
                 eprintln!("Warning: {}", e);
                 // Fallback to priority sort
                 self.rules.sort_by_key(|b| std::cmp::Reverse(b.priority()));
+                self.build_kind_index();
                 return;
             }
         }
@@ -186,9 +240,43 @@ impl RuleRegistry {
 
         // Finally, sort by priority descending to ensure high-priority rules run first
         self.rules.sort_by_key(|b| std::cmp::Reverse(b.priority()));
+        
+        // Build the kind index after final ordering
+        self.build_kind_index();
+    }
+    
+    /// Build the index of rules by expression kind
+    fn build_kind_index(&mut self) {
+        self.rules_by_kind.clear();
+        
+        // Initialize all kinds
+        for kind in [
+            ExprKind::Number,
+            ExprKind::Symbol,
+            ExprKind::Add,
+            ExprKind::Sub,
+            ExprKind::Mul,
+            ExprKind::Div,
+            ExprKind::Pow,
+            ExprKind::Function,
+        ] {
+            self.rules_by_kind.insert(kind, Vec::new());
+        }
+        
+        // Index each rule by the kinds it applies to
+        for rule in &self.rules {
+            for &kind in rule.applies_to() {
+                if let Some(rules) = self.rules_by_kind.get_mut(&kind) {
+                    rules.push(rule.clone());
+                }
+            }
+        }
     }
 
-    pub fn get_rules(&self) -> &Vec<Rc<dyn Rule>> {
-        &self.rules
+    
+    /// Get only rules that apply to a specific expression kind
+    #[inline]
+    pub fn get_rules_for_kind(&self, kind: ExprKind) -> &[Rc<dyn Rule>] {
+        self.rules_by_kind.get(&kind).map(|v| v.as_slice()).unwrap_or(&[])
     }
 }

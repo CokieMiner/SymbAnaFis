@@ -2,7 +2,7 @@ use crate::ast::Expr;
 use crate::simplification::helpers;
 use crate::simplification::patterns::common::extract_coefficient;
 use crate::simplification::patterns::trigonometric::get_trig_function;
-use crate::simplification::rules::{Rule, RuleCategory, RuleContext};
+use crate::simplification::rules::{ExprKind, Rule, RuleCategory, RuleContext};
 use std::f64::consts::PI;
 use std::rc::Rc;
 
@@ -20,6 +20,10 @@ impl Rule for SinZeroRule {
 
     fn category(&self) -> RuleCategory {
         RuleCategory::Trigonometric
+    }
+
+    fn applies_to(&self) -> &'static [ExprKind] {
+        &[ExprKind::Function]
     }
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
@@ -50,6 +54,10 @@ impl Rule for CosZeroRule {
         RuleCategory::Trigonometric
     }
 
+    fn applies_to(&self) -> &'static [ExprKind] {
+        &[ExprKind::Function]
+    }
+
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
         if let Expr::FunctionCall { name, args } = expr
             && name == "cos"
@@ -78,6 +86,10 @@ impl Rule for TanZeroRule {
         RuleCategory::Trigonometric
     }
 
+    fn applies_to(&self) -> &'static [ExprKind] {
+        &[ExprKind::Function]
+    }
+
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
         if let Expr::FunctionCall { name, args } = expr
             && name == "tan"
@@ -104,6 +116,10 @@ impl Rule for PythagoreanIdentityRule {
 
     fn category(&self) -> RuleCategory {
         RuleCategory::Trigonometric
+    }
+
+    fn applies_to(&self) -> &'static [ExprKind] {
+        &[ExprKind::Add]
     }
 
     fn apply(&self, expr: &Expr, _context: &RuleContext) -> Option<Expr> {
