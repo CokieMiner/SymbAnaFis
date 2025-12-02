@@ -16,6 +16,9 @@ mod error;
 mod parser;
 mod simplification;
 
+#[cfg(feature = "python")]
+mod python;
+
 #[cfg(test)]
 mod tests;
 
