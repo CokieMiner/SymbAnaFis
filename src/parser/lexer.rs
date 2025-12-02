@@ -38,6 +38,8 @@ const BUILTINS: &[&str] = &[
     "sqrt",
     "cbrt",
     "sinc",
+    "abs",
+    "sign",
     "erf",
     "erfc",
     "gamma",

@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "symb_anafis"
-version = "0.2.3"
+version = "0.2.4"
 description = "Fast symbolic differentiation library - Rust-powered Python bindings"
 readme = "README.md"
 license = { text = "MIT" }

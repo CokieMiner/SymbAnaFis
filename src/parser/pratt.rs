@@ -158,6 +158,8 @@ impl<'a> Parser<'a> {
                         Operator::Log2 => "log2",
                         Operator::Sinc => "sinc",
                         Operator::ExpPolar => "exp_polar",
+                        Operator::Abs => "abs",
+                        Operator::Sign => "sign",
                         Operator::Erf => "erf",
                         Operator::Erfc => "erfc",
                         Operator::Gamma => "gamma",
