@@ -10,12 +10,12 @@ mod simplification_advanced {
         // (x + 0) + (0 + y) should simplify to (x + y)
         let expr = Expr::new(ExprKind::Add(
             Arc::new(Expr::new(ExprKind::Add(
-                Arc::new(Expr::symbol("x".to_string())),
+                Arc::new(Expr::symbol("x")),
                 Arc::new(Expr::number(0.0)),
             ))),
             Arc::new(Expr::new(ExprKind::Add(
                 Arc::new(Expr::number(0.0)),
-                Arc::new(Expr::symbol("y".to_string())),
+                Arc::new(Expr::symbol("y")),
             ))),
         ));
         let result = simplify_expr(expr, HashSet::new());
@@ -28,7 +28,7 @@ mod simplification_advanced {
         // (x + 1) * 0 should become 0
         let expr = Expr::new(ExprKind::Mul(
             Arc::new(Expr::new(ExprKind::Add(
-                Arc::new(Expr::symbol("x".to_string())),
+                Arc::new(Expr::symbol("x")),
                 Arc::new(Expr::number(1.0)),
             ))),
             Arc::new(Expr::number(0.0)),
@@ -60,16 +60,16 @@ mod simplification_advanced {
         let expr = Expr::new(ExprKind::Mul(
             Arc::new(Expr::new(ExprKind::Mul(
                 Arc::new(Expr::new(ExprKind::Pow(
-                    Arc::new(Expr::symbol("x".to_string())),
+                    Arc::new(Expr::symbol("x")),
                     Arc::new(Expr::number(0.0)),
                 ))),
                 Arc::new(Expr::new(ExprKind::Pow(
-                    Arc::new(Expr::symbol("y".to_string())),
+                    Arc::new(Expr::symbol("y")),
                     Arc::new(Expr::number(1.0)),
                 ))),
             ))),
             Arc::new(Expr::new(ExprKind::Pow(
-                Arc::new(Expr::symbol("z".to_string())),
+                Arc::new(Expr::symbol("z")),
                 Arc::new(Expr::number(2.0)),
             ))),
         ));
@@ -83,11 +83,11 @@ mod simplification_advanced {
         // x^2 / x^2 should simplify to 1
         let expr = Expr::new(ExprKind::Div(
             Arc::new(Expr::new(ExprKind::Pow(
-                Arc::new(Expr::symbol("x".to_string())),
+                Arc::new(Expr::symbol("x")),
                 Arc::new(Expr::number(2.0)),
             ))),
             Arc::new(Expr::new(ExprKind::Pow(
-                Arc::new(Expr::symbol("x".to_string())),
+                Arc::new(Expr::symbol("x")),
                 Arc::new(Expr::number(2.0)),
             ))),
         ));
@@ -99,7 +99,7 @@ mod simplification_advanced {
     fn test_complex_power_division() {
         // (x+1)^3 / (x+1)^2 should simplify to (x+1)
         let base = Expr::new(ExprKind::Add(
-            Arc::new(Expr::symbol("x".to_string())),
+            Arc::new(Expr::symbol("x")),
             Arc::new(Expr::number(1.0)),
         ));
         let expr = Expr::new(ExprKind::Div(
@@ -116,7 +116,7 @@ mod simplification_advanced {
         // Should simplify to (x+1)^1, which should further simplify to (x+1)
         // Due to canonical ordering by degree, it becomes x + 1
         let expected = Expr::new(ExprKind::Add(
-            Arc::new(Expr::symbol("x".to_string())),
+            Arc::new(Expr::symbol("x")),
             Arc::new(Expr::number(1.0)),
         ));
         assert_eq!(result, expected);
@@ -128,10 +128,10 @@ mod simplification_advanced {
         // (x^2 + y)^4 / (x^2 + y)^2 should simplify to (x^2 + y)^2
         let base = Expr::new(ExprKind::Add(
             Arc::new(Expr::new(ExprKind::Pow(
-                Arc::new(Expr::symbol("x".to_string())),
+                Arc::new(Expr::symbol("x")),
                 Arc::new(Expr::number(2.0)),
             ))),
-            Arc::new(Expr::symbol("y".to_string())),
+            Arc::new(Expr::symbol("y")),
         ));
         let expr = Expr::new(ExprKind::Div(
             Arc::new(Expr::new(ExprKind::Pow(
@@ -148,10 +148,10 @@ mod simplification_advanced {
         // Due to canonical ordering by degree, it becomes x^2 + y
         let expected_base = Expr::new(ExprKind::Add(
             Arc::new(Expr::new(ExprKind::Pow(
-                Arc::new(Expr::symbol("x".to_string())),
+                Arc::new(Expr::symbol("x")),
                 Arc::new(Expr::number(2.0)),
             ))),
-            Arc::new(Expr::symbol("y".to_string())),
+            Arc::new(Expr::symbol("y")),
         ));
         let expected = Expr::new(ExprKind::Pow(
             Arc::new(expected_base),
@@ -165,7 +165,7 @@ mod simplification_advanced {
         // Test with function expressions: sin(x)^3 / sin(x)^2 should simplify to sin(x)
         let base = Expr::new(ExprKind::FunctionCall {
             name: "sin".to_string(),
-            args: vec![Expr::symbol("x".to_string())],
+            args: vec![Expr::symbol("x")],
         });
         let expr = Expr::new(ExprKind::Div(
             Arc::new(Expr::new(ExprKind::Pow(
@@ -181,7 +181,7 @@ mod simplification_advanced {
         // Should simplify to sin(x)^1, which should further simplify to sin(x)
         let expected = Expr::new(ExprKind::FunctionCall {
             name: "sin".to_string(),
-            args: vec![Expr::symbol("x".to_string())],
+            args: vec![Expr::symbol("x")],
         });
         assert_eq!(result, expected);
     }
@@ -191,8 +191,8 @@ mod simplification_advanced {
         // (x + y) / 1 should become (x + y)
         let expr = Expr::new(ExprKind::Div(
             Arc::new(Expr::new(ExprKind::Add(
-                Arc::new(Expr::symbol("x".to_string())),
-                Arc::new(Expr::symbol("y".to_string())),
+                Arc::new(Expr::symbol("x")),
+                Arc::new(Expr::symbol("y")),
             ))),
             Arc::new(Expr::number(1.0)),
         ));
@@ -206,7 +206,7 @@ mod simplification_advanced {
         // 0 / x should become 0
         let expr = Expr::new(ExprKind::Div(
             Arc::new(Expr::number(0.0)),
-            Arc::new(Expr::symbol("x".to_string())),
+            Arc::new(Expr::symbol("x")),
         ));
         let result = simplify_expr(expr, HashSet::new());
         assert_eq!(result, Expr::number(0.0));
@@ -216,11 +216,11 @@ mod simplification_advanced {
     fn test_sub_zero() {
         // x - 0 should become x
         let expr = Expr::new(ExprKind::Sub(
-            Arc::new(Expr::symbol("x".to_string())),
+            Arc::new(Expr::symbol("x")),
             Arc::new(Expr::number(0.0)),
         ));
         let result = simplify_expr(expr, HashSet::new());
-        assert_eq!(result, Expr::symbol("x".to_string()));
+        assert_eq!(result, Expr::symbol("x"));
     }
 
     #[test]

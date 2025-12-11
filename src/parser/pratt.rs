@@ -295,7 +295,7 @@ mod tests {
     fn test_parse_symbol() {
         let tokens = vec![Token::Identifier("x".to_string())];
         let ast = parse_expression(&tokens).unwrap();
-        assert_eq!(ast, Expr::symbol("x".to_string()));
+        assert_eq!(ast, Expr::symbol("x"));
     }
 
     #[test]

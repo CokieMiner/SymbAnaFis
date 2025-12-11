@@ -1,3 +1,4 @@
 target
 *.txt
 Cargo.lock
+.env

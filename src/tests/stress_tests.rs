@@ -6,7 +6,11 @@
 use crate::simplify_expr;
 use crate::{Diff, Expr, ExprKind, diff, parse, simplify};
 use std::collections::{HashMap, HashSet};
+use std::f64::consts::PI;
 use std::sync::Arc;
+
+/// Type alias for custom function evaluators to reduce type complexity
+type CustomEvalFn = Arc<dyn Fn(&[f64]) -> Option<f64> + Send + Sync>;
 
 // ============================================================================
 // DIFFERENTIATION STRESS TESTS
@@ -197,9 +201,9 @@ fn test_eval_special_function_poles() {
     vars.insert("x", 0.0);
     let result = expr.evaluate(&vars);
     // Should either stay symbolic or produce NaN
-    match &result.kind {
-        ExprKind::Number(n) => assert!(n.is_nan(), "gamma(0) should be NaN"),
-        _ => {} // Symbolic is also acceptable
+    // Symbolic result is also acceptable
+    if let ExprKind::Number(n) = &result.kind {
+        assert!(n.is_nan(), "gamma(0) should be NaN");
     }
 }
 
@@ -236,7 +240,7 @@ fn test_eval_zeta_deriv_convergence() {
 fn test_eval_complex_expression_accuracy() {
     // sin^2(x) + cos^2(x) = 1 for all x
     let expr = parse("sin(x)^2 + cos(x)^2", &HashSet::new(), &HashSet::new()).unwrap();
-    for x in [0.0, 0.5, 1.0, 2.0, 3.14159, 100.0] {
+    for x in [0.0, 0.5, 1.0, 2.0, PI, 100.0] {
         let mut vars = HashMap::new();
         vars.insert("x", x);
         let result = expr.evaluate(&vars);
@@ -413,8 +417,7 @@ fn test_custom_function_evaluation() {
     let expr = parse("f(x) + 1", &HashSet::new(), &custom).unwrap();
 
     // Define custom evaluator: f(x) = x^2
-    let mut custom_evals: HashMap<String, Arc<dyn Fn(&[f64]) -> Option<f64> + Send + Sync>> =
-        HashMap::new();
+    let mut custom_evals: HashMap<String, CustomEvalFn> = HashMap::new();
     custom_evals.insert(
         "f".to_string(),
         Arc::new(|args: &[f64]| Some(args[0].powi(2))),

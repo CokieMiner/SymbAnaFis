@@ -10,7 +10,7 @@ fn test_trig_symmetry_extended() {
         name: "tan".to_string(),
         args: vec![Expr::new(ExprKind::Mul(
             Arc::new(Expr::number(-1.0)),
-            Arc::new(Expr::symbol("x".to_string())),
+            Arc::new(Expr::symbol("x")),
         ))],
     });
     let simplified = simplify_expr(expr, HashSet::new());
@@ -19,7 +19,7 @@ fn test_trig_symmetry_extended() {
         assert_eq!(**a, Expr::number(-1.0));
         if let ExprKind::FunctionCall { name, args } = &b.kind {
             assert_eq!(name, "tan");
-            assert_eq!(args[0], Expr::symbol("x".to_string()));
+            assert_eq!(args[0], Expr::symbol("x"));
         } else {
             panic!("Expected function call");
         }
@@ -32,13 +32,13 @@ fn test_trig_symmetry_extended() {
         name: "sec".to_string(),
         args: vec![Expr::new(ExprKind::Mul(
             Arc::new(Expr::number(-1.0)),
-            Arc::new(Expr::symbol("x".to_string())),
+            Arc::new(Expr::symbol("x")),
         ))],
     });
     let simplified = simplify_expr(expr, HashSet::new());
     if let ExprKind::FunctionCall { name, args } = &simplified.kind {
         assert_eq!(name, "sec");
-        assert_eq!(args[0], Expr::symbol("x".to_string()));
+        assert_eq!(args[0], Expr::symbol("x"));
     } else {
         panic!("Expected sec(x)");
     }
@@ -51,39 +51,30 @@ fn test_inverse_composition() {
         name: "sin".to_string(),
         args: vec![Expr::new(ExprKind::FunctionCall {
             name: "asin".to_string(),
-            args: vec![Expr::symbol("x".to_string())],
+            args: vec![Expr::symbol("x")],
         })],
     });
-    assert_eq!(
-        simplify_expr(expr, HashSet::new()),
-        Expr::symbol("x".to_string())
-    );
+    assert_eq!(simplify_expr(expr, HashSet::new()), Expr::symbol("x"));
 
     // cos(acos(x)) = x
     let expr = Expr::new(ExprKind::FunctionCall {
         name: "cos".to_string(),
         args: vec![Expr::new(ExprKind::FunctionCall {
             name: "acos".to_string(),
-            args: vec![Expr::symbol("x".to_string())],
+            args: vec![Expr::symbol("x")],
         })],
     });
-    assert_eq!(
-        simplify_expr(expr, HashSet::new()),
-        Expr::symbol("x".to_string())
-    );
+    assert_eq!(simplify_expr(expr, HashSet::new()), Expr::symbol("x"));
 
     // tan(atan(x)) = x
     let expr = Expr::new(ExprKind::FunctionCall {
         name: "tan".to_string(),
         args: vec![Expr::new(ExprKind::FunctionCall {
             name: "atan".to_string(),
-            args: vec![Expr::symbol("x".to_string())],
+            args: vec![Expr::symbol("x")],
         })],
     });
-    assert_eq!(
-        simplify_expr(expr, HashSet::new()),
-        Expr::symbol("x".to_string())
-    );
+    assert_eq!(simplify_expr(expr, HashSet::new()), Expr::symbol("x"));
 }
 
 #[test]
@@ -93,26 +84,20 @@ fn test_inverse_composition_reverse() {
         name: "asin".to_string(),
         args: vec![Expr::new(ExprKind::FunctionCall {
             name: "sin".to_string(),
-            args: vec![Expr::symbol("x".to_string())],
+            args: vec![Expr::symbol("x")],
         })],
     });
-    assert_eq!(
-        simplify_expr(expr, HashSet::new()),
-        Expr::symbol("x".to_string())
-    );
+    assert_eq!(simplify_expr(expr, HashSet::new()), Expr::symbol("x"));
 
     // acos(cos(x)) = x
     let expr = Expr::new(ExprKind::FunctionCall {
         name: "acos".to_string(),
         args: vec![Expr::new(ExprKind::FunctionCall {
             name: "cos".to_string(),
-            args: vec![Expr::symbol("x".to_string())],
+            args: vec![Expr::symbol("x")],
         })],
     });
-    assert_eq!(
-        simplify_expr(expr, HashSet::new()),
-        Expr::symbol("x".to_string())
-    );
+    assert_eq!(simplify_expr(expr, HashSet::new()), Expr::symbol("x"));
 }
 
 #[test]
@@ -122,14 +107,14 @@ fn test_pythagorean_identities() {
         Arc::new(Expr::new(ExprKind::Pow(
             Arc::new(Expr::new(ExprKind::FunctionCall {
                 name: "sin".to_string(),
-                args: vec![Expr::symbol("x".to_string())],
+                args: vec![Expr::symbol("x")],
             })),
             Arc::new(Expr::number(2.0)),
         ))),
         Arc::new(Expr::new(ExprKind::Pow(
             Arc::new(Expr::new(ExprKind::FunctionCall {
                 name: "cos".to_string(),
-                args: vec![Expr::symbol("x".to_string())],
+                args: vec![Expr::symbol("x")],
             })),
             Arc::new(Expr::number(2.0)),
         ))),
@@ -142,7 +127,7 @@ fn test_pythagorean_identities() {
         Arc::new(Expr::new(ExprKind::Pow(
             Arc::new(Expr::new(ExprKind::FunctionCall {
                 name: "tan".to_string(),
-                args: vec![Expr::symbol("x".to_string())],
+                args: vec![Expr::symbol("x")],
             })),
             Arc::new(Expr::number(2.0)),
         ))),
@@ -152,7 +137,7 @@ fn test_pythagorean_identities() {
         assert_eq!(**exp, Expr::number(2.0));
         if let ExprKind::FunctionCall { name, args } = &base.kind {
             assert_eq!(name, "sec");
-            assert_eq!(args[0], Expr::symbol("x".to_string()));
+            assert_eq!(args[0], Expr::symbol("x"));
         } else {
             panic!("Expected sec(x)");
         }
@@ -166,7 +151,7 @@ fn test_pythagorean_identities() {
         Arc::new(Expr::new(ExprKind::Pow(
             Arc::new(Expr::new(ExprKind::FunctionCall {
                 name: "cot".to_string(),
-                args: vec![Expr::symbol("x".to_string())],
+                args: vec![Expr::symbol("x")],
             })),
             Arc::new(Expr::number(2.0)),
         ))),
@@ -176,7 +161,7 @@ fn test_pythagorean_identities() {
         assert_eq!(**exp, Expr::number(2.0));
         if let ExprKind::FunctionCall { name, args } = &base.kind {
             assert_eq!(name, "csc");
-            assert_eq!(args[0], Expr::symbol("x".to_string()));
+            assert_eq!(args[0], Expr::symbol("x"));
         } else {
             panic!("Expected csc(x)");
         }
@@ -193,13 +178,13 @@ fn test_cofunction_identities() {
         name: "sin".to_string(),
         args: vec![Expr::new(ExprKind::Sub(
             Arc::new(Expr::number(PI / 2.0)),
-            Arc::new(Expr::symbol("x".to_string())),
+            Arc::new(Expr::symbol("x")),
         ))],
     });
     let simplified = simplify_expr(expr, HashSet::new());
     if let ExprKind::FunctionCall { name, args } = &simplified.kind {
         assert_eq!(name, "cos");
-        assert_eq!(args[0], Expr::symbol("x".to_string()));
+        assert_eq!(args[0], Expr::symbol("x"));
     } else {
         panic!("Expected cos(x)");
     }
@@ -209,13 +194,13 @@ fn test_cofunction_identities() {
         name: "cos".to_string(),
         args: vec![Expr::new(ExprKind::Sub(
             Arc::new(Expr::number(PI / 2.0)),
-            Arc::new(Expr::symbol("x".to_string())),
+            Arc::new(Expr::symbol("x")),
         ))],
     });
     let simplified = simplify_expr(expr, HashSet::new());
     if let ExprKind::FunctionCall { name, args } = &simplified.kind {
         assert_eq!(name, "sin");
-        assert_eq!(args[0], Expr::symbol("x".to_string()));
+        assert_eq!(args[0], Expr::symbol("x"));
     } else {
         panic!("Expected sin(x)");
     }
@@ -228,14 +213,14 @@ fn test_trig_periodicity() {
     let expr = Expr::new(ExprKind::FunctionCall {
         name: "sin".to_string(),
         args: vec![Expr::new(ExprKind::Add(
-            Arc::new(Expr::symbol("x".to_string())),
+            Arc::new(Expr::symbol("x")),
             Arc::new(Expr::number(2.0 * PI)),
         ))],
     });
     let simplified = simplify_expr(expr, HashSet::new());
     if let ExprKind::FunctionCall { name, args } = &simplified.kind {
         assert_eq!(name, "sin");
-        assert_eq!(args[0], Expr::symbol("x".to_string()));
+        assert_eq!(args[0], Expr::symbol("x"));
     } else {
         panic!("Expected sin(x)");
     }
@@ -244,14 +229,14 @@ fn test_trig_periodicity() {
     let expr = Expr::new(ExprKind::FunctionCall {
         name: "cos".to_string(),
         args: vec![Expr::new(ExprKind::Add(
-            Arc::new(Expr::symbol("x".to_string())),
+            Arc::new(Expr::symbol("x")),
             Arc::new(Expr::number(2.0 * PI)),
         ))],
     });
     let simplified = simplify_expr(expr, HashSet::new());
     if let ExprKind::FunctionCall { name, args } = &simplified.kind {
         assert_eq!(name, "cos");
-        assert_eq!(args[0], Expr::symbol("x".to_string()));
+        assert_eq!(args[0], Expr::symbol("x"));
     } else {
         panic!("Expected cos(x)");
     }
@@ -264,14 +249,14 @@ fn test_trig_periodicity_general() {
     let expr = Expr::new(ExprKind::FunctionCall {
         name: "sin".to_string(),
         args: vec![Expr::new(ExprKind::Add(
-            Arc::new(Expr::symbol("x".to_string())),
+            Arc::new(Expr::symbol("x")),
             Arc::new(Expr::number(4.0 * PI)),
         ))],
     });
     let simplified = simplify_expr(expr, HashSet::new());
     if let ExprKind::FunctionCall { name, args } = &simplified.kind {
         assert_eq!(name, "sin");
-        assert_eq!(args[0], Expr::symbol("x".to_string()));
+        assert_eq!(args[0], Expr::symbol("x"));
     } else {
         panic!("Expected sin(x)");
     }
@@ -280,14 +265,14 @@ fn test_trig_periodicity_general() {
     let expr = Expr::new(ExprKind::FunctionCall {
         name: "cos".to_string(),
         args: vec![Expr::new(ExprKind::Add(
-            Arc::new(Expr::symbol("x".to_string())),
+            Arc::new(Expr::symbol("x")),
             Arc::new(Expr::number(-2.0 * PI)),
         ))],
     });
     let simplified = simplify_expr(expr, HashSet::new());
     if let ExprKind::FunctionCall { name, args } = &simplified.kind {
         assert_eq!(name, "cos");
-        assert_eq!(args[0], Expr::symbol("x".to_string()));
+        assert_eq!(args[0], Expr::symbol("x"));
     } else {
         panic!("Expected cos(x)");
     }
@@ -301,13 +286,13 @@ fn test_trig_reflection_shifts() {
         name: "sin".to_string(),
         args: vec![Expr::new(ExprKind::Sub(
             Arc::new(Expr::number(PI)),
-            Arc::new(Expr::symbol("x".to_string())),
+            Arc::new(Expr::symbol("x")),
         ))],
     });
     let simplified = simplify_expr(expr, HashSet::new());
     if let ExprKind::FunctionCall { name, args } = &simplified.kind {
         assert_eq!(name, "sin");
-        assert_eq!(args[0], Expr::symbol("x".to_string()));
+        assert_eq!(args[0], Expr::symbol("x"));
     } else {
         panic!("Expected sin(x)");
     }
@@ -317,7 +302,7 @@ fn test_trig_reflection_shifts() {
         name: "cos".to_string(),
         args: vec![Expr::new(ExprKind::Add(
             Arc::new(Expr::number(PI)),
-            Arc::new(Expr::symbol("x".to_string())),
+            Arc::new(Expr::symbol("x")),
         ))],
     });
     let simplified = simplify_expr(expr, HashSet::new());
@@ -325,7 +310,7 @@ fn test_trig_reflection_shifts() {
         assert_eq!(**a, Expr::number(-1.0));
         if let ExprKind::FunctionCall { name, args } = &b.kind {
             assert_eq!(name, "cos");
-            assert_eq!(args[0], Expr::symbol("x".to_string()));
+            assert_eq!(args[0], Expr::symbol("x"));
         } else {
             panic!("Expected cos(x)");
         }
@@ -338,7 +323,7 @@ fn test_trig_reflection_shifts() {
         name: "sin".to_string(),
         args: vec![Expr::new(ExprKind::Sub(
             Arc::new(Expr::number(3.0 * PI / 2.0)),
-            Arc::new(Expr::symbol("x".to_string())),
+            Arc::new(Expr::symbol("x")),
         ))],
     });
     let simplified = simplify_expr(expr, HashSet::new());
@@ -346,7 +331,7 @@ fn test_trig_reflection_shifts() {
         assert_eq!(**a, Expr::number(-1.0));
         if let ExprKind::FunctionCall { name, args } = &b.kind {
             assert_eq!(name, "cos");
-            assert_eq!(args[0], Expr::symbol("x".to_string()));
+            assert_eq!(args[0], Expr::symbol("x"));
         } else {
             panic!("Expected cos(x)");
         }
@@ -400,7 +385,7 @@ fn test_double_angle_formulas() {
         name: "sin".to_string(),
         args: vec![Expr::new(ExprKind::Mul(
             Arc::new(Expr::number(2.0)),
-            Arc::new(Expr::symbol("x".to_string())),
+            Arc::new(Expr::symbol("x")),
         ))],
     });
     let simplified = simplify_expr(expr, HashSet::new());
@@ -411,7 +396,7 @@ fn test_double_angle_formulas() {
             assert_eq!(**c, Expr::number(2.0));
             if let ExprKind::FunctionCall { name, args } = &d.kind {
                 assert_eq!(name, "cos");
-                assert_eq!(args[0], Expr::symbol("x".to_string()));
+                assert_eq!(args[0], Expr::symbol("x"));
             } else {
                 panic!("Expected cos(x)");
             }
@@ -421,7 +406,7 @@ fn test_double_angle_formulas() {
         // b should be sin(x)
         if let ExprKind::FunctionCall { name, args } = &b.kind {
             assert_eq!(name, "sin");
-            assert_eq!(args[0], Expr::symbol("x".to_string()));
+            assert_eq!(args[0], Expr::symbol("x"));
         } else {
             panic!("Expected sin(x)");
         }
@@ -434,7 +419,7 @@ fn test_double_angle_formulas() {
         name: "cos".to_string(),
         args: vec![Expr::new(ExprKind::Mul(
             Arc::new(Expr::number(2.0)),
-            Arc::new(Expr::symbol("x".to_string())),
+            Arc::new(Expr::symbol("x")),
         ))],
     });
     let simplified = simplify_expr(expr, HashSet::new());
@@ -443,7 +428,7 @@ fn test_double_angle_formulas() {
         assert_eq!(name, "cos");
         if let ExprKind::Mul(a, b) = &args[0].kind {
             assert_eq!(**a, Expr::number(2.0));
-            assert_eq!(**b, Expr::symbol("x".to_string()));
+            assert_eq!(**b, Expr::symbol("x"));
         } else {
             panic!("Expected 2*x");
         }
@@ -456,7 +441,7 @@ fn test_double_angle_formulas() {
         name: "tan".to_string(),
         args: vec![Expr::new(ExprKind::Mul(
             Arc::new(Expr::number(2.0)),
-            Arc::new(Expr::symbol("x".to_string())),
+            Arc::new(Expr::symbol("x")),
         ))],
     });
     let simplified = simplify_expr(expr, HashSet::new());
@@ -465,7 +450,7 @@ fn test_double_angle_formulas() {
         assert_eq!(name, "tan");
         if let ExprKind::Mul(a, b) = &args[0].kind {
             assert_eq!(**a, Expr::number(2.0));
-            assert_eq!(**b, Expr::symbol("x".to_string()));
+            assert_eq!(**b, Expr::symbol("x"));
         } else {
             panic!("Expected 2*x");
         }

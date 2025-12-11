@@ -11,7 +11,7 @@ mod tests {
         let expr = Expr::new(ExprKind::FunctionCall {
             name: "ln".to_string(),
             args: vec![Expr::new(ExprKind::Pow(
-                Arc::new(Expr::symbol("x".to_string())),
+                Arc::new(Expr::symbol("x")),
                 Arc::new(Expr::number(2.0)),
             ))],
         });
@@ -29,7 +29,7 @@ mod tests {
                 } = &args[0].kind
                 {
                     assert_eq!(abs_name, "abs");
-                    assert_eq!(abs_args[0], Expr::symbol("x".to_string()));
+                    assert_eq!(abs_args[0], Expr::symbol("x"));
                 } else {
                     panic!("Expected abs(x), got {:?}", args[0]);
                 }
@@ -47,7 +47,7 @@ mod tests {
         let expr = Expr::new(ExprKind::FunctionCall {
             name: "log10".to_string(),
             args: vec![Expr::new(ExprKind::Pow(
-                Arc::new(Expr::symbol("x".to_string())),
+                Arc::new(Expr::symbol("x")),
                 Arc::new(Expr::number(3.0)),
             ))],
         });
@@ -58,7 +58,7 @@ mod tests {
             assert_eq!(**coeff, Expr::number(3.0));
             if let ExprKind::FunctionCall { name, args } = &func.kind {
                 assert_eq!(name, "log10");
-                assert_eq!(args[0], Expr::symbol("x".to_string()));
+                assert_eq!(args[0], Expr::symbol("x"));
             } else {
                 panic!("Expected log10 function call");
             }
@@ -73,7 +73,7 @@ mod tests {
         let expr = Expr::new(ExprKind::FunctionCall {
             name: "log10".to_string(),
             args: vec![Expr::new(ExprKind::Pow(
-                Arc::new(Expr::symbol("x".to_string())),
+                Arc::new(Expr::symbol("x")),
                 Arc::new(Expr::number(4.0)),
             ))],
         });
@@ -90,7 +90,7 @@ mod tests {
                 } = &args[0].kind
                 {
                     assert_eq!(abs_name, "abs");
-                    assert_eq!(abs_args[0], Expr::symbol("x".to_string()));
+                    assert_eq!(abs_args[0], Expr::symbol("x"));
                 } else {
                     panic!("Expected abs(x), got {:?}", args[0]);
                 }
@@ -108,7 +108,7 @@ mod tests {
         let expr = Expr::new(ExprKind::FunctionCall {
             name: "log2".to_string(),
             args: vec![Expr::new(ExprKind::Pow(
-                Arc::new(Expr::symbol("x".to_string())),
+                Arc::new(Expr::symbol("x")),
                 Arc::new(Expr::number(0.5)),
             ))],
         });
@@ -118,7 +118,7 @@ mod tests {
         if let ExprKind::Div(num, den) = &simplified.kind {
             if let ExprKind::FunctionCall { name, args } = &num.kind {
                 assert_eq!(name, "log2");
-                assert_eq!(args[0], Expr::symbol("x".to_string()));
+                assert_eq!(args[0], Expr::symbol("x"));
             } else {
                 panic!("Expected numerator to be log2(x)");
             }

@@ -1,5 +1,5 @@
 use criterion::{Criterion, criterion_group, criterion_main};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::hint::black_box;
 use symb_anafis::{diff, parse, simplify, simplify_expr};
 
@@ -251,6 +251,75 @@ fn bench_combined(c: &mut Criterion) {
     group.finish();
 }
 
+// Benchmark evaluation (Expression + values -> Number)
+fn bench_evaluation(c: &mut Criterion) {
+    let mut group = c.benchmark_group("evaluation");
+    let empty: HashSet<String> = HashSet::new();
+
+    // Pre-parse expressions - focus on special functions with custom implementations
+    let poly = parse("x^3 + 2*x^2 + x + 1", &empty, &empty).unwrap();
+    let gamma_expr = parse("gamma(x)", &empty, &empty).unwrap();
+    let digamma_expr = parse("digamma(x)", &empty, &empty).unwrap();
+    let trigamma_expr = parse("trigamma(x)", &empty, &empty).unwrap();
+    let bessel_expr = parse("besselj(0, x)", &empty, &empty).unwrap();
+    let bessel_y_expr = parse("bessely(1, x)", &empty, &empty).unwrap();
+    let zeta_expr = parse("zeta(x)", &empty, &empty).unwrap();
+    let zeta_deriv_expr = parse("zeta_deriv(1, x)", &empty, &empty).unwrap();
+    let erf_expr = parse("erf(x)", &empty, &empty).unwrap();
+    let lambertw_expr = parse("lambertw(x)", &empty, &empty).unwrap();
+    let complex_special = parse("gamma(x) * besselj(0, x) + erf(x)", &empty, &empty).unwrap();
+
+    // Pre-build variable maps
+    let mut vars: HashMap<&str, f64> = HashMap::new();
+    vars.insert("x", 2.5);
+
+    group.bench_function("eval_polynomial", |b| {
+        b.iter(|| black_box(&poly).evaluate(&vars))
+    });
+
+    group.bench_function("eval_gamma", |b| {
+        b.iter(|| black_box(&gamma_expr).evaluate(&vars))
+    });
+
+    group.bench_function("eval_digamma", |b| {
+        b.iter(|| black_box(&digamma_expr).evaluate(&vars))
+    });
+
+    group.bench_function("eval_trigamma", |b| {
+        b.iter(|| black_box(&trigamma_expr).evaluate(&vars))
+    });
+
+    group.bench_function("eval_besselj(0,x)", |b| {
+        b.iter(|| black_box(&bessel_expr).evaluate(&vars))
+    });
+
+    group.bench_function("eval_bessely(1,x)", |b| {
+        b.iter(|| black_box(&bessel_y_expr).evaluate(&vars))
+    });
+
+    group.bench_function("eval_zeta", |b| {
+        b.iter(|| black_box(&zeta_expr).evaluate(&vars))
+    });
+
+    group.bench_function("eval_zeta_deriv(1,x)", |b| {
+        b.iter(|| black_box(&zeta_deriv_expr).evaluate(&vars))
+    });
+
+    group.bench_function("eval_erf", |b| {
+        b.iter(|| black_box(&erf_expr).evaluate(&vars))
+    });
+
+    group.bench_function("eval_lambertw", |b| {
+        b.iter(|| black_box(&lambertw_expr).evaluate(&vars))
+    });
+
+    group.bench_function("eval_complex_special", |b| {
+        b.iter(|| black_box(&complex_special).evaluate(&vars))
+    });
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_parsing,
@@ -259,6 +328,7 @@ criterion_group!(
     bench_simplify_ast,
     bench_differentiation,
     bench_simplification,
-    bench_combined
+    bench_combined,
+    bench_evaluation
 );
 criterion_main!(benches);

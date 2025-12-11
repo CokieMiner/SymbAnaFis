@@ -7,11 +7,11 @@ mod division_bug_tests {
     fn verify_display_parens() {
         // Test 1: A / (C * R^2) - should have parentheses
         let expr = Expr::new(ExprKind::Div(
-            Arc::new(Expr::symbol("A".to_string())),
+            Arc::new(Expr::symbol("A")),
             Arc::new(Expr::new(ExprKind::Mul(
-                Arc::new(Expr::symbol("C".to_string())),
+                Arc::new(Expr::symbol("C")),
                 Arc::new(Expr::new(ExprKind::Pow(
-                    Arc::new(Expr::symbol("R".to_string())),
+                    Arc::new(Expr::symbol("R")),
                     Arc::new(Expr::number(2.0)),
                 ))),
             ))),
@@ -33,16 +33,16 @@ mod division_bug_tests {
                 Arc::new(Expr::new(ExprKind::Mul(
                     Arc::new(Expr::new(ExprKind::Mul(
                         Arc::new(Expr::number(-1.0)),
-                        Arc::new(Expr::symbol("C".to_string())),
+                        Arc::new(Expr::symbol("C")),
                     ))),
-                    Arc::new(Expr::symbol("R".to_string())),
+                    Arc::new(Expr::symbol("R")),
                 ))),
-                Arc::new(Expr::symbol("V0".to_string())),
+                Arc::new(Expr::symbol("V0")),
             ))),
             Arc::new(Expr::new(ExprKind::Mul(
-                Arc::new(Expr::symbol("C".to_string())),
+                Arc::new(Expr::symbol("C")),
                 Arc::new(Expr::new(ExprKind::Pow(
-                    Arc::new(Expr::symbol("R".to_string())),
+                    Arc::new(Expr::symbol("R")),
                     Arc::new(Expr::number(2.0)),
                 ))),
             ))),

@@ -32,8 +32,8 @@ mod tests {
 
     #[test]
     fn test_sqrt_product_div_product() {
-        let a = Expr::symbol("a".to_string());
-        let b = Expr::symbol("b".to_string());
+        let a = Expr::symbol("a");
+        let b = Expr::symbol("b");
         let expr = Expr::new(ExprKind::Div(
             Arc::new(Expr::new(ExprKind::FunctionCall {
                 name: "sqrt".to_string(),
@@ -63,9 +63,9 @@ mod tests {
     #[test]
     fn test_heat_flux_simplification() {
         // sqrt(alpha) * sqrt(t) / (alpha * t * sqrt(pi))
-        let alpha = Expr::symbol("alpha".to_string());
-        let t = Expr::symbol("t".to_string());
-        let pi = Expr::symbol("pi".to_string());
+        let alpha = Expr::symbol("alpha");
+        let t = Expr::symbol("t");
+        let pi = Expr::symbol("pi");
 
         let num = Expr::new(ExprKind::Mul(
             Arc::new(Expr::new(ExprKind::FunctionCall {

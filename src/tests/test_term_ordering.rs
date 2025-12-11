@@ -17,12 +17,12 @@ mod tests {
                     name: "exp".to_string(),
                     args: vec![Expr::new(ExprKind::Mul(
                         Arc::new(Expr::number(-1.0)),
-                        Arc::new(Expr::symbol("x".to_string())),
+                        Arc::new(Expr::symbol("x")),
                     ))],
                 })),
                 Arc::new(Expr::new(ExprKind::FunctionCall {
                     name: "exp".to_string(),
-                    args: vec![Expr::symbol("x".to_string())],
+                    args: vec![Expr::symbol("x")],
                 })),
             ))),
             Arc::new(Expr::number(2.0)),
@@ -31,7 +31,7 @@ mod tests {
         let simplified = simplify_expr(expr, HashSet::new());
         if let ExprKind::FunctionCall { name, args } = &simplified.kind {
             assert_eq!(name, "cosh");
-            assert_eq!(args[0], Expr::symbol("x".to_string()));
+            assert_eq!(args[0], Expr::symbol("x"));
         } else {
             panic!("Expected cosh(x), got {:?}", simplified);
         }
@@ -45,13 +45,13 @@ mod tests {
             Arc::new(Expr::new(ExprKind::Add(
                 Arc::new(Expr::new(ExprKind::FunctionCall {
                     name: "exp".to_string(),
-                    args: vec![Expr::symbol("x".to_string())],
+                    args: vec![Expr::symbol("x")],
                 })),
                 Arc::new(Expr::new(ExprKind::FunctionCall {
                     name: "exp".to_string(),
                     args: vec![Expr::new(ExprKind::Mul(
                         Arc::new(Expr::number(-1.0)),
-                        Arc::new(Expr::symbol("x".to_string())),
+                        Arc::new(Expr::symbol("x")),
                     ))],
                 })),
             ))),
@@ -61,7 +61,7 @@ mod tests {
         let simplified = simplify_expr(expr, HashSet::new());
         if let ExprKind::FunctionCall { name, args } = &simplified.kind {
             assert_eq!(name, "cosh");
-            assert_eq!(args[0], Expr::symbol("x".to_string()));
+            assert_eq!(args[0], Expr::symbol("x"));
         } else {
             panic!("Expected cosh(x), got {:?}", simplified);
         }
@@ -77,24 +77,24 @@ mod tests {
                     name: "exp".to_string(),
                     args: vec![Expr::new(ExprKind::Mul(
                         Arc::new(Expr::number(-1.0)),
-                        Arc::new(Expr::symbol("x".to_string())),
+                        Arc::new(Expr::symbol("x")),
                     ))],
                 })),
                 Arc::new(Expr::new(ExprKind::FunctionCall {
                     name: "exp".to_string(),
-                    args: vec![Expr::symbol("x".to_string())],
+                    args: vec![Expr::symbol("x")],
                 })),
             ))),
             Arc::new(Expr::new(ExprKind::Sub(
                 Arc::new(Expr::new(ExprKind::FunctionCall {
                     name: "exp".to_string(),
-                    args: vec![Expr::symbol("x".to_string())],
+                    args: vec![Expr::symbol("x")],
                 })),
                 Arc::new(Expr::new(ExprKind::FunctionCall {
                     name: "exp".to_string(),
                     args: vec![Expr::new(ExprKind::Mul(
                         Arc::new(Expr::number(-1.0)),
-                        Arc::new(Expr::symbol("x".to_string())),
+                        Arc::new(Expr::symbol("x")),
                     ))],
                 })),
             ))),
@@ -103,7 +103,7 @@ mod tests {
         let simplified = simplify_expr(expr, HashSet::new());
         if let ExprKind::FunctionCall { name, args } = &simplified.kind {
             assert_eq!(name, "coth");
-            assert_eq!(args[0], Expr::symbol("x".to_string()));
+            assert_eq!(args[0], Expr::symbol("x"));
         } else {
             panic!("Expected coth(x), got {:?}", simplified);
         }
@@ -117,13 +117,13 @@ mod tests {
             Arc::new(Expr::new(ExprKind::Sub(
                 Arc::new(Expr::new(ExprKind::FunctionCall {
                     name: "exp".to_string(),
-                    args: vec![Expr::symbol("x".to_string())],
+                    args: vec![Expr::symbol("x")],
                 })),
                 Arc::new(Expr::new(ExprKind::FunctionCall {
                     name: "exp".to_string(),
                     args: vec![Expr::new(ExprKind::Mul(
                         Arc::new(Expr::number(-1.0)),
-                        Arc::new(Expr::symbol("x".to_string())),
+                        Arc::new(Expr::symbol("x")),
                     ))],
                 })),
             ))),
@@ -132,12 +132,12 @@ mod tests {
                     name: "exp".to_string(),
                     args: vec![Expr::new(ExprKind::Mul(
                         Arc::new(Expr::number(-1.0)),
-                        Arc::new(Expr::symbol("x".to_string())),
+                        Arc::new(Expr::symbol("x")),
                     ))],
                 })),
                 Arc::new(Expr::new(ExprKind::FunctionCall {
                     name: "exp".to_string(),
-                    args: vec![Expr::symbol("x".to_string())],
+                    args: vec![Expr::symbol("x")],
                 })),
             ))),
         ));
@@ -145,7 +145,7 @@ mod tests {
         let simplified = simplify_expr(expr, HashSet::new());
         if let ExprKind::FunctionCall { name, args } = &simplified.kind {
             assert_eq!(name, "tanh");
-            assert_eq!(args[0], Expr::symbol("x".to_string()));
+            assert_eq!(args[0], Expr::symbol("x"));
         } else {
             panic!("Expected tanh(x), got {:?}", simplified);
         }
@@ -162,12 +162,12 @@ mod tests {
                     name: "exp".to_string(),
                     args: vec![Expr::new(ExprKind::Mul(
                         Arc::new(Expr::number(-1.0)),
-                        Arc::new(Expr::symbol("x".to_string())),
+                        Arc::new(Expr::symbol("x")),
                     ))],
                 })),
                 Arc::new(Expr::new(ExprKind::FunctionCall {
                     name: "exp".to_string(),
-                    args: vec![Expr::symbol("x".to_string())],
+                    args: vec![Expr::symbol("x")],
                 })),
             ))),
         ));
@@ -175,7 +175,7 @@ mod tests {
         let simplified = simplify_expr(expr, HashSet::new());
         if let ExprKind::FunctionCall { name, args } = &simplified.kind {
             assert_eq!(name, "sech");
-            assert_eq!(args[0], Expr::symbol("x".to_string()));
+            assert_eq!(args[0], Expr::symbol("x"));
         } else {
             panic!("Expected sech(x), got {:?}", simplified);
         }
@@ -197,7 +197,7 @@ mod tests {
             Arc::new(Expr::new(ExprKind::Add(
                 Arc::new(Expr::new(ExprKind::FunctionCall {
                     name: "exp".to_string(),
-                    args: vec![Expr::symbol("x".to_string())],
+                    args: vec![Expr::symbol("x")],
                 })),
                 Arc::new(Expr::new(ExprKind::Mul(
                     Arc::new(Expr::number(-1.0)),
@@ -205,7 +205,7 @@ mod tests {
                         name: "exp".to_string(),
                         args: vec![Expr::new(ExprKind::Mul(
                             Arc::new(Expr::number(-1.0)),
-                            Arc::new(Expr::symbol("x".to_string())),
+                            Arc::new(Expr::symbol("x")),
                         ))],
                     })),
                 ))),
@@ -216,7 +216,7 @@ mod tests {
         let simplified = simplify_expr(expr, HashSet::new());
         if let ExprKind::FunctionCall { name, args } = &simplified.kind {
             assert_eq!(name, "sinh");
-            assert_eq!(args[0], Expr::symbol("x".to_string()));
+            assert_eq!(args[0], Expr::symbol("x"));
         } else {
             panic!("Expected sinh(x), got {:?}", simplified);
         }
@@ -234,13 +234,13 @@ mod tests {
                         name: "exp".to_string(),
                         args: vec![Expr::new(ExprKind::Mul(
                             Arc::new(Expr::number(-1.0)),
-                            Arc::new(Expr::symbol("x".to_string())),
+                            Arc::new(Expr::symbol("x")),
                         ))],
                     })),
                 ))),
                 Arc::new(Expr::new(ExprKind::FunctionCall {
                     name: "exp".to_string(),
-                    args: vec![Expr::symbol("x".to_string())],
+                    args: vec![Expr::symbol("x")],
                 })),
             ))),
             Arc::new(Expr::number(2.0)),
@@ -249,7 +249,7 @@ mod tests {
         let simplified = simplify_expr(expr, HashSet::new());
         if let ExprKind::FunctionCall { name, args } = &simplified.kind {
             assert_eq!(name, "sinh");
-            assert_eq!(args[0], Expr::symbol("x".to_string()));
+            assert_eq!(args[0], Expr::symbol("x"));
         } else {
             panic!("Expected sinh(x), got {:?}", simplified);
         }

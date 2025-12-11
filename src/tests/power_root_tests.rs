@@ -10,11 +10,11 @@ mod tests {
         // x^2 * y^2 -> (x*y)^2
         let expr = Expr::new(ExprKind::Mul(
             Arc::new(Expr::new(ExprKind::Pow(
-                Arc::new(Expr::symbol("x".to_string())),
+                Arc::new(Expr::symbol("x")),
                 Arc::new(Expr::number(2.0)),
             ))),
             Arc::new(Expr::new(ExprKind::Pow(
-                Arc::new(Expr::symbol("y".to_string())),
+                Arc::new(Expr::symbol("y")),
                 Arc::new(Expr::number(2.0)),
             ))),
         ));
@@ -45,11 +45,11 @@ mod tests {
         // x^2 / y^2 -> (x/y)^2
         let expr = Expr::new(ExprKind::Div(
             Arc::new(Expr::new(ExprKind::Pow(
-                Arc::new(Expr::symbol("x".to_string())),
+                Arc::new(Expr::symbol("x")),
                 Arc::new(Expr::number(2.0)),
             ))),
             Arc::new(Expr::new(ExprKind::Pow(
-                Arc::new(Expr::symbol("y".to_string())),
+                Arc::new(Expr::symbol("y")),
                 Arc::new(Expr::number(2.0)),
             ))),
         ));
@@ -86,7 +86,7 @@ mod tests {
     fn test_root_conversion_sqrt() {
         // x^(1/2) -> sqrt(x)
         let expr = Expr::new(ExprKind::Pow(
-            Arc::new(Expr::symbol("x".to_string())),
+            Arc::new(Expr::symbol("x")),
             Arc::new(Expr::new(ExprKind::Div(
                 Arc::new(Expr::number(1.0)),
                 Arc::new(Expr::number(2.0)),
@@ -111,7 +111,7 @@ mod tests {
     fn test_root_conversion_sqrt_decimal() {
         // x^0.5 -> sqrt(x)
         let expr = Expr::new(ExprKind::Pow(
-            Arc::new(Expr::symbol("x".to_string())),
+            Arc::new(Expr::symbol("x")),
             Arc::new(Expr::number(0.5)),
         ));
         let simplified = simplify_expr(expr, HashSet::new());
@@ -133,7 +133,7 @@ mod tests {
     fn test_root_conversion_cbrt() {
         // x^(1/3) -> cbrt(x)
         let expr = Expr::new(ExprKind::Pow(
-            Arc::new(Expr::symbol("x".to_string())),
+            Arc::new(Expr::symbol("x")),
             Arc::new(Expr::new(ExprKind::Div(
                 Arc::new(Expr::number(1.0)),
                 Arc::new(Expr::number(3.0)),

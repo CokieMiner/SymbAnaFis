@@ -73,17 +73,17 @@ mod tests {
     #[test]
     fn test_add_zero() {
         let expr = Expr::new(ExprKind::Add(
-            Arc::new(Expr::symbol("x".to_string())),
+            Arc::new(Expr::symbol("x")),
             Arc::new(Expr::number(0.0)),
         ));
         let result = simplify_expr(expr, HashSet::new());
-        assert_eq!(result, Expr::symbol("x".to_string()));
+        assert_eq!(result, Expr::symbol("x"));
     }
 
     #[test]
     fn test_mul_zero() {
         let expr = Expr::new(ExprKind::Mul(
-            Arc::new(Expr::symbol("x".to_string())),
+            Arc::new(Expr::symbol("x")),
             Arc::new(Expr::number(0.0)),
         ));
         let result = simplify_expr(expr, HashSet::new());
@@ -93,17 +93,17 @@ mod tests {
     #[test]
     fn test_mul_one() {
         let expr = Expr::new(ExprKind::Mul(
-            Arc::new(Expr::symbol("x".to_string())),
+            Arc::new(Expr::symbol("x")),
             Arc::new(Expr::number(1.0)),
         ));
         let result = simplify_expr(expr, HashSet::new());
-        assert_eq!(result, Expr::symbol("x".to_string()));
+        assert_eq!(result, Expr::symbol("x"));
     }
 
     #[test]
     fn test_pow_zero() {
         let expr = Expr::new(ExprKind::Pow(
-            Arc::new(Expr::symbol("x".to_string())),
+            Arc::new(Expr::symbol("x")),
             Arc::new(Expr::number(0.0)),
         ));
         let result = simplify_expr(expr, HashSet::new());
@@ -113,11 +113,11 @@ mod tests {
     #[test]
     fn test_pow_one() {
         let expr = Expr::new(ExprKind::Pow(
-            Arc::new(Expr::symbol("x".to_string())),
+            Arc::new(Expr::symbol("x")),
             Arc::new(Expr::number(1.0)),
         ));
         let result = simplify_expr(expr, HashSet::new());
-        assert_eq!(result, Expr::symbol("x".to_string()));
+        assert_eq!(result, Expr::symbol("x"));
     }
 
     #[test]
@@ -135,13 +135,13 @@ mod tests {
         // (x + 0) * 1 should simplify to x
         let expr = Expr::new(ExprKind::Mul(
             Arc::new(Expr::new(ExprKind::Add(
-                Arc::new(Expr::symbol("x".to_string())),
+                Arc::new(Expr::symbol("x")),
                 Arc::new(Expr::number(0.0)),
             ))),
             Arc::new(Expr::number(1.0)),
         ));
         let result = simplify_expr(expr, HashSet::new());
-        assert_eq!(result, Expr::symbol("x".to_string()));
+        assert_eq!(result, Expr::symbol("x"));
     }
 
     #[test]
@@ -165,7 +165,7 @@ mod tests {
             name: "sin".to_string(),
             args: vec![Expr::new(ExprKind::Mul(
                 Arc::new(Expr::number(-1.0)),
-                Arc::new(Expr::symbol("x".to_string())),
+                Arc::new(Expr::symbol("x")),
             ))],
         });
         let simplified = simplify_expr(expr, HashSet::new());
@@ -174,7 +174,7 @@ mod tests {
             assert_eq!(**a, Expr::number(-1.0));
             if let ExprKind::FunctionCall { name, args } = &b.kind {
                 assert_eq!(name, "sin");
-                assert_eq!(args[0], Expr::symbol("x".to_string()));
+                assert_eq!(args[0], Expr::symbol("x"));
             } else {
                 panic!("Expected function call");
             }
@@ -221,13 +221,10 @@ mod tests {
             name: "exp".to_string(),
             args: vec![Expr::new(ExprKind::FunctionCall {
                 name: "ln".to_string(),
-                args: vec![Expr::symbol("x".to_string())],
+                args: vec![Expr::symbol("x")],
             })],
         });
-        assert_eq!(
-            simplify_expr(expr, HashSet::new()),
-            Expr::symbol("x".to_string())
-        );
+        assert_eq!(simplify_expr(expr, HashSet::new()), Expr::symbol("x"));
     }
 
     #[test]
@@ -262,12 +259,12 @@ mod tests {
         // x*y + x*z should become x*(y + z)
         let expr = Expr::new(ExprKind::Add(
             Arc::new(Expr::new(ExprKind::Mul(
-                Arc::new(Expr::symbol("x".to_string())),
-                Arc::new(Expr::symbol("y".to_string())),
+                Arc::new(Expr::symbol("x")),
+                Arc::new(Expr::symbol("y")),
             ))),
             Arc::new(Expr::new(ExprKind::Mul(
-                Arc::new(Expr::symbol("x".to_string())),
-                Arc::new(Expr::symbol("z".to_string())),
+                Arc::new(Expr::symbol("x")),
+                Arc::new(Expr::symbol("z")),
             ))),
         ));
         let simplified = simplify_expr(expr, HashSet::new());
@@ -282,10 +279,10 @@ mod tests {
                 panic!("Expected one factor to be x, got {:?}", (a, b));
             };
 
-            assert_eq!(**x_part, Expr::symbol("x".to_string()));
+            assert_eq!(**x_part, Expr::symbol("x"));
             if let ExprKind::Add(x, y) = &sum_part.kind {
-                assert_eq!(**x, Expr::symbol("y".to_string()));
-                assert_eq!(**y, Expr::symbol("z".to_string()));
+                assert_eq!(**x, Expr::symbol("y"));
+                assert_eq!(**y, Expr::symbol("z"));
             } else {
                 panic!("Expected y + z, got {:?}", sum_part);
             }
@@ -300,19 +297,19 @@ mod tests {
         let expr = Expr::new(ExprKind::Add(
             Arc::new(Expr::new(ExprKind::Add(
                 Arc::new(Expr::new(ExprKind::Pow(
-                    Arc::new(Expr::symbol("x".to_string())),
+                    Arc::new(Expr::symbol("x")),
                     Arc::new(Expr::number(2.0)),
                 ))),
                 Arc::new(Expr::new(ExprKind::Mul(
                     Arc::new(Expr::number(2.0)),
                     Arc::new(Expr::new(ExprKind::Mul(
-                        Arc::new(Expr::symbol("x".to_string())),
-                        Arc::new(Expr::symbol("y".to_string())),
+                        Arc::new(Expr::symbol("x")),
+                        Arc::new(Expr::symbol("y")),
                     ))),
                 ))),
             ))),
             Arc::new(Expr::new(ExprKind::Pow(
-                Arc::new(Expr::symbol("y".to_string())),
+                Arc::new(Expr::symbol("y")),
                 Arc::new(Expr::number(2.0)),
             ))),
         ));
@@ -323,8 +320,8 @@ mod tests {
         if let ExprKind::Pow(sum, exp) = &simplified.kind {
             assert_eq!(**exp, Expr::number(2.0));
             if let ExprKind::Add(x, y) = &sum.kind {
-                assert_eq!(**x, Expr::symbol("x".to_string()));
-                assert_eq!(**y, Expr::symbol("y".to_string()));
+                assert_eq!(**x, Expr::symbol("x"));
+                assert_eq!(**y, Expr::symbol("y"));
             } else {
                 panic!("Expected x + y");
             }
@@ -354,11 +351,11 @@ mod tests {
         // (A / B) * R^2 -> (A * R^2) / B
         let expr = Expr::new(ExprKind::Mul(
             Arc::new(Expr::new(ExprKind::Div(
-                Arc::new(Expr::symbol("A".to_string())),
-                Arc::new(Expr::symbol("B".to_string())),
+                Arc::new(Expr::symbol("A")),
+                Arc::new(Expr::symbol("B")),
             ))),
             Arc::new(Expr::new(ExprKind::Pow(
-                Arc::new(Expr::symbol("R".to_string())),
+                Arc::new(Expr::symbol("R")),
                 Arc::new(Expr::number(2.0)),
             ))),
         ));

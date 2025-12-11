@@ -8,10 +8,10 @@ mod tests {
         // a / (b * c) should be displayed as "a / (b * c)"
         // If displayed as "a / b * c", it means (a / b) * c which is wrong.
         let expr = Expr::new(ExprKind::Div(
-            Arc::new(Expr::symbol("a".to_string())),
+            Arc::new(Expr::symbol("a")),
             Arc::new(Expr::new(ExprKind::Mul(
-                Arc::new(Expr::symbol("b".to_string())),
-                Arc::new(Expr::symbol("c".to_string())),
+                Arc::new(Expr::symbol("b")),
+                Arc::new(Expr::symbol("c")),
             ))),
         ));
         let display = format!("{}", expr);
@@ -23,10 +23,10 @@ mod tests {
     fn test_division_precedence_div() {
         // a / (b / c) should be displayed as "a / (b / c)"
         let expr = Expr::new(ExprKind::Div(
-            Arc::new(Expr::symbol("a".to_string())),
+            Arc::new(Expr::symbol("a")),
             Arc::new(Expr::new(ExprKind::Div(
-                Arc::new(Expr::symbol("b".to_string())),
-                Arc::new(Expr::symbol("c".to_string())),
+                Arc::new(Expr::symbol("b")),
+                Arc::new(Expr::symbol("c")),
             ))),
         ));
         let display = format!("{}", expr);
@@ -48,16 +48,16 @@ mod tests {
                 Arc::new(Expr::new(ExprKind::Mul(
                     Arc::new(Expr::new(ExprKind::Mul(
                         Arc::new(Expr::number(-1.0)),
-                        Arc::new(Expr::symbol("C".to_string())),
+                        Arc::new(Expr::symbol("C")),
                     ))),
-                    Arc::new(Expr::symbol("R".to_string())),
+                    Arc::new(Expr::symbol("R")),
                 ))),
-                Arc::new(Expr::symbol("V0".to_string())),
+                Arc::new(Expr::symbol("V0")),
             ))),
             Arc::new(Expr::new(ExprKind::Mul(
-                Arc::new(Expr::symbol("C".to_string())),
+                Arc::new(Expr::symbol("C")),
                 Arc::new(Expr::new(ExprKind::Pow(
-                    Arc::new(Expr::symbol("R".to_string())),
+                    Arc::new(Expr::symbol("R")),
                     Arc::new(Expr::number(2.0)),
                 ))),
             ))),
@@ -73,7 +73,7 @@ mod tests {
 
         let exp_term = Expr::new(ExprKind::FunctionCall {
             name: "exp".to_string(),
-            args: vec![Expr::symbol("t".to_string())], // Simplified arg
+            args: vec![Expr::symbol("t")], // Simplified arg
         });
 
         let expr_full = Expr::new(ExprKind::Div(
@@ -82,18 +82,18 @@ mod tests {
                     Arc::new(Expr::new(ExprKind::Mul(
                         Arc::new(Expr::new(ExprKind::Mul(
                             Arc::new(Expr::number(-1.0)),
-                            Arc::new(Expr::symbol("C".to_string())),
+                            Arc::new(Expr::symbol("C")),
                         ))),
-                        Arc::new(Expr::symbol("R".to_string())),
+                        Arc::new(Expr::symbol("R")),
                     ))),
-                    Arc::new(Expr::symbol("V0".to_string())),
+                    Arc::new(Expr::symbol("V0")),
                 ))),
                 Arc::new(exp_term.clone()),
             ))),
             Arc::new(Expr::new(ExprKind::Mul(
-                Arc::new(Expr::symbol("C".to_string())),
+                Arc::new(Expr::symbol("C")),
                 Arc::new(Expr::new(ExprKind::Pow(
-                    Arc::new(Expr::symbol("R".to_string())),
+                    Arc::new(Expr::symbol("R")),
                     Arc::new(Expr::number(2.0)),
                 ))),
             ))),
@@ -117,11 +117,11 @@ mod tests {
     fn test_display_rc_denominator() {
         // A / (C * R^2)
         let expr = Expr::new(ExprKind::Div(
-            Arc::new(Expr::symbol("A".to_string())),
+            Arc::new(Expr::symbol("A")),
             Arc::new(Expr::new(ExprKind::Mul(
-                Arc::new(Expr::symbol("C".to_string())),
+                Arc::new(Expr::symbol("C")),
                 Arc::new(Expr::new(ExprKind::Pow(
-                    Arc::new(Expr::symbol("R".to_string())),
+                    Arc::new(Expr::symbol("R")),
                     Arc::new(Expr::number(2.0)),
                 ))),
             ))),

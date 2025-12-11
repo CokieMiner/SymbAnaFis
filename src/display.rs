@@ -358,10 +358,10 @@ fn format_latex(expr: &Expr, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         }
 
         ExprKind::Mul(u, v) => {
-            if let ExprKind::Number(n) = &u.kind {
-                if *n == -1.0 {
-                    return write!(f, "-{}", latex_mul_operand(v));
-                }
+            if let ExprKind::Number(n) = &u.kind
+                && *n == -1.0
+            {
+                return write!(f, "-{}", latex_mul_operand(v));
             }
             write!(
                 f,
@@ -382,10 +382,10 @@ fn format_latex(expr: &Expr, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 
         ExprKind::Pow(u, v) => {
             // Special case: e^x
-            if let ExprKind::Symbol(s) = &u.kind {
-                if s == "e" {
-                    return write!(f, r"e^{{{}}}", LatexFormatter(v));
-                }
+            if let ExprKind::Symbol(s) = &u.kind
+                && s == "e"
+            {
+                return write!(f, r"e^{{{}}}", LatexFormatter(v));
             }
 
             let base_str = match &u.kind {
@@ -554,10 +554,10 @@ fn format_unicode(expr: &Expr, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         }
 
         ExprKind::Mul(u, v) => {
-            if let ExprKind::Number(n) = &u.kind {
-                if *n == -1.0 {
-                    return write!(f, "−{}", unicode_mul_operand(v));
-                }
+            if let ExprKind::Number(n) = &u.kind
+                && *n == -1.0
+            {
+                return write!(f, "−{}", unicode_mul_operand(v));
             }
             write!(f, "{}·{}", unicode_mul_operand(u), unicode_mul_operand(v))
         }
@@ -581,10 +581,10 @@ fn format_unicode(expr: &Expr, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 
         ExprKind::Pow(u, v) => {
             // Special case: e^x displays as exp(x)
-            if let ExprKind::Symbol(s) = &u.kind {
-                if s == "e" {
-                    return write!(f, "exp({})", UnicodeFormatter(v));
-                }
+            if let ExprKind::Symbol(s) = &u.kind
+                && s == "e"
+            {
+                return write!(f, "exp({})", UnicodeFormatter(v));
             }
 
             let base_str = match &u.kind {

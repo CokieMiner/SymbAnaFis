@@ -5,11 +5,11 @@ fn test_division_structure() {
     // Debug: What structure does the derivative create?
     // Manual construction of: something / (C * R^2)
     let proper = Expr::new(ExprKind::Div(
-        Arc::new(Expr::symbol("X".to_string())),
+        Arc::new(Expr::symbol("X")),
         Arc::new(Expr::new(ExprKind::Mul(
-            Arc::new(Expr::symbol("C".to_string())),
+            Arc::new(Expr::symbol("C")),
             Arc::new(Expr::new(ExprKind::Pow(
-                Arc::new(Expr::symbol("R".to_string())),
+                Arc::new(Expr::symbol("R")),
                 Arc::new(Expr::number(2.0)),
             ))),
         ))),
@@ -20,11 +20,11 @@ fn test_division_structure() {
     // What if it's: (something / C) * R^2 ?
     let wrong = Expr::new(ExprKind::Mul(
         Arc::new(Expr::new(ExprKind::Div(
-            Arc::new(Expr::symbol("X".to_string())),
-            Arc::new(Expr::symbol("C".to_string())),
+            Arc::new(Expr::symbol("X")),
+            Arc::new(Expr::symbol("C")),
         ))),
         Arc::new(Expr::new(ExprKind::Pow(
-            Arc::new(Expr::symbol("R".to_string())),
+            Arc::new(Expr::symbol("R")),
             Arc::new(Expr::number(2.0)),
         ))),
     ));
@@ -34,11 +34,11 @@ fn test_division_structure() {
     // What about: something / R * C^2 (parsed as (something/R)*C^2)?
     let ambiguous = Expr::new(ExprKind::Mul(
         Arc::new(Expr::new(ExprKind::Div(
-            Arc::new(Expr::symbol("X".to_string())),
-            Arc::new(Expr::symbol("R".to_string())),
+            Arc::new(Expr::symbol("X")),
+            Arc::new(Expr::symbol("R")),
         ))),
         Arc::new(Expr::new(ExprKind::Pow(
-            Arc::new(Expr::symbol("C".to_string())),
+            Arc::new(Expr::symbol("C")),
             Arc::new(Expr::number(2.0)),
         ))),
     ));

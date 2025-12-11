@@ -10,7 +10,7 @@ mod tests {
         // (x^2)^2 -> x^4
         let expr = Expr::new(ExprKind::Pow(
             Arc::new(Expr::new(ExprKind::Pow(
-                Arc::new(Expr::symbol("x".to_string())),
+                Arc::new(Expr::symbol("x")),
                 Arc::new(Expr::number(2.0)),
             ))),
             Arc::new(Expr::number(2.0)),
@@ -39,10 +39,10 @@ mod tests {
         // (x^a)^b -> x^(a*b)
         let expr = Expr::new(ExprKind::Pow(
             Arc::new(Expr::new(ExprKind::Pow(
-                Arc::new(Expr::symbol("x".to_string())),
-                Arc::new(Expr::symbol("a".to_string())),
+                Arc::new(Expr::symbol("x")),
+                Arc::new(Expr::symbol("a")),
             ))),
-            Arc::new(Expr::symbol("b".to_string())),
+            Arc::new(Expr::symbol("b")),
         ));
         let simplified = simplify_expr(expr, HashSet::new());
 
@@ -72,7 +72,7 @@ mod tests {
         // (sigma^2)^2 -> sigma^4
         let expr = Expr::new(ExprKind::Pow(
             Arc::new(Expr::new(ExprKind::Pow(
-                Arc::new(Expr::symbol("sigma".to_string())),
+                Arc::new(Expr::symbol("sigma")),
                 Arc::new(Expr::number(2.0)),
             ))),
             Arc::new(Expr::number(2.0)),

@@ -11,21 +11,21 @@ mod tests {
             Arc::new(Expr::new(ExprKind::Mul(
                 Arc::new(Expr::new(ExprKind::FunctionCall {
                     name: "sin".to_string(),
-                    args: vec![Expr::symbol("x".to_string())],
+                    args: vec![Expr::symbol("x")],
                 })),
                 Arc::new(Expr::new(ExprKind::FunctionCall {
                     name: "cos".to_string(),
-                    args: vec![Expr::symbol("y".to_string())],
+                    args: vec![Expr::symbol("y")],
                 })),
             ))),
             Arc::new(Expr::new(ExprKind::Mul(
                 Arc::new(Expr::new(ExprKind::FunctionCall {
                     name: "cos".to_string(),
-                    args: vec![Expr::symbol("x".to_string())],
+                    args: vec![Expr::symbol("x")],
                 })),
                 Arc::new(Expr::new(ExprKind::FunctionCall {
                     name: "sin".to_string(),
-                    args: vec![Expr::symbol("y".to_string())],
+                    args: vec![Expr::symbol("y")],
                 })),
             ))),
         ));
@@ -33,8 +33,8 @@ mod tests {
         let expected = Expr::new(ExprKind::FunctionCall {
             name: "sin".to_string(),
             args: vec![Expr::new(ExprKind::Add(
-                Arc::new(Expr::symbol("x".to_string())),
-                Arc::new(Expr::symbol("y".to_string())),
+                Arc::new(Expr::symbol("x")),
+                Arc::new(Expr::symbol("y")),
             ))],
         });
         assert_eq!(simplified, expected);
@@ -46,8 +46,8 @@ mod tests {
             Expr::new(ExprKind::FunctionCall {
                 name: "sin".to_string(),
                 args: vec![Expr::new(ExprKind::Add(
-                    Arc::new(Expr::symbol("x".to_string())),
-                    Arc::new(Expr::symbol("y".to_string())),
+                    Arc::new(Expr::symbol("x")),
+                    Arc::new(Expr::symbol("y")),
                 ))],
             }),
             HashSet::new(),
@@ -56,10 +56,8 @@ mod tests {
             assert_eq!(name, "sin");
             assert_eq!(args.len(), 1);
             if let ExprKind::Add(u, v) = &args[0].kind {
-                let is_xy =
-                    **u == Expr::symbol("x".to_string()) && **v == Expr::symbol("y".to_string());
-                let is_yx =
-                    **u == Expr::symbol("y".to_string()) && **v == Expr::symbol("x".to_string());
+                let is_xy = **u == Expr::symbol("x") && **v == Expr::symbol("y");
+                let is_yx = **u == Expr::symbol("y") && **v == Expr::symbol("x");
                 assert!(is_xy || is_yx);
             } else {
                 panic!("Expected Add inside sin");
@@ -126,7 +124,7 @@ mod tests {
             name: "sin".to_string(),
             args: vec![Expr::new(ExprKind::Mul(
                 Arc::new(Expr::number(3.0)),
-                Arc::new(Expr::symbol("x".to_string())),
+                Arc::new(Expr::symbol("x")),
             ))],
         });
         assert_eq!(simplified, expected);
@@ -143,7 +141,7 @@ mod tests {
             name: "sinh".to_string(),
             args: vec![Expr::new(ExprKind::Mul(
                 Arc::new(Expr::number(3.0)),
-                Arc::new(Expr::symbol("x".to_string())),
+                Arc::new(Expr::symbol("x")),
             ))],
         });
         assert_eq!(simplified, expected);
@@ -162,7 +160,7 @@ mod tests {
             name: "sin".to_string(),
             args: vec![Expr::new(ExprKind::Mul(
                 Arc::new(Expr::number(3.0)),
-                Arc::new(Expr::symbol("x".to_string())),
+                Arc::new(Expr::symbol("x")),
             ))],
         });
         assert_eq!(simplified, expected);
@@ -197,7 +195,7 @@ mod tests {
             name: "sin".to_string(),
             args: vec![Expr::new(ExprKind::Mul(
                 Arc::new(Expr::number(3.0)),
-                Arc::new(Expr::symbol("x".to_string())),
+                Arc::new(Expr::symbol("x")),
             ))],
         });
         assert_eq!(simplified, expected);
@@ -209,7 +207,7 @@ mod tests {
             name: "cos".to_string(),
             args: vec![Expr::new(ExprKind::Mul(
                 Arc::new(Expr::number(3.0)),
-                Arc::new(Expr::symbol("x".to_string())),
+                Arc::new(Expr::symbol("x")),
             ))],
         });
         assert_eq!(simplified2, expected2);
@@ -226,7 +224,7 @@ mod tests {
             name: "sin".to_string(),
             args: vec![Expr::new(ExprKind::Mul(
                 Arc::new(Expr::number(3.0)),
-                Arc::new(Expr::symbol("x".to_string())),
+                Arc::new(Expr::symbol("x")),
             ))],
         });
         assert_eq!(simplified, expected);
@@ -245,7 +243,7 @@ mod tests {
             name: "sinh".to_string(),
             args: vec![Expr::new(ExprKind::Mul(
                 Arc::new(Expr::number(3.0)),
-                Arc::new(Expr::symbol("x".to_string())),
+                Arc::new(Expr::symbol("x")),
             ))],
         });
         assert_eq!(simplified, expected);

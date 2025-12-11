@@ -10,12 +10,12 @@ mod tests {
         let expr = Expr::new(ExprKind::Add(
             Arc::new(Expr::new(ExprKind::Add(
                 Arc::new(Expr::new(ExprKind::Pow(
-                    Arc::new(Expr::symbol("x".to_string())),
+                    Arc::new(Expr::symbol("x")),
                     Arc::new(Expr::number(2.0)),
                 ))),
                 Arc::new(Expr::new(ExprKind::Mul(
                     Arc::new(Expr::number(2.0)),
-                    Arc::new(Expr::symbol("x".to_string())),
+                    Arc::new(Expr::symbol("x")),
                 ))),
             ))),
             Arc::new(Expr::number(1.0)),
@@ -26,7 +26,7 @@ mod tests {
         // Expected: (x + 1)^2
         let expected = Expr::new(ExprKind::Pow(
             Arc::new(Expr::new(ExprKind::Add(
-                Arc::new(Expr::symbol("x".to_string())),
+                Arc::new(Expr::symbol("x")),
                 Arc::new(Expr::number(1.0)),
             ))),
             Arc::new(Expr::number(2.0)),

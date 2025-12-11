@@ -5,17 +5,17 @@ fn debug_rc_derivative() {
     use std::sync::Arc;
     // Simplified RC test
     let rc = Expr::new(ExprKind::Mul(
-        Arc::new(Expr::symbol("V0".to_string())),
+        Arc::new(Expr::symbol("V0")),
         Arc::new(Expr::new(ExprKind::FunctionCall {
             name: "exp".to_string(),
             args: vec![Expr::new(ExprKind::Div(
                 Arc::new(Expr::new(ExprKind::Mul(
                     Arc::new(Expr::number(-1.0)),
-                    Arc::new(Expr::symbol("t".to_string())),
+                    Arc::new(Expr::symbol("t")),
                 ))),
                 Arc::new(Expr::new(ExprKind::Mul(
-                    Arc::new(Expr::symbol("R".to_string())),
-                    Arc::new(Expr::symbol("C".to_string())),
+                    Arc::new(Expr::symbol("R")),
+                    Arc::new(Expr::symbol("C")),
                 ))),
             ))],
         })),

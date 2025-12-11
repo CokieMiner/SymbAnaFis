@@ -540,10 +540,10 @@ impl Expr {
         match &self.kind {
             ExprKind::Number(n) => Expr::number(*n),
             ExprKind::Symbol(s) => {
-                if let Some(name) = s.name() {
-                    if let Some(&val) = vars.get(name) {
-                        return Expr::number(val);
-                    }
+                if let Some(name) = s.name()
+                    && let Some(&val) = vars.get(name)
+                {
+                    return Expr::number(val);
                 }
                 self.clone()
             }

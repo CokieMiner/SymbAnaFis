@@ -237,7 +237,9 @@ pub fn eval_zeta_deriv<T: MathScalar>(n: i32, x: T) -> Option<T> {
 
             // Calculate [ln(k)]^n
             let mut ln_k_power = one;
-            ln_k_power *= ln_k;
+            for _ in 0..n {
+                ln_k_power *= ln_k;
+            }
 
             // Add term: [ln(k)]^n / k^x
             let term = ln_k_power / k_t.powf(x);
@@ -426,14 +428,19 @@ pub fn eval_polygamma<T: MathScalar>(n: i32, x: T) -> Option<T> {
     match n {
         0 => eval_digamma(x),
         1 => eval_trigamma(x),
-        2 => eval_tetragamma(x),
+        // For n >= 2, use general formula (tetragamma had accuracy issues)
         _ => {
             if x <= T::zero() && x.fract() == T::zero() {
                 return None;
             }
             let mut xv = x;
             let mut r = T::zero();
-            let sign = if n % 2 == 0 { T::one() } else { -T::one() };
+            // ψ^(n)(x) = (-1)^(n+1) * n! * Σ_{k=0}^∞ 1/(x+k)^(n+1)
+            let sign = if (n + 1) % 2 == 0 {
+                T::one()
+            } else {
+                -T::one()
+            };
 
             // Factorial up to n
             let mut factorial = T::one();

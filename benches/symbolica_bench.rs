@@ -131,6 +131,15 @@ fn bench_symbolica_differentiation(c: &mut Criterion) {
     group.finish();
 }
 
+// Note: Symbolica evaluation benchmarks not included.
+// The Symbolica 1.0.1 evaluate API requires a complex type signature with
+// closures for coefficient conversion that's incompatible with simple HashMap-based
+// benchmarking. For evaluation comparison, see SymbAnaFis and SymPy benchmarks.
+//
+// Key difference: Symbolica focuses on compiled evaluators for high-performance
+// repeated evaluation (code generation), while SymbAnaFis focuses on direct
+// evaluation of the AST.
+
 criterion_group!(
     benches,
     bench_symbolica_parsing,

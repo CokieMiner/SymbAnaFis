@@ -9,12 +9,12 @@ mod tests {
         // (x/y) / (z/a) -> (x*a) / (y*z)
         let expr = Expr::new(ExprKind::Div(
             Arc::new(Expr::new(ExprKind::Div(
-                Arc::new(Expr::symbol("x".to_string())),
-                Arc::new(Expr::symbol("y".to_string())),
+                Arc::new(Expr::symbol("x")),
+                Arc::new(Expr::symbol("y")),
             ))),
             Arc::new(Expr::new(ExprKind::Div(
-                Arc::new(Expr::symbol("z".to_string())),
-                Arc::new(Expr::symbol("a".to_string())),
+                Arc::new(Expr::symbol("z")),
+                Arc::new(Expr::symbol("a")),
             ))),
         ));
         let simplified = simplify_expr(expr, HashSet::new());
@@ -48,10 +48,10 @@ mod tests {
     fn test_nested_fraction_val_div() {
         // x / (y/z) -> (x*z) / y
         let expr = Expr::new(ExprKind::Div(
-            Arc::new(Expr::symbol("x".to_string())),
+            Arc::new(Expr::symbol("x")),
             Arc::new(Expr::new(ExprKind::Div(
-                Arc::new(Expr::symbol("y".to_string())),
-                Arc::new(Expr::symbol("z".to_string())),
+                Arc::new(Expr::symbol("y")),
+                Arc::new(Expr::symbol("z")),
             ))),
         ));
         let simplified = simplify_expr(expr, HashSet::new());
@@ -81,10 +81,10 @@ mod tests {
         // (x/y) / z -> x / (y*z)
         let expr = Expr::new(ExprKind::Div(
             Arc::new(Expr::new(ExprKind::Div(
-                Arc::new(Expr::symbol("x".to_string())),
-                Arc::new(Expr::symbol("y".to_string())),
+                Arc::new(Expr::symbol("x")),
+                Arc::new(Expr::symbol("y")),
             ))),
-            Arc::new(Expr::symbol("z".to_string())),
+            Arc::new(Expr::symbol("z")),
         ));
         let simplified = simplify_expr(expr, HashSet::new());
 
@@ -140,13 +140,13 @@ mod tests {
         // (C * R) / (C * R^2) -> 1 / R
         let expr = Expr::new(ExprKind::Div(
             Arc::new(Expr::new(ExprKind::Mul(
-                Arc::new(Expr::symbol("C".to_string())),
-                Arc::new(Expr::symbol("R".to_string())),
+                Arc::new(Expr::symbol("C")),
+                Arc::new(Expr::symbol("R")),
             ))),
             Arc::new(Expr::new(ExprKind::Mul(
-                Arc::new(Expr::symbol("C".to_string())),
+                Arc::new(Expr::symbol("C")),
                 Arc::new(Expr::new(ExprKind::Pow(
-                    Arc::new(Expr::symbol("R".to_string())),
+                    Arc::new(Expr::symbol("R")),
                     Arc::new(Expr::number(2.0)),
                 ))),
             ))),

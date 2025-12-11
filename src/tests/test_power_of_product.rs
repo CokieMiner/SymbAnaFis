@@ -5,8 +5,8 @@ fn test_power_of_product() {
     use std::sync::Arc;
     // Test: (R * C)^2
     let product = Expr::new(ExprKind::Mul(
-        Arc::new(Expr::symbol("R".to_string())),
-        Arc::new(Expr::symbol("C".to_string())),
+        Arc::new(Expr::symbol("R")),
+        Arc::new(Expr::symbol("C")),
     ));
     let squared = Expr::new(ExprKind::Pow(
         Arc::new(product),
@@ -19,11 +19,11 @@ fn test_power_of_product() {
 
     // Test: Something / (R * C)^2
     let div = Expr::new(ExprKind::Div(
-        Arc::new(Expr::symbol("X".to_string())),
+        Arc::new(Expr::symbol("X")),
         Arc::new(Expr::new(ExprKind::Pow(
             Arc::new(Expr::new(ExprKind::Mul(
-                Arc::new(Expr::symbol("R".to_string())),
-                Arc::new(Expr::symbol("C".to_string())),
+                Arc::new(Expr::symbol("R")),
+                Arc::new(Expr::symbol("C")),
             ))),
             Arc::new(Expr::number(2.0)),
         ))),

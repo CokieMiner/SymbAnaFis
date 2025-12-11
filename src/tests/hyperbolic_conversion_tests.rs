@@ -10,13 +10,13 @@ fn test_simplify_to_sinh() {
         Arc::new(Expr::new(ExprKind::Sub(
             Arc::new(Expr::new(ExprKind::FunctionCall {
                 name: "exp".to_string(),
-                args: vec![Expr::symbol("x".to_string())],
+                args: vec![Expr::symbol("x")],
             })),
             Arc::new(Expr::new(ExprKind::FunctionCall {
                 name: "exp".to_string(),
                 args: vec![Expr::new(ExprKind::Mul(
                     Arc::new(Expr::number(-1.0)),
-                    Arc::new(Expr::symbol("x".to_string())),
+                    Arc::new(Expr::symbol("x")),
                 ))],
             })),
         ))),
@@ -26,7 +26,7 @@ fn test_simplify_to_sinh() {
     let simplified = simplify_expr(expr, HashSet::new());
     if let ExprKind::FunctionCall { name, args } = &simplified.kind {
         assert_eq!(name, "sinh");
-        assert_eq!(args[0], Expr::symbol("x".to_string()));
+        assert_eq!(args[0], Expr::symbol("x"));
     } else {
         panic!("Expected sinh(x), got {:?}", simplified);
     }
@@ -39,13 +39,13 @@ fn test_simplify_to_cosh() {
         Arc::new(Expr::new(ExprKind::Add(
             Arc::new(Expr::new(ExprKind::FunctionCall {
                 name: "exp".to_string(),
-                args: vec![Expr::symbol("x".to_string())],
+                args: vec![Expr::symbol("x")],
             })),
             Arc::new(Expr::new(ExprKind::FunctionCall {
                 name: "exp".to_string(),
                 args: vec![Expr::new(ExprKind::Mul(
                     Arc::new(Expr::number(-1.0)),
-                    Arc::new(Expr::symbol("x".to_string())),
+                    Arc::new(Expr::symbol("x")),
                 ))],
             })),
         ))),
@@ -55,7 +55,7 @@ fn test_simplify_to_cosh() {
     let simplified = simplify_expr(expr, HashSet::new());
     if let ExprKind::FunctionCall { name, args } = &simplified.kind {
         assert_eq!(name, "cosh");
-        assert_eq!(args[0], Expr::symbol("x".to_string()));
+        assert_eq!(args[0], Expr::symbol("x"));
     } else {
         panic!("Expected cosh(x), got {:?}", simplified);
     }
@@ -68,26 +68,26 @@ fn test_simplify_to_tanh() {
         Arc::new(Expr::new(ExprKind::Sub(
             Arc::new(Expr::new(ExprKind::FunctionCall {
                 name: "exp".to_string(),
-                args: vec![Expr::symbol("x".to_string())],
+                args: vec![Expr::symbol("x")],
             })),
             Arc::new(Expr::new(ExprKind::FunctionCall {
                 name: "exp".to_string(),
                 args: vec![Expr::new(ExprKind::Mul(
                     Arc::new(Expr::number(-1.0)),
-                    Arc::new(Expr::symbol("x".to_string())),
+                    Arc::new(Expr::symbol("x")),
                 ))],
             })),
         ))),
         Arc::new(Expr::new(ExprKind::Add(
             Arc::new(Expr::new(ExprKind::FunctionCall {
                 name: "exp".to_string(),
-                args: vec![Expr::symbol("x".to_string())],
+                args: vec![Expr::symbol("x")],
             })),
             Arc::new(Expr::new(ExprKind::FunctionCall {
                 name: "exp".to_string(),
                 args: vec![Expr::new(ExprKind::Mul(
                     Arc::new(Expr::number(-1.0)),
-                    Arc::new(Expr::symbol("x".to_string())),
+                    Arc::new(Expr::symbol("x")),
                 ))],
             })),
         ))),
@@ -96,7 +96,7 @@ fn test_simplify_to_tanh() {
     let simplified = simplify_expr(expr, HashSet::new());
     if let ExprKind::FunctionCall { name, args } = &simplified.kind {
         assert_eq!(name, "tanh");
-        assert_eq!(args[0], Expr::symbol("x".to_string()));
+        assert_eq!(args[0], Expr::symbol("x"));
     } else {
         panic!("Expected tanh(x), got {:?}", simplified);
     }
@@ -109,26 +109,26 @@ fn test_simplify_to_coth() {
         Arc::new(Expr::new(ExprKind::Add(
             Arc::new(Expr::new(ExprKind::FunctionCall {
                 name: "exp".to_string(),
-                args: vec![Expr::symbol("x".to_string())],
+                args: vec![Expr::symbol("x")],
             })),
             Arc::new(Expr::new(ExprKind::FunctionCall {
                 name: "exp".to_string(),
                 args: vec![Expr::new(ExprKind::Mul(
                     Arc::new(Expr::number(-1.0)),
-                    Arc::new(Expr::symbol("x".to_string())),
+                    Arc::new(Expr::symbol("x")),
                 ))],
             })),
         ))),
         Arc::new(Expr::new(ExprKind::Sub(
             Arc::new(Expr::new(ExprKind::FunctionCall {
                 name: "exp".to_string(),
-                args: vec![Expr::symbol("x".to_string())],
+                args: vec![Expr::symbol("x")],
             })),
             Arc::new(Expr::new(ExprKind::FunctionCall {
                 name: "exp".to_string(),
                 args: vec![Expr::new(ExprKind::Mul(
                     Arc::new(Expr::number(-1.0)),
-                    Arc::new(Expr::symbol("x".to_string())),
+                    Arc::new(Expr::symbol("x")),
                 ))],
             })),
         ))),
@@ -137,7 +137,7 @@ fn test_simplify_to_coth() {
     let simplified = simplify_expr(expr, HashSet::new());
     if let ExprKind::FunctionCall { name, args } = &simplified.kind {
         assert_eq!(name, "coth");
-        assert_eq!(args[0], Expr::symbol("x".to_string()));
+        assert_eq!(args[0], Expr::symbol("x"));
     } else {
         panic!("Expected coth(x), got {:?}", simplified);
     }
@@ -151,13 +151,13 @@ fn test_simplify_to_sech() {
         Arc::new(Expr::new(ExprKind::Add(
             Arc::new(Expr::new(ExprKind::FunctionCall {
                 name: "exp".to_string(),
-                args: vec![Expr::symbol("x".to_string())],
+                args: vec![Expr::symbol("x")],
             })),
             Arc::new(Expr::new(ExprKind::FunctionCall {
                 name: "exp".to_string(),
                 args: vec![Expr::new(ExprKind::Mul(
                     Arc::new(Expr::number(-1.0)),
-                    Arc::new(Expr::symbol("x".to_string())),
+                    Arc::new(Expr::symbol("x")),
                 ))],
             })),
         ))),
@@ -166,7 +166,7 @@ fn test_simplify_to_sech() {
     let simplified = simplify_expr(expr, HashSet::new());
     if let ExprKind::FunctionCall { name, args } = &simplified.kind {
         assert_eq!(name, "sech");
-        assert_eq!(args[0], Expr::symbol("x".to_string()));
+        assert_eq!(args[0], Expr::symbol("x"));
     } else {
         panic!("Expected sech(x), got {:?}", simplified);
     }
@@ -180,13 +180,13 @@ fn test_simplify_to_csch() {
         Arc::new(Expr::new(ExprKind::Sub(
             Arc::new(Expr::new(ExprKind::FunctionCall {
                 name: "exp".to_string(),
-                args: vec![Expr::symbol("x".to_string())],
+                args: vec![Expr::symbol("x")],
             })),
             Arc::new(Expr::new(ExprKind::FunctionCall {
                 name: "exp".to_string(),
                 args: vec![Expr::new(ExprKind::Mul(
                     Arc::new(Expr::number(-1.0)),
-                    Arc::new(Expr::symbol("x".to_string())),
+                    Arc::new(Expr::symbol("x")),
                 ))],
             })),
         ))),
@@ -195,7 +195,7 @@ fn test_simplify_to_csch() {
     let simplified = simplify_expr(expr, HashSet::new());
     if let ExprKind::FunctionCall { name, args } = &simplified.kind {
         assert_eq!(name, "csch");
-        assert_eq!(args[0], Expr::symbol("x".to_string()));
+        assert_eq!(args[0], Expr::symbol("x"));
     } else {
         panic!("Expected csch(x)");
     }
@@ -208,7 +208,7 @@ fn test_hyperbolic_identities() {
         name: "sinh".to_string(),
         args: vec![Expr::new(ExprKind::Mul(
             Arc::new(Expr::number(-1.0)),
-            Arc::new(Expr::symbol("x".to_string())),
+            Arc::new(Expr::symbol("x")),
         ))],
     });
     let simplified = simplify_expr(expr, HashSet::new());
@@ -216,7 +216,7 @@ fn test_hyperbolic_identities() {
         assert_eq!(**a, Expr::number(-1.0));
         if let ExprKind::FunctionCall { name, args } = &b.kind {
             assert_eq!(name, "sinh");
-            assert_eq!(args[0], Expr::symbol("x".to_string()));
+            assert_eq!(args[0], Expr::symbol("x"));
         } else {
             panic!("Expected sinh(x)");
         }
@@ -229,13 +229,13 @@ fn test_hyperbolic_identities() {
         name: "cosh".to_string(),
         args: vec![Expr::new(ExprKind::Mul(
             Arc::new(Expr::number(-1.0)),
-            Arc::new(Expr::symbol("x".to_string())),
+            Arc::new(Expr::symbol("x")),
         ))],
     });
     let simplified = simplify_expr(expr, HashSet::new());
     if let ExprKind::FunctionCall { name, args } = &simplified.kind {
         assert_eq!(name, "cosh");
-        assert_eq!(args[0], Expr::symbol("x".to_string()));
+        assert_eq!(args[0], Expr::symbol("x"));
     } else {
         panic!("Expected cosh(x)");
     }
@@ -245,14 +245,14 @@ fn test_hyperbolic_identities() {
         Arc::new(Expr::new(ExprKind::Pow(
             Arc::new(Expr::new(ExprKind::FunctionCall {
                 name: "cosh".to_string(),
-                args: vec![Expr::symbol("x".to_string())],
+                args: vec![Expr::symbol("x")],
             })),
             Arc::new(Expr::number(2.0)),
         ))),
         Arc::new(Expr::new(ExprKind::Pow(
             Arc::new(Expr::new(ExprKind::FunctionCall {
                 name: "sinh".to_string(),
-                args: vec![Expr::symbol("x".to_string())],
+                args: vec![Expr::symbol("x")],
             })),
             Arc::new(Expr::number(2.0)),
         ))),
@@ -265,7 +265,7 @@ fn test_hyperbolic_identities() {
         Arc::new(Expr::new(ExprKind::Pow(
             Arc::new(Expr::new(ExprKind::FunctionCall {
                 name: "tanh".to_string(),
-                args: vec![Expr::symbol("x".to_string())],
+                args: vec![Expr::symbol("x")],
             })),
             Arc::new(Expr::number(2.0)),
         ))),
@@ -275,7 +275,7 @@ fn test_hyperbolic_identities() {
         assert_eq!(**exp, Expr::number(2.0));
         if let ExprKind::FunctionCall { name, args } = &base.kind {
             assert_eq!(name, "sech");
-            assert_eq!(args[0], Expr::symbol("x".to_string()));
+            assert_eq!(args[0], Expr::symbol("x"));
         } else {
             panic!("Expected sech(x)");
         }
@@ -288,7 +288,7 @@ fn test_hyperbolic_identities() {
         Arc::new(Expr::new(ExprKind::Pow(
             Arc::new(Expr::new(ExprKind::FunctionCall {
                 name: "coth".to_string(),
-                args: vec![Expr::symbol("x".to_string())],
+                args: vec![Expr::symbol("x")],
             })),
             Arc::new(Expr::number(2.0)),
         ))),
@@ -299,7 +299,7 @@ fn test_hyperbolic_identities() {
         assert_eq!(**exp, Expr::number(2.0));
         if let ExprKind::FunctionCall { name, args } = &base.kind {
             assert_eq!(name, "csch");
-            assert_eq!(args[0], Expr::symbol("x".to_string()));
+            assert_eq!(args[0], Expr::symbol("x"));
         } else {
             panic!("Expected csch(x)");
         }

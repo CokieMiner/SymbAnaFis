@@ -17,9 +17,10 @@ SymbAnaFis is a symbolic mathematics library written in Rust, designed for parsi
 |----------|--------|---------------|
 | **Parsing** | SymbAnaFis | **120x - 190x faster** |
 | **Differentiation (AST)** | SymbAnaFis | **28x - 154x faster** |
-| **Differentiation (Full)** | SymbAnaFis | **2.1x - 6.6x faster** |
+| **Differentiation (Full)** | Mixed | **2.1x - 6.8x faster** (except Complex: -1.5x) |
 | **Simplification** | SymbAnaFis | **35x - 297x faster** |
 | **Combined Diff + Simplify** | SymbAnaFis | **45x - 90x faster** |
+| **Evaluation** | SymbAnaFis | **32x - 3886x faster** |
 
 ### Key Findings vs Symbolica
 
@@ -27,7 +28,8 @@ SymbAnaFis is a symbolic mathematics library written in Rust, designed for parsi
 |----------|--------|-------|
 | **Parsing** | SymbAnaFis | **1.5x - 2.3x faster** |
 | **Differentiation (AST only)** | SymbAnaFis | **1.7x - 2.9x faster** |
-| **Differentiation (Full)** | Symbolica | **15x - 20x faster** (see analysis below) |
+| **Differentiation (Full)** | Symbolica | **17x - 73x faster** |
+| **Evaluation** | N/A | Symbolica uses compiled evaluators (different approach) |
 
 ---
 
@@ -59,16 +61,16 @@ Pure differentiation speed on pre-parsed expressions **without simplification**.
 
 Includes parsing and automatic simplification. Both SymbAnaFis and Symbolica return simplified results.
 
-| Expression | SymbAnaFis (µs) | Symbolica (µs) | SymPy (µs) | vs SymPy |
-|------------|-----------------|----------------|------------|----------|
-| Polynomial | 46.4 | 2.74 | 150.19 | **3.2x** |
-| Trig `sin(x)cos(x)` | 61.3 | 2.22 | 130.15 | **2.1x** |
-| Chain `sin(x^2)` | 28.6 | 1.51 | 189.81 | **6.6x** |
-| Exp `exp(x^2)` | 28.2 | 1.47 | 190.42 | **6.8x** |
-| Complex | 216.0 | 2.95 | 146.02 | **0.7x** |
-| Quotient `(x^2+1)/(x-1)` | 92.7 | 2.79 | 152.71 | **1.6x** |
-| Nested | 71.9 | 2.22 | 207.31 | **2.9x** |
-| Power `x^x` | 33.7 | 1.59 | 184.07 | **5.5x** |
+| Expression | SymbAnaFis (µs) | Symbolica (µs) | SymPy (µs) | vs Symbolica | vs SymPy |
+|------------|-----------------|----------------|------------|--------------|----------|
+| Polynomial | 46.4 | 2.74 | 150.19 | **-17x** | **3.2x** |
+| Trig `sin(x)cos(x)` | 61.3 | 2.22 | 130.15 | **-28x** | **2.1x** |
+| Chain `sin(x^2)` | 28.6 | 1.51 | 189.81 | **-19x** | **6.6x** |
+| Exp `exp(x^2)` | 28.2 | 1.47 | 190.42 | **-19x** | **6.8x** |
+| Complex | 216.0 | 2.95 | 146.02 | **-73x** | **-1.5x** |
+| Quotient `(x^2+1)/(x-1)` | 92.7 | 2.79 | 152.71 | **-33x** | **1.6x** |
+| Nested | 71.9 | 2.22 | 207.31 | **-32x** | **2.9x** |
+| Power `x^x` | 33.7 | 1.59 | 184.07 | **-21x** | **5.5x** |
 
 ### 4. Simplification
 
@@ -93,6 +95,43 @@ Real-world scenarios often require differentiating and then simplifying the resu
 |-----------|-----------------|------------|---------|
 | `d/dx[sin(x)^2]` simplified | 34.3 | 3090 | **90x** |
 | `d/dx[(x^2+1)/(x-1)]` simplified | 147.2 | 6674 | **45x** |
+
+### 6. Evaluation (Expression → Number)
+
+Numerical evaluation of pre-parsed expressions at x = 2.5. Both libraries produce matching results.
+
+| Function | SymbAnaFis (ns) | SymPy (µs) | Speedup | Result |
+|----------|-----------------|------------|---------|--------|
+| Polynomial `x^3+2x^2+x+1` | 110 | 33.3 | **303x** | 31.625 |
+| `sin(x)` | 50 | 8.3 | **166x** | 0.5984721441 |
+| `cos(x)` | 48 | 7.8 | **163x** | -0.8011436155 |
+| `gamma(x)` | 59 | 23.7 | **402x** | 1.3293403882 |
+| `digamma(x)` | 51 | 48.0 | **941x** | 0.7031566394 |
+| `trigamma(x)` | 45 | 145.1 | **3224x** | 0.4903577576 |
+| `polygamma(2, x)` | 120 | 147.6 | **1230x** | -0.2362040516 |
+| `polygamma(3, x)` | 120 | 152.4 | **1270x** | 0.2239058488 |
+| `polygamma(4, x)` | 123 | 154.5 | **1256x** | -0.3137559995 |
+| `besselj(0, x)` | 59 | 37.4 | **634x** | -0.0483837758 |
+| `besselj(1, x)` | 60 | 37.4 | **623x** | 0.4970941025 |
+| `bessely(0, x)` | 63 | 165.0 | **2619x** | 0.4980703584 |
+| `bessely(1, x)` | 65 | 252.6 | **3886x** | 0.1459181375 |
+| `zeta(x)` | 731 | 23.7 | **32x** | 1.3414972364 |
+| `erf(x)` | 67 | 24.4 | **364x** | 0.9995930479 |
+| `lambertw(x)` | 99 | 24.9 | **251x** | 0.9585863567 |
+
+> [!NOTE]
+> SymbAnaFis uses direct native Rust implementations for special functions, while SymPy uses
+> Python's arbitrary-precision arithmetic via `evalf()`. This explains the 100x-4000x speedup.
+
+#### Unique Capabilities
+
+**SymbAnaFis** can numerically evaluate zeta derivatives that **SymPy cannot**:
+
+| Function | SymbAnaFis (µs) | Result | SymPy |
+|----------|-----------------|--------|-------|
+| `zeta_deriv(1, 2.5)` | 1.97 | -0.3859406642 | N/A |
+| `zeta_deriv(2, 2.5)` | 1.98 | 0.5735024089 | N/A |
+| `zeta_deriv(3, 2.5)` | 2.01 | -1.1327791776 | N/A |
 
 ---
 
@@ -134,16 +173,23 @@ The key difference is in **simplification strategy**:
 4. **Series Expansion**: Built-in Taylor/Laurent series
 5. **Pattern Matching**: Powerful wildcard-based pattern matching
 
-### Trade-off Summary
+### Where SymbAnaFis Struggles
 
-| Use Case | Recommended |
-|----------|-------------|
-| High-frequency parsing | SymbAnaFis |
-| Batch differentiation (simple expressions) | Symbolica |
-| Trigonometric/hyperbolic simplification | SymbAnaFis |
-| Polynomial factorization | Symbolica |
-| Extensible symbolic rules | SymbAnaFis |
-| Memory-constrained environments | Symbolica |
+**Polynomial division and rational functions** are a weak point:
+
+| Expression | vs Symbolica | vs SymPy | Notes |
+|------------|--------------|----------|-------|
+| Complex `x^2*sin(x)*exp(x)` | **-73x** | **-1.5x** | Division in derivative |
+| Quotient `(x^2+1)/(x-1)` | **-33x** | **1.6x** | Explicit division |
+
+The quotient rule produces expressions like `(2x(x-1) - (x²+1))/(x-1)²` which then require:
+
+1. Expanding the numerator polynomial
+2. Combining like terms
+3. Handling polynomial division/cancellation
+4. Normalizing the fraction
+
+Symbolica has native polynomial coefficient rings and optimized rational function handling. SymbAnaFis applies pattern-matching rules iteratively rather than using specialized polynomial algorithms. This is a target for future optimization.
 
 ---
 

@@ -12,14 +12,14 @@ mod tests {
             name: "sin".to_string(),
             args: vec![Expr::new(ExprKind::Sub(
                 Arc::new(Expr::number(PI)),
-                Arc::new(Expr::symbol("x".to_string())),
+                Arc::new(Expr::symbol("x")),
             ))],
         });
         let simplified = simplify_expr(expr, HashSet::new());
         println!("sin(pi - x) -> {}", simplified);
         if let ExprKind::FunctionCall { name, args } = &simplified.kind {
             assert_eq!(name, "sin");
-            assert_eq!(args[0], Expr::symbol("x".to_string()));
+            assert_eq!(args[0], Expr::symbol("x"));
         } else {
             panic!("Expected sin(x), got {:?}", simplified);
         }
@@ -29,7 +29,7 @@ mod tests {
             name: "cos".to_string(),
             args: vec![Expr::new(ExprKind::Add(
                 Arc::new(Expr::number(PI)),
-                Arc::new(Expr::symbol("x".to_string())),
+                Arc::new(Expr::symbol("x")),
             ))],
         });
         let simplified = simplify_expr(expr, HashSet::new());
@@ -38,7 +38,7 @@ mod tests {
             assert_eq!(**a, Expr::number(-1.0));
             if let ExprKind::FunctionCall { name, args } = &b.kind {
                 assert_eq!(name, "cos");
-                assert_eq!(args[0], Expr::symbol("x".to_string()));
+                assert_eq!(args[0], Expr::symbol("x"));
             } else {
                 panic!("Expected cos(x), got {:?}", simplified);
             }
@@ -51,7 +51,7 @@ mod tests {
             name: "sin".to_string(),
             args: vec![Expr::new(ExprKind::Sub(
                 Arc::new(Expr::number(3.0 * PI / 2.0)),
-                Arc::new(Expr::symbol("x".to_string())),
+                Arc::new(Expr::symbol("x")),
             ))],
         });
         let simplified = simplify_expr(expr, HashSet::new());
@@ -60,7 +60,7 @@ mod tests {
             assert_eq!(**a, Expr::number(-1.0));
             if let ExprKind::FunctionCall { name, args } = &b.kind {
                 assert_eq!(name, "cos");
-                assert_eq!(args[0], Expr::symbol("x".to_string()));
+                assert_eq!(args[0], Expr::symbol("x"));
             } else {
                 panic!("Expected cos(x), got {:?}", simplified);
             }
