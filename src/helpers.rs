@@ -72,7 +72,7 @@ pub fn gradient(expr: &Expr, vars: &[&Symbol]) -> Vec<Expr> {
 
 /// Compute the Hessian matrix of an expression
 /// Returns a 2D vector of second partial derivatives
-/// H[i][j] = ∂²f/∂xᵢ∂xⱼ
+/// H\[i\]\[j\] = ∂²f/∂xᵢ∂xⱼ
 ///
 /// # Example
 /// ```ignore
@@ -88,7 +88,7 @@ pub fn hessian(expr: &Expr, vars: &[&Symbol]) -> Vec<Vec<Expr>> {
 }
 
 /// Compute the Jacobian matrix of a vector of expressions
-/// Returns a 2D vector where J[i][j] = ∂fᵢ/∂xⱼ
+/// Returns a 2D vector where `J[i][j]` = ∂fᵢ/∂xⱼ
 ///
 /// # Example
 /// ```ignore

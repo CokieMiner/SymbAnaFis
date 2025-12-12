@@ -150,13 +150,7 @@ pub enum EvalResult {
 }
 
 impl EvalResult {
-    /// Get result as string (always works)
-    pub fn to_string(&self) -> String {
-        match self {
-            EvalResult::String(s) => s.clone(),
-            EvalResult::Expr(e) => format!("{}", e),
-        }
-    }
+    // Note: Use .to_string() from Display trait (auto-implemented via ToString)
 
     /// Get result as Expr (parses if needed)
     pub fn to_expr(&self) -> Result<Expr, DiffError> {

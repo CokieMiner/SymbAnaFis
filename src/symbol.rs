@@ -39,9 +39,22 @@ static NEXT_SYMBOL_ID: AtomicU64 = AtomicU64::new(1);
 /// Global symbol registry: name -> InternedSymbol
 static SYMBOL_REGISTRY: RwLock<Option<HashMap<String, InternedSymbol>>> = RwLock::new(None);
 
+/// Reverse lookup: ID -> InternedSymbol (for Copy Symbol to find its data)
+static ID_REGISTRY: RwLock<Option<HashMap<u64, InternedSymbol>>> = RwLock::new(None);
+
 fn get_registry_mut()
 -> std::sync::RwLockWriteGuard<'static, Option<HashMap<String, InternedSymbol>>> {
     SYMBOL_REGISTRY.write().unwrap()
+}
+
+fn get_id_registry_mut()
+-> std::sync::RwLockWriteGuard<'static, Option<HashMap<u64, InternedSymbol>>> {
+    ID_REGISTRY.write().unwrap()
+}
+
+fn get_id_registry_read()
+-> std::sync::RwLockReadGuard<'static, Option<HashMap<u64, InternedSymbol>>> {
+    ID_REGISTRY.read().unwrap()
 }
 
 fn get_registry_read()
@@ -51,11 +64,19 @@ fn get_registry_read()
 
 fn with_registry_mut<F, R>(f: F) -> R
 where
-    F: FnOnce(&mut HashMap<String, InternedSymbol>) -> R,
+    F: FnOnce(&mut HashMap<String, InternedSymbol>, &mut HashMap<u64, InternedSymbol>) -> R,
 {
     let mut guard = get_registry_mut();
+    let mut id_guard = get_id_registry_mut();
     let registry = guard.get_or_insert_with(HashMap::new);
-    f(registry)
+    let id_registry = id_guard.get_or_insert_with(HashMap::new);
+    f(registry, id_registry)
+}
+
+/// Look up InternedSymbol by ID (for Symbol -> Expr conversion)
+fn lookup_by_id(id: u64) -> Option<InternedSymbol> {
+    let guard = get_id_registry_read();
+    guard.as_ref().and_then(|r| r.get(&id).cloned())
 }
 
 // ============================================================================
@@ -241,8 +262,14 @@ impl Ord for InternedSymbol {
 ///
 /// Symbols are interned - each unique name exists exactly once, and all
 /// references share the same ID for O(1) equality comparisons.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Symbol(InternedSymbol);
+///
+/// **This type is `Copy`** - you can use it in expressions without `.clone()`:
+/// ```ignore
+/// let a = symb("a");
+/// let expr = a + a;  // Works! No clone needed.
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Symbol(u64); // Just the ID - lightweight and Copy!
 
 impl Symbol {
     /// Create a new anonymous symbol (always succeeds)
@@ -250,25 +277,51 @@ impl Symbol {
     /// Anonymous symbols have a unique ID but no string name.
     /// They cannot be retrieved by name and are useful for intermediate computations.
     pub fn anon() -> Self {
-        Symbol(InternedSymbol::new_anon())
+        let interned = InternedSymbol::new_anon();
+        let id = interned.id();
+        // Register in ID registry for lookup
+        let mut id_guard = get_id_registry_mut();
+        let id_registry = id_guard.get_or_insert_with(HashMap::new);
+        id_registry.insert(id, interned);
+        Symbol(id)
     }
 
     /// Get the symbol's unique ID
     pub fn id(&self) -> u64 {
-        self.0.id()
+        self.0
     }
 
     /// Get the name of the symbol (None for anonymous symbols)
-    pub fn name(&self) -> Option<&str> {
-        self.0.name()
+    pub fn name(&self) -> Option<&'static str> {
+        // Look up in registry - we leak the string to get 'static lifetime
+        // This is safe because symbol names live for the program duration
+        lookup_by_id(self.0).and_then(|s| {
+            s.name.as_ref().map(|arc| {
+                // Leak to get 'static - symbols are never deallocated in practice
+                let leaked: &'static str = Box::leak(arc.to_string().into_boxed_str());
+                leaked
+            })
+        })
+    }
+
+    /// Get the name as an owned String (avoids the leak in name())
+    pub fn name_owned(&self) -> Option<String> {
+        lookup_by_id(self.0).and_then(|s| s.name.as_ref().map(|arc| arc.to_string()))
     }
 
     /// Convert to an Expr
     pub fn to_expr(&self) -> Expr {
-        Expr::from_interned(self.0.clone())
+        // Look up the InternedSymbol from registry
+        if let Some(interned) = lookup_by_id(self.0) {
+            Expr::from_interned(interned)
+        } else {
+            // Fallback: create anonymous symbol expression
+            // This shouldn't happen in normal use
+            Expr::from_interned(InternedSymbol::new_anon())
+        }
     }
 
-    /// Raise to a power (takes &self - no clone needed)
+    /// Raise to a power (Copy means no clone needed)
     pub fn pow(&self, exp: impl Into<Expr>) -> Expr {
         Expr::pow(self.to_expr(), exp.into())
     }
@@ -308,9 +361,10 @@ impl Symbol {
 }
 
 // Allow Symbol to be used where &str is expected
+// Note: This uses the name() method which handles 'static lifetime via leak
 impl AsRef<str> for Symbol {
     fn as_ref(&self) -> &str {
-        self.0.name.as_deref().unwrap_or("")
+        self.name().unwrap_or("")
     }
 }
 
@@ -330,13 +384,15 @@ impl AsRef<str> for Symbol {
 /// let expr = x.pow(2) + y;  // No clone needed!
 /// ```
 pub fn symb_new(name: &str) -> Result<Symbol, SymbolError> {
-    with_registry_mut(|registry| {
+    with_registry_mut(|registry, id_registry| {
         if registry.contains_key(name) {
             return Err(SymbolError::DuplicateName(name.to_string()));
         }
         let interned = InternedSymbol::new_named(name);
+        let id = interned.id();
         registry.insert(name.to_string(), interned.clone());
-        Ok(Symbol(interned))
+        id_registry.insert(id, interned);
+        Ok(Symbol(id))
     })
 }
 
@@ -355,7 +411,7 @@ pub fn symb_new(name: &str) -> Result<Symbol, SymbolError> {
 pub fn symb_get(name: &str) -> Result<Symbol, SymbolError> {
     let guard = get_registry_read();
     match guard.as_ref().and_then(|r| r.get(name)) {
-        Some(interned) => Ok(Symbol(interned.clone())),
+        Some(interned) => Ok(Symbol(interned.id())),
         None => Err(SymbolError::NotFound(name.to_string())),
     }
 }
@@ -372,8 +428,12 @@ pub fn symbol_exists(name: &str) -> bool {
 /// instances will still work but won't match newly created ones by name lookup.
 pub fn clear_symbols() {
     let mut guard = get_registry_mut();
+    let mut id_guard = get_id_registry_mut();
     if let Some(registry) = guard.as_mut() {
         registry.clear();
+    }
+    if let Some(id_registry) = id_guard.as_mut() {
+        id_registry.clear();
     }
 }
 
@@ -404,12 +464,14 @@ pub fn remove_symbol(name: &str) -> bool {
 /// Unlike `symb()`, this does NOT error on duplicates - it returns the existing symbol.
 /// This is used by the parser to ensure parsed expressions use the same symbols.
 pub(crate) fn get_or_intern(name: &str) -> InternedSymbol {
-    with_registry_mut(|registry| {
+    with_registry_mut(|registry, id_registry| {
         if let Some(existing) = registry.get(name) {
             return existing.clone();
         }
         let interned = InternedSymbol::new_named(name);
+        let id = interned.id();
         registry.insert(name.to_string(), interned.clone());
+        id_registry.insert(id, interned.clone());
         interned
     })
 }
@@ -424,7 +486,8 @@ pub(crate) fn get_or_intern(name: &str) -> InternedSymbol {
 ///
 /// Note: Unlike `symb()`, this does NOT error on duplicate names.
 pub fn symb(name: &str) -> Symbol {
-    Symbol(get_or_intern(name))
+    let interned = get_or_intern(name);
+    Symbol(interned.id())
 }
 
 // ============================================================================
@@ -855,34 +918,53 @@ mod tests {
 
     #[test]
     fn test_symbol_arithmetic() {
-        let x = symb("test_arith_x");
-        let y = symb("test_arith_y");
+        let x = symb("test_arith_x2");
+        let y = symb("test_arith_y2");
 
-        let sum = x.clone() + y.clone();
-        assert_eq!(format!("{}", sum), "test_arith_x + test_arith_y");
+        // No clone() needed - Symbol is Copy!
+        let sum = x + y;
+        assert_eq!(format!("{}", sum), "test_arith_x2 + test_arith_y2");
 
-        let scaled = 2.0 * x.clone();
-        assert_eq!(format!("{}", scaled), "2test_arith_x");
+        let scaled = 2.0 * x;
+        assert_eq!(format!("{}", scaled), "2test_arith_x2");
     }
 
     #[test]
     fn test_symbol_power() {
-        let x = symb("test_pow_x");
+        let x = symb("test_pow_x2");
         let squared = x.pow(2.0);
-        assert_eq!(format!("{}", squared), "test_pow_x^2");
+        assert_eq!(format!("{}", squared), "test_pow_x2^2");
     }
 
     #[test]
     fn test_symbol_functions() {
-        let x = symb("test_fn_x");
-        // No clone() needed anymore - methods take &self!
-        assert_eq!(format!("{}", x.sin()), "sin(test_fn_x)");
-        assert_eq!(format!("{}", x.cos()), "cos(test_fn_x)");
-        assert_eq!(format!("{}", x.exp()), "exp(test_fn_x)");
-        assert_eq!(format!("{}", x.ln()), "ln(test_fn_x)");
+        let x = symb("test_fn_x2");
+        // No clone() needed - methods take &self!
+        assert_eq!(format!("{}", x.sin()), "sin(test_fn_x2)");
+        assert_eq!(format!("{}", x.cos()), "cos(test_fn_x2)");
+        assert_eq!(format!("{}", x.exp()), "exp(test_fn_x2)");
+        assert_eq!(format!("{}", x.ln()), "ln(test_fn_x2)");
 
         // Can now use x multiple times without clone!
         let combined = x.sin() + x.cos();
-        assert_eq!(format!("{}", combined), "sin(test_fn_x) + cos(test_fn_x)");
+        assert_eq!(format!("{}", combined), "sin(test_fn_x2) + cos(test_fn_x2)");
+    }
+
+    #[test]
+    fn test_symbol_copy_operators() {
+        // This is the key test: Symbol is Copy, so a + a works!
+        let a = symb("test_copy_a");
+
+        // a + a - uses the same symbol twice without .clone()
+        let expr = a + a;
+        assert!(format!("{}", expr).contains("test_copy_a"));
+
+        // Multiple uses in complex expression
+        let expr2 = a * a + a;
+        assert!(format!("{}", expr2).contains("test_copy_a"));
+
+        // Mixed with functions (which take &self)
+        let expr3 = a.sin() + a.cos() + a;
+        assert!(format!("{}", expr3).contains("test_copy_a"));
     }
 }

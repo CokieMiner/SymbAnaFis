@@ -13,6 +13,52 @@ Example:
     '1'
 """
 
-from .symb_anafis import diff, simplify, parse, __version__
+from .symb_anafis import (
+    # Core functions
+    diff,
+    simplify,
+    parse,
+    evaluate,
+    # Classes
+    Expr,
+    Diff,
+    Simplify,
+    # Multi-variable calculus
+    gradient,
+    hessian,
+    jacobian,
+    # Uncertainty propagation
+    uncertainty_propagation_py,
+    relative_uncertainty_py,
+    # Version
+    __version__,
+)
 
-__all__ = ["diff", "simplify", "parse", "__version__"]
+# Try to import parallel evaluation (only available with parallel feature)
+try:
+    from .symb_anafis import evaluate_parallel_py
+except ImportError:
+    evaluate_parallel_py = None
+
+__all__ = [
+    # Core functions
+    "diff",
+    "simplify", 
+    "parse",
+    "evaluate",
+    # Classes
+    "Expr",
+    "Diff",
+    "Simplify",
+    # Multi-variable calculus
+    "gradient",
+    "hessian",
+    "jacobian",
+    # Uncertainty propagation
+    "uncertainty_propagation_py",
+    "relative_uncertainty_py",
+    # Parallel (if available)
+    "evaluate_parallel_py",
+    # Version
+    "__version__",
+]

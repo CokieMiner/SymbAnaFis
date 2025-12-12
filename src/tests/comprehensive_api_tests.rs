@@ -138,7 +138,7 @@ mod api_tests {
     #[test]
     fn test_simplify_builder_simplify_expr() {
         let x = symb("x");
-        let expr = x.clone() + Expr::number(0.0);
+        let expr = x + Expr::number(0.0);
         let result = Simplify::new().simplify(expr).unwrap();
         assert_eq!(format!("{}", result), "x");
     }
@@ -157,11 +157,11 @@ mod api_tests {
         let y = symb("y");
 
         // Addition
-        let sum = x.clone() + y.clone();
+        let sum = x + y;
         assert!(format!("{}", sum).contains("x") && format!("{}", sum).contains("y"));
 
         // Multiplication
-        let prod = x.clone() * y.clone();
+        let prod = x * y;
         assert!(format!("{}", prod).contains("x") && format!("{}", prod).contains("y"));
 
         // Power
@@ -200,7 +200,7 @@ mod api_tests {
     #[test]
     fn test_expr_substitute() {
         let x = symb("x");
-        let expr = x.clone() + Expr::number(1.0);
+        let expr = x + Expr::number(1.0);
         let substituted = expr.substitute("x", &Expr::number(5.0));
         let vars = HashMap::new();
         let result = substituted.evaluate(&vars);
@@ -214,7 +214,7 @@ mod api_tests {
     #[test]
     fn test_expr_fold_map() {
         let x = symb("x");
-        let expr = x.clone() + Expr::number(1.0);
+        let expr = x + Expr::number(1.0);
 
         // fold: count nodes
         let count = expr.fold(0, |acc, _| acc + 1);
@@ -249,8 +249,8 @@ mod api_tests {
         use crate::gradient;
         let x = symb("x");
         let y = symb("y");
-        let x_expr: Expr = x.clone().into();
-        let y_expr: Expr = y.clone().into();
+        let x_expr: Expr = x.into();
+        let y_expr: Expr = y.into();
         let expr = x_expr.clone() * x_expr.clone() + y_expr.clone() * y_expr.clone(); // x² + y²
         let grad = gradient(&expr, &[&x, &y]);
         assert_eq!(grad.len(), 2);
@@ -263,7 +263,7 @@ mod api_tests {
     fn test_hessian() {
         use crate::hessian;
         let x = symb("x");
-        let x_expr: Expr = x.clone().into();
+        let x_expr: Expr = x.into();
         let expr = x_expr.clone() * x_expr.clone() * x_expr.clone(); // x³
         let hess = hessian(&expr, &[&x]);
         assert_eq!(hess.len(), 1); // 1x1 matrix
@@ -278,8 +278,8 @@ mod api_tests {
         use crate::jacobian;
         let x = symb("x");
         let y = symb("y");
-        let x_expr: Expr = x.clone().into();
-        let y_expr: Expr = y.clone().into();
+        let x_expr: Expr = x.into();
+        let y_expr: Expr = y.into();
         let f = x_expr.clone() * y_expr.clone(); // xy
         let g = x_expr.clone() + y_expr.clone(); // x + y
         let jac = jacobian(&[f, g], &[&x, &y]);
@@ -347,8 +347,8 @@ mod api_tests {
         // Build expression: x^2 * y + sin(x)
         let x_sym = symb("x");
         let y_sym = symb("y");
-        let x: Expr = x_sym.clone().into();
-        let y: Expr = y_sym.clone().into();
+        let x: Expr = x_sym.into();
+        let y: Expr = y_sym.into();
         let expr = x.clone() * x.clone() * y.clone() + x.clone().sin();
 
         // Differentiate with respect to x
@@ -385,8 +385,8 @@ mod api_tests {
         // Expression: x^2 * y + y^3
         let x_sym = symb("x");
         let y_sym = symb("y");
-        let x: Expr = x_sym.clone().into();
-        let y: Expr = y_sym.clone().into();
+        let x: Expr = x_sym.into();
+        let y: Expr = y_sym.into();
         let expr = x.clone() * x.clone() * y.clone() + y.clone() * y.clone() * y.clone();
 
         // Compute Hessian matrix
@@ -465,8 +465,8 @@ mod api_tests {
         // f(x, y) = x^2 + y^2 (paraboloid)
         let x_sym = symb("x");
         let y_sym = symb("y");
-        let x: Expr = x_sym.clone().into();
-        let y: Expr = y_sym.clone().into();
+        let x: Expr = x_sym.into();
+        let y: Expr = y_sym.into();
         let expr = x.clone() * x.clone() + y.clone() * y.clone();
 
         // Gradient: [2x, 2y]

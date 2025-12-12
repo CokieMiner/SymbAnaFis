@@ -155,6 +155,37 @@ impl Expr {
     /// Check if expression is polynomial in variable `var`
     pub fn is_polynomial_in(&self, var: &str) -> bool;
 }
+
+### Phase 2.5: Differentiation Support (~50 lines)
+
+#### [MODIFY] `src/differentiation/mod.rs`
+
+Add differentiation rule for `ExprKind::Poly`:
+```rust
+ExprKind::Poly(poly) => {
+    let diff_var_interned = get_or_intern(diff_var);
+    
+    if poly.var == diff_var_interned {
+        // d/dx[Σ c_i x^i] = Σ i·c_i x^(i-1)
+        let new_coeffs: Vec<Expr> = poly.coeffs
+            .iter()
+            .enumerate()
+            .skip(1)  // constant term vanishes
+            .map(|(i, c)| Expr::number(i as f64) * c.clone())
+            .collect();
+        
+        Arc::new(Expr::new(ExprKind::Poly(Poly::new(poly.var.clone(), new_coeffs))))
+    } else {
+        // Differentiate each coefficient with respect to diff_var
+        let new_coeffs: Vec<Expr> = poly.coeffs
+            .iter()
+            .map(|c| differentiate_inner(c.clone(), diff_var, ctx))
+            .map(|arc| Arc::unwrap_or_clone(arc))
+            .collect();
+        
+        Arc::new(Expr::new(ExprKind::Poly(Poly::new(poly.var.clone(), new_coeffs))))
+    }
+}
 ```
 
 ### Phase 3: Engine Integration (~50 lines)
@@ -207,17 +238,39 @@ rule!(DetectPolynomial, "detect_poly", 98, Algebraic,
     }
 );
 
-// Low priority: expand back to AST for final output
-rule!(ExpandPolynomial, "expand_poly", 2, Algebraic,
+// Low priority: convert back to AST for final output
+// IMPORTANT: Prefer contracted/factored form over expansion
+// E.g., output (x+1)² instead of x² + 2x + 1
+rule!(ContractPolynomial, "contract_poly", 2, Algebraic,
     &[ExprKind::Poly],
     |expr, _ctx| {
         if let ExprKind::Poly(poly) = &expr.kind {
-            Some(Expr::from_poly(poly.clone()))
+            // Try to factor the polynomial first
+            if let Some(factored) = poly.try_factor() {
+                Some(factored)  // Returns Expr like (x+1)^2
+            } else {
+                // Fall back to standard expansion if no nice factors
+                Some(Expr::from_poly(poly.clone()))
+            }
         } else {
             None
         }
     }
 );
+```
+
+#### Factoring in `Poly`
+```rust
+impl Poly {
+    /// Try to factor the polynomial into a product of simpler terms
+    /// Returns None if no nice factorization exists
+    pub fn try_factor(&self) -> Option<Expr> {
+        // Check for perfect squares: a² + 2ab + b² = (a+b)²
+        // Check for difference of squares: a² - b² = (a+b)(a-b)
+        // Check for common factors via GCD
+        // ...
+    }
+}
 ```
 
 #### Polynomial Operation Rules
@@ -245,21 +298,28 @@ rule!(PolyDivision, "poly_div", 90, Algebraic, &[ExprKind::Div], |expr, _ctx| {
 });
 ```
 
-### Phase 5: Delete Legacy Rules
+### Phase 5: Retire Polynomial-Specific Legacy Rules
 
-#### [DELETE] Files to remove (replaced by Poly arithmetic):
+#### [DEPRECATE] Functions to replace (Poly arithmetic handles these):
 
 ```
 src/simplification/rules/algebraic/
-├── addition.rs      # ~100 lines → Poly::add()
-├── multiplication.rs # ~150 lines → Poly::mul()
-├── distribution.rs   # ~80 lines → automatic in Poly
-├── combined.rs       # ~200 lines → automatic in Poly
-├── terms.rs          # ~150 lines → automatic in Poly
-└── factoring.rs      # ~100 lines → Poly::gcd() + factorization
+├── addition.rs      # Polynomial term collection → Poly::add()
+├── multiplication.rs # Polynomial distribution → Poly::mul()
+├── distribution.rs   # Polynomial expansion → automatic in Poly
+├── combined.rs       # Polynomial combinations → automatic in Poly
+├── terms.rs          # Polynomial term handling → automatic in Poly
+└── factoring.rs      # Polynomial factoring → Poly::gcd() + Poly::try_factor()
 ```
 
-**Keep**: `power.rs` (for non-integer exponents), `fractions.rs` (for rational functions)
+**Keep (non-polynomial operations)**:
+- `power.rs` - for non-integer exponents like x^y, x^(1/2)
+- `fractions.rs` - for rational functions
+- `factoring.rs` - **trigonometric factoring** (sin²x + cos²x = 1) and **special patterns** (a² - b² = (a+b)(a-b) for symbolic a,b)
+- `identities.rs` - algebraic identities not covered by Poly
+
+> **Note**: The factoring.rs file contains both polynomial factoring (to be replaced) and
+> trigonometric/special pattern factoring (to be kept). Split or mark deprecated sections.
 
 ---
 

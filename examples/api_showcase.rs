@@ -14,8 +14,9 @@
 use std::collections::HashMap;
 #[allow(unused_imports)]
 use symb_anafis::{
-    Diff, Expr, ExprKind, Simplify, Symbol, diff, evaluate_str, gradient, gradient_str, hessian,
-    hessian_str, jacobian, jacobian_str, simplify, symb,
+    CovEntry, CovarianceMatrix, Diff, Expr, ExprKind, Simplify, Symbol, diff, evaluate_str,
+    gradient, gradient_str, hessian, hessian_str, jacobian, jacobian_str, relative_uncertainty,
+    simplify, symb, uncertainty_propagation,
 };
 
 fn main() {
@@ -31,6 +32,10 @@ fn main() {
     part5_all_functions();
     part6_custom_derivatives();
     part7_safety_features();
+    part8_expression_output();
+    part9_uncertainty_propagation();
+    #[cfg(feature = "parallel")]
+    part10_parallel_evaluation();
 
     println!("\n✅ Showcase Complete!");
 }
@@ -99,36 +104,49 @@ fn part2_type_safe_api() {
     let y: Symbol = symb("y");
     println!("      Created x and y symbols\n");
 
-    // 2.2 Building expressions with operators
-    println!("  2.2 Building Expressions with Operators (+, -, *, /, ^)");
-    let expr1: Expr = x.clone() + y.clone();
-    let expr2: Expr = x.clone() * y.clone();
-    let expr3: Expr = x.clone().pow(2.0) + y.clone().pow(2.0);
-    println!("      x + y  = {}", expr1);
-    println!("      x * y  = {}", expr2);
-    println!("      x² + y² = {}\n", expr3);
+    // 2.2 Symbol is Copy - no .clone() needed!
+    println!("  2.2 Symbol is Copy - No .clone() Needed!");
+    println!("      Symbols implement Copy, so you can reuse them freely:");
+    let expr1: Expr = x + y; // First use
+    let expr2: Expr = x * y; // Second use - still works!
+    let expr3: Expr = x + x; // Same symbol twice - works!
+    let expr4: Expr = x * x + x; // Three uses - no problem!
+    println!("      x + y   = {}", expr1);
+    println!("      x * y   = {}", expr2);
+    println!("      x + x   = {}", expr3);
+    println!("      x*x + x = {}\n", expr4);
 
-    // 2.3 Building expressions with functions
+    // 2.3 Building expressions with functions (methods take &self)
     println!("  2.3 Building Expressions with Functions");
-    let expr_sin = x.clone().sin();
-    let expr_exp = x.clone().exp();
-    let expr_ln = x.clone().ln();
-    let expr_sqrt = x.clone().sqrt();
-    println!("      sin(x) = {}", expr_sin);
-    println!("      exp(x) = {}", expr_exp);
-    println!("      ln(x)  = {}", expr_ln);
-    println!("      √x     = {}\n", expr_sqrt);
+    println!("      All methods take &self, so Symbol can be reused:");
+    let expr_sin = x.sin();
+    let expr_cos = x.cos();
+    let expr_exp = x.exp();
+    let combined = x.sin() + x.cos() + x; // Mix operators and methods!
+    println!("      sin(x)           = {}", expr_sin);
+    println!("      cos(x)           = {}", expr_cos);
+    println!("      exp(x)           = {}", expr_exp);
+    println!("      sin(x)+cos(x)+x  = {}\n", combined);
 
-    // 2.4 Differentiation with Expr
-    println!("  2.4 Differentiating Expression Objects");
-    let f: Expr = x.clone().pow(3.0) + (2.0 * x.clone()).sin();
+    // 2.4 Powers and more
+    println!("  2.4 Powers: x.pow(n)");
+    let squared = x.pow(2.0);
+    let cubed = x.pow(3.0);
+    let x2_plus_y2: Expr = x.pow(2.0) + y.pow(2.0);
+    println!("      x²       = {}", squared);
+    println!("      x³       = {}", cubed);
+    println!("      x² + y²  = {}\n", x2_plus_y2);
+
+    // 2.5 Differentiation with Expr
+    println!("  2.5 Differentiating Expression Objects");
+    let f: Expr = x.pow(3.0) + (2.0 * x).sin();
     println!("      f(x) = {}", f);
     let df = Diff::new().differentiate(f, &x).unwrap();
     println!("      f'(x) = {}\n", df);
 
-    // 2.5 Expr utility methods
-    println!("  2.5 Expression Utility Methods");
-    let complex: Expr = x.clone().pow(2.0) + y.clone().sin();
+    // 2.6 Expr utility methods
+    println!("  2.6 Expression Utility Methods");
+    let complex: Expr = x.pow(2.0) + y.sin();
     println!("      Expression: {}", complex);
     println!("      Node count: {}", complex.node_count());
     println!("      Max depth:  {}", complex.max_depth());
@@ -184,7 +202,7 @@ fn part4_multi_variable_calculus() {
     println!("  4.1 Gradient: ∇f = [∂f/∂x, ∂f/∂y, ...]");
     let x = symb("x");
     let y = symb("y");
-    let f: Expr = x.clone().pow(2.0) * y.clone() + y.clone().pow(3.0);
+    let f: Expr = x.clone().pow(2.0) * y + y.clone().pow(3.0);
     println!("      f(x,y) = x²y + y³");
 
     let grad = gradient(&f, &[&x, &y]);
@@ -369,7 +387,7 @@ fn part7_safety_features() {
     // 7.1 Max Depth Limit
     println!("  7.1 Maximum Expression Depth");
     let x = symb("x");
-    let mut deep: Expr = x.clone().into();
+    let mut deep: Expr = x.into();
     for _ in 0..60 {
         deep = deep.sin();
     }
@@ -385,7 +403,7 @@ fn part7_safety_features() {
     // 7.2 Max Node Count Limit
     println!("  7.2 Maximum Node Count");
     let x2 = symb("x");
-    let mut broad: Expr = x2.clone().into();
+    let mut broad: Expr = x2.into();
     for _ in 0..12 {
         broad = broad.clone() + broad.clone();
     }
@@ -415,5 +433,212 @@ fn part7_safety_features() {
         .unwrap();
     println!("      With a, b as constants:");
     println!("      d/dx [ax² + bx + c] = {}", result);
+    println!();
+}
+
+// =============================================================================
+// PART 8: EXPRESSION OUTPUT FORMATS
+// =============================================================================
+fn part8_expression_output() {
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    println!("🖨️  PART 8: EXPRESSION OUTPUT FORMATS");
+    println!("   LaTeX and Unicode output for beautiful display");
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+
+    let x = symb("x");
+    let y = symb("y");
+    let alpha = symb("alpha");
+    let sigma = symb("sigma");
+
+    // 8.1 LaTeX Output
+    println!("  8.1 LaTeX Output: to_latex()");
+    let expr1: Expr = x.pow(2.0) / y;
+    let expr2: Expr = x.sin() * alpha.pow(2.0) + sigma;
+    let expr3: Expr = x.sqrt() + y.pow(-1.0);
+
+    println!("      x²/y        → {}", expr1.to_latex());
+    println!("      sin(x)·α²+σ → {}", expr2.to_latex());
+    println!("      √x + y⁻¹   → {}\n", expr3.to_latex());
+
+    // 8.2 Unicode Output
+    println!("  8.2 Unicode Output: to_unicode()");
+    let expr4: Expr = symb("pi") + symb("omega").pow(2.0);
+    let expr5: Expr = x.pow(2.0) + x.pow(3.0) + x.pow(-1.0);
+
+    println!("      π + ω²  → {}", expr4.to_unicode());
+    println!("      x² + x³ + x⁻¹ → {}\n", expr5.to_unicode());
+
+    // 8.3 Regular Display
+    println!("  8.3 Standard Display: Display trait");
+    let expr6 = x.sin() + y.cos();
+    println!("      sin(x) + cos(y) → {}\n", expr6);
+}
+
+// =============================================================================
+// PART 9: UNCERTAINTY PROPAGATION
+// =============================================================================
+fn part9_uncertainty_propagation() {
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    println!("📊 PART 9: UNCERTAINTY PROPAGATION");
+    println!("   Calculate error propagation using partial derivatives");
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+
+    // 9.1 Basic uncertainty (diagonal covariance)
+    println!("  9.1 Basic Uncertainty: σ_f = √(Σ(∂f/∂xᵢ)²σᵢ²)");
+    let x = symb("x");
+    let y = symb("y");
+    let expr: Expr = x + y;
+    println!("      f = x + y");
+
+    match uncertainty_propagation(&expr, &["x", "y"], None) {
+        Ok(sigma) => println!("      σ_f = {}\n", sigma),
+        Err(e) => println!("      Error: {:?}\n", e),
+    }
+
+    // 9.2 Numeric covariance
+    println!("  9.2 Numeric Covariance Matrix");
+    let expr2: Expr = x * y; // Product formula
+    println!("      f = x * y");
+
+    let cov = CovarianceMatrix::diagonal(vec![
+        CovEntry::Num(0.01), // σ_x² = 0.01 (σ_x = 0.1)
+        CovEntry::Num(0.04), // σ_y² = 0.04 (σ_y = 0.2)
+    ]);
+    println!("      σ_x = 0.1, σ_y = 0.2");
+
+    match uncertainty_propagation(&expr2, &["x", "y"], Some(&cov)) {
+        Ok(sigma) => println!("      σ_f = {}\n", sigma),
+        Err(e) => println!("      Error: {:?}\n", e),
+    }
+
+    // 9.3 Relative uncertainty
+    println!("  9.3 Relative Uncertainty: σ_f / |f|");
+    let expr3: Expr = x.pow(2.0);
+    println!("      f = x²");
+
+    match relative_uncertainty(&expr3, &["x"], None) {
+        Ok(rel) => println!("      σ_f/|f| = {}\n", rel),
+        Err(e) => println!("      Error: {:?}\n", e),
+    }
+}
+
+// =============================================================================
+// PART 10: PARALLEL EVALUATION (requires "parallel" feature)
+// =============================================================================
+#[cfg(feature = "parallel")]
+fn part10_parallel_evaluation() {
+    use symb_anafis::eval_parallel;
+    use symb_anafis::parallel::SKIP;
+
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    println!("⚡ PART 10: PARALLEL EVALUATION");
+    println!("   Evaluate multiple expressions at multiple points in parallel");
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+
+    // 10.1 Basic parallel eval
+    println!("  10.1 Basic Parallel Evaluation");
+    println!("      Evaluate x² at x = 1, 2, 3, 4, 5");
+
+    let results = eval_parallel!(
+        exprs: ["x^2"],
+        vars: [["x"]],
+        values: [[[1.0, 2.0, 3.0, 4.0, 5.0]]]
+    )
+    .unwrap();
+
+    print!("      Results: ");
+    for r in &results[0] {
+        print!("{} ", r);
+    }
+    println!("\n");
+
+    // 10.2 Multiple expressions
+    println!("  10.2 Multiple Expressions in Parallel");
+    let x = symb("x");
+    let expr = x.pow(3.0);
+
+    let results = eval_parallel!(
+        exprs: ["x^2", expr],
+        vars: [["x"], ["x"]],
+        values: [
+            [[1.0, 2.0, 3.0]],
+            [[1.0, 2.0, 3.0]]
+        ]
+    )
+    .unwrap();
+
+    println!(
+        "      x²: {:?}",
+        results[0].iter().map(|r| r.to_string()).collect::<Vec<_>>()
+    );
+    println!(
+        "      x³: {:?}\n",
+        results[1].iter().map(|r| r.to_string()).collect::<Vec<_>>()
+    );
+
+    // 10.3 SKIP for partial evaluation
+    println!("  10.3 SKIP for Partial Symbolic Evaluation");
+    println!("      Evaluate x*y with x=2,SKIP,4 and y=3,5,6");
+
+    let results = eval_parallel!(
+        exprs: ["x * y"],
+        vars: [["x", "y"]],
+        values: [[[2.0, SKIP, 4.0], [3.0, 5.0, 6.0]]]
+    )
+    .unwrap();
+
+    println!("      Point 0: x=2, y=3 → {}", results[0][0]);
+    println!("      Point 1: x=SKIP, y=5 → {} (symbolic!)", results[0][1]);
+    println!("      Point 2: x=4, y=6 → {}\n", results[0][2]);
+
+    // 10.4 Using pre-defined variables for clarity
+    println!("  10.4 Using Pre-Defined Variables (Better Readability)");
+    use symb_anafis::parallel::{ExprInput, Value, VarInput, evaluate_parallel};
+
+    // Define expressions
+    let x = symb("x");
+    let y = symb("y");
+    let expr1 = x.pow(2.0) + y; // x² + y
+
+    let expressions: Vec<ExprInput> = vec![
+        ExprInput::from(expr1),
+        ExprInput::from("sin(x) + cos(y)"), // Can mix Expr and strings!
+    ];
+
+    // Define variables for each expression
+    let variables: Vec<Vec<VarInput>> = vec![
+        vec![VarInput::from("x"), VarInput::from("y")], // For expr1
+        vec![VarInput::from("x"), VarInput::from("y")], // For expr2
+    ];
+
+    // Define evaluation points: for each expr -> for each var -> values at each point
+    let x_values = vec![1.0, 2.0, 3.0];
+    let y_values = vec![4.0, 5.0, 6.0];
+
+    let values: Vec<Vec<Vec<Value>>> = vec![
+        vec![
+            x_values.iter().map(|&v| Value::from(v)).collect(),
+            y_values.iter().map(|&v| Value::from(v)).collect(),
+        ],
+        vec![
+            x_values.iter().map(|&v| Value::from(v)).collect(),
+            y_values.iter().map(|&v| Value::from(v)).collect(),
+        ],
+    ];
+
+    println!("      Expressions: x² + y, sin(x) + cos(y)");
+    println!("      x values: {:?}", x_values);
+    println!("      y values: {:?}", y_values);
+
+    let results = evaluate_parallel(expressions, variables, values).unwrap();
+
+    println!("      Results for x² + y:");
+    for (i, r) in results[0].iter().enumerate() {
+        println!("        Point {}: {}", i, r);
+    }
+    println!("      Results for sin(x) + cos(y):");
+    for (i, r) in results[1].iter().enumerate() {
+        println!("        Point {}: {}", i, r);
+    }
     println!();
 }

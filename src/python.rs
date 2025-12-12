@@ -36,6 +36,9 @@
 //! - `simplify(formula, fixed_vars?, custom_functions?)` - Simplify string formula
 //! - `parse(formula, fixed_vars?, custom_functions?)` - Parse formula to string
 
+#[cfg(feature = "parallel")]
+use crate::parallel::{self, ExprInput, Value, VarInput};
+use crate::uncertainty::{CovEntry, CovarianceMatrix};
 use crate::{Expr as RustExpr, builder, symb};
 use pyo3::prelude::*;
 use std::collections::HashSet;
@@ -78,10 +81,37 @@ impl PyExpr {
         PyExpr(self.0.clone() / other.0.clone())
     }
 
-    fn __pow__(&self, other: &PyExpr, _modulo: Option<Py<PyAny>>) -> PyExpr {
-        PyExpr(self.0.clone().pow_of(other.0.clone()))
+    fn __pow__(&self, other: &Bound<'_, PyAny>, _modulo: Option<Py<PyAny>>) -> PyResult<PyExpr> {
+        // Try to extract as PyExpr first
+        if let Ok(expr) = other.extract::<PyExpr>() {
+            return Ok(PyExpr(self.0.clone().pow_of(expr.0)));
+        }
+        // Try as float
+        if let Ok(n) = other.extract::<f64>() {
+            return Ok(PyExpr(self.0.clone().pow_of(n)));
+        }
+        // Try as int
+        if let Ok(n) = other.extract::<i64>() {
+            return Ok(PyExpr(self.0.clone().pow_of(n as f64)));
+        }
+        Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
+            "pow() argument must be Expr, int, or float",
+        ))
     }
 
+    // Reverse power: 2 ** x where x is Expr
+    fn __rpow__(&self, other: &Bound<'_, PyAny>, _modulo: Option<Py<PyAny>>) -> PyResult<PyExpr> {
+        // other ** self (other is the base, self is the exponent)
+        if let Ok(n) = other.extract::<f64>() {
+            return Ok(PyExpr(RustExpr::number(n).pow_of(self.0.clone())));
+        }
+        if let Ok(n) = other.extract::<i64>() {
+            return Ok(PyExpr(RustExpr::number(n as f64).pow_of(self.0.clone())));
+        }
+        Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
+            "rpow() base must be int or float",
+        ))
+    }
     // Functions
     fn sin(&self) -> PyExpr {
         PyExpr(self.0.clone().sin())
@@ -233,6 +263,47 @@ impl PyExpr {
 
     fn pow(&self, exp: f64) -> PyExpr {
         PyExpr(self.0.clone().pow_of(exp))
+    }
+
+    // Output formats
+    /// Convert expression to LaTeX string
+    fn to_latex(&self) -> String {
+        self.0.to_latex()
+    }
+
+    /// Convert expression to Unicode string (with Greek symbols, superscripts)
+    fn to_unicode(&self) -> String {
+        self.0.to_unicode()
+    }
+
+    // Expression info
+    /// Get the number of nodes in the expression tree
+    fn node_count(&self) -> usize {
+        self.0.node_count()
+    }
+
+    /// Get the maximum depth of the expression tree
+    fn max_depth(&self) -> usize {
+        self.0.max_depth()
+    }
+
+    /// Substitute a variable with a numeric value or another expression
+    #[pyo3(signature = (var, value))]
+    fn substitute(&self, var: &str, value: &PyExpr) -> PyExpr {
+        PyExpr(self.0.substitute(var, &value.0))
+    }
+
+    /// Evaluate the expression with given variable values
+    ///
+    /// Args:
+    ///     vars: dict mapping variable names to float values
+    ///
+    /// Returns:
+    ///     Evaluated expression (may be a number or symbolic if variables remain)
+    fn evaluate(&self, vars: std::collections::HashMap<String, f64>) -> PyExpr {
+        let var_map: std::collections::HashMap<&str, f64> =
+            vars.iter().map(|(k, v)| (k.as_str(), *v)).collect();
+        PyExpr(self.0.evaluate(&var_map))
     }
 }
 
@@ -446,6 +517,192 @@ fn parse(
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e)))
 }
 
+/// Compute the gradient of a scalar expression.
+///
+/// Args:
+///     formula: String formula to differentiate
+///     vars: List of variable names to differentiate with respect to
+///
+/// Returns:
+///     List of partial derivative strings [∂f/∂x₁, ∂f/∂x₂, ...]
+#[pyfunction]
+fn gradient(formula: &str, vars: Vec<String>) -> PyResult<Vec<String>> {
+    let var_strs: Vec<&str> = vars.iter().map(|s| s.as_str()).collect();
+    crate::gradient_str(formula, &var_strs)
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e)))
+}
+
+/// Compute the Hessian matrix of a scalar expression.
+///
+/// Args:
+///     formula: String formula to differentiate twice
+///     vars: List of variable names
+///
+/// Returns:
+///     2D list of second partial derivatives [[∂²f/∂x₁², ∂²f/∂x₁∂x₂, ...], ...]
+#[pyfunction]
+fn hessian(formula: &str, vars: Vec<String>) -> PyResult<Vec<Vec<String>>> {
+    let var_strs: Vec<&str> = vars.iter().map(|s| s.as_str()).collect();
+    crate::hessian_str(formula, &var_strs)
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e)))
+}
+
+/// Compute the Jacobian matrix of a vector function.
+///
+/// Args:
+///     formulas: List of string formulas (vector function)
+///     vars: List of variable names
+///
+/// Returns:
+///     2D list where J[i][j] = ∂fᵢ/∂xⱼ
+#[pyfunction]
+fn jacobian(formulas: Vec<String>, vars: Vec<String>) -> PyResult<Vec<Vec<String>>> {
+    let formula_strs: Vec<&str> = formulas.iter().map(|s| s.as_str()).collect();
+    let var_strs: Vec<&str> = vars.iter().map(|s| s.as_str()).collect();
+    crate::jacobian_str(&formula_strs, &var_strs)
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e)))
+}
+
+/// Evaluate a string expression with given variable values.
+///
+/// Args:
+///     formula: Expression string
+///     vars: List of (name, value) tuples
+///
+/// Returns:
+///     Evaluated expression as string
+#[pyfunction]
+fn evaluate(formula: &str, vars: Vec<(String, f64)>) -> PyResult<String> {
+    let var_tuples: Vec<(&str, f64)> = vars.iter().map(|(k, v)| (k.as_str(), *v)).collect();
+    crate::evaluate_str(formula, &var_tuples)
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e)))
+}
+
+/// Compute uncertainty propagation for an expression.
+///
+/// Args:
+///     formula: Expression string or Expr object
+///     variables: List of variable names to propagate uncertainty for
+///     variances: Optional list of variance values (σ²) for each variable.
+///                If None, uses symbolic variances σ_x², σ_y², etc.
+///
+/// Returns:
+///     String representation of the uncertainty expression σ_f
+///
+/// Example:
+///     >>> uncertainty_propagation("x + y", ["x", "y"])
+///     "sqrt(sigma_x^2 + sigma_y^2)"
+///     >>> uncertainty_propagation("x * y", ["x", "y"], [0.01, 0.04])
+///     "sqrt(0.04*x^2 + 0.01*y^2)"
+#[pyfunction]
+#[pyo3(signature = (formula, variables, variances=None))]
+fn uncertainty_propagation_py(
+    formula: &str,
+    variables: Vec<String>,
+    variances: Option<Vec<f64>>,
+) -> PyResult<String> {
+    let expr = crate::parser::parse(formula, &HashSet::new(), &HashSet::new())
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e)))?;
+
+    let var_strs: Vec<&str> = variables.iter().map(|s| s.as_str()).collect();
+
+    let cov = variances
+        .map(|vars| CovarianceMatrix::diagonal(vars.into_iter().map(CovEntry::Num).collect()));
+
+    crate::uncertainty_propagation(&expr, &var_strs, cov.as_ref())
+        .map(|e| e.to_string())
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e)))
+}
+
+/// Compute relative uncertainty for an expression.
+///
+/// Args:
+///     formula: Expression string
+///     variables: List of variable names
+///     variances: Optional list of variance values (σ²) for each variable
+///
+/// Returns:
+///     String representation of σ_f / |f|
+#[pyfunction]
+#[pyo3(signature = (formula, variables, variances=None))]
+fn relative_uncertainty_py(
+    formula: &str,
+    variables: Vec<String>,
+    variances: Option<Vec<f64>>,
+) -> PyResult<String> {
+    let expr = crate::parser::parse(formula, &HashSet::new(), &HashSet::new())
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e)))?;
+
+    let var_strs: Vec<&str> = variables.iter().map(|s| s.as_str()).collect();
+
+    let cov = variances
+        .map(|vars| CovarianceMatrix::diagonal(vars.into_iter().map(CovEntry::Num).collect()));
+
+    crate::relative_uncertainty(&expr, &var_strs, cov.as_ref())
+        .map(|e| e.to_string())
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e)))
+}
+
+/// Parallel evaluation of multiple expressions at multiple points.
+///
+/// Args:
+///     expressions: List of expression strings
+///     variables: List of variable name lists, one per expression
+///     values: 3D list of values: [expr_idx][var_idx][point_idx]
+///             Use None for a value to keep it symbolic (SKIP)
+///
+/// Returns:
+///     2D list of result strings: [expr_idx][point_idx]
+///
+/// Example:
+///     >>> evaluate_parallel(
+///     ...     ["x^2", "x + y"],
+///     ...     [["x"], ["x", "y"]],
+///     ...     [[[1.0, 2.0, 3.0]], [[1.0, 2.0], [3.0, 4.0]]]
+///     ... )
+///     [["1", "4", "9"], ["4", "6"]]
+#[cfg(feature = "parallel")]
+#[pyfunction]
+fn evaluate_parallel_py(
+    expressions: Vec<String>,
+    variables: Vec<Vec<String>>,
+    values: Vec<Vec<Vec<Option<f64>>>>,
+) -> PyResult<Vec<Vec<String>>> {
+    let exprs: Vec<ExprInput> = expressions.into_iter().map(ExprInput::from).collect();
+
+    let vars: Vec<Vec<VarInput>> = variables
+        .into_iter()
+        .map(|vs| vs.into_iter().map(VarInput::from).collect())
+        .collect();
+
+    let vals: Vec<Vec<Vec<Value>>> = values
+        .into_iter()
+        .map(|expr_vals| {
+            expr_vals
+                .into_iter()
+                .map(|var_vals| {
+                    var_vals
+                        .into_iter()
+                        .map(|v| match v {
+                            Some(n) => Value::Num(n),
+                            None => Value::Skip,
+                        })
+                        .collect()
+                })
+                .collect()
+        })
+        .collect();
+
+    parallel::evaluate_parallel(exprs, vars, vals)
+        .map(|results| {
+            results
+                .into_iter()
+                .map(|expr_results| expr_results.into_iter().map(|r| r.to_string()).collect())
+                .collect()
+        })
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e)))
+}
+
 #[pymodule]
 fn symb_anafis(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyExpr>()?;
@@ -454,6 +711,14 @@ fn symb_anafis(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(diff, m)?)?;
     m.add_function(wrap_pyfunction!(simplify, m)?)?;
     m.add_function(wrap_pyfunction!(parse, m)?)?;
+    m.add_function(wrap_pyfunction!(gradient, m)?)?;
+    m.add_function(wrap_pyfunction!(hessian, m)?)?;
+    m.add_function(wrap_pyfunction!(jacobian, m)?)?;
+    m.add_function(wrap_pyfunction!(evaluate, m)?)?;
+    m.add_function(wrap_pyfunction!(uncertainty_propagation_py, m)?)?;
+    m.add_function(wrap_pyfunction!(relative_uncertainty_py, m)?)?;
+    #[cfg(feature = "parallel")]
+    m.add_function(wrap_pyfunction!(evaluate_parallel_py, m)?)?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())
 }

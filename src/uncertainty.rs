@@ -49,7 +49,7 @@ impl From<Expr> for CovEntry {
 
 /// Covariance matrix for uncertainty propagation
 ///
-/// The matrix Cov[i][j] represents Cov(xᵢ, xⱼ).
+/// The matrix `Cov[i][j]` represents Cov(xᵢ, xⱼ).
 /// For correlated variables: Cov(x, y) = ρ_xy * σ_x * σ_y
 /// The diagonal elements are the variances: Cov(x, x) = σ_x²
 #[derive(Debug, Clone)]
@@ -238,7 +238,7 @@ mod tests {
         // σ_f² = σ_x² + σ_y² (for uncorrelated variables)
         let x = symb("x");
         let y = symb("y");
-        let expr = &x + &y;
+        let expr = x + y;
 
         let result = uncertainty_propagation(&expr, &["x", "y"], None).unwrap();
         let latex = result.to_latex();
@@ -253,7 +253,7 @@ mod tests {
         // σ_f² = y² * σ_x² + x² * σ_y² (for uncorrelated variables)
         let x = symb("x");
         let y = symb("y");
-        let expr = &x * &y;
+        let expr = x * y;
 
         let result = uncertainty_propagation(&expr, &["x", "y"], None).unwrap();
 
@@ -266,7 +266,7 @@ mod tests {
         // f = x + y with numeric variances
         let x = symb("x");
         let y = symb("y");
-        let expr = &x + &y;
+        let expr = x + y;
 
         // σ_x² = 1, σ_y² = 4
         let cov = CovarianceMatrix::diagonal(vec![

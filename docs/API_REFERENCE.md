@@ -16,8 +16,7 @@ A comprehensive guide to the symb_anafis symbolic mathematics library.
 10. [Parallel Evaluation](#parallel-evaluation)
 11. [Built-in Functions](#built-in-functions)
 12. [Expression Syntax](#expression-syntax)
-13. [Simplification Rules Architecture](#simplification-rules-architecture)
-14. [Error Handling](#error-handling)
+13. [Error Handling](#error-handling)
 
 ---
 
@@ -50,7 +49,9 @@ result = symb_anafis.simplify("sin(x)^2 + cos(x)^2")  # "1"
 
 ## Symbol Management
 
-Symbols are **interned** for O(1) comparison. Each unique symbol name exists only once in memory.
+Symbols are **interned** for O(1) comparison and **Copy** for natural operator usage.
+
+> **Tip:** `Symbol` implements `Copy`, so `a + a` works without `.clone()`!
 
 ### Creating Symbols
 
@@ -180,8 +181,9 @@ use symb_anafis::{symb, Diff, Expr};
 
 let x = symb("x");
 
-// All Symbol methods take &self - no clone() needed!
+// Symbol is Copy - no clone() needed for operators!
 let expr = x.pow(2.0) + x.sin();  // x² + sin(x)
+let expr2 = x + x;  // Works! Symbol is Copy.
 
 let derivative = Diff::new().differentiate(expr, &x)?;
 ```
@@ -244,7 +246,7 @@ use symb_anafis::{symb, uncertainty_propagation};
 
 let x = symb("x");
 let y = symb("y");
-let expr = &x + &y;  // Note: &x instead of x.clone()
+let expr = x + y;  // Symbol is Copy - no & needed!
 
 // Returns: sqrt(sigma_x^2 + sigma_y^2)
 let sigma = uncertainty_propagation(&expr, &["x", "y"], None)?;

@@ -4,12 +4,20 @@ build-backend = "maturin"
 
 [project]
 name = "symb_anafis"
-version = "0.2.5"
+version = "0.3.0"
 description = "Fast symbolic differentiation library - Rust-powered Python bindings"
 readme = "README.md"
 license = { text = "MIT" }
 authors = [{ name = "CokieMiner" }]
-keywords = ["symbolic", "differentiation", "calculus", "mathematics", "derivatives", "sympy", "fast"]
+keywords = [
+    "symbolic",
+    "differentiation",
+    "calculus",
+    "mathematics",
+    "derivatives",
+    "sympy",
+    "fast",
+]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -21,17 +29,18 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Programming Language :: Rust",
     "Topic :: Scientific/Engineering :: Mathematics",
 ]
 requires-python = ">=3.9"
 
 [project.urls]
-Homepage = "https://github.com/CokieMiner/symb_anafis"
-Repository = "https://github.com/CokieMiner/symb_anafis"
+Homepage = "https://github.com/CokieMiner/SymbAnaFis"
+Repository = "https://github.com/CokieMiner/SymbAnaFis"
 Documentation = "https://docs.rs/symb_anafis"
 
 [tool.maturin]
-features = ["python"]
+features = ["python", "parallel"]
 python-source = "python"
 module-name = "symb_anafis"

@@ -31,7 +31,7 @@ fn test_custom_derivatives() {
 
     // Test: my_func(x) -> 3*x^2 * 1 = 3x^2
     let x = symb("x");
-    let expr = Expr::func("my_func", x.clone().into());
+    let expr = Expr::func("my_func", x.into());
     let res = diff.differentiate(expr, &x).unwrap();
     assert_eq!(format!("{}", res), "3x^2");
 
@@ -45,7 +45,7 @@ fn test_custom_derivatives() {
 #[test]
 fn test_recursion_limits() {
     let x = symb("x");
-    let mut deeply_nested: Expr = x.clone().into();
+    let mut deeply_nested: Expr = x.into();
     // Reduce depth to avoid stack overflow in default run, but enough to trigger limit
     for _ in 0..20 {
         deeply_nested = deeply_nested.sin();
@@ -68,7 +68,7 @@ fn test_recursion_limits() {
 fn test_node_limits() {
     // Create broad tree
     let x = symb("x");
-    let mut broad: Expr = x.clone().into();
+    let mut broad: Expr = x.into();
     for _ in 0..10 {
         broad = broad.clone() + broad.clone();
     }

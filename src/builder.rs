@@ -71,7 +71,7 @@ impl CustomFn {
     }
 
     /// Add a partial derivative for argument at index `i`
-    /// The function receives all argument expressions and returns ∂F/∂arg[i]
+    /// The function receives all argument expressions and returns `∂F/∂arg[i]`
     pub fn partial<F>(mut self, i: usize, f: F) -> Self
     where
         F: Fn(&[Expr]) -> Expr + Send + Sync + 'static,
@@ -201,7 +201,7 @@ impl Diff {
     /// Register a multi-argument custom function with explicit partial derivatives
     ///
     /// This is the recommended way to define custom functions with 2+ arguments.
-    /// The chain rule is automatically applied: dF/dx = Σ (∂F/∂arg[i]) * (darg[i]/dx)
+    /// The chain rule is automatically applied: `dF/dx = Σ (∂F/∂arg[i]) * (darg[i]/dx)`
     ///
     /// # Example
     /// ```ignore
