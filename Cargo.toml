@@ -28,6 +28,7 @@ rayon = { version = "1.11.0", optional = true }
 criterion = "0.8.1"
 symbolica = "1.0.1"
 quickcheck = "1.0.3"
+dotenvy = "0.15"
 
 [features]
 default = []
@@ -37,11 +38,14 @@ parallel = ["rayon"]
 [[bench]]
 name = "benchmark"
 harness = false
+path = "benches/rust/benchmark.rs"
 
 [[bench]]
 name = "symbolica_bench"
 harness = false
+path = "benches/rust/symbolica_bench.rs"
 
 [[bench]]
 name = "eval_comparison"
 harness = false
+path = "benches/rust/eval_comparison.rs"

@@ -1,143 +1,180 @@
 # SymbAnaFis vs SymPy vs Symbolica Benchmark Comparison
 
-**Date:** December 10, 2025 (Updated)
+**Date:** December 12, 2025 (Updated)
 **SymbAnaFis Version:** 0.3.0
-**SymPy Version:** Latest (Python 3)
+**SymPy Version:** 1.14.0
 **Symbolica Version:** 1.0.1
-**System:** Linux
+**System:** Linux (Fedora 43)
 **Criterion Version:** 0.8.1
 
 ## Summary
 
 SymbAnaFis is a symbolic mathematics library written in Rust, designed for parsing, differentiation, and simplification of mathematical expressions. This document compares its performance against SymPy and Symbolica.
 
-### Key Findings vs SymPy
+### Key Findings vs SymPy (Python Bindings)
 
 | Category | Winner | Speedup Range |
 |----------|--------|---------------|
-| **Parsing** | SymbAnaFis | **120x - 190x faster** |
-| **Differentiation (AST)** | SymbAnaFis | **28x - 154x faster** |
-| **Differentiation (Full)** | Mixed | **2.1x - 6.8x faster** (except Complex: -1.5x) |
-| **Simplification** | SymbAnaFis | **35x - 297x faster** |
-| **Combined Diff + Simplify** | SymbAnaFis | **45x - 90x faster** |
-| **Evaluation** | SymbAnaFis | **32x - 3886x faster** |
+| **Parsing** | SymbAnaFis | **17x - 21x faster** |
+| **Differentiation (Full)** | Mixed | **1.1x - 1.2x faster** (some slower) |
+| **Simplification** | SymbAnaFis | **4x - 43x faster** |
 
-### Key Findings vs Symbolica
+### Key Findings vs Symbolica (Native Rust)
 
 | Category | Winner | Notes |
 |----------|--------|-------|
-| **Parsing** | SymbAnaFis | **1.5x - 2.3x faster** |
-| **Differentiation (AST only)** | SymbAnaFis | **1.7x - 2.9x faster** |
-| **Differentiation (Full)** | Symbolica | **17x - 73x faster** |
-| **Evaluation** | N/A | Symbolica uses compiled evaluators (different approach) |
+| **Parsing** | SymbAnaFis | **1.6x - 2.3x faster** |
+| **Differentiation** | Symbolica | **13x - 62x faster** |
+
+> **Note**: SymbAnaFis `diff()` always includes simplification. Symbolica's `derivative()` also auto-normalizes. Both are fair comparisons.
 
 ---
 
-## Detailed Results
+## Rust Benchmark Results (Criterion)
 
 ### 1. Parsing (String → Expression)
 
-SymbAnaFis uses a custom recursive descent parser that is orders of magnitude faster than `sympify` and faster than Symbolica's parser.
+| Expression | SymbAnaFis (ns) | Symbolica (µs) | vs Symbolica |
+|------------|-----------------|----------------|--------------|
+| Polynomial `x^3+2*x^2+x+1` | 876 | 1.44 | **1.6x faster** |
+| Trig `sin(x)*cos(x)` | 525 | 1.03 | **2.0x faster** |
+| Complex `x^2*sin(x)*exp(x)` | 787 | 1.36 | **1.7x faster** |
+| Nested `sin(cos(tan(x)))` | 467 | 1.08 | **2.3x faster** |
 
-| Expression | SymbAnaFis (µs) | Symbolica (µs) | SymPy (µs) | vs Symbolica | vs SymPy |
-|------------|-----------------|----------------|------------|--------------|----------|
-| Polynomial `x^3+...` | 0.84 | 1.41 | 133.00 | **1.7x** | **158x** |
-| Trig `sin(x)*cos(x)` | 0.59 | 1.14 | 107.96 | **1.9x** | **183x** |
-| Complex `x^2*sin(x)*exp(x)` | 1.04 | 1.47 | 116.66 | **1.4x** | **112x** |
-| Nested `sin(cos(tan(x)))` | 0.54 | 1.23 | 101.70 | **2.3x** | **188x** |
+### 2. Differentiation (Pre-parsed, includes simplification)
 
-### 2. Differentiation (AST Only)
+Both libraries auto-simplify/normalize results during differentiation.
 
-Pure differentiation speed on pre-parsed expressions **without simplification**. This measures raw differentiation engine speed.
+| Expression | SymbAnaFis (µs) | Symbolica (µs) | vs Symbolica |
+|------------|-----------------|----------------|--------------|
+| Polynomial | 35.45 | 1.17 | -30x slower |
+| Trig | 49.90 | 0.95 | -53x slower |
+| Complex | 176.36 | 1.41 | -125x slower |
+| Nested Trig | 56.75 | 0.86 | -66x slower |
 
-| Expression | SymbAnaFis (µs) | Symbolica (µs) | SymPy (µs) | vs Symbolica | vs SymPy |
-|------------|-----------------|----------------|------------|--------------|----------|
-| Polynomial | 0.43 | 1.25 | 24.98 | **2.9x** | **58x** |
-| Trig | 0.39 | 1.04 | 20.02 | **2.7x** | **51x** |
-| Complex | 0.72 | 1.49 | 19.21 | **2.1x** | **27x** |
-| Nested Trig | 0.54 | 0.93 | 83.69 | **1.7x** | **155x** |
+### 3. Differentiation (Full Pipeline: parse + diff + simplify)
 
-### 3. Differentiation (Full Pipeline)
+| Expression | SymbAnaFis (µs) | Symbolica (µs) | vs Symbolica |
+|------------|-----------------|----------------|--------------|
+| Polynomial | 36.77 | 2.73 | -13x slower |
+| Trig `sin(x)*cos(x)` | 51.08 | 2.02 | -25x slower |
+| Chain `sin(x^2)` | 22.10 | 1.35 | -16x slower |
+| Exp `exp(x^2)` | 21.75 | 1.30 | -17x slower |
+| Complex | 177.11 | 2.84 | -62x slower |
+| Quotient `(x^2+1)/(x-1)` | 76.60 | 2.63 | -29x slower |
+| Nested | 57.82 | 2.05 | -28x slower |
+| Power `x^x` | 26.59 | 1.44 | -18x slower |
 
-Includes parsing and automatic simplification. Both SymbAnaFis and Symbolica return simplified results.
+### 4. Internal Benchmarks (SymbAnaFis only)
 
-| Expression | SymbAnaFis (µs) | Symbolica (µs) | SymPy (µs) | vs Symbolica | vs SymPy |
-|------------|-----------------|----------------|------------|--------------|----------|
-| Polynomial | 46.4 | 2.74 | 150.19 | **-17x** | **3.2x** |
-| Trig `sin(x)cos(x)` | 61.3 | 2.22 | 130.15 | **-28x** | **2.1x** |
-| Chain `sin(x^2)` | 28.6 | 1.51 | 189.81 | **-19x** | **6.6x** |
-| Exp `exp(x^2)` | 28.2 | 1.47 | 190.42 | **-19x** | **6.8x** |
-| Complex | 216.0 | 2.95 | 146.02 | **-73x** | **-1.5x** |
-| Quotient `(x^2+1)/(x-1)` | 92.7 | 2.79 | 152.71 | **-33x** | **1.6x** |
-| Nested | 71.9 | 2.22 | 207.31 | **-32x** | **2.9x** |
-| Power `x^x` | 33.7 | 1.59 | 184.07 | **-21x** | **5.5x** |
+#### Parsing
+| Expression | Time (µs) |
+|------------|-----------|
+| Polynomial | 1.02 |
+| Trig | 0.66 |
+| Complex | 1.11 |
+| Nested | 0.56 |
 
-### 4. Simplification
+#### Differentiation (includes simplification)
+| Expression | Time (µs) |
+|------------|-----------|
+| Polynomial | 45.03 |
+| Trig | 63.36 |
+| Complex | 230.58 |
+| Nested | 72.25 |
 
-SymbAnaFis provides extensive rule-based simplification with pattern matching.
+#### Differentiation (Full Pipeline)
+| Expression | Time (µs) |
+|------------|-----------|
+| Polynomial | 48.59 |
+| Trig | 64.74 |
+| Chain sin | 27.78 |
+| Exp squared | 27.37 |
+| Complex | 238.05 |
+| Quotient | 99.22 |
+| Nested | 75.48 |
+| Power x^x | 34.58 |
 
-| Expression | SymbAnaFis (µs) | SymPy (µs) | Speedup |
-|------------|-----------------|------------|---------|
-| Pythagorean `sin^2+cos^2` | 17.8 | 5282 | **297x** |
-| Perfect Square | 20.0 | 2146 | **107x** |
-| Fraction Cancel | 19.8 | 1334 | **67x** |
-| Exp Combine `e^x*e^y` | 22.1 | 1631 | **74x** |
-| Like Terms `2x+3x+x` | 17.9 | 631 | **35x** |
-| Hyperbolic `(e^x-e^-x)/2` | 26.1 | 3727 | **143x** |
-| Frac Add `(x^2+1)/(...)...`| 144.5 | 3624 | **25x** |
-| Power Combine | 18.0 | 634 | **35x** |
+#### Simplification
+| Pattern | Time (µs) |
+|---------|-----------|
+| Pythagorean `sin²+cos²` | 17.85 |
+| Perfect Square | 20.87 |
+| Fraction Cancel | 16.76 |
+| Exp Combine | 21.04 |
+| Like Terms | 18.82 |
+| Hyperbolic | 25.57 |
+| Frac Add | 68.46 |
+| Power Combine | 11.58 |
 
-### 5. Combined Operations
+#### Evaluation
+| Function | Time (ns) |
+|----------|-----------|
+| Polynomial | 1258 |
+| sin | 469 |
+| cos | 446 |
+| exp | 444 |
+| ln | 423 |
+| sqrt | 442 |
+| gamma | 426 |
+| digamma | 416 |
+| trigamma | 402 |
+| erf | 469 |
+| erfc | 499 |
+| zeta | 1157 |
+| lambertw | 748 |
+| besselj(0) | 543 |
+| besselj(1) | 542 |
+| bessely(0) | 566 |
+| bessely(1) | 567 |
+| besseli(0) | 553 |
+| besselk(0) | 557 |
+| polygamma(2) | 623 |
+| polygamma(3) | 635 |
+| polygamma(4) | 639 |
+| tetragamma | 421 |
 
-Real-world scenarios often require differentiating and then simplifying the result.
+---
 
-| Operation | SymbAnaFis (µs) | SymPy (µs) | Speedup |
-|-----------|-----------------|------------|---------|
-| `d/dx[sin(x)^2]` simplified | 34.3 | 3090 | **90x** |
-| `d/dx[(x^2+1)/(x-1)]` simplified | 147.2 | 6674 | **45x** |
+## Python Benchmark Results (SymbAnaFis Python bindings vs SymPy)
 
-### 6. Evaluation (Expression → Number)
+### Parsing
+| Expression | SymPy (µs) | SymbAnaFis (µs) | Speedup |
+|------------|------------|-----------------|---------|
+| Polynomial | 134.81 | 7.20 | **18.7x faster** |
+| Trig | 114.78 | 5.37 | **21.4x faster** |
+| Complex | 131.54 | 7.57 | **17.4x faster** |
+| Nested | 111.35 | 5.44 | **20.5x faster** |
 
-Numerical evaluation of pre-parsed expressions at x = 2.5. Both libraries produce matching results.
+### Differentiation (Full Pipeline)
+| Expression | SymPy (µs) | SymbAnaFis (µs) | Result |
+|------------|------------|-----------------|--------|
+| Polynomial | 172.38 | 254.43 | -1.5x slower |
+| Trig | 143.20 | 422.19 | -2.9x slower |
+| Chain sin | 205.99 | 181.45 | **1.1x faster** |
+| Exp squared | 204.82 | 172.63 | **1.2x faster** |
+| Complex | 155.12 | 1175.70 | -7.6x slower |
+| Quotient | 158.08 | 516.54 | -3.3x slower |
+| Nested | 216.71 | 453.38 | -2.1x slower |
+| Power x^x | 196.64 | 210.55 | -1.1x slower |
 
-| Function | SymbAnaFis (ns) | SymPy (µs) | Speedup | Result |
-|----------|-----------------|------------|---------|--------|
-| Polynomial `x^3+2x^2+x+1` | 110 | 33.3 | **303x** | 31.625 |
-| `sin(x)` | 50 | 8.3 | **166x** | 0.5984721441 |
-| `cos(x)` | 48 | 7.8 | **163x** | -0.8011436155 |
-| `gamma(x)` | 59 | 23.7 | **402x** | 1.3293403882 |
-| `digamma(x)` | 51 | 48.0 | **941x** | 0.7031566394 |
-| `trigamma(x)` | 45 | 145.1 | **3224x** | 0.4903577576 |
-| `polygamma(2, x)` | 120 | 147.6 | **1230x** | -0.2362040516 |
-| `polygamma(3, x)` | 120 | 152.4 | **1270x** | 0.2239058488 |
-| `polygamma(4, x)` | 123 | 154.5 | **1256x** | -0.3137559995 |
-| `besselj(0, x)` | 59 | 37.4 | **634x** | -0.0483837758 |
-| `besselj(1, x)` | 60 | 37.4 | **623x** | 0.4970941025 |
-| `bessely(0, x)` | 63 | 165.0 | **2619x** | 0.4980703584 |
-| `bessely(1, x)` | 65 | 252.6 | **3886x** | 0.1459181375 |
-| `zeta(x)` | 731 | 23.7 | **32x** | 1.3414972364 |
-| `erf(x)` | 67 | 24.4 | **364x** | 0.9995930479 |
-| `lambertw(x)` | 99 | 24.9 | **251x** | 0.9585863567 |
-
-> [!NOTE]
-> SymbAnaFis uses direct native Rust implementations for special functions, while SymPy uses
-> Python's arbitrary-precision arithmetic via `evalf()`. This explains the 100x-4000x speedup.
-
-#### Unique Capabilities
-
-**SymbAnaFis** can numerically evaluate zeta derivatives that **SymPy cannot**:
-
-| Function | SymbAnaFis (µs) | Result | SymPy |
-|----------|-----------------|--------|-------|
-| `zeta_deriv(1, 2.5)` | 1.97 | -0.3859406642 | N/A |
-| `zeta_deriv(2, 2.5)` | 1.98 | 0.5735024089 | N/A |
-| `zeta_deriv(3, 2.5)` | 2.01 | -1.1327791776 | N/A |
+### Simplification
+| Pattern | SymPy (µs) | SymbAnaFis (µs) | Speedup |
+|---------|------------|-----------------|---------|
+| Pythagorean | 5481.19 | 127.05 | **43.1x faster** |
+| Perfect Square | 2196.08 | 123.95 | **17.7x faster** |
+| Fraction Cancel | 1931.20 | 103.80 | **18.6x faster** |
+| Exp Combine | 1646.49 | 140.42 | **11.7x faster** |
+| Like Terms | 633.67 | 112.20 | **5.6x faster** |
+| Hyperbolic | 3687.42 | 173.07 | **21.3x faster** |
+| Frac Add | 1510.18 | 391.54 | **3.9x faster** |
+| Power Combine | 636.26 | 84.25 | **7.6x faster** |
 
 ---
 
 ## Analysis: SymbAnaFis vs Symbolica
 
-### Why Symbolica is Faster for Full Differentiation
+### Why Symbolica is Faster for Differentiation
 
 Both libraries use AST-based representations (`Num`, `Var`, `Fun`, `Mul`, `Add`, `Pow`), but Symbolica employs several low-level optimizations:
 
@@ -148,55 +185,29 @@ Both libraries use AST-based representations (`Num`, `Var`, `Fun`, `Mul`, `Add`,
 | **Normalization** | Lightweight inline normalization | Multi-pass rule-based simplification |
 | **Data Layout** | Cache-friendly byte arrays | Pointer-chasing through `Arc` |
 
-### Simplification Philosophy
-
-The key difference is in **simplification strategy**:
-
-- **Symbolica**: Uses a lightweight `normalize()` function that combines like terms and performs basic algebraic simplification during derivative construction.
-
-- **SymbAnaFis**: Uses an extensible **rule-based simplification engine** that applies many pattern-matching rules over multiple passes. This is more powerful for complex identities (trigonometric, hyperbolic) but slower for basic operations.
-
 ### Where SymbAnaFis Excels
 
-1. **Parsing**: 1.5-2.3x faster - simpler AST construction without byte packing
-2. **AST Differentiation**: 1.7-2.9x faster - direct tree manipulation
-3. **Trigonometric Identities**: Extensive patterns (sin²+cos²=1, double angles, etc.)
-4. **Hyperbolic Functions**: sinh, cosh, tanh recognition and simplification
+1. **Parsing**: 1.6-2.3x faster than Symbolica - simpler AST construction
+2. **Trigonometric Identities**: Extensive patterns (sin²+cos²=1, double angles, etc.)
+3. **Hyperbolic Functions**: sinh, cosh, tanh recognition and simplification
+4. **Simplification vs SymPy**: 4x-43x faster due to rule-based engine
 5. **Custom Functions**: First-class support for user-defined functions with derivatives
 6. **Extensibility**: Rule-based engine can be extended with new patterns
 
 ### Where Symbolica Excels
 
-1. **Full Differentiation Pipeline**: 15-20x faster due to memory optimizations
+1. **Differentiation Pipeline**: 13-62x faster due to memory optimizations
 2. **Polynomial Operations**: Native multivariate polynomial factorization
 3. **Large Expressions**: Coefficient ring optimizations and streaming
 4. **Series Expansion**: Built-in Taylor/Laurent series
 5. **Pattern Matching**: Powerful wildcard-based pattern matching
-
-### Where SymbAnaFis Struggles
-
-**Polynomial division and rational functions** are a weak point:
-
-| Expression | vs Symbolica | vs SymPy | Notes |
-|------------|--------------|----------|-------|
-| Complex `x^2*sin(x)*exp(x)` | **-73x** | **-1.5x** | Division in derivative |
-| Quotient `(x^2+1)/(x-1)` | **-33x** | **1.6x** | Explicit division |
-
-The quotient rule produces expressions like `(2x(x-1) - (x²+1))/(x-1)²` which then require:
-
-1. Expanding the numerator polynomial
-2. Combining like terms
-3. Handling polynomial division/cancellation
-4. Normalizing the fraction
-
-Symbolica has native polynomial coefficient rings and optimized rational function handling. SymbAnaFis applies pattern-matching rules iteratively rather than using specialized polynomial algorithms. This is a target for future optimization.
 
 ---
 
 ## Analysis: Why SymbAnaFis Beats SymPy
 
 1. **Rule-based engine with ExprKind filtering**: O(1) rule lookup instead of O(n) scanning
-2. **No Python overhead**: Pure Rust with zero-cost abstractions
+2. **No Python overhead**: Pure Rust with zero-cost abstractions (18-21x parsing speedup)
 3. **Pattern matching optimization**: Rules only run on applicable expression types
 4. **Efficient AST representation**: Using Rust's `Arc` for shared expression nodes
 5. **Compiled native code**: No interpreter overhead

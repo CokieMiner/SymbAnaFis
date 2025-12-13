@@ -6,13 +6,15 @@ This document outlines the implementation plan for adding GiNaC-style polynomial
 
 ## Motivation
 
-### Current Performance (v0.3.0)
+### Current Performance (v0.3.0 - December 2025)
 | Operation | vs SymPy | vs Symbolica |
 |-----------|----------|--------------|
-| Parsing | 120-190x faster ✓ | 1.5-2.3x faster ✓ |
-| AST Differentiation | — | 1.7-2.9x faster ✓ |
-| Full Diff+Simplify | — | 17-73x **slower** ✗ |
-| Evaluation | 32-3886x faster ✓ | — |
+| Parsing | 17-21x faster ✓ | 1.6-2.3x faster ✓ |
+| Differentiation (includes simplify) | Mixed | 13-62x **slower** ✗ |
+| Simplification only | 4-43x faster ✓ | — |
+| Evaluation | ~400ns ✓ | — |
+
+> **Note**: `diff()` always runs simplification. Symbolica's `derivative()` also auto-normalizes.
 
 **The bottleneck**: Rule-based polynomial simplification requires many iterations of pattern matching, while Symbolica uses native polynomial arithmetic.
 

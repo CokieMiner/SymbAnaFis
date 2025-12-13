@@ -189,10 +189,15 @@ When domain-safe mode is enabled, rules that alter domains are skipped to ensure
 
 ### Enabling Domain-Safe Mode
 
-Domain-safe mode can be enabled in several ways:
+Use the builder pattern to enable domain-safe mode:
 
-1. **Environment variable**: Set `SYMB_ANAFIS_DOMAIN_SAFETY=true`
-2. **Programmatically**: Use `Simplifier::new().with_domain_safe(true)`
+```rust
+use symb_anafis::Simplify;
+
+Simplify::new()
+    .domain_safe(true)
+    .simplify_str("sqrt(x^2)")?;  // → abs(x)
+```
 
 ## Debugging and Tracing
 
@@ -223,7 +228,7 @@ When a variable is marked as "fixed":
 
 ```rust
 // In diff() or simplify() functions, pass fixed variables:
-diff("e*x".to_string(), "x".to_string(), Some(&["e".to_string()]), None);
+diff("e*x", "x", Some(&["e"]), None)?;
 // Here "e" is treated as a constant coefficient, not Euler's number
 ```
 

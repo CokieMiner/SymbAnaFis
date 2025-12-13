@@ -660,9 +660,9 @@ All functions return `Result<T, DiffError>`:
 use symb_anafis::{Diff, DiffError};
 
 let diff = Diff::new();
-match diff.diff_str("invalid syntax ((".to_string(), "x".to_string(), None, None) {
+match diff.diff_str("invalid syntax ((", "x") {
     Ok(result) => println!("Result: {}", result),
-    Err(DiffError::ParseError { message, .. }) => println!("Parse error: {}", message),
+    Err(DiffError::InvalidSyntax { msg, .. }) => println!("Parse error: {}", msg),
     Err(e) => println!("Other error: {:?}", e),
 }
 ```
