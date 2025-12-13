@@ -53,14 +53,47 @@ Coefficients can themselves be expressions, enabling multivariate polynomials:
 Poly {
     var: x,
     coeffs: [
-        Poly { var: y, coeffs: [0, 0, 1] },  // y² (x⁰ term)
-        Poly { var: y, coeffs: [0, 2] },     // 2y (x¹ term)
-        Expr::number(1),                      // 1  (x² term)
+        (0, Poly { var: y, coeffs: [(2, 1)] }),  // y² (x⁰ term)
+        (1, Poly { var: y, coeffs: [(1, 2)] }),  // 2y (x¹ term)
+        (2, Expr::number(1)),                     // 1  (x² term)
     ]
 }
 ```
 
 ---
+
+## Comparison with GiNaC
+
+This architecture aligns with GiNaC's core philosophy with one critical adaptation.
+
+### Alignment ✓
+
+| Feature | SymbAnaFis | GiNaC | Status |
+|---------|------------|-------|--------|
+| **Multivariate** | Recursive R[y][x] | Recursive | ✓ Aligned |
+| **Variable Ordering** | Lexicographic ID | Canonical ordering | ✓ Aligned |
+| **Arithmetic** | Coefficient-wise | Optimized algorithms | ✓ Aligned |
+| **Integration** | Hybrid/Transient | Core object | Slight diff |
+
+### Critical Difference: Sparse Representation
+
+> [!IMPORTANT]
+> **Must use sparse representation, not dense.**
+
+| Representation | Example: x¹⁰⁰⁰ + 1 | Memory |
+|----------------|-------------------|--------|
+| Dense `Vec<Expr>` | 1001-element vector | O(max_degree) |
+| **Sparse `Vec<(u32, Expr)>`** | 2-element vector | O(terms) |
+
+GiNaC stores `(coefficient, exponent)` pairs. We adopt this approach:
+
+```rust
+pub struct Poly {
+    pub var: InternedSymbol,
+    /// Sparse: (exponent, coefficient) pairs, sorted by exponent
+    pub terms: Vec<(u32, Expr)>,
+}
+```
 
 ## Implementation Plan
 
@@ -69,44 +102,53 @@ Poly {
 #### [NEW] `src/poly.rs`
 
 ```rust
-/// Dense univariate polynomial with arbitrary expression coefficients
+/// Sparse univariate polynomial with arbitrary expression coefficients
+/// 
+/// Uses GiNaC-style sparse representation for memory efficiency:
+/// x¹⁰⁰⁰ + 1 stores only 2 terms, not 1001 coefficients.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Poly {
     /// The polynomial variable (interned for O(1) comparison)
     pub var: InternedSymbol,
-    /// Coefficients: coeffs[i] is the coefficient of var^i
-    /// Invariant: trailing zeros are trimmed (no zero leading coefficient)
-    pub coeffs: Vec<Expr>,
+    /// Sparse terms: (exponent, coefficient) pairs, sorted by exponent ascending
+    /// Invariant: no zero coefficients, no duplicate exponents
+    pub terms: Vec<(u32, Expr)>,
 }
 
 impl Poly {
-    /// Create from coefficients, auto-trimming trailing zeros
-    pub fn new(var: InternedSymbol, coeffs: Vec<Expr>) -> Self;
+    /// Create from sparse terms, auto-merging duplicates and removing zeros
+    pub fn new(var: InternedSymbol, terms: Vec<(u32, Expr)>) -> Self;
     
-    /// Degree of the polynomial (-1 for zero polynomial)
-    pub fn degree(&self) -> i32;
+    /// Create from dense coefficients (for convenience)
+    pub fn from_dense(var: InternedSymbol, coeffs: Vec<Expr>) -> Self;
+    
+    /// Degree of the polynomial (None for zero polynomial)
+    pub fn degree(&self) -> Option<u32>;
     
     /// Check if this is the zero polynomial
     pub fn is_zero(&self) -> bool;
     
-    /// Get the leading coefficient
+    /// Get the leading coefficient (highest degree term)
     pub fn leading_coeff(&self) -> Option<&Expr>;
+    
+    /// Get coefficient for a specific power (returns 0 if not present)
+    pub fn coeff(&self, power: u32) -> Expr;
 }
 ```
 
 #### Polynomial Arithmetic
 ```rust
 impl Poly {
-    /// Add two polynomials in the same variable: O(max(deg_a, deg_b))
+    /// Add two polynomials in the same variable: O(n + m) where n, m are term counts
     pub fn add(&self, other: &Poly) -> Poly;
     
-    /// Subtract two polynomials: O(max(deg_a, deg_b))
+    /// Subtract two polynomials: O(n + m)
     pub fn sub(&self, other: &Poly) -> Poly;
     
-    /// Multiply two polynomials (convolution): O(deg_a * deg_b)
+    /// Multiply two polynomials: O(n * m) term-wise, can use Karatsuba for large polys
     pub fn mul(&self, other: &Poly) -> Poly;
     
-    /// Polynomial division with remainder: O(deg_a * deg_b)
+    /// Polynomial division with remainder
     /// Returns (quotient, remainder) such that self = quotient * other + remainder
     pub fn div(&self, other: &Poly) -> Option<(Poly, Poly)>;
     
@@ -116,7 +158,7 @@ impl Poly {
     /// Scalar multiplication: coeff * poly
     pub fn scale(&self, coeff: &Expr) -> Poly;
     
-    /// Evaluate polynomial at a value: Horner's method O(degree)
+    /// Evaluate polynomial at a value: O(n) using Horner's method adaptation
     pub fn eval(&self, value: &Expr) -> Expr;
 }
 ```
@@ -333,29 +375,37 @@ src/simplification/rules/algebraic/
 ```rust
 #[test]
 fn test_poly_addition() {
-    // [1, 2, 1] + [1, 1] = [2, 3, 1]
-    let p1 = Poly::new(intern("x"), vec![num(1), num(2), num(1)]);
-    let p2 = Poly::new(intern("x"), vec![num(1), num(1)]);
+    // (x² + 2x + 1) + (x + 1) = x² + 3x + 2
+    let p1 = Poly::new(intern("x"), vec![(0, num(1)), (1, num(2)), (2, num(1))]);
+    let p2 = Poly::new(intern("x"), vec![(0, num(1)), (1, num(1))]);
     let result = p1.add(&p2);
-    assert_eq!(result.coeffs, vec![num(2), num(3), num(1)]);
+    assert_eq!(result.terms, vec![(0, num(2)), (1, num(3)), (2, num(1))]);
 }
 
 #[test]
 fn test_poly_multiplication() {
-    // [1, 1] * [1, 1] = [1, 2, 1]  (i.e., (x+1)² = x² + 2x + 1)
-    let p = Poly::new(intern("x"), vec![num(1), num(1)]);
+    // (x+1)² = x² + 2x + 1
+    let p = Poly::new(intern("x"), vec![(0, num(1)), (1, num(1))]);
     let result = p.mul(&p);
-    assert_eq!(result.coeffs, vec![num(1), num(2), num(1)]);
+    assert_eq!(result.terms, vec![(0, num(1)), (1, num(2)), (2, num(1))]);
 }
 
 #[test]
 fn test_poly_division() {
-    // [−1, 0, 1] / [−1, 1] = [1, 1]  (i.e., (x²−1)/(x−1) = x+1)
-    let dividend = Poly::new(intern("x"), vec![num(-1), num(0), num(1)]);
-    let divisor = Poly::new(intern("x"), vec![num(-1), num(1)]);
+    // (x²−1)/(x−1) = x+1
+    let dividend = Poly::new(intern("x"), vec![(0, num(-1)), (2, num(1))]);  // Sparse: no x¹ term!
+    let divisor = Poly::new(intern("x"), vec![(0, num(-1)), (1, num(1))]);
     let (quotient, remainder) = dividend.div(&divisor).unwrap();
-    assert_eq!(quotient.coeffs, vec![num(1), num(1)]);
+    assert_eq!(quotient.terms, vec![(0, num(1)), (1, num(1))]);
     assert!(remainder.is_zero());
+}
+
+#[test]
+fn test_sparse_efficiency() {
+    // x¹⁰⁰⁰ + 1 should only store 2 terms
+    let p = Poly::new(intern("x"), vec![(0, num(1)), (1000, num(1))]);
+    assert_eq!(p.terms.len(), 2);
+    assert_eq!(p.degree(), Some(1000));
 }
 ```
 
