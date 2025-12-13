@@ -3,6 +3,16 @@
 //! This module centralizes all mathematical function implementations,
 //! organized by category for maintainability.
 //!
+//! # Academic References
+//!
+//! Implementations follow standard numerical methods from:
+//!
+//! - **DLMF**: NIST Digital Library of Mathematical Functions <https://dlmf.nist.gov>
+//! - **A&S**: Abramowitz & Stegun, "Handbook of Mathematical Functions" (1964)
+//! - **NR**: Press et al., "Numerical Recipes" (3rd ed., 2007)
+//! - Lanczos, C. "A Precision Approximation of the Gamma Function" (1964)
+//! - Corless et al. "On the Lambert W Function" (1996)
+//!
 //! # Domain Validation
 //!
 //! Functions that can produce undefined results (poles, branch cuts, domain errors)
@@ -22,6 +32,11 @@ pub fn eval_exp_polar<T: MathScalar>(x: T) -> T {
     x.exp()
 }
 
+/// Error function erf(x) = (2/√π) ∫₀ˣ e^(-t²) dt
+///
+/// Uses Taylor series expansion: erf(x) = (2/√π) Σₙ (-1)ⁿ x^(2n+1) / (n!(2n+1))
+///
+/// Reference: DLMF §7.6.1 <https://dlmf.nist.gov/7.6#E1>
 pub fn eval_erf<T: MathScalar>(x: T) -> T {
     let sign = x.signum();
     let x = x.abs();
@@ -64,6 +79,14 @@ pub fn eval_erf<T: MathScalar>(x: T) -> T {
     sign * coeff * sum
 }
 
+/// Gamma function Γ(x) using Lanczos approximation with g=7
+///
+/// Γ(z+1) ≈ √(2π) (z + g + 1/2)^(z+1/2) e^(-(z+g+1/2)) Aₘ(z)
+/// Uses reflection formula for x < 0.5: Γ(z)Γ(1-z) = π/sin(πz)
+///
+/// Reference: Lanczos (1964) "A Precision Approximation of the Gamma Function"
+/// SIAM J. Numerical Analysis, Ser. B, Vol. 1, pp. 86-96
+/// See also: DLMF §5.10 <https://dlmf.nist.gov/5.10>
 pub fn eval_gamma<T: MathScalar>(x: T) -> Option<T> {
     if x <= T::zero() && x.fract() == T::zero() {
         return None;
@@ -98,6 +121,13 @@ pub fn eval_gamma<T: MathScalar>(x: T) -> Option<T> {
     }
 }
 
+/// Digamma function ψ(x) = Γ'(x)/Γ(x) = d/dx ln(Γ(x))
+///
+/// Uses asymptotic expansion for large x:
+/// ψ(x) ~ ln(x) - 1/(2x) - 1/(12x²) + 1/(120x⁴) - 1/(252x⁶) + ...
+/// Uses reflection formula for x < 0.5: ψ(1-x) - ψ(x) = π cot(πx)
+///
+/// Reference: DLMF §5.11 <https://dlmf.nist.gov/5.11>
 pub fn eval_digamma<T: MathScalar>(x: T) -> Option<T> {
     if x <= T::zero() && x.fract() == T::zero() {
         return None;
@@ -126,6 +156,12 @@ pub fn eval_digamma<T: MathScalar>(x: T) -> Option<T> {
     Some(result - t1 + t2 - t3)
 }
 
+/// Trigamma function ψ₁(x) = d²/dx² ln(Γ(x))
+///
+/// Uses asymptotic expansion: ψ₁(x) ~ 1/x + 1/(2x²) + 1/(6x³) - 1/(30x⁵) + ...
+/// with recurrence for small x: ψ₁(x) = ψ₁(x+1) + 1/x²
+///
+/// Reference: DLMF §5.15 <https://dlmf.nist.gov/5.15>
 pub fn eval_trigamma<T: MathScalar>(x: T) -> Option<T> {
     if x <= T::zero() && x.fract() == T::zero() {
         return None;
@@ -149,6 +185,11 @@ pub fn eval_trigamma<T: MathScalar>(x: T) -> Option<T> {
     )
 }
 
+/// Tetragamma function ψ₂(x) = d³/dx³ ln(Γ(x))
+///
+/// Uses asymptotic expansion with recurrence for small x.
+///
+/// Reference: DLMF §5.15 <https://dlmf.nist.gov/5.15>
 pub fn eval_tetragamma<T: MathScalar>(x: T) -> Option<T> {
     if x <= T::zero() && x.fract() == T::zero() {
         return None;
@@ -167,6 +208,12 @@ pub fn eval_tetragamma<T: MathScalar>(x: T) -> Option<T> {
     Some(r - one / x2 + one / (x2 * xv) + one / (two * x2 * x2) + one / (six * x2 * x2 * xv))
 }
 
+/// Riemann zeta function ζ(s) = Σ_{n=1}^∞ 1/n^s
+///
+/// For Re(s) > 1: Uses direct summation with Euler-Maclaurin correction
+/// For Re(s) < 1: Uses functional equation ζ(s) = 2^s π^(s-1) sin(πs/2) Γ(1-s) ζ(1-s)
+///
+/// Reference: DLMF §25.2 <https://dlmf.nist.gov/25.2>
 pub fn eval_zeta<T: MathScalar>(x: T) -> Option<T> {
     let one = T::one();
     if (x - one).abs() < T::from(1e-10).unwrap() {
@@ -342,6 +389,15 @@ pub fn eval_zeta_deriv<T: MathScalar>(n: i32, x: T) -> Option<T> {
     }
 }
 
+/// Lambert W function: W(x) is the solution to W·e^W = x
+///
+/// Uses Halley's iteration with carefully chosen initial approximations:
+/// - For x near -1/e: series expansion
+/// - For x > 0: asymptotic ln(x) - ln(ln(x)) approximation
+///
+/// Reference: Corless et al. (1996) "On the Lambert W Function"
+/// Advances in Computational Mathematics, Vol. 5, pp. 329-359
+/// See also: DLMF §4.13 <https://dlmf.nist.gov/4.13>
 pub fn eval_lambert_w<T: MathScalar>(x: T) -> Option<T> {
     let one = T::one();
     let e = T::E();
@@ -420,6 +476,12 @@ pub fn eval_lambert_w<T: MathScalar>(x: T) -> Option<T> {
     Some(w)
 }
 
+/// Polygamma function ψⁿ(x) = d^(n+1)/dx^(n+1) ln(Γ(x))
+///
+/// Uses recurrence to shift argument, then asymptotic expansion with Bernoulli numbers:
+/// ψⁿ(x) = (-1)^(n+1) n! Σ_{k=0}^∞ 1/(x+k)^(n+1)
+///
+/// Reference: DLMF §5.15 <https://dlmf.nist.gov/5.15>
 pub fn eval_polygamma<T: MathScalar>(n: i32, x: T) -> Option<T> {
     if n < 0 {
         return None;
@@ -508,6 +570,12 @@ pub fn eval_polygamma<T: MathScalar>(n: i32, x: T) -> Option<T> {
     }
 }
 
+/// Hermite polynomials H_n(x) (physicist's convention)
+///
+/// Uses three-term recurrence: H_{n+1}(x) = 2x H_n(x) - 2n H_{n-1}(x)
+/// with H_0(x) = 1, H_1(x) = 2x
+///
+/// Reference: DLMF §18.9 <https://dlmf.nist.gov/18.9>
 pub fn eval_hermite<T: MathScalar>(n: i32, x: T) -> Option<T> {
     if n < 0 {
         return None;
@@ -531,6 +599,12 @@ pub fn eval_hermite<T: MathScalar>(n: i32, x: T) -> Option<T> {
     Some(h1)
 }
 
+/// Associated Legendre function P_l^m(x) for -1 ≤ x ≤ 1
+///
+/// Uses recurrence relation starting from P_m^m, then P_{m+1}^m.
+/// Negative m handled via relation: P_l^{-m} = (-1)^m (l-m)!/(l+m)! P_l^m
+///
+/// Reference: DLMF §14.10 <https://dlmf.nist.gov/14.10>
 pub fn eval_assoc_legendre<T: MathScalar>(l: i32, m: i32, x: T) -> Option<T> {
     if l < 0 || m.abs() > l || x.abs() > T::one() {
         // Technically |x| > 1 is domain error, but some continuations exist.
@@ -579,6 +653,12 @@ pub fn eval_assoc_legendre<T: MathScalar>(l: i32, m: i32, x: T) -> Option<T> {
     Some(pll)
 }
 
+/// Spherical harmonics Y_l^m(θ, φ) (real form)
+///
+/// Y_l^m = N_l^m P_l^m(cos θ) cos(mφ)
+/// where N_l^m is the normalization factor.
+///
+/// Reference: DLMF §14.30 <https://dlmf.nist.gov/14.30>
 pub fn eval_spherical_harmonic<T: MathScalar>(l: i32, m: i32, theta: T, phi: T) -> Option<T> {
     if l < 0 || m.abs() > l {
         return None;
@@ -609,6 +689,12 @@ pub fn eval_spherical_harmonic<T: MathScalar>(l: i32, m: i32, theta: T, phi: T) 
     Some(norm * plm * m_phi.cos())
 }
 
+/// Complete elliptic integral of the first kind K(k)
+///
+/// K(k) = ∫₀^(π/2) dθ / √(1 - k² sin²θ)
+/// Uses the arithmetic-geometric mean (AGM) algorithm: K(k) = π/(2 · AGM(1, √(1-k²)))
+///
+/// Reference: DLMF §19.8 <https://dlmf.nist.gov/19.8>
 pub fn eval_elliptic_k<T: MathScalar>(k: T) -> Option<T> {
     let one = T::one();
     if k.abs() >= one {
@@ -633,6 +719,12 @@ pub fn eval_elliptic_k<T: MathScalar>(k: T) -> Option<T> {
     Some(pi / (two * a))
 }
 
+/// Complete elliptic integral of the second kind E(k)
+///
+/// E(k) = ∫₀^(π/2) √(1 - k² sin²θ) dθ
+/// Uses the AGM algorithm with correction terms.
+///
+/// Reference: DLMF §19.8 <https://dlmf.nist.gov/19.8>
 pub fn eval_elliptic_e<T: MathScalar>(k: T) -> Option<T> {
     let one = T::one();
     if k.abs() > one {
@@ -664,7 +756,18 @@ pub fn eval_elliptic_e<T: MathScalar>(k: T) -> Option<T> {
 }
 
 // ===== Bessel functions =====
+//
+// All Bessel approximations use rational function fits from:
+// - Abramowitz & Stegun (1964) "Handbook of Mathematical Functions" §9.4, §9.8
+// - Hart et al. (1968) "Computer Approximations"
+// See also: DLMF Chapter 10 <https://dlmf.nist.gov/10>
 
+/// Bessel function of the first kind J_n(x)
+///
+/// Uses forward recurrence: J_{n+1}(x) = (2n/x) J_n(x) - J_{n-1}(x)
+/// with J_0 and J_1 computed via rational approximations.
+///
+/// Reference: A&S §9.1.27, DLMF §10.6 <https://dlmf.nist.gov/10.6>
 pub fn bessel_j<T: MathScalar>(n: i32, x: T) -> Option<T> {
     let n_abs = n.abs();
     let j0 = bessel_j0(x);
@@ -693,6 +796,12 @@ pub fn bessel_j<T: MathScalar>(n: i32, x: T) -> Option<T> {
     Some(if n < 0 && n_abs % 2 == 1 { -jc } else { jc })
 }
 
+/// Bessel function J_0(x) via rational approximation
+///
+/// For |x| < 8: uses polynomial ratio
+/// For |x| ≥ 8: uses asymptotic form J_0(x) ≈ √(2/πx) cos(x - π/4) P(8/x)
+///
+/// Reference: A&S §9.4.1-9.4.6 <https://dlmf.nist.gov/10.17>
 pub fn bessel_j0<T: MathScalar>(x: T) -> T {
     let ax = x.abs();
     let eight = T::from(8.0).unwrap();
@@ -747,6 +856,11 @@ pub fn bessel_j0<T: MathScalar>(x: T) -> T {
     }
 }
 
+/// Bessel function J_1(x) via rational approximation
+///
+/// Same structure as J_0 with different coefficients.
+///
+/// Reference: A&S §9.4.4-9.4.6 <https://dlmf.nist.gov/10.17>
 pub fn bessel_j1<T: MathScalar>(x: T) -> T {
     let ax = x.abs();
     let eight = T::from(8.0).unwrap();
@@ -801,6 +915,12 @@ pub fn bessel_j1<T: MathScalar>(x: T) -> T {
     }
 }
 
+/// Bessel function of the second kind Y_n(x)
+///
+/// Uses forward recurrence: Y_{n+1}(x) = (2n/x) Y_n(x) - Y_{n-1}(x)
+/// Defined only for x > 0 (singular at origin).
+///
+/// Reference: A&S §9.1.27, DLMF §10.6 <https://dlmf.nist.gov/10.6>
 pub fn bessel_y<T: MathScalar>(n: i32, x: T) -> Option<T> {
     if x <= T::zero() {
         return None;
@@ -826,6 +946,9 @@ pub fn bessel_y<T: MathScalar>(n: i32, x: T) -> Option<T> {
     Some(if n < 0 && n_abs % 2 == 1 { -yc } else { yc })
 }
 
+/// Bessel function Y_0(x) via rational approximation
+///
+/// Reference: A&S §9.4.1-9.4.6 <https://dlmf.nist.gov/10.17>
 pub fn bessel_y0<T: MathScalar>(x: T) -> T {
     let eight = T::from(8.0).unwrap();
     if x < eight {
@@ -876,6 +999,9 @@ pub fn bessel_y0<T: MathScalar>(x: T) -> T {
     }
 }
 
+/// Bessel function Y_1(x) via rational approximation
+///
+/// Reference: A&S §9.4.4-9.4.6 <https://dlmf.nist.gov/10.17>
 pub fn bessel_y1<T: MathScalar>(x: T) -> T {
     let eight = T::from(8.0).unwrap();
     if x < eight {
@@ -933,8 +1059,9 @@ pub fn bessel_y1<T: MathScalar>(x: T) -> T {
 /// Modified Bessel function of the first kind I_n(x)
 ///
 /// Uses Miller's backward recurrence algorithm for numerical stability.
-/// This is the standard approach for computing Bessel I functions accurately
-/// for large orders and small arguments.
+/// I_{k-1} = (2k/x) I_k + I_{k+1}, normalized using I_0(x).
+///
+/// Reference: Numerical Recipes §6.6, A&S §9.6 <https://dlmf.nist.gov/10.25>
 pub fn bessel_i<T: MathScalar>(n: i32, x: T) -> Option<T> {
     let n_abs = n.abs();
     if n_abs == 0 {
@@ -997,6 +1124,9 @@ pub fn bessel_i<T: MathScalar>(n: i32, x: T) -> Option<T> {
     Some(result * scale)
 }
 
+/// Modified Bessel function I_0(x) via polynomial approximation
+///
+/// Reference: A&S §9.8.1-9.8.4 <https://dlmf.nist.gov/10.40>
 pub fn bessel_i0<T: MathScalar>(x: T) -> T {
     let ax = x.abs();
     let three_seven_five = T::from(3.75).unwrap();
@@ -1030,6 +1160,9 @@ pub fn bessel_i0<T: MathScalar>(x: T) -> T {
     }
 }
 
+/// Modified Bessel function I_1(x) via polynomial approximation
+///
+/// Reference: A&S §9.8.1-9.8.4 <https://dlmf.nist.gov/10.40>
 pub fn bessel_i1<T: MathScalar>(x: T) -> T {
     let ax = x.abs();
     let three_seven_five = T::from(3.75).unwrap();
@@ -1065,6 +1198,12 @@ pub fn bessel_i1<T: MathScalar>(x: T) -> T {
     if x < T::zero() { -ans } else { ans }
 }
 
+/// Modified Bessel function of the second kind K_n(x)
+///
+/// Uses forward recurrence: K_{n+1} = (2n/x) K_n + K_{n-1}
+/// Defined only for x > 0 (singular at origin).
+///
+/// Reference: A&S §9.6.26, DLMF §10.29 <https://dlmf.nist.gov/10.29>
 pub fn bessel_k<T: MathScalar>(n: i32, x: T) -> Option<T> {
     if x <= T::zero() {
         return None;
@@ -1090,6 +1229,9 @@ pub fn bessel_k<T: MathScalar>(n: i32, x: T) -> Option<T> {
     Some(kc)
 }
 
+/// Modified Bessel function K_0(x) via polynomial approximation
+///
+/// Reference: A&S §9.8.5-9.8.8 <https://dlmf.nist.gov/10.40>
 pub fn bessel_k0<T: MathScalar>(x: T) -> T {
     let two = T::from(2.0).unwrap();
     if x <= two {

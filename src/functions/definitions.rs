@@ -1,6 +1,18 @@
 //! Mathematical function definitions for the function registry
 //!
 //! Contains evaluation and symbolic differentiation rules for all supported functions.
+//!
+//! # Derivative References
+//!
+//! Derivative formulas follow standard calculus and DLMF:
+//! - Trigonometric: Any standard calculus text, DLMF §4.21-4.28
+//! - Hyperbolic: DLMF §4.35-4.37 <https://dlmf.nist.gov/4.35>
+//! - Error function: DLMF §7.5 (d/dx erf(x) = 2/√π e^(-x²))
+//! - Gamma: DLMF §5.2.1 (Γ'(x) = Γ(x)ψ(x))
+//! - Polygamma: DLMF §5.15 (ψ'(x) = ψ₁(x))
+//! - Bessel: DLMF §10.6, §10.29 (recurrence-based derivatives)
+//! - Elliptic: DLMF §19.4 <https://dlmf.nist.gov/19.4>
+//! - Lambert W: Corless et al. (1996) (W'(x) = W(x)/(x(1+W(x))))
 
 use super::registry::FunctionDefinition;
 use super::{func, mul_opt, neg};
