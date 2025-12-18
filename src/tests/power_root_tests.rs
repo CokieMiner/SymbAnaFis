@@ -3,21 +3,14 @@ mod tests {
     use crate::simplification::simplify_expr;
     use crate::{Expr, ExprKind};
     use std::collections::HashSet;
-    use std::sync::Arc;
 
     #[test]
     fn test_power_collection_mul() {
         // x^2 * y^2 -> (x*y)^2
-        let expr = Expr::new(ExprKind::Mul(
-            Arc::new(Expr::new(ExprKind::Pow(
-                Arc::new(Expr::symbol("x")),
-                Arc::new(Expr::number(2.0)),
-            ))),
-            Arc::new(Expr::new(ExprKind::Pow(
-                Arc::new(Expr::symbol("y")),
-                Arc::new(Expr::number(2.0)),
-            ))),
-        ));
+        let expr = Expr::product(vec![
+            Expr::pow(Expr::symbol("x"), Expr::number(2.0)),
+            Expr::pow(Expr::symbol("y"), Expr::number(2.0)),
+        ]);
         let simplified = simplify_expr(expr, HashSet::new());
 
         // Expected: (x*y)^2
@@ -28,12 +21,12 @@ mod tests {
                 panic!("Expected exponent 2.0");
             }
 
-            if let ExprKind::Mul(a, b) = &base.kind {
-                let s1 = format!("{}", a);
-                let s2 = format!("{}", b);
-                assert!((s1 == "x" && s2 == "y") || (s1 == "y" && s2 == "x"));
+            if let ExprKind::Product(factors) = &base.kind {
+                let has_x = factors.iter().any(|f| **f == Expr::symbol("x"));
+                let has_y = factors.iter().any(|f| **f == Expr::symbol("y"));
+                assert!(has_x && has_y);
             } else {
-                panic!("Expected base to be multiplication");
+                panic!("Expected base to be Product");
             }
         } else {
             panic!("Expected power expression");
@@ -43,16 +36,10 @@ mod tests {
     #[test]
     fn test_power_collection_div() {
         // x^2 / y^2 -> (x/y)^2
-        let expr = Expr::new(ExprKind::Div(
-            Arc::new(Expr::new(ExprKind::Pow(
-                Arc::new(Expr::symbol("x")),
-                Arc::new(Expr::number(2.0)),
-            ))),
-            Arc::new(Expr::new(ExprKind::Pow(
-                Arc::new(Expr::symbol("y")),
-                Arc::new(Expr::number(2.0)),
-            ))),
-        ));
+        let expr = Expr::div_expr(
+            Expr::pow(Expr::symbol("x"), Expr::number(2.0)),
+            Expr::pow(Expr::symbol("y"), Expr::number(2.0)),
+        );
         let simplified = simplify_expr(expr, HashSet::new());
 
         // Expected: (x/y)^2
@@ -85,13 +72,10 @@ mod tests {
     #[test]
     fn test_root_conversion_sqrt() {
         // x^(1/2) -> sqrt(x)
-        let expr = Expr::new(ExprKind::Pow(
-            Arc::new(Expr::symbol("x")),
-            Arc::new(Expr::new(ExprKind::Div(
-                Arc::new(Expr::number(1.0)),
-                Arc::new(Expr::number(2.0)),
-            ))),
-        ));
+        let expr = Expr::pow(
+            Expr::symbol("x"),
+            Expr::div_expr(Expr::number(1.0), Expr::number(2.0)),
+        );
         let simplified = simplify_expr(expr, HashSet::new());
 
         if let ExprKind::FunctionCall { name, args } = &simplified.kind {
@@ -110,10 +94,7 @@ mod tests {
     #[test]
     fn test_root_conversion_sqrt_decimal() {
         // x^0.5 -> sqrt(x)
-        let expr = Expr::new(ExprKind::Pow(
-            Arc::new(Expr::symbol("x")),
-            Arc::new(Expr::number(0.5)),
-        ));
+        let expr = Expr::pow(Expr::symbol("x"), Expr::number(0.5));
         let simplified = simplify_expr(expr, HashSet::new());
 
         if let ExprKind::FunctionCall { name, args } = &simplified.kind {
@@ -132,13 +113,10 @@ mod tests {
     #[test]
     fn test_root_conversion_cbrt() {
         // x^(1/3) -> cbrt(x)
-        let expr = Expr::new(ExprKind::Pow(
-            Arc::new(Expr::symbol("x")),
-            Arc::new(Expr::new(ExprKind::Div(
-                Arc::new(Expr::number(1.0)),
-                Arc::new(Expr::number(3.0)),
-            ))),
-        ));
+        let expr = Expr::pow(
+            Expr::symbol("x"),
+            Expr::div_expr(Expr::number(1.0), Expr::number(3.0)),
+        );
         let simplified = simplify_expr(expr, HashSet::new());
 
         if let ExprKind::FunctionCall { name, args } = &simplified.kind {

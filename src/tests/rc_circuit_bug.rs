@@ -1,29 +1,23 @@
 #[cfg(test)]
 mod rc_circuit_differentiation_bug {
-    use crate::{Expr, ExprKind, simplification::simplify_expr};
+    use crate::{Expr, simplification::simplify_expr};
     use std::collections::HashSet;
-    use std::sync::Arc;
+
     #[test]
     fn test_rc_circuit_derivative_simplification() {
         // RC Circuit: V(t) = V0 * exp(-t / (R * C))
         // Derivative should simplify cleanly
 
-        let rc_expr = Expr::new(ExprKind::Mul(
-            Arc::new(Expr::symbol("V0")),
-            Arc::new(Expr::new(ExprKind::FunctionCall {
-                name: "exp".to_string(),
-                args: vec![Expr::new(ExprKind::Div(
-                    Arc::new(Expr::new(ExprKind::Mul(
-                        Arc::new(Expr::number(-1.0)),
-                        Arc::new(Expr::symbol("t")),
-                    ))),
-                    Arc::new(Expr::new(ExprKind::Mul(
-                        Arc::new(Expr::symbol("R")),
-                        Arc::new(Expr::symbol("C")),
-                    ))),
-                ))],
-            })),
-        ));
+        let rc_expr = Expr::product(vec![
+            Expr::symbol("V0"),
+            Expr::func(
+                "exp",
+                Expr::div_expr(
+                    Expr::product(vec![Expr::number(-1.0), Expr::symbol("t")]),
+                    Expr::product(vec![Expr::symbol("R"), Expr::symbol("C")]),
+                ),
+            ),
+        ]);
 
         println!("\nOriginal: V(t) = {}", rc_expr);
 

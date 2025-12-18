@@ -1,25 +1,19 @@
 #[test]
 fn debug_rc_derivative() {
-    use crate::{Expr, ExprKind, simplification::simplify_expr};
+    use crate::{Expr, simplification::simplify_expr};
     use std::collections::HashSet;
-    use std::sync::Arc;
-    // Simplified RC test
-    let rc = Expr::new(ExprKind::Mul(
-        Arc::new(Expr::symbol("V0")),
-        Arc::new(Expr::new(ExprKind::FunctionCall {
-            name: "exp".to_string(),
-            args: vec![Expr::new(ExprKind::Div(
-                Arc::new(Expr::new(ExprKind::Mul(
-                    Arc::new(Expr::number(-1.0)),
-                    Arc::new(Expr::symbol("t")),
-                ))),
-                Arc::new(Expr::new(ExprKind::Mul(
-                    Arc::new(Expr::symbol("R")),
-                    Arc::new(Expr::symbol("C")),
-                ))),
-            ))],
-        })),
-    ));
+
+    // Simplified RC test using n-ary Product
+    let rc = Expr::product(vec![
+        Expr::symbol("V0"),
+        Expr::func(
+            "exp",
+            Expr::div_expr(
+                Expr::product(vec![Expr::number(-1.0), Expr::symbol("t")]),
+                Expr::product(vec![Expr::symbol("R"), Expr::symbol("C")]),
+            ),
+        ),
+    ]);
 
     eprintln!("===== RC CIRCUIT DERIVATIVE TEST =====");
     eprintln!("Original: {}", rc);

@@ -6,27 +6,21 @@ use crate::{Expr, ExprKind};
 mod tests {
     use super::*;
     use std::collections::HashSet;
-    use std::sync::Arc;
+
     #[test]
     fn test_cosh_reversed_order() {
         // (exp(-x) + exp(x)) / 2 -> cosh(x)
         // Testing REVERSED order: e^(-x) first, e^x second
-        let expr = Expr::new(ExprKind::Div(
-            Arc::new(Expr::new(ExprKind::Add(
-                Arc::new(Expr::new(ExprKind::FunctionCall {
-                    name: "exp".to_string(),
-                    args: vec![Expr::new(ExprKind::Mul(
-                        Arc::new(Expr::number(-1.0)),
-                        Arc::new(Expr::symbol("x")),
-                    ))],
-                })),
-                Arc::new(Expr::new(ExprKind::FunctionCall {
-                    name: "exp".to_string(),
-                    args: vec![Expr::symbol("x")],
-                })),
-            ))),
-            Arc::new(Expr::number(2.0)),
-        ));
+        let expr = Expr::div_expr(
+            Expr::sum(vec![
+                Expr::func(
+                    "exp",
+                    Expr::product(vec![Expr::number(-1.0), Expr::symbol("x")]),
+                ),
+                Expr::func("exp", Expr::symbol("x")),
+            ]),
+            Expr::number(2.0),
+        );
 
         let simplified = simplify_expr(expr, HashSet::new());
         if let ExprKind::FunctionCall { name, args } = &simplified.kind {
@@ -41,22 +35,16 @@ mod tests {
     fn test_cosh_normal_order() {
         // (exp(x) + exp(-x)) / 2 -> cosh(x)
         // Testing NORMAL order: e^x first, e^(-x) second
-        let expr = Expr::new(ExprKind::Div(
-            Arc::new(Expr::new(ExprKind::Add(
-                Arc::new(Expr::new(ExprKind::FunctionCall {
-                    name: "exp".to_string(),
-                    args: vec![Expr::symbol("x")],
-                })),
-                Arc::new(Expr::new(ExprKind::FunctionCall {
-                    name: "exp".to_string(),
-                    args: vec![Expr::new(ExprKind::Mul(
-                        Arc::new(Expr::number(-1.0)),
-                        Arc::new(Expr::symbol("x")),
-                    ))],
-                })),
-            ))),
-            Arc::new(Expr::number(2.0)),
-        ));
+        let expr = Expr::div_expr(
+            Expr::sum(vec![
+                Expr::func("exp", Expr::symbol("x")),
+                Expr::func(
+                    "exp",
+                    Expr::product(vec![Expr::number(-1.0), Expr::symbol("x")]),
+                ),
+            ]),
+            Expr::number(2.0),
+        );
 
         let simplified = simplify_expr(expr, HashSet::new());
         if let ExprKind::FunctionCall { name, args } = &simplified.kind {
@@ -71,34 +59,24 @@ mod tests {
     fn test_coth_reversed_numerator() {
         // (exp(-x) + exp(x)) / (exp(x) - exp(-x)) -> coth(x)
         // Testing REVERSED order in numerator
-        let expr = Expr::new(ExprKind::Div(
-            Arc::new(Expr::new(ExprKind::Add(
-                Arc::new(Expr::new(ExprKind::FunctionCall {
-                    name: "exp".to_string(),
-                    args: vec![Expr::new(ExprKind::Mul(
-                        Arc::new(Expr::number(-1.0)),
-                        Arc::new(Expr::symbol("x")),
-                    ))],
-                })),
-                Arc::new(Expr::new(ExprKind::FunctionCall {
-                    name: "exp".to_string(),
-                    args: vec![Expr::symbol("x")],
-                })),
-            ))),
-            Arc::new(Expr::new(ExprKind::Sub(
-                Arc::new(Expr::new(ExprKind::FunctionCall {
-                    name: "exp".to_string(),
-                    args: vec![Expr::symbol("x")],
-                })),
-                Arc::new(Expr::new(ExprKind::FunctionCall {
-                    name: "exp".to_string(),
-                    args: vec![Expr::new(ExprKind::Mul(
-                        Arc::new(Expr::number(-1.0)),
-                        Arc::new(Expr::symbol("x")),
-                    ))],
-                })),
-            ))),
-        ));
+        let numerator = Expr::sum(vec![
+            Expr::func(
+                "exp",
+                Expr::product(vec![Expr::number(-1.0), Expr::symbol("x")]),
+            ),
+            Expr::func("exp", Expr::symbol("x")),
+        ]);
+        let denominator = Expr::sum(vec![
+            Expr::func("exp", Expr::symbol("x")),
+            Expr::product(vec![
+                Expr::number(-1.0),
+                Expr::func(
+                    "exp",
+                    Expr::product(vec![Expr::number(-1.0), Expr::symbol("x")]),
+                ),
+            ]),
+        ]);
+        let expr = Expr::div_expr(numerator, denominator);
 
         let simplified = simplify_expr(expr, HashSet::new());
         if let ExprKind::FunctionCall { name, args } = &simplified.kind {
@@ -113,34 +91,24 @@ mod tests {
     fn test_tanh_reversed_denominator() {
         // (exp(x) - exp(-x)) / (exp(-x) + exp(x)) -> tanh(x)
         // Testing REVERSED order in denominator
-        let expr = Expr::new(ExprKind::Div(
-            Arc::new(Expr::new(ExprKind::Sub(
-                Arc::new(Expr::new(ExprKind::FunctionCall {
-                    name: "exp".to_string(),
-                    args: vec![Expr::symbol("x")],
-                })),
-                Arc::new(Expr::new(ExprKind::FunctionCall {
-                    name: "exp".to_string(),
-                    args: vec![Expr::new(ExprKind::Mul(
-                        Arc::new(Expr::number(-1.0)),
-                        Arc::new(Expr::symbol("x")),
-                    ))],
-                })),
-            ))),
-            Arc::new(Expr::new(ExprKind::Add(
-                Arc::new(Expr::new(ExprKind::FunctionCall {
-                    name: "exp".to_string(),
-                    args: vec![Expr::new(ExprKind::Mul(
-                        Arc::new(Expr::number(-1.0)),
-                        Arc::new(Expr::symbol("x")),
-                    ))],
-                })),
-                Arc::new(Expr::new(ExprKind::FunctionCall {
-                    name: "exp".to_string(),
-                    args: vec![Expr::symbol("x")],
-                })),
-            ))),
-        ));
+        let numerator = Expr::sum(vec![
+            Expr::func("exp", Expr::symbol("x")),
+            Expr::product(vec![
+                Expr::number(-1.0),
+                Expr::func(
+                    "exp",
+                    Expr::product(vec![Expr::number(-1.0), Expr::symbol("x")]),
+                ),
+            ]),
+        ]);
+        let denominator = Expr::sum(vec![
+            Expr::func(
+                "exp",
+                Expr::product(vec![Expr::number(-1.0), Expr::symbol("x")]),
+            ),
+            Expr::func("exp", Expr::symbol("x")),
+        ]);
+        let expr = Expr::div_expr(numerator, denominator);
 
         let simplified = simplify_expr(expr, HashSet::new());
         if let ExprKind::FunctionCall { name, args } = &simplified.kind {
@@ -155,22 +123,16 @@ mod tests {
     fn test_sech_reversed_denominator() {
         // 2 / (exp(-x) + exp(x)) -> sech(x)
         // Testing REVERSED order in denominator
-        let expr = Expr::new(ExprKind::Div(
-            Arc::new(Expr::number(2.0)),
-            Arc::new(Expr::new(ExprKind::Add(
-                Arc::new(Expr::new(ExprKind::FunctionCall {
-                    name: "exp".to_string(),
-                    args: vec![Expr::new(ExprKind::Mul(
-                        Arc::new(Expr::number(-1.0)),
-                        Arc::new(Expr::symbol("x")),
-                    ))],
-                })),
-                Arc::new(Expr::new(ExprKind::FunctionCall {
-                    name: "exp".to_string(),
-                    args: vec![Expr::symbol("x")],
-                })),
-            ))),
-        ));
+        let expr = Expr::div_expr(
+            Expr::number(2.0),
+            Expr::sum(vec![
+                Expr::func(
+                    "exp",
+                    Expr::product(vec![Expr::number(-1.0), Expr::symbol("x")]),
+                ),
+                Expr::func("exp", Expr::symbol("x")),
+            ]),
+        );
 
         let simplified = simplify_expr(expr, HashSet::new());
         if let ExprKind::FunctionCall { name, args } = &simplified.kind {
@@ -183,35 +145,20 @@ mod tests {
 
     #[test]
     fn test_sinh_reversed_numerator() {
-        // (exp(-x) - exp(x)) / 2 should give us -(exp(x) - exp(-x))/2 = -sinh(x)
-        // But let's test the canonical form: (exp(x) - exp(-x)) / 2 reversed in subtraction
-        // Actually for sinh we need to test: (exp(x) - exp(-x))/2 in different forms
-
-        // The pattern matcher in SinhFromExpRule handles both Add and Sub
-        // Let's verify it handles reversed subtraction: since Sub is not commutative,
-        // we test that the match_sinh_pattern handles both u and v positions
-
-        // This is already tested in the original tests, but let's add a variant
-        // where the terms appear in a different order due to Add with negation
-        let expr = Expr::new(ExprKind::Div(
-            Arc::new(Expr::new(ExprKind::Add(
-                Arc::new(Expr::new(ExprKind::FunctionCall {
-                    name: "exp".to_string(),
-                    args: vec![Expr::symbol("x")],
-                })),
-                Arc::new(Expr::new(ExprKind::Mul(
-                    Arc::new(Expr::number(-1.0)),
-                    Arc::new(Expr::new(ExprKind::FunctionCall {
-                        name: "exp".to_string(),
-                        args: vec![Expr::new(ExprKind::Mul(
-                            Arc::new(Expr::number(-1.0)),
-                            Arc::new(Expr::symbol("x")),
-                        ))],
-                    })),
-                ))),
-            ))),
-            Arc::new(Expr::number(2.0)),
-        ));
+        // (exp(x) + (-1)*exp(-x)) / 2 -> sinh(x)
+        let expr = Expr::div_expr(
+            Expr::sum(vec![
+                Expr::func("exp", Expr::symbol("x")),
+                Expr::product(vec![
+                    Expr::number(-1.0),
+                    Expr::func(
+                        "exp",
+                        Expr::product(vec![Expr::number(-1.0), Expr::symbol("x")]),
+                    ),
+                ]),
+            ]),
+            Expr::number(2.0),
+        );
 
         let simplified = simplify_expr(expr, HashSet::new());
         if let ExprKind::FunctionCall { name, args } = &simplified.kind {
@@ -224,27 +171,21 @@ mod tests {
 
     #[test]
     fn test_sinh_reversed_add_pattern() {
-        // (-1*exp(-x)) + exp(x) -> sinh(x)
+        // (-1*exp(-x)) + exp(x) -> sinh pattern
         // Testing REVERSED order in Add pattern with negation first
-        let expr = Expr::new(ExprKind::Div(
-            Arc::new(Expr::new(ExprKind::Add(
-                Arc::new(Expr::new(ExprKind::Mul(
-                    Arc::new(Expr::number(-1.0)),
-                    Arc::new(Expr::new(ExprKind::FunctionCall {
-                        name: "exp".to_string(),
-                        args: vec![Expr::new(ExprKind::Mul(
-                            Arc::new(Expr::number(-1.0)),
-                            Arc::new(Expr::symbol("x")),
-                        ))],
-                    })),
-                ))),
-                Arc::new(Expr::new(ExprKind::FunctionCall {
-                    name: "exp".to_string(),
-                    args: vec![Expr::symbol("x")],
-                })),
-            ))),
-            Arc::new(Expr::number(2.0)),
-        ));
+        let expr = Expr::div_expr(
+            Expr::sum(vec![
+                Expr::product(vec![
+                    Expr::number(-1.0),
+                    Expr::func(
+                        "exp",
+                        Expr::product(vec![Expr::number(-1.0), Expr::symbol("x")]),
+                    ),
+                ]),
+                Expr::func("exp", Expr::symbol("x")),
+            ]),
+            Expr::number(2.0),
+        );
 
         let simplified = simplify_expr(expr, HashSet::new());
         if let ExprKind::FunctionCall { name, args } = &simplified.kind {

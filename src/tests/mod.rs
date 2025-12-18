@@ -32,6 +32,7 @@ mod simplification_tests;
 mod stress_tests;
 mod test_abs_function;
 mod test_algebraic_extensions;
+mod test_canonical_ordering;
 mod test_exponential_canonical;
 mod test_factoring;
 mod test_improved_factoring;

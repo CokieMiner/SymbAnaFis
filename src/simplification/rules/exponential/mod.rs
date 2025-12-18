@@ -130,18 +130,13 @@ rule!(
 
                     if is_even_int && *n != 0.0 {
                         // ln(x^2) = 2*ln(|x|) - always correct for x ≠ 0
-                        return Some(Expr::new(AstKind::Mul(
-                            exp.clone(),
-                            Arc::new(Expr::func(
-                                name.clone(),
-                                Expr::func("abs", (**base).clone()),
-                            )),
-                        )));
+                        return Some(Expr::product(vec![
+                            (**exp).clone(),
+                            Expr::func(name.clone(), Expr::func("abs", (**base).clone())),
+                        ]));
                     } else if is_odd_int {
                         // ln(x^3) = 3*ln(x) - only valid for x > 0
-                        // In domain-safe mode, skip unless base is known positive
                         if context.domain_safe {
-                            // Check if base is known to be positive (exp, cosh, etc.)
                             let is_positive = matches!(&base.kind,
                                 AstKind::FunctionCall { name: fn_name, .. }
                                 if fn_name == "exp" || fn_name == "cosh"
@@ -150,24 +145,22 @@ rule!(
                                 return None;
                             }
                         }
-                        return Some(Expr::new(AstKind::Mul(
-                            exp.clone(),
-                            Arc::new(Expr::func(name.clone(), (**base).clone())),
-                        )));
+                        return Some(Expr::product(vec![
+                            (**exp).clone(),
+                            Expr::func(name.clone(), (**base).clone()),
+                        ]));
                     }
                 }
 
                 // For non-integer or symbolic exponents, only apply in aggressive mode
-                // Don't use abs(x) - for odd exponents it would expand the domain
-                // For symbolic n, we can't know if it's even/odd, so we assume x > 0
                 if context.domain_safe {
                     return None;
                 }
 
-                return Some(Expr::new(AstKind::Mul(
-                    exp.clone(),
-                    Arc::new(Expr::func(name.clone(), (**base).clone())),
-                )));
+                return Some(Expr::product(vec![
+                    (**exp).clone(),
+                    Expr::func(name.clone(), (**base).clone()),
+                ]));
             }
             // log(sqrt(x)) = 0.5 * log(x) - only for x > 0
             if let AstKind::FunctionCall {
@@ -176,25 +169,23 @@ rule!(
             } = &content.kind
             {
                 if inner_name == "sqrt" && inner_args.len() == 1 {
-                    // In domain-safe mode, skip unless we know x > 0
                     if context.domain_safe {
                         return None;
                     }
-                    return Some(Expr::mul_expr(
+                    return Some(Expr::product(vec![
                         Expr::number(0.5),
                         Expr::func(name.clone(), inner_args[0].clone()),
-                    ));
+                    ]));
                 }
                 // log(cbrt(x)) = (1/3) * log(x)
                 if inner_name == "cbrt" && inner_args.len() == 1 {
-                    // cbrt is defined for all reals, but log needs positive argument
                     if context.domain_safe {
                         return None;
                     }
-                    return Some(Expr::mul_expr(
+                    return Some(Expr::product(vec![
                         Expr::div_expr(Expr::number(1.0), Expr::number(3.0)),
                         Expr::func(name.clone(), inner_args[0].clone()),
-                    ));
+                    ]));
                 }
             }
         }
@@ -260,31 +251,41 @@ fn get_ln_arg(expr: &Expr) -> Option<Expr> {
     None
 }
 
-rule_with_helpers!(LogCombinationRule, "log_combination", 85, Exponential, &[ExprKind::Add, ExprKind::Sub],
+rule_with_helpers!(LogCombinationRule, "log_combination", 85, Exponential, &[ExprKind::Sum],
     helpers: {
         // Helper defined above
     },
     |expr: &Expr, _context: &RuleContext| {
-        match &expr.kind {
-            AstKind::Add(u, v) => {
+        if let AstKind::Sum(terms) = &expr.kind {
+            if terms.len() == 2 {
+                let u = &terms[0];
+                let v = &terms[1];
+
                 // ln(a) + ln(b) = ln(a * b)
                 if let (Some(arg1), Some(arg2)) = (get_ln_arg(u), get_ln_arg(v)) {
                     return Some(Expr::func(
                         "ln",
-                        Expr::mul_expr(arg1, arg2),
+                        Expr::product(vec![arg1, arg2]),
                     ));
                 }
-            }
-            AstKind::Sub(u, v) => {
-                // ln(a) - ln(b) = ln(a / b)
-                if let (Some(arg1), Some(arg2)) = (get_ln_arg(u), get_ln_arg(v)) {
-                    return Some(Expr::func(
-                        "ln",
-                        Expr::div_expr(arg1, arg2),
-                    ));
+
+                // ln(a) + (-ln(b)) = ln(a/b)
+                // Check if v is Product([-1, ln(b)])
+                if let AstKind::Product(factors) = &v.kind {
+                    if factors.len() == 2 {
+                        if let AstKind::Number(n) = &factors[0].kind {
+                            if (*n + 1.0).abs() < 1e-10 {
+                                if let (Some(arg1), Some(arg2)) = (get_ln_arg(u), get_ln_arg(&factors[1])) {
+                                    return Some(Expr::func(
+                                        "ln",
+                                        Expr::div_expr(arg1, arg2),
+                                    ));
+                                }
+                            }
+                        }
+                    }
                 }
             }
-            _ => {}
         }
         None
     }

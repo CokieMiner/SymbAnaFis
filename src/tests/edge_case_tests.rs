@@ -117,13 +117,19 @@ mod parentheses_edge_cases {
             if let ExprKind::FunctionCall { name, args } = &inner.kind {
                 assert_eq!(name, "f");
                 assert_eq!(args.len(), 1);
-                // Verify arg is x+y
+                // Verify arg is x+y (now Sum)
                 match &args[0].kind {
-                    ExprKind::Add(lhs, rhs) => {
-                        assert!(matches!(lhs.kind, ExprKind::Symbol(ref s) if s == "x"));
-                        assert!(matches!(rhs.kind, ExprKind::Symbol(ref s) if s == "y"));
+                    ExprKind::Sum(terms) => {
+                        assert!(terms.len() == 2);
+                        let has_x = terms
+                            .iter()
+                            .any(|t| matches!(&t.kind, ExprKind::Symbol(s) if s == "x"));
+                        let has_y = terms
+                            .iter()
+                            .any(|t| matches!(&t.kind, ExprKind::Symbol(s) if s == "y"));
+                        assert!(has_x && has_y, "Expected x and y in sum");
                     }
-                    _ => panic!("Expected Add expression for argument"),
+                    _ => panic!("Expected Sum expression for argument"),
                 }
             } else {
                 panic!("Expected FunctionCall inside Derivative");

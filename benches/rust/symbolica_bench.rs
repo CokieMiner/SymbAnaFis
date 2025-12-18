@@ -236,6 +236,112 @@ fn bench_diff_full_comparison(c: &mut Criterion) {
 }
 
 // =============================================================================
+// Large Expression Comparison (Testing Rayon parallelism vs Symbolica)
+// =============================================================================
+
+const NORMAL_PDF: &str = "exp(-(x - mu)^2 / (2 * sigma^2)) / sqrt(2 * pi * sigma^2)";
+const WAVE_EQUATION: &str = "A * sin(k*x - omega*t) * exp(-gamma*t)";
+const GAUSSIAN_2D: &str = "exp(-((x - x0)^2 + (y - y0)^2) / (2 * sigma^2)) / (2 * pi * sigma^2)";
+const MAXWELL_BOLTZMANN: &str =
+    "4 * pi * (m / (2 * pi * k * T))^(3/2) * v^2 * exp(-m * v^2 / (2 * k * T))";
+const ORBITAL_ENERGY: &str = "-G * M * m / (2 * a) + L^2 / (2 * m * r^2) - G * M * m / r";
+
+fn bench_large_comparison(c: &mut Criterion) {
+    let mut group = c.benchmark_group("large_expr_comparison");
+
+    let x_sym = symbol!("x");
+    let v_sym = symbol!("v");
+    let r_sym = symbol!("r");
+
+    // SymbAnaFis large expressions
+    group.bench_function("symb_anafis/normal_pdf", |b| {
+        b.iter(|| diff(black_box(NORMAL_PDF), "x", Some(&["mu", "sigma"]), None))
+    });
+
+    group.bench_function("symb_anafis/wave_equation", |b| {
+        b.iter(|| {
+            diff(
+                black_box(WAVE_EQUATION),
+                "x",
+                Some(&["A", "k", "omega", "gamma"]),
+                None,
+            )
+        })
+    });
+
+    group.bench_function("symb_anafis/gaussian_2d", |b| {
+        b.iter(|| {
+            diff(
+                black_box(GAUSSIAN_2D),
+                "x",
+                Some(&["x0", "y0", "sigma"]),
+                None,
+            )
+        })
+    });
+
+    group.bench_function("symb_anafis/maxwell_boltzmann", |b| {
+        b.iter(|| {
+            diff(
+                black_box(MAXWELL_BOLTZMANN),
+                "v",
+                Some(&["m", "k", "T"]),
+                None,
+            )
+        })
+    });
+
+    group.bench_function("symb_anafis/orbital_energy", |b| {
+        b.iter(|| {
+            diff(
+                black_box(ORBITAL_ENERGY),
+                "r",
+                Some(&["G", "M", "m", "a", "L"]),
+                None,
+            )
+        })
+    });
+
+    // Symbolica large expressions
+    group.bench_function("symbolica/normal_pdf", |b| {
+        b.iter(|| {
+            let atom = parse!(black_box(NORMAL_PDF));
+            atom.derivative(x_sym)
+        })
+    });
+
+    group.bench_function("symbolica/wave_equation", |b| {
+        b.iter(|| {
+            let atom = parse!(black_box(WAVE_EQUATION));
+            atom.derivative(x_sym)
+        })
+    });
+
+    group.bench_function("symbolica/gaussian_2d", |b| {
+        b.iter(|| {
+            let atom = parse!(black_box(GAUSSIAN_2D));
+            atom.derivative(x_sym)
+        })
+    });
+
+    group.bench_function("symbolica/maxwell_boltzmann", |b| {
+        b.iter(|| {
+            let atom = parse!(black_box(MAXWELL_BOLTZMANN));
+            atom.derivative(v_sym)
+        })
+    });
+
+    group.bench_function("symbolica/orbital_energy", |b| {
+        b.iter(|| {
+            let atom = parse!(black_box(ORBITAL_ENERGY));
+            atom.derivative(r_sym)
+        })
+    });
+
+    group.finish();
+}
+
+// =============================================================================
 // Criterion Setup
 // =============================================================================
 
@@ -244,6 +350,7 @@ criterion_group!(
     bench_parsing_comparison,
     bench_diff_ast_comparison,
     bench_diff_full_comparison,
+    bench_large_comparison,
 );
 
 criterion_main!(benches);

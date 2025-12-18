@@ -43,7 +43,8 @@ flowchart TB
         Mul | Div | Pow | FunctionCall
         Derivative"]
         C3["InternedSymbol
-        (Copy, O(1) compare)"]
+        (Copy, O(1) compare)
+        Used for symbols AND function names"]
     end
 
     subgraph "Differentiation Engine"
@@ -57,7 +58,8 @@ flowchart TB
     subgraph "Simplification Engine"
         S1["Bottom-up traversal"]
         S2["Multi-pass until stable"]
-        S3["Priority ordering"]
+        S3["Priority ordering (Epochs)"]
+        S4["ExprFlags optimization"]
         subgraph "Rules (120+)"
             R1["Numeric: 0+x→x, constant fold"]
             R2["Algebraic: factor, distribute"]
@@ -105,8 +107,8 @@ flowchart LR
     subgraph Parse
         I[x^2 + sin x] --> L[Lexer]
         L --> T[Tokens]
-        T --> P[Pratt Parser]
-        P --> AST[Add - Pow - sin]
+        P[Pratt Parser]
+        P --> AST[Sum - Pow - sin]
     end
 
     subgraph Differentiate
@@ -207,17 +209,22 @@ The fundamental data structure is `Expr`, a tree-based AST using `Arc` for share
 ```rust
 pub struct Expr {
     pub kind: ExprKind,
+    pub flags: ExprFlags, // Phase-specific simplification tracking
 }
 
 pub enum ExprKind {
     Number(f64),
     Symbol(InternedSymbol),
-    Add(Arc<Expr>, Arc<Expr>),
-    Sub(Arc<Expr>, Arc<Expr>),
-    Mul(Arc<Expr>, Arc<Expr>),
+    
+    // N-ary operations (flat, sorted, canonical)
+    Sum(Vec<Arc<Expr>>),      // a + b + c + ...
+    Product(Vec<Arc<Expr>>),  // a * b * c * ...
+    
+    // Binary operations (non-associative)
     Div(Arc<Expr>, Arc<Expr>),
     Pow(Arc<Expr>, Arc<Expr>),
-    FunctionCall { name: String, args: Vec<Expr> },
+    
+    FunctionCall { name: InternedSymbol, args: Vec<Expr> },  // Interned for O(1) comparison
     Derivative { inner: Arc<Expr>, var: String, order: u32 },
 }
 ```
@@ -243,6 +250,7 @@ pub struct Symbol {
 - `symb_new("x")` - Create only (errors if exists)
 - `symb_get("x")` - Get only (errors if not found)
 - Registry is thread-local for safety
+- **Function names** also use `InternedSymbol` for O(1) pattern matching
 
 **Why Copy?** Enables natural operator usage: `x + x` works without `.clone()`.
 
@@ -417,10 +425,10 @@ PyO3 bindings exposing:
 
 | Operation | Time | Notes |
 |-----------|------|-------|
-| Parsing | 0.5-1 µs | Pratt parser, interned symbols |
-| Differentiation + Simplify | 20-200 µs | Rule-based, multi-pass |
-| Pure evaluation | 400-600 ns | Direct computation |
-| Simplification only | 10-70 µs | Depends on expression complexity |
+| Parsing | 0.6-1.5 µs | Pratt parser, interned symbols + function names |
+| Differentiation + Simplify | 15-80 µs | Rule-based, multi-pass (up to 67% faster with interned names) |
+| Pure evaluation | 400-700 ns | Direct computation |
+| Simplification only | 10-50 µs | Depends on expression complexity |
 
 **Current limitation:** Polynomial operations use pattern-matching rules (slower than native polynomial arithmetic). See `ROADMAP_v0.3.1_POLY.md` for planned improvements.
 

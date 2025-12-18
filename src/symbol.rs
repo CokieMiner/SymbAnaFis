@@ -27,7 +27,198 @@ use crate::Expr;
 use std::collections::HashMap;
 use std::ops::{Add, Div, Mul, Neg, Sub};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, OnceLock, RwLock};
+
+// ============================================================================
+// Symbol Context - Isolated Symbol Registries
+// ============================================================================
+
+/// Global counter for context IDs
+static NEXT_CONTEXT_ID: AtomicU64 = AtomicU64::new(1);
+
+/// An isolated symbol context with its own registry
+///
+/// Each context maintains its own set of symbols, independent of other contexts.
+/// This is useful for:
+/// - Isolating symbol namespaces between different computations
+/// - Avoiding name collisions in long-running applications
+/// - Testing with fresh symbol tables
+///
+/// # Example
+/// ```ignore
+/// use symb_anafis::SymbolContext;
+///
+/// let ctx = SymbolContext::new();
+/// let x = ctx.symb("x");
+/// let y = ctx.symb("y");
+/// let expr = x + y;  // Uses symbols from this context
+/// ```
+#[derive(Debug)]
+pub struct SymbolContext {
+    id: u64,
+    inner: Arc<RwLock<ContextInner>>,
+}
+
+#[derive(Debug, Default)]
+struct ContextInner {
+    symbols: HashMap<String, InternedSymbol>,
+    id_lookup: HashMap<u64, InternedSymbol>,
+}
+
+impl SymbolContext {
+    /// Create a new empty symbol context
+    pub fn new() -> Self {
+        SymbolContext {
+            id: NEXT_CONTEXT_ID.fetch_add(1, Ordering::Relaxed),
+            inner: Arc::new(RwLock::new(ContextInner::default())),
+        }
+    }
+
+    /// Get the context's unique ID
+    pub fn id(&self) -> u64 {
+        self.id
+    }
+
+    /// Create or get a symbol in this context
+    ///
+    /// If a symbol with this name already exists in the context, returns it.
+    /// Otherwise, creates a new symbol and registers it.
+    pub fn symb(&self, name: &str) -> Symbol {
+        let mut inner = self.inner.write().unwrap();
+
+        if let Some(existing) = inner.symbols.get(name) {
+            return Symbol(existing.id());
+        }
+
+        let interned = InternedSymbol::new_named(name);
+        let id = interned.id();
+        inner.symbols.insert(name.to_string(), interned.clone());
+        inner.id_lookup.insert(id, interned);
+
+        // Also register in global ID registry for Symbol -> Expr conversion
+        let mut id_guard = get_id_registry_mut();
+        let id_registry = id_guard.get_or_insert_with(HashMap::new);
+        id_registry.insert(id, InternedSymbol::new_named(name));
+
+        Symbol(id)
+    }
+
+    /// Check if a symbol exists in this context
+    pub fn contains(&self, name: &str) -> bool {
+        self.inner.read().unwrap().symbols.contains_key(name)
+    }
+
+    /// Get an existing symbol by name (returns None if not found)
+    pub fn get(&self, name: &str) -> Option<Symbol> {
+        self.inner
+            .read()
+            .unwrap()
+            .symbols
+            .get(name)
+            .map(|s| Symbol(s.id()))
+    }
+
+    /// Get the number of symbols in this context
+    pub fn len(&self) -> usize {
+        self.inner.read().unwrap().symbols.len()
+    }
+
+    /// Check if context is empty
+    pub fn is_empty(&self) -> bool {
+        self.inner.read().unwrap().symbols.is_empty()
+    }
+
+    /// Clear all symbols from this context
+    pub fn clear(&self) {
+        let mut inner = self.inner.write().unwrap();
+        inner.symbols.clear();
+        inner.id_lookup.clear();
+    }
+
+    /// List all symbol names in this context
+    pub fn symbol_names(&self) -> Vec<String> {
+        self.inner.read().unwrap().symbols.keys().cloned().collect()
+    }
+
+    /// Create a new symbol in this context (errors if name already exists)
+    ///
+    /// Unlike `symb()`, this will return an error if the symbol already exists.
+    /// Use this for strict control over symbol creation.
+    pub fn symb_new(&self, name: &str) -> Result<Symbol, SymbolError> {
+        let mut inner = self.inner.write().unwrap();
+
+        if inner.symbols.contains_key(name) {
+            return Err(SymbolError::DuplicateName(name.to_string()));
+        }
+
+        let interned = InternedSymbol::new_named(name);
+        let id = interned.id();
+        inner.symbols.insert(name.to_string(), interned.clone());
+        inner.id_lookup.insert(id, interned);
+
+        // Also register in global ID registry for Symbol -> Expr conversion
+        let mut id_guard = get_id_registry_mut();
+        let id_registry = id_guard.get_or_insert_with(HashMap::new);
+        id_registry.insert(id, InternedSymbol::new_named(name));
+
+        Ok(Symbol(id))
+    }
+
+    /// Remove a symbol from this context
+    ///
+    /// Returns true if the symbol was removed, false if it didn't exist.
+    pub fn remove(&self, name: &str) -> bool {
+        let mut inner = self.inner.write().unwrap();
+        inner.symbols.remove(name).is_some()
+    }
+
+    /// Create an anonymous symbol in this context
+    ///
+    /// Anonymous symbols have unique IDs but no name. They cannot be retrieved
+    /// by name and are useful for temporary computations.
+    pub fn anon(&self) -> Symbol {
+        let interned = InternedSymbol::new_anon();
+        let id = interned.id();
+
+        let mut inner = self.inner.write().unwrap();
+        inner.id_lookup.insert(id, interned.clone());
+
+        // Also register in global ID registry for Symbol -> Expr conversion
+        let mut id_guard = get_id_registry_mut();
+        let id_registry = id_guard.get_or_insert_with(HashMap::new);
+        id_registry.insert(id, interned);
+
+        Symbol(id)
+    }
+}
+
+impl Default for SymbolContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Clone for SymbolContext {
+    fn clone(&self) -> Self {
+        // Cloning shares the underlying registry (like Arc behavior)
+        SymbolContext {
+            id: self.id,
+            inner: Arc::clone(&self.inner),
+        }
+    }
+}
+
+// ============================================================================
+// Global Context (lazy singleton)
+// ============================================================================
+
+/// The global symbol context, created lazily on first use
+static GLOBAL_CONTEXT: OnceLock<SymbolContext> = OnceLock::new();
+
+/// Get a reference to the global symbol context
+pub fn global_context() -> &'static SymbolContext {
+    GLOBAL_CONTEXT.get_or_init(SymbolContext::new)
+}
 
 // ============================================================================
 // Global Symbol Registry
@@ -161,6 +352,12 @@ impl InternedSymbol {
             Some(n) => n.to_string(),
             None => format!("${}", self.id),
         }
+    }
+
+    /// Get the name as &str (empty for anonymous symbols)
+    #[inline]
+    pub fn as_str(&self) -> &str {
+        self.name.as_deref().unwrap_or("")
     }
 }
 
@@ -420,6 +617,36 @@ pub fn symb_get(name: &str) -> Result<Symbol, SymbolError> {
 pub fn symbol_exists(name: &str) -> bool {
     let guard = get_registry_read();
     guard.as_ref().is_some_and(|r| r.contains_key(name))
+}
+
+/// Get the number of registered symbols in the global registry
+///
+/// # Example
+/// ```ignore
+/// symb("x");
+/// symb("y");
+/// assert_eq!(symbol_count(), 2);
+/// ```
+pub fn symbol_count() -> usize {
+    let guard = get_registry_read();
+    guard.as_ref().map(|r| r.len()).unwrap_or(0)
+}
+
+/// List all symbol names in the global registry
+///
+/// # Example
+/// ```ignore
+/// symb("x");
+/// symb("y");
+/// let names = symbol_names();
+/// assert!(names.contains(&"x".to_string()));
+/// ```
+pub fn symbol_names() -> Vec<String> {
+    let guard = get_registry_read();
+    guard
+        .as_ref()
+        .map(|r| r.keys().cloned().collect())
+        .unwrap_or_default()
 }
 
 /// Clear all registered symbols from the global registry
@@ -946,8 +1173,9 @@ mod tests {
         assert_eq!(format!("{}", x.ln()), "ln(test_fn_x2)");
 
         // Can now use x multiple times without clone!
-        let combined = x.sin() + x.cos();
-        assert_eq!(format!("{}", combined), "sin(test_fn_x2) + cos(test_fn_x2)");
+        let res = x.cos() + x.sin();
+        // Sorts alphabetically: cos before sin
+        assert_eq!(format!("{}", res), "cos(test_fn_x2) + sin(test_fn_x2)");
     }
 
     #[test]
@@ -966,5 +1194,129 @@ mod tests {
         // Mixed with functions (which take &self)
         let expr3 = a.sin() + a.cos() + a;
         assert!(format!("{}", expr3).contains("test_copy_a"));
+    }
+
+    // =========================================================================
+    // SymbolContext Tests
+    // =========================================================================
+
+    #[test]
+    fn test_context_creation() {
+        let ctx1 = SymbolContext::new();
+        let ctx2 = SymbolContext::new();
+
+        // Each context has unique ID
+        assert_ne!(ctx1.id(), ctx2.id());
+
+        // New contexts are empty
+        assert!(ctx1.is_empty());
+        assert_eq!(ctx1.len(), 0);
+    }
+
+    #[test]
+    fn test_context_symb() {
+        let ctx = SymbolContext::new();
+
+        let x = ctx.symb("ctx_x");
+        let y = ctx.symb("ctx_y");
+
+        // Symbols have different IDs
+        assert_ne!(x.id(), y.id());
+
+        // Same name returns same symbol
+        let x2 = ctx.symb("ctx_x");
+        assert_eq!(x.id(), x2.id());
+
+        // Context tracks symbols
+        assert_eq!(ctx.len(), 2);
+        assert!(!ctx.is_empty());
+    }
+
+    #[test]
+    fn test_context_isolation() {
+        let ctx1 = SymbolContext::new();
+        let ctx2 = SymbolContext::new();
+
+        let x1 = ctx1.symb("isolated_x");
+        let x2 = ctx2.symb("isolated_x");
+
+        // Same name in different contexts = different symbols!
+        assert_ne!(x1.id(), x2.id());
+
+        // Each context independently tracks its symbols
+        assert!(ctx1.contains("isolated_x"));
+        assert!(ctx2.contains("isolated_x"));
+        assert!(!ctx1.contains("nonexistent"));
+    }
+
+    #[test]
+    fn test_context_get() {
+        let ctx = SymbolContext::new();
+
+        // Before creation, get returns None
+        assert!(ctx.get("get_x").is_none());
+
+        // After creation, get returns the symbol
+        let x = ctx.symb("get_x");
+        let x2 = ctx.get("get_x").unwrap();
+        assert_eq!(x.id(), x2.id());
+    }
+
+    #[test]
+    fn test_context_clear() {
+        let ctx = SymbolContext::new();
+        ctx.symb("clear_x");
+        ctx.symb("clear_y");
+
+        assert_eq!(ctx.len(), 2);
+
+        ctx.clear();
+
+        assert!(ctx.is_empty());
+        assert_eq!(ctx.len(), 0);
+        assert!(!ctx.contains("clear_x"));
+    }
+
+    #[test]
+    fn test_context_symbol_names() {
+        let ctx = SymbolContext::new();
+        ctx.symb("names_a");
+        ctx.symb("names_b");
+        ctx.symb("names_c");
+
+        let names = ctx.symbol_names();
+        assert_eq!(names.len(), 3);
+        assert!(names.contains(&"names_a".to_string()));
+        assert!(names.contains(&"names_b".to_string()));
+        assert!(names.contains(&"names_c".to_string()));
+    }
+
+    #[test]
+    fn test_context_expressions() {
+        let ctx = SymbolContext::new();
+        let x = ctx.symb("expr_x");
+        let y = ctx.symb("expr_y");
+
+        // Build expression using context symbols
+        let expr = x + y;
+        assert!(format!("{}", expr).contains("expr_x"));
+        assert!(format!("{}", expr).contains("expr_y"));
+
+        // Functions work too
+        let expr2 = x.sin() + y.cos();
+        assert!(format!("{}", expr2).contains("sin"));
+        assert!(format!("{}", expr2).contains("cos"));
+    }
+
+    #[test]
+    fn test_global_context() {
+        use crate::global_context;
+
+        // Global context is a singleton
+        let ctx1 = global_context();
+        let ctx2 = global_context();
+
+        // Same context
+        assert_eq!(ctx1.id(), ctx2.id());
     }
 }

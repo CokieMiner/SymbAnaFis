@@ -1,10 +1,9 @@
 #[cfg(test)]
 mod tests {
+    use crate::ExprKind;
     use crate::parser::parse;
     use crate::simplify;
-    use crate::{Expr, ExprKind};
     use std::collections::HashSet;
-    use std::sync::Arc;
 
     #[test]
     fn test_difference_of_squares_debug() {
@@ -14,34 +13,11 @@ mod tests {
         let expr = parse("(1 + x) * (1 - x)", &vars, &funcs).unwrap();
         println!("Parsed: {:?}", expr);
 
-        // Check structure
-        if let ExprKind::Mul(u, v) = &expr.kind {
-            println!("u = {:?}", u);
-            println!("v = {:?}", v);
-
-            // Extract terms
-            if let ExprKind::Add(a1, b1) = &u.kind {
-                println!("From Add: a1={:?}, b1={:?}", a1, b1);
-            }
-            if let ExprKind::Sub(a2, b2) = &v.kind {
-                println!("From Sub: a2={:?}, b2={:?}", a2, b2);
-
-                // This is what the rule creates:
-                let neg_b2 = Expr::new(ExprKind::Mul(Arc::new(Expr::number(-1.0)), b2.clone()));
-                println!("neg_b2 = {:?}", neg_b2);
-
-                // Now check is_neg logic
-                if let ExprKind::Mul(c, inner) = &neg_b2.kind {
-                    println!("c = {:?}, inner = {:?}", c, inner);
-                    let is_minus_one = matches!(&c.kind, ExprKind::Number(n) if *n == -1.0);
-                    println!("is_minus_one: {}", is_minus_one);
-
-                    // b1 from the Add
-                    if let ExprKind::Add(_, b1) = &u.kind {
-                        println!("Comparing inner={:?} with b1={:?}", inner, b1);
-                        println!("**inner == **b1: {}", **inner == **b1);
-                    }
-                }
+        // Check structure - now uses Product and Sum with negated terms
+        if let ExprKind::Product(factors) = &expr.kind {
+            println!("factors: {:?}", factors);
+            for (i, factor) in factors.iter().enumerate() {
+                println!("factor[{}] = {:?}", i, factor);
             }
         }
     }

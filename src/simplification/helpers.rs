@@ -4,6 +4,7 @@
 //! coefficient extraction, root prettification, and like-term grouping.
 
 use crate::{Expr, ExprKind};
+use std::sync::Arc;
 
 // Extracts (name, arg) for pow of function: name(arg)^power
 pub(crate) fn get_fn_pow_named(expr: &Expr, power: f64) -> Option<(&str, Expr)> {
@@ -13,26 +14,6 @@ pub(crate) fn get_fn_pow_named(expr: &Expr, power: f64) -> Option<(&str, Expr)> 
         && args.len() == 1
     {
         return Some((name.as_str(), args[0].clone()));
-    }
-    None
-}
-
-// Generic helper to extract arguments from product of two function calls, order-insensitive
-pub(crate) fn get_product_fn_args(expr: &Expr, fname1: &str, fname2: &str) -> Option<(Expr, Expr)> {
-    if let ExprKind::Mul(lhs, rhs) = &expr.kind
-        && let (
-            ExprKind::FunctionCall { name: n1, args: a1 },
-            ExprKind::FunctionCall { name: n2, args: a2 },
-        ) = (&lhs.kind, &rhs.kind)
-        && a1.len() == 1
-        && a2.len() == 1
-    {
-        if n1 == fname1 && n2 == fname2 {
-            return Some((a1[0].clone(), a2[0].clone()));
-        }
-        if n1 == fname2 && n2 == fname1 {
-            return Some((a2[0].clone(), a1[0].clone()));
-        }
     }
     None
 }
@@ -59,19 +40,23 @@ pub(crate) fn is_multiple_of_two_pi(expr: &Expr) -> bool {
         let k = n / two_pi;
         return approx_eq(k, k.round());
     }
-    // Handle n * pi
-    if let ExprKind::Mul(lhs, rhs) = &expr.kind {
-        if let (ExprKind::Number(n), ExprKind::Symbol(s)) = (&lhs.kind, &rhs.kind)
-            && s == "pi"
-            && n % 2.0 == 0.0
-        {
-            return true;
+    // Handle n * pi (Product with number and pi symbol)
+    if let ExprKind::Product(factors) = &expr.kind {
+        let mut num_coeff: Option<f64> = None;
+        let mut has_pi = false;
+
+        for f in factors {
+            match &f.kind {
+                ExprKind::Number(n) => num_coeff = Some(num_coeff.unwrap_or(1.0) * n),
+                ExprKind::Symbol(s) if s == "pi" => has_pi = true,
+                _ => return false,
+            }
         }
-        if let (ExprKind::Symbol(s), ExprKind::Number(n)) = (&lhs.kind, &rhs.kind)
-            && s == "pi"
-            && n % 2.0 == 0.0
-        {
-            return true;
+
+        if has_pi {
+            if let Some(n) = num_coeff {
+                return n % 2.0 == 0.0;
+            }
         }
     }
     false
@@ -94,19 +79,12 @@ pub(crate) fn is_three_pi_over_two(expr: &Expr) -> bool {
 /// Flatten nested multiplication into a list of factors
 /// Uses references during traversal, only clones leaf nodes
 pub(crate) fn flatten_mul(expr: &Expr) -> Vec<Expr> {
-    let mut factors = Vec::with_capacity(4); // Most expressions have few factors
-    let mut stack: Vec<&Expr> = vec![expr];
-
-    while let Some(current) = stack.pop() {
-        if let ExprKind::Mul(a, b) = &current.kind {
-            stack.push(b.as_ref());
-            stack.push(a.as_ref());
-        } else {
-            // Only clone at the leaf level
-            factors.push(current.clone());
-        }
+    // For n-ary Product, simply return the factors
+    if let ExprKind::Product(factors) = &expr.kind {
+        return factors.iter().map(|f| (**f).clone()).collect();
     }
-    factors
+    // For non-products, return the expression itself as a single factor
+    vec![expr.clone()]
 }
 
 /// Compare expressions for canonical polynomial ordering
@@ -142,28 +120,22 @@ pub(crate) fn compare_expr(a: &Expr, b: &Expr) -> std::cmp::Ordering {
                     (30, 0.0, String::new()) // Non-symbol base
                 }
             }
-            Mul(l, r) => {
+            Product(factors) => {
                 // For c*x^n or c*x, extract the variable part's degree
-                let (type_l, exp_l, var_l) = get_poly_degree(l);
-                let (type_r, exp_r, var_r) = get_poly_degree(r);
-                // Use the term with the variable (non-constant) part
-                if type_l < type_r {
-                    (15, exp_l, var_l)
-                } else if type_r < type_l {
-                    (15, exp_r, var_r)
-                } else {
-                    // Both same type, use higher degree
-                    if exp_l <= exp_r {
-                        // <= because negative, so smaller is higher degree
-                        (15, exp_l, var_l)
-                    } else {
-                        (15, exp_r, var_r)
+                let mut best: Option<(i32, f64, String)> = None;
+                for f in factors {
+                    let info = get_poly_degree(f);
+                    if best.is_none() || info.0 < best.as_ref().unwrap().0 {
+                        best = Some(info);
                     }
                 }
+                match best {
+                    Some((t, e, v)) => (15.min(t), e, v),
+                    None => (15, 0.0, String::new()),
+                }
             }
-            FunctionCall { name, .. } => (60, 0.0, name.clone()),
-            Add(..) => (70, 0.0, String::new()),
-            Sub(..) => (70, 0.0, String::new()),
+            FunctionCall { name, .. } => (60, 0.0, name.to_string()),
+            Sum(..) => (70, 0.0, String::new()),
             Div(..) => (40, 0.0, String::new()),
             Derivative { var, .. } => (65, 0.0, var.clone()),
         }
@@ -221,8 +193,8 @@ pub(crate) fn compare_mul_factors(a: &Expr, b: &Expr) -> std::cmp::Ordering {
                 }
             }
             FunctionCall { .. } => 40,
-            Mul(..) | Div(..) => 50,
-            Add(..) | Sub(..) => 60,
+            Product(..) | Div(..) => 50,
+            Sum(..) => 60,
             Derivative { .. } => 45, // After functions, before mul/div
         }
     }
@@ -239,75 +211,6 @@ pub(crate) fn compare_mul_factors(a: &Expr, b: &Expr) -> std::cmp::Ordering {
     }
 }
 
-/// Helper: Flatten nested additions (iterative to avoid stack overflow on deep trees)
-/// Works with references to avoid deep cloning during traversal
-pub(crate) fn flatten_add(expr: &Expr) -> Vec<Expr> {
-    let mut terms = Vec::with_capacity(4);
-    // Stack holds (&Expr, negate_flag) - no cloning during traversal
-    let mut stack: Vec<(&Expr, bool)> = vec![(expr, false)];
-
-    while let Some((current, negate)) = stack.pop() {
-        match &current.kind {
-            ExprKind::Add(l, r) => {
-                stack.push((r.as_ref(), negate));
-                stack.push((l.as_ref(), negate));
-            }
-            ExprKind::Sub(l, r) => {
-                // a - b: left keeps sign, right gets flipped
-                stack.push((r.as_ref(), !negate));
-                stack.push((l.as_ref(), negate));
-            }
-            _leaf => {
-                // Only clone when we actually need the result
-                if negate {
-                    terms.push(negate_term_ref(current));
-                } else {
-                    terms.push(current.clone());
-                }
-            }
-        }
-    }
-    terms
-}
-
-/// Helper: Negate a term (multiply by -1, or simplify if already negative)
-/// Takes reference to avoid unnecessary cloning
-fn negate_term_ref(expr: &Expr) -> Expr {
-    match &expr.kind {
-        ExprKind::Number(n) => Expr::number(-n),
-        ExprKind::Mul(l, r) => {
-            // Check if already has -1 coefficient
-            if let ExprKind::Number(n) = &l.kind {
-                if *n == -1.0 {
-                    return r.as_ref().clone(); // -1 * x becomes x when negated
-                }
-                return Expr::mul_expr(Expr::number(-n), r.as_ref().clone());
-            }
-            if let ExprKind::Number(n) = &r.kind {
-                if *n == -1.0 {
-                    return l.as_ref().clone();
-                }
-                return Expr::mul_expr(l.as_ref().clone(), Expr::number(-n));
-            }
-            Expr::mul_expr(Expr::number(-1.0), expr.clone())
-        }
-        _ => Expr::mul_expr(Expr::number(-1.0), expr.clone()),
-    }
-}
-
-/// Helper: Rebuild addition tree (left-associative)
-pub(crate) fn rebuild_add(terms: Vec<Expr>) -> Expr {
-    if terms.is_empty() {
-        return Expr::number(0.0);
-    }
-    let mut iter = terms.into_iter();
-    let mut result = iter.next().unwrap();
-    for term in iter {
-        result = Expr::add_expr(result, term);
-    }
-    result
-}
-
 /// Helper: Rebuild multiplication tree
 pub(crate) fn rebuild_mul(terms: Vec<Expr>) -> Expr {
     if terms.is_empty() {
@@ -321,44 +224,42 @@ pub(crate) fn rebuild_mul(terms: Vec<Expr>) -> Expr {
     result
 }
 
-/// Helper: Normalize expression by sorting factors in multiplication
-pub(crate) fn normalize_expr(expr: Expr) -> Expr {
-    match expr {
-        Expr {
-            kind: ExprKind::Mul(u, v),
-            ..
-        } => {
-            let mut factors = flatten_mul(&Expr::new(ExprKind::Mul(u, v)));
-            factors.sort_by(compare_expr);
-            rebuild_mul(factors)
-        }
-        other => other,
-    }
-}
-
 /// Helper to extract coefficient and base
 /// Returns (coefficient, base_expr)
 /// e.g. 2*x -> (2.0, x)
 ///      x   -> (1.0, x)
 pub(crate) fn extract_coeff(expr: &Expr) -> (f64, Expr) {
-    let flattened = flatten_mul(expr);
-    let mut coeff = 1.0;
-    let mut non_num = Vec::new();
-    for term in flattened {
-        if let ExprKind::Number(n) = &term.kind {
-            coeff *= n;
-        } else {
-            non_num.push(term);
+    match &expr.kind {
+        ExprKind::Number(n) => (*n, Expr::number(1.0)),
+        ExprKind::Product(factors) => {
+            let mut coeff = 1.0;
+            let mut non_num_arcs = Vec::with_capacity(factors.len());
+
+            for f in factors {
+                if let ExprKind::Number(n) = &f.kind {
+                    coeff *= n;
+                } else {
+                    non_num_arcs.push(f.clone());
+                }
+            }
+
+            let base = if non_num_arcs.is_empty() {
+                Expr::number(1.0)
+            } else if non_num_arcs.len() == 1 {
+                // Unwrap Arc if possible or clone contents
+                let arc = non_num_arcs.into_iter().next().unwrap();
+                match Arc::try_unwrap(arc) {
+                    Ok(e) => e,
+                    Err(a) => (*a).clone(),
+                }
+            } else {
+                Expr::product_from_arcs(non_num_arcs)
+            };
+
+            (coeff, base)
         }
+        _ => (1.0, expr.clone()),
     }
-    let base = if non_num.is_empty() {
-        Expr::number(1.0)
-    } else if non_num.len() == 1 {
-        non_num[0].clone()
-    } else {
-        rebuild_mul(non_num)
-    };
-    (coeff, normalize_expr(base))
 }
 
 /// Convert fractional powers back to roots for display
@@ -375,19 +276,13 @@ pub(crate) fn prettify_roots(expr: Expr) -> Expr {
                 && matches!(num.kind, ExprKind::Number(n) if n == 1.0)
                 && matches!(den.kind, ExprKind::Number(n) if n == 2.0)
             {
-                return Expr::new(ExprKind::FunctionCall {
-                    name: "sqrt".to_string(),
-                    args: vec![base],
-                });
+                return Expr::func("sqrt", base);
             }
             // x^0.5 -> sqrt(x)
             if let ExprKind::Number(n) = &exp.kind
                 && (n - 0.5).abs() < 1e-10
             {
-                return Expr::new(ExprKind::FunctionCall {
-                    name: "sqrt".to_string(),
-                    args: vec![base],
-                });
+                return Expr::func("sqrt", base);
             }
 
             // Note: x^-0.5 is NOT converted to 1/sqrt(x) because that would
@@ -399,26 +294,23 @@ pub(crate) fn prettify_roots(expr: Expr) -> Expr {
                 && matches!(num.kind, ExprKind::Number(n) if n == 1.0)
                 && matches!(den.kind, ExprKind::Number(n) if n == 3.0)
             {
-                return Expr::new(ExprKind::FunctionCall {
-                    name: "cbrt".to_string(),
-                    args: vec![base],
-                });
+                return Expr::func("cbrt", base);
             }
 
             Expr::pow(base, exp)
         }
         // Recursively prettify subexpressions
-        ExprKind::Add(u, v) => Expr::add_expr(
-            prettify_roots(u.as_ref().clone()),
-            prettify_roots(v.as_ref().clone()),
+        ExprKind::Sum(terms) => Expr::sum(
+            terms
+                .iter()
+                .map(|t| prettify_roots((**t).clone()))
+                .collect(),
         ),
-        ExprKind::Sub(u, v) => Expr::sub_expr(
-            prettify_roots(u.as_ref().clone()),
-            prettify_roots(v.as_ref().clone()),
-        ),
-        ExprKind::Mul(u, v) => Expr::mul_expr(
-            prettify_roots(u.as_ref().clone()),
-            prettify_roots(v.as_ref().clone()),
+        ExprKind::Product(factors) => Expr::product(
+            factors
+                .iter()
+                .map(|f| prettify_roots((**f).clone()))
+                .collect(),
         ),
         ExprKind::Div(u, v) => Expr::div_expr(
             prettify_roots(u.as_ref().clone()),
@@ -463,11 +355,11 @@ pub(crate) fn is_known_non_negative(expr: &Expr) -> bool {
             }
         }
 
-        // Product of two non-negatives is non-negative
-        ExprKind::Mul(a, b) => is_known_non_negative(a) && is_known_non_negative(b),
+        // Product of non-negatives is non-negative
+        ExprKind::Product(factors) => factors.iter().all(|f| is_known_non_negative(f)),
 
-        // Sum of two non-negatives is non-negative
-        ExprKind::Add(a, b) => is_known_non_negative(a) && is_known_non_negative(b),
+        // Sum of non-negatives is non-negative
+        ExprKind::Sum(terms) => terms.iter().all(|t| is_known_non_negative(t)),
 
         // Division of non-negative by positive is non-negative (but we can't easily check "positive")
         // Be conservative here
@@ -521,10 +413,7 @@ pub(crate) fn gcd(a: i64, b: i64) -> i64 {
 /// Check if an expression contains a specific factor
 pub(crate) fn contains_factor(expr: &Expr, factor: &Expr) -> bool {
     match &expr.kind {
-        ExprKind::Mul(_, _) => {
-            let factors = flatten_mul(expr);
-            factors.iter().any(|f| f == factor)
-        }
+        ExprKind::Product(factors) => factors.iter().any(|f| &**f == factor),
         _ => expr == factor,
     }
 }
@@ -532,7 +421,7 @@ pub(crate) fn contains_factor(expr: &Expr, factor: &Expr) -> bool {
 /// Remove factors from an expression
 pub(crate) fn remove_factors(expr: &Expr, factors_to_remove: &Expr) -> Expr {
     match &expr.kind {
-        ExprKind::Mul(_, _) => {
+        ExprKind::Product(_) => {
             let expr_factors = flatten_mul(expr);
             let remove_factors = flatten_mul(factors_to_remove);
 
@@ -569,45 +458,127 @@ pub(crate) fn remove_factors(expr: &Expr, factors_to_remove: &Expr) -> Expr {
     }
 }
 
-/// Get a signature for a term to group like terms
-pub(crate) fn get_term_signature(expr: &Expr) -> String {
-    match &expr.kind {
-        // Numbers are "like terms" only with other numbers (can be combined)
-        ExprKind::Number(_) => "number".to_string(),
-        ExprKind::Symbol(s) => format!("symbol:{}", s),
-        ExprKind::Mul(_, _) => {
-            let factors = flatten_mul(expr);
-            let mut sorted_factors: Vec<String> = factors
-                .iter()
-                .filter(|f| !matches!(f.kind, ExprKind::Number(_))) // Skip coefficients
-                .map(get_term_signature)
-                .collect();
-            sorted_factors.sort();
-            format!("mul:{}", sorted_factors.join(","))
+/// Get a structural hash for a term to group like terms (allocation-free)
+///
+/// Optimized for Speed:
+/// 1. Uses FNV-1a constants for mixing.
+/// 2. Uses `wrapping_add` for commutative operations (Sum, Product), ensuring
+///    order-independence (a+b = b+a) without sorting or allocations.
+/// 3. Uses `InternedSymbol::id()` (u64) directly, avoiding string hashing.
+pub(crate) fn get_term_hash(expr: &Expr) -> u64 {
+    // FNV-1a constants
+    const FNV_OFFSET: u64 = 14695981039346656037;
+    const FNV_PRIME: u64 = 1099511628211;
+
+    #[inline(always)]
+    fn hash_u64(mut hash: u64, n: u64) -> u64 {
+        for byte in n.to_le_bytes() {
+            hash ^= byte as u64;
+            hash = hash.wrapping_mul(FNV_PRIME);
         }
-        ExprKind::Pow(base, exp) => {
-            // For powers, we need to include the exponent in the signature
-            // x^2 and x^3 are NOT like terms
-            // But 2*x^3 and 3*x^3 ARE like terms (same base, same exponent)
-            let exp_sig = match &exp.kind {
-                ExprKind::Number(n) => format!("{}", n),
-                _ => get_term_signature(exp),
-            };
-            format!("pow:{}^{}", get_term_signature(base), exp_sig)
-        }
-        ExprKind::FunctionCall { name, args } => {
-            let arg_sigs: Vec<String> = args.iter().map(get_term_signature).collect();
-            format!("func:{}({})", name, arg_sigs.join(","))
-        }
-        _ => format!("other:{:?}", expr),
+        hash
     }
+
+    #[inline(always)]
+    fn hash_f64(hash: u64, n: f64) -> u64 {
+        hash_u64(hash, n.to_bits())
+    }
+
+    #[inline(always)]
+    fn hash_one_byte(mut hash: u64, b: u8) -> u64 {
+        hash ^= b as u64;
+        hash.wrapping_mul(FNV_PRIME)
+    }
+
+    fn hash_term_inner(hash: u64, expr: &Expr) -> u64 {
+        match &expr.kind {
+            // Numbers are "like terms" with other numbers
+            ExprKind::Number(_) => hash_one_byte(hash, b'N'),
+
+            // Symbols: Hash their unique InternedSymbol ID (O(1))
+            ExprKind::Symbol(s) => {
+                let h = hash_one_byte(hash, b'S');
+                hash_u64(h, s.id())
+            }
+
+            // Products: Commutative mix of factors (ignore numeric coeffs)
+            ExprKind::Product(factors) => {
+                let h = hash_one_byte(hash, b'P');
+
+                // Commutative accumulation: sum(hash(factor))
+                // This makes order irrelevant: hash(a*b) == hash(b*a)
+                let mut product_accumulator: u64 = 0;
+
+                for f in factors {
+                    if !matches!(f.kind, ExprKind::Number(_)) {
+                        // Hash each factor independently starting from a seed,
+                        // then add to accumulator
+                        product_accumulator =
+                            product_accumulator.wrapping_add(hash_term_inner(FNV_OFFSET, f));
+                    }
+                }
+
+                // Mix the accumulator into the main hash
+                hash_u64(h, product_accumulator)
+            }
+
+            // Powers: Non-commutative base^exp
+            ExprKind::Pow(base, exp) => {
+                let h = hash_one_byte(hash, b'^');
+                let h = hash_term_inner(h, base);
+                match &exp.kind {
+                    ExprKind::Number(n) => hash_f64(h, *n),
+                    _ => hash_term_inner(h, exp),
+                }
+            }
+
+            // Functions: Name ID + ordered args
+            ExprKind::FunctionCall { name, args } => {
+                let h = hash_one_byte(hash, b'F');
+                let h = hash_u64(h, name.id());
+                args.iter().fold(h, |acc, arg| hash_term_inner(acc, arg))
+            }
+
+            // Sums: Commutative mix of terms
+            ExprKind::Sum(terms) => {
+                let h = hash_one_byte(hash, b'+');
+
+                // Commutative accumulation
+                let mut sum_accumulator: u64 = 0;
+                for t in terms {
+                    sum_accumulator = sum_accumulator.wrapping_add(hash_term_inner(FNV_OFFSET, t));
+                }
+
+                hash_u64(h, sum_accumulator)
+            }
+
+            // Division: Non-commutative num/den
+            ExprKind::Div(num, den) => {
+                let h = hash_one_byte(hash, b'/');
+                let h = hash_term_inner(h, num);
+                hash_term_inner(h, den)
+            }
+
+            // Derivative: Non-commutative var, order, inner
+            ExprKind::Derivative { inner, var, order } => {
+                let h = hash_one_byte(hash, b'D');
+
+                // Var is a String here (not InternedSymbol yet), so hash bytes
+                let mut h = h;
+                for byte in var.as_bytes() {
+                    h = hash_one_byte(h, *byte);
+                }
+
+                let h = hash_u64(h, *order as u64);
+                hash_term_inner(h, inner)
+            }
+        }
+    }
+
+    hash_term_inner(FNV_OFFSET, expr)
 }
 
 /// Normalize an expression to canonical form for comparison purposes.
-/// This converts between equivalent representations:
-/// - Sub(a, b) <-> Add(a, Mul(-1, b))
-/// - Mul(-1, Mul(-1, x)) -> x
-///
 /// This ensures that semantically equivalent expressions compare as equal.
 pub(crate) fn normalize_for_comparison(expr: &Expr) -> Expr {
     // Early exit for leaf nodes - just clone, no transformation needed
@@ -617,41 +588,48 @@ pub(crate) fn normalize_for_comparison(expr: &Expr) -> Expr {
     }
 
     match &expr.kind {
-        // Normalize Sub(a, b) to Add(a, -b) for consistent comparison
-        ExprKind::Sub(a, b) => {
-            let norm_a = normalize_for_comparison(a);
-            let norm_b = normalize_for_comparison(b);
-            // Create the negated form and normalize it too
-            let neg_b = if let ExprKind::Number(n) = &norm_b.kind {
-                Expr::number(-n)
-            } else {
-                Expr::mul_expr(Expr::number(-1.0), norm_b)
-            };
-            Expr::add_expr(norm_a, neg_b)
-        }
-        // Normalize Add - recurse into children
-        ExprKind::Add(a, b) => {
-            let norm_a = normalize_for_comparison(a);
-            let norm_b = normalize_for_comparison(b);
-            // Only create new expression if children changed
-            if norm_a.id == a.id && norm_b.id == b.id {
+        // Normalize Sum - recurse into terms
+        ExprKind::Sum(terms) => {
+            let norm_terms: Vec<Expr> = terms.iter().map(|t| normalize_for_comparison(t)).collect();
+            // Check if any term changed
+            let changed = norm_terms
+                .iter()
+                .zip(terms.iter())
+                .any(|(new, old)| new.id != old.id);
+            if !changed {
                 return expr.clone();
             }
-            Expr::add_expr(norm_a, norm_b)
+            Expr::sum(norm_terms)
         }
-        // Normalize Mul - simplify numeric products
-        ExprKind::Mul(a, b) => {
-            let norm_a = normalize_for_comparison(a);
-            let norm_b = normalize_for_comparison(b);
-            // Simplify products of numbers: Mul(n1, n2) -> n1*n2
-            if let (ExprKind::Number(n1), ExprKind::Number(n2)) = (&norm_a.kind, &norm_b.kind) {
-                return Expr::number(n1 * n2);
+        // Normalize Product - simplify numeric products
+        ExprKind::Product(factors) => {
+            let norm_factors: Vec<Expr> = factors
+                .iter()
+                .map(|f| normalize_for_comparison(f))
+                .collect();
+            // Combine numeric factors
+            let mut coeff = 1.0;
+            let mut non_numeric: Vec<Expr> = Vec::new();
+            for f in &norm_factors {
+                if let ExprKind::Number(n) = &f.kind {
+                    coeff *= n;
+                } else {
+                    non_numeric.push(f.clone());
+                }
             }
-            // Only create new expression if children changed
-            if norm_a.id == a.id && norm_b.id == b.id {
+            // If all numeric, return the product
+            if non_numeric.is_empty() {
+                return Expr::number(coeff);
+            }
+            // Check if nothing changed
+            let changed = norm_factors
+                .iter()
+                .zip(factors.iter())
+                .any(|(new, old)| new.id != old.id);
+            if !changed {
                 return expr.clone();
             }
-            Expr::mul_expr(norm_a, norm_b)
+            Expr::product(norm_factors)
         }
         ExprKind::Div(a, b) => {
             let norm_a = normalize_for_comparison(a);

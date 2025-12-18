@@ -144,6 +144,34 @@ fn part2_type_safe_api() {
     let df = Diff::new().differentiate(f, &x).unwrap();
     println!("      f'(x) = {}\n", df);
 
+    // 2.5 SymbolContext: Isolated Symbol Namespaces
+    println!("  2.5 SymbolContext: Isolated Symbol Namespaces");
+    println!("      Create isolated contexts to avoid name collisions:\n");
+
+    use symb_anafis::SymbolContext;
+
+    let ctx1 = SymbolContext::new();
+    let ctx2 = SymbolContext::new();
+
+    // Same name, different contexts = different symbols!
+    let x1 = ctx1.symb("x");
+    let x2 = ctx2.symb("x");
+
+    println!("      ctx1.symb(\"x\").id() = {}", x1.id());
+    println!("      ctx2.symb(\"x\").id() = {} (different!)", x2.id());
+
+    // Context methods
+    println!("\n      Context utilities:");
+    println!("        ctx1.contains(\"x\"): {}", ctx1.contains("x"));
+    println!("        ctx1.len(): {}", ctx1.len());
+    println!("        ctx1.symbol_names(): {:?}", ctx1.symbol_names());
+
+    // Build expressions in context
+    let y1 = ctx1.symb("y");
+    let expr = x1 + y1;
+    println!("\n      Expression from ctx1: {}", expr);
+    println!();
+
     // 2.6 Expr utility methods
     println!("  2.6 Expression Utility Methods");
     let complex: Expr = x.pow(2.0) + y.sin();

@@ -14,7 +14,9 @@ mod tests {
         assert!(
             result_str.contains("(x^2 - 1)")
                 || result_str.contains("(x^2 + -1)")
-                || (result_str.contains("(x - 1)") && result_str.contains("(x + 1)")),
+                || result_str.contains("(-1 + x^2)")
+                || (result_str.contains("(x - 1)") && result_str.contains("(x + 1)"))
+                || (result_str.contains("(-1 + x)") && result_str.contains("(1 + x)")),
             "Expected factorization, got: {}",
             result_str
         );
@@ -60,7 +62,9 @@ mod tests {
         println!("x^2 - 1 = {}", result_str);
 
         assert!(
-            result_str.contains("(x - 1)") || result_str.contains("(x + -1)"),
+            result_str.contains("(x - 1)")
+                || result_str.contains("(x + -1)")
+                || result_str.contains("(-1 + x)"),
             "Expected factorization, got: {}",
             result_str
         );

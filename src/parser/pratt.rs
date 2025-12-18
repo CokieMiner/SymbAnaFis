@@ -4,7 +4,7 @@
 //! infix operators, prefix operators (unary minus), and function calls.
 
 use crate::parser::tokens::{Operator, Token};
-use crate::{DiffError, Expr, ExprKind};
+use crate::{DiffError, Expr};
 
 /// Parse tokens into an AST using Pratt parsing algorithm
 pub(crate) fn parse_expression(tokens: &[Token]) -> Result<Expr, DiffError> {
@@ -115,10 +115,7 @@ impl<'a> Parser<'a> {
                         });
                     }
 
-                    Ok(Expr::new(ExprKind::FunctionCall {
-                        name: name.clone(),
-                        args,
-                    }))
+                    Ok(Expr::func_multi(name.clone(), args))
                 } else {
                     Ok(Expr::symbol(name.clone()))
                 }
@@ -145,10 +142,7 @@ impl<'a> Parser<'a> {
                     // Use the canonical name from Operator::to_name()
                     let func_name = op.to_name();
 
-                    Ok(Expr::new(ExprKind::FunctionCall {
-                        name: func_name.to_string(),
-                        args,
-                    }))
+                    Ok(Expr::func_multi(func_name, args))
                 } else {
                     Err(DiffError::UnexpectedToken {
                         expected: "(".to_string(),
@@ -232,10 +226,7 @@ impl<'a> Parser<'a> {
                     exprs
                 };
 
-                let inner_expr = Expr::new(ExprKind::FunctionCall {
-                    name: func.clone(),
-                    args: arg_exprs,
-                });
+                let inner_expr = Expr::func_multi(func.clone(), arg_exprs);
 
                 Ok(Expr::derivative(inner_expr, var.clone(), *order))
             }
@@ -288,6 +279,7 @@ impl<'a> Parser<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ast::{Expr, ExprKind};
 
     #[test]
     fn test_parse_number() {
@@ -311,7 +303,7 @@ mod tests {
             Token::Number(2.0),
         ];
         let ast = parse_expression(&tokens).unwrap();
-        assert!(matches!(ast.kind, ExprKind::Add(_, _)));
+        assert!(matches!(ast.kind, ExprKind::Sum(_)));
     }
 
     #[test]
@@ -322,7 +314,7 @@ mod tests {
             Token::Number(2.0),
         ];
         let ast = parse_expression(&tokens).unwrap();
-        assert!(matches!(ast.kind, ExprKind::Mul(_, _)));
+        assert!(matches!(ast.kind, ExprKind::Product(_)));
     }
 
     #[test]
@@ -360,12 +352,17 @@ mod tests {
         ];
         let ast = parse_expression(&tokens).unwrap();
 
-        match ast.kind {
-            ExprKind::Add(left, right) => {
-                assert!(matches!(left.kind, ExprKind::Symbol(_)));
-                assert!(matches!(right.kind, ExprKind::Mul(_, _)));
+        // With n-ary Sum, this becomes Sum([x, Product([2, 3])])
+        match &ast.kind {
+            ExprKind::Sum(terms) => {
+                assert_eq!(terms.len(), 2);
+                // One should be a symbol, one should be a product
+                let has_symbol = terms.iter().any(|t| matches!(t.kind, ExprKind::Symbol(_)));
+                let has_product = terms.iter().any(|t| matches!(t.kind, ExprKind::Product(_)));
+                assert!(has_symbol, "Expected a symbol in sum");
+                assert!(has_product, "Expected a product in sum");
             }
-            _ => panic!("Expected Add at top level"),
+            _ => panic!("Expected Sum at top level, got {:?}", ast.kind),
         }
     }
 
@@ -383,12 +380,18 @@ mod tests {
         ];
         let ast = parse_expression(&tokens).unwrap();
 
-        match ast.kind {
-            ExprKind::Mul(left, right) => {
-                assert!(matches!(left.kind, ExprKind::Add(_, _)));
-                assert!(matches!(right.kind, ExprKind::Number(2.0)));
+        // With n-ary Product: Product([Sum([x, 1]), 2])
+        match &ast.kind {
+            ExprKind::Product(factors) => {
+                assert_eq!(factors.len(), 2);
+                let has_sum = factors.iter().any(|f| matches!(f.kind, ExprKind::Sum(_)));
+                let has_num = factors
+                    .iter()
+                    .any(|f| matches!(f.kind, ExprKind::Number(n) if (n - 2.0).abs() < 1e-10));
+                assert!(has_sum, "Expected a sum in product");
+                assert!(has_num, "Expected number 2 in product");
             }
-            _ => panic!("Expected Mul at top level"),
+            _ => panic!("Expected Product at top level, got {:?}", ast.kind),
         }
     }
 

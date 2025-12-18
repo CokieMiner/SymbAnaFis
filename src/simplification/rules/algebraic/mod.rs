@@ -24,11 +24,11 @@ pub(crate) fn get_algebraic_rules() -> Vec<Arc<dyn Rule + Send + Sync>> {
         Arc::new(powers::PowerZeroRule),
         Arc::new(powers::PowerOneRule),
         Arc::new(powers::PowerPowerRule),
-        Arc::new(powers::PowerMulRule),
+        Arc::new(powers::PowerProductRule),
         Arc::new(powers::PowerDivRule),
         Arc::new(powers::PowerCollectionRule),
         Arc::new(powers::CommonExponentDivRule),
-        Arc::new(powers::CommonExponentMulRule),
+        Arc::new(powers::CommonExponentProductRule),
         Arc::new(powers::NegativeExponentToFractionRule),
         Arc::new(powers::PowerOfQuotientRule), // (a/b)^n -> a^n / b^n
         // Fraction rules
@@ -60,19 +60,15 @@ pub(crate) fn get_algebraic_rules() -> Vec<Arc<dyn Rule + Send + Sync>> {
         Arc::new(factoring::NumericGcdFactoringRule),
         Arc::new(factoring::CommonTermFactoringRule),
         Arc::new(factoring::CommonPowerFactoringRule),
-        // Canonicalization rules
-        Arc::new(canonicalization::CanonicalizeRule),
-        Arc::new(canonicalization::CanonicalizeMultiplicationRule),
-        Arc::new(canonicalization::CanonicalizeAdditionRule),
-        Arc::new(canonicalization::CanonicalizeSubtractionRule),
-        Arc::new(canonicalization::NormalizeAddNegationRule),
-        Arc::new(canonicalization::SimplifyNegativeOneRule),
+        // Canonicalization rules (simplified for n-ary)
+        Arc::new(canonicalization::CanonicalizeProductRule),
+        Arc::new(canonicalization::CanonicalizeSumRule),
+        Arc::new(canonicalization::SimplifyNegativeProductRule),
         // Combination rules
-        Arc::new(combination::MulDivCombinationRule),
+        Arc::new(combination::ProductDivCombinationRule),
         Arc::new(combination::CombineTermsRule),
         Arc::new(combination::CombineFactorsRule),
-        Arc::new(combination::CombineLikeTermsInAdditionRule),
+        Arc::new(combination::CombineLikeTermsInSumRule),
         Arc::new(combination::DistributeNegationRule),
-        // DistributeMulInNumeratorRule removed - conflicts with MulDivCombinationRule
     ]
 }

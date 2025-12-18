@@ -21,14 +21,14 @@ rule!(
             // Case 1: (a/b)/(c/d) -> (a*d)/(b*c)
             if let (AstKind::Div(a, b), AstKind::Div(c, d)) = (&num.kind, &den.kind) {
                 return Some(Expr::div_expr(
-                    Expr::mul_expr((**a).clone(), (**d).clone()),
-                    Expr::mul_expr((**b).clone(), (**c).clone()),
+                    Expr::product(vec![(**a).clone(), (**d).clone()]),
+                    Expr::product(vec![(**b).clone(), (**c).clone()]),
                 ));
             }
             // Case 2: x/(c/d) -> (x*d)/c
             if let AstKind::Div(c, d) = &den.kind {
                 return Some(Expr::div_expr(
-                    Expr::mul_expr((**num).clone(), (**d).clone()),
+                    Expr::product(vec![(**num).clone(), (**d).clone()]),
                     (**c).clone(),
                 ));
             }
@@ -36,7 +36,7 @@ rule!(
             if let AstKind::Div(a, b) = &num.kind {
                 return Some(Expr::div_expr(
                     (**a).clone(),
-                    Expr::mul_expr((**b).clone(), (**den).clone()),
+                    Expr::product(vec![(**b).clone(), (**den).clone()]),
                 ));
             }
         }
@@ -52,42 +52,23 @@ rule!(
     &[ExprKind::Div],
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::Div(num, outer_den) = &expr.kind {
-            // Case 1: (a + b/c) / d -> (a*c + b) / (c*d)
-            if let AstKind::Add(a, v) = &num.kind
-                && let AstKind::Div(b, c) = &v.kind
-            {
-                // (a*c + b) / (c*d)
-                let new_num =
-                    Expr::add_expr(Expr::mul_expr((**a).clone(), (**c).clone()), (**b).clone());
-                let new_den = Expr::mul_expr((**c).clone(), (**outer_den).clone());
-                return Some(Expr::div_expr(new_num, new_den));
-            }
-            // Case 2: (b/c + a) / d -> (b + a*c) / (c*d)
-            if let AstKind::Add(u, a) = &num.kind
-                && let AstKind::Div(b, c) = &u.kind
-            {
-                let new_num =
-                    Expr::add_expr((**b).clone(), Expr::mul_expr((**a).clone(), (**c).clone()));
-                let new_den = Expr::mul_expr((**c).clone(), (**outer_den).clone());
-                return Some(Expr::div_expr(new_num, new_den));
-            }
-            // Case 3: (a - b/c) / d -> (a*c - b) / (c*d)
-            if let AstKind::Sub(a, v) = &num.kind
-                && let AstKind::Div(b, c) = &v.kind
-            {
-                let new_num =
-                    Expr::sub_expr(Expr::mul_expr((**a).clone(), (**c).clone()), (**b).clone());
-                let new_den = Expr::mul_expr((**c).clone(), (**outer_den).clone());
-                return Some(Expr::div_expr(new_num, new_den));
-            }
-            // Case 4: (b/c - a) / d -> (b - a*c) / (c*d)
-            if let AstKind::Sub(u, a) = &num.kind
-                && let AstKind::Div(b, c) = &u.kind
-            {
-                let new_num =
-                    Expr::sub_expr((**b).clone(), Expr::mul_expr((**a).clone(), (**c).clone()));
-                let new_den = Expr::mul_expr((**c).clone(), (**outer_den).clone());
-                return Some(Expr::div_expr(new_num, new_den));
+            // Check if num is a Sum containing a Div
+            if let AstKind::Sum(terms) = &num.kind {
+                if terms.len() == 2 {
+                    // Look for pattern: Sum([a, Div(b, c)]) / d -> Sum([a*c, b]) / (c*d)
+                    for (i, term) in terms.iter().enumerate() {
+                        if let AstKind::Div(b, c) = &term.kind {
+                            let other_term = if i == 0 { &terms[1] } else { &terms[0] };
+                            // (a*c + b) / (c*d)
+                            let new_num = Expr::sum(vec![
+                                Expr::product(vec![(**other_term).clone(), (**c).clone()]),
+                                (**b).clone(),
+                            ]);
+                            let new_den = Expr::product(vec![(**c).clone(), (**outer_den).clone()]);
+                            return Some(Expr::div_expr(new_num, new_den));
+                        }
+                    }
+                }
             }
         }
         None
@@ -99,64 +80,67 @@ rule!(
     "add_fraction",
     45,
     Algebraic,
-    &[ExprKind::Add],
+    &[ExprKind::Sum],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Add(u, v) = &expr.kind {
-            // Case 1: a/b + c/d
-            if let (AstKind::Div(n1, d1), AstKind::Div(n2, d2)) = (&u.kind, &v.kind) {
-                // Check for common denominator
-                if d1 == d2 {
-                    return Some(Expr::div_expr(
-                        Expr::add_expr((**n1).clone(), (**n2).clone()),
-                        (**d1).clone(),
-                    ));
+        if let AstKind::Sum(terms) = &expr.kind {
+            if terms.len() == 2 {
+                let u = &terms[0];
+                let v = &terms[1];
+
+                // Case 1: a/b + c/d
+                if let (AstKind::Div(n1, d1), AstKind::Div(n2, d2)) = (&u.kind, &v.kind) {
+                    // Check for common denominator
+                    if d1 == d2 {
+                        return Some(Expr::div_expr(
+                            Expr::sum(vec![(**n1).clone(), (**n2).clone()]),
+                            (**d1).clone(),
+                        ));
+                    }
+                    // (n1*d2 + n2*d1) / (d1*d2)
+                    let new_num = Expr::sum(vec![
+                        Expr::product(vec![(**n1).clone(), (**d2).clone()]),
+                        Expr::product(vec![(**n2).clone(), (**d1).clone()]),
+                    ]);
+                    let new_den = Expr::product(vec![(**d1).clone(), (**d2).clone()]);
+                    return Some(Expr::div_expr(new_num, new_den));
                 }
-                // (n1*d2 + n2*d1) / (d1*d2)
-                let new_num = Expr::add_expr(
-                    Expr::mul_expr((**n1).clone(), (**d2).clone()),
-                    Expr::mul_expr((**n2).clone(), (**d1).clone()),
-                );
-                let new_den = Expr::mul_expr((**d1).clone(), (**d2).clone());
-                return Some(Expr::div_expr(new_num, new_den));
-            }
 
-            // Case 2: a + b/c
-            if let AstKind::Div(n, d) = &v.kind {
-                // (u*d + n) / d, but if u is 1, just use d
-                let u_times_d = if matches!(&u.kind, AstKind::Number(x) if (*x - 1.0).abs() < 1e-10)
-                {
-                    (**d).clone()
-                } else {
-                    Expr::mul_expr((**u).clone(), (**d).clone())
-                };
-                let new_num = Expr::add_expr(u_times_d, (**n).clone());
-                return Some(Expr::div_expr(new_num, (**d).clone()));
-            }
+                // Case 2: a + b/c (v is the fraction)
+                if let AstKind::Div(n, d) = &v.kind {
+                    let u_times_d = if matches!(&u.kind, AstKind::Number(x) if (*x - 1.0).abs() < 1e-10)
+                    {
+                        (**d).clone()
+                    } else {
+                        Expr::product(vec![(**u).clone(), (**d).clone()])
+                    };
+                    let new_num = Expr::sum(vec![u_times_d, (**n).clone()]);
+                    return Some(Expr::div_expr(new_num, (**d).clone()));
+                }
 
-            // Case 3: a/b + c
-            if let AstKind::Div(n, d) = &u.kind {
-                // (n + v*d) / d, but if v is 1, just use d
-                let v_times_d = if matches!(&v.kind, AstKind::Number(x) if (*x - 1.0).abs() < 1e-10)
-                {
-                    (**d).clone()
-                } else {
-                    Expr::mul_expr((**v).clone(), (**d).clone())
-                };
-                let new_num = Expr::add_expr((**n).clone(), v_times_d);
-                return Some(Expr::div_expr(new_num, (**d).clone()));
+                // Case 3: a/b + c (u is the fraction)
+                if let AstKind::Div(n, d) = &u.kind {
+                    let v_times_d = if matches!(&v.kind, AstKind::Number(x) if (*x - 1.0).abs() < 1e-10)
+                    {
+                        (**d).clone()
+                    } else {
+                        Expr::product(vec![(**v).clone(), (**d).clone()])
+                    };
+                    let new_num = Expr::sum(vec![(**n).clone(), v_times_d]);
+                    return Some(Expr::div_expr(new_num, (**d).clone()));
+                }
             }
         }
         None
     }
 );
 
-rule_with_helpers!(FractionToEndRule, "fraction_to_end", 50, Algebraic, &[ExprKind::Div, ExprKind::Mul],
+rule_with_helpers!(FractionToEndRule, "fraction_to_end", 50, Algebraic, &[ExprKind::Div, ExprKind::Product],
     helpers: {
-        // Helper to check if expression contains any Div inside Mul
-        fn mul_contains_div(e: &Expr) -> bool {
+        // Helper to check if expression contains any Div inside Product
+        fn product_contains_div(e: &Expr) -> bool {
             match &e.kind {
                 AstKind::Div(_, _) => true,
-                AstKind::Mul(a, b) => mul_contains_div(a) || mul_contains_div(b),
+                AstKind::Product(factors) => factors.iter().any(|f| product_contains_div(f)),
                 _ => false,
             }
         }
@@ -164,9 +148,10 @@ rule_with_helpers!(FractionToEndRule, "fraction_to_end", 50, Algebraic, &[ExprKi
         // Helper to extract all factors from a multiplication, separating numerators and denominators
         fn extract_factors(e: &Expr, numerators: &mut Vec<Expr>, denominators: &mut Vec<Expr>) {
             match &e.kind {
-                AstKind::Mul(a, b) => {
-                    extract_factors(a, numerators, denominators);
-                    extract_factors(b, numerators, denominators);
+                AstKind::Product(factors) => {
+                    for f in factors.iter() {
+                        extract_factors(f, numerators, denominators);
+                    }
                 }
                 AstKind::Div(num, den) => {
                     extract_factors(num, numerators, denominators);
@@ -179,10 +164,9 @@ rule_with_helpers!(FractionToEndRule, "fraction_to_end", 50, Algebraic, &[ExprKi
         }
     },
     |expr: &Expr, _context: &RuleContext| {
-        // Case 1: Div where numerator is a Mul containing Divs
-        // e.g., ((1/a) * b * (1/c)) / d -> b / (a * c * d)
+        // Case 1: Div where numerator is a Product containing Divs
         if let AstKind::Div(num, den) = &expr.kind
-            && mul_contains_div(num) {
+            && product_contains_div(num) {
                 let mut numerators = Vec::new();
                 let mut denominators = Vec::new();
                 extract_factors(num, &mut numerators, &mut denominators);
@@ -190,7 +174,7 @@ rule_with_helpers!(FractionToEndRule, "fraction_to_end", 50, Algebraic, &[ExprKi
                 // Add the outer denominator
                 denominators.push((**den).clone());
 
-                // Filter out 1s from numerators (they're identity elements)
+                // Filter out 1s from numerators
                 let filtered_nums: Vec<Expr> = numerators
                     .into_iter()
                     .filter(|e| !matches!(e.kind, AstKind::Number(n) if (n - 1.0).abs() < 1e-10))
@@ -198,11 +182,17 @@ rule_with_helpers!(FractionToEndRule, "fraction_to_end", 50, Algebraic, &[ExprKi
 
                 let num_expr = if filtered_nums.is_empty() {
                     Expr::number(1.0)
+                } else if filtered_nums.len() == 1 {
+                    filtered_nums.into_iter().next().unwrap()
                 } else {
-                    crate::simplification::helpers::rebuild_mul(filtered_nums)
+                    Expr::product(filtered_nums)
                 };
 
-                let den_expr = crate::simplification::helpers::rebuild_mul(denominators);
+                let den_expr = if denominators.len() == 1 {
+                    denominators.into_iter().next().unwrap()
+                } else {
+                    Expr::product(denominators)
+                };
 
                 let result = Expr::div_expr(num_expr, den_expr);
 
@@ -211,9 +201,9 @@ rule_with_helpers!(FractionToEndRule, "fraction_to_end", 50, Algebraic, &[ExprKi
                 }
             }
 
-        // Case 2: Mul containing at least one Div
-        if let AstKind::Mul(_, _) = &expr.kind {
-            if !mul_contains_div(expr) {
+        // Case 2: Product containing at least one Div
+        if let AstKind::Product(_) = &expr.kind {
+            if !product_contains_div(expr) {
                 return None;
             }
 
@@ -221,29 +211,32 @@ rule_with_helpers!(FractionToEndRule, "fraction_to_end", 50, Algebraic, &[ExprKi
             let mut denominators = Vec::new();
             extract_factors(expr, &mut numerators, &mut denominators);
 
-            // Only transform if we have denominators
             if denominators.is_empty() {
                 return None;
             }
 
-            // Filter out 1s from numerators (they're identity elements)
+            // Filter out 1s from numerators
             let filtered_nums: Vec<Expr> = numerators
                 .into_iter()
                 .filter(|e| !matches!(e.kind, AstKind::Number(n) if (n - 1.0).abs() < 1e-10))
                 .collect();
 
-            // Build the result: (num1 * num2 * ...) / (den1 * den2 * ...)
             let num_expr = if filtered_nums.is_empty() {
                 Expr::number(1.0)
+            } else if filtered_nums.len() == 1 {
+                filtered_nums.into_iter().next().unwrap()
             } else {
-                crate::simplification::helpers::rebuild_mul(filtered_nums)
+                Expr::product(filtered_nums)
             };
 
-            let den_expr = crate::simplification::helpers::rebuild_mul(denominators);
+            let den_expr = if denominators.len() == 1 {
+                denominators.into_iter().next().unwrap()
+            } else {
+                Expr::product(denominators)
+            };
 
             let result = Expr::div_expr(num_expr, den_expr);
 
-            // Only return if we actually changed something
             if result != *expr {
                 return Some(result);
             }

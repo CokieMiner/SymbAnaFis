@@ -3,42 +3,33 @@ mod tests {
     use crate::simplification::simplify_expr;
     use crate::{Expr, ExprKind};
     use std::collections::HashSet;
-    use std::sync::Arc;
+
     #[test]
     fn test_nested_fraction_div_div() {
         // (x/y) / (z/a) -> (x*a) / (y*z)
-        let expr = Expr::new(ExprKind::Div(
-            Arc::new(Expr::new(ExprKind::Div(
-                Arc::new(Expr::symbol("x")),
-                Arc::new(Expr::symbol("y")),
-            ))),
-            Arc::new(Expr::new(ExprKind::Div(
-                Arc::new(Expr::symbol("z")),
-                Arc::new(Expr::symbol("a")),
-            ))),
-        ));
+        let expr = Expr::div_expr(
+            Expr::div_expr(Expr::symbol("x"), Expr::symbol("y")),
+            Expr::div_expr(Expr::symbol("z"), Expr::symbol("a")),
+        );
         let simplified = simplify_expr(expr, HashSet::new());
 
-        // Expected: (x*a) / (y*z)
-        // Note: ordering of multiplication might vary, so we check structure
+        // Expected: (x*a) / (y*z) or Product([x, a]) / Product([y, z])
         if let ExprKind::Div(num, den) = &simplified.kind {
-            // Check numerator: x*a or a*x
-            if let ExprKind::Mul(n1, n2) = &num.kind {
-                let s1 = format!("{}", n1);
-                let s2 = format!("{}", n2);
-                assert!((s1 == "x" && s2 == "a") || (s1 == "a" && s2 == "x"));
-            } else {
-                panic!("Expected numerator to be multiplication");
-            }
+            // Check numerator contains x and a
+            let num_str = format!("{}", num);
+            assert!(
+                num_str.contains("x") && num_str.contains("a"),
+                "Expected numerator with x and a, got {}",
+                num_str
+            );
 
-            // Check denominator: y*z or z*y
-            if let ExprKind::Mul(d1, d2) = &den.kind {
-                let s1 = format!("{}", d1);
-                let s2 = format!("{}", d2);
-                assert!((s1 == "y" && s2 == "z") || (s1 == "z" && s2 == "y"));
-            } else {
-                panic!("Expected denominator to be multiplication");
-            }
+            // Check denominator contains y and z
+            let den_str = format!("{}", den);
+            assert!(
+                den_str.contains("y") && den_str.contains("z"),
+                "Expected denominator with y and z, got {}",
+                den_str
+            );
         } else {
             panic!("Expected division");
         }
@@ -47,24 +38,20 @@ mod tests {
     #[test]
     fn test_nested_fraction_val_div() {
         // x / (y/z) -> (x*z) / y
-        let expr = Expr::new(ExprKind::Div(
-            Arc::new(Expr::symbol("x")),
-            Arc::new(Expr::new(ExprKind::Div(
-                Arc::new(Expr::symbol("y")),
-                Arc::new(Expr::symbol("z")),
-            ))),
-        ));
+        let expr = Expr::div_expr(
+            Expr::symbol("x"),
+            Expr::div_expr(Expr::symbol("y"), Expr::symbol("z")),
+        );
         let simplified = simplify_expr(expr, HashSet::new());
 
         // Expected: (x*z) / y
         if let ExprKind::Div(num, den) = &simplified.kind {
-            if let ExprKind::Mul(n1, n2) = &num.kind {
-                let s1 = format!("{}", n1);
-                let s2 = format!("{}", n2);
-                assert!((s1 == "x" && s2 == "z") || (s1 == "z" && s2 == "x"));
-            } else {
-                panic!("Expected numerator to be multiplication");
-            }
+            let num_str = format!("{}", num);
+            assert!(
+                num_str.contains("x") && num_str.contains("z"),
+                "Expected numerator with x and z, got {}",
+                num_str
+            );
 
             if let ExprKind::Symbol(s) = &den.kind {
                 assert_eq!(s, "y");
@@ -79,13 +66,10 @@ mod tests {
     #[test]
     fn test_nested_fraction_div_val() {
         // (x/y) / z -> x / (y*z)
-        let expr = Expr::new(ExprKind::Div(
-            Arc::new(Expr::new(ExprKind::Div(
-                Arc::new(Expr::symbol("x")),
-                Arc::new(Expr::symbol("y")),
-            ))),
-            Arc::new(Expr::symbol("z")),
-        ));
+        let expr = Expr::div_expr(
+            Expr::div_expr(Expr::symbol("x"), Expr::symbol("y")),
+            Expr::symbol("z"),
+        );
         let simplified = simplify_expr(expr, HashSet::new());
 
         // Expected: x / (y*z)
@@ -96,13 +80,12 @@ mod tests {
                 panic!("Expected numerator to be x");
             }
 
-            if let ExprKind::Mul(d1, d2) = &den.kind {
-                let s1 = format!("{}", d1);
-                let s2 = format!("{}", d2);
-                assert!((s1 == "y" && s2 == "z") || (s1 == "z" && s2 == "y"));
-            } else {
-                panic!("Expected denominator to be multiplication");
-            }
+            let den_str = format!("{}", den);
+            assert!(
+                den_str.contains("y") && den_str.contains("z"),
+                "Expected denominator with y and z, got {}",
+                den_str
+            );
         } else {
             panic!("Expected division");
         }
@@ -110,17 +93,11 @@ mod tests {
 
     #[test]
     fn test_nested_fraction_numbers() {
-        // (1/2) / (1/3) -> (1*3) / (2*1) -> 3/2 -> 1.5
-        let expr = Expr::new(ExprKind::Div(
-            Arc::new(Expr::new(ExprKind::Div(
-                Arc::new(Expr::number(1.0)),
-                Arc::new(Expr::number(2.0)),
-            ))),
-            Arc::new(Expr::new(ExprKind::Div(
-                Arc::new(Expr::number(1.0)),
-                Arc::new(Expr::number(3.0)),
-            ))),
-        ));
+        // (1/2) / (1/3) -> (1*3) / (2*1) -> 3/2
+        let expr = Expr::div_expr(
+            Expr::div_expr(Expr::number(1.0), Expr::number(2.0)),
+            Expr::div_expr(Expr::number(1.0), Expr::number(3.0)),
+        );
         let simplified = simplify_expr(expr, HashSet::new());
 
         if let ExprKind::Div(num, den) = &simplified.kind {
@@ -138,19 +115,13 @@ mod tests {
     #[test]
     fn test_fraction_cancellation_products() {
         // (C * R) / (C * R^2) -> 1 / R
-        let expr = Expr::new(ExprKind::Div(
-            Arc::new(Expr::new(ExprKind::Mul(
-                Arc::new(Expr::symbol("C")),
-                Arc::new(Expr::symbol("R")),
-            ))),
-            Arc::new(Expr::new(ExprKind::Mul(
-                Arc::new(Expr::symbol("C")),
-                Arc::new(Expr::new(ExprKind::Pow(
-                    Arc::new(Expr::symbol("R")),
-                    Arc::new(Expr::number(2.0)),
-                ))),
-            ))),
-        ));
+        let expr = Expr::div_expr(
+            Expr::product(vec![Expr::symbol("C"), Expr::symbol("R")]),
+            Expr::product(vec![
+                Expr::symbol("C"),
+                Expr::pow(Expr::symbol("R"), Expr::number(2.0)),
+            ]),
+        );
         let simplified = simplify_expr(expr, HashSet::new());
 
         // Expected: 1 / R

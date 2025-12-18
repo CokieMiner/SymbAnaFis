@@ -2,65 +2,40 @@
 mod tests {
     use crate::{Expr, ExprKind, simplification::simplify_expr};
     use std::collections::HashSet;
-    use std::sync::Arc;
 
     #[test]
     fn test_trig_sum_identity() {
         // sin(x)cos(y) + cos(x)sin(y) -> sin(x+y)
-        let expr = Expr::new(ExprKind::Add(
-            Arc::new(Expr::new(ExprKind::Mul(
-                Arc::new(Expr::new(ExprKind::FunctionCall {
-                    name: "sin".to_string(),
-                    args: vec![Expr::symbol("x")],
-                })),
-                Arc::new(Expr::new(ExprKind::FunctionCall {
-                    name: "cos".to_string(),
-                    args: vec![Expr::symbol("y")],
-                })),
-            ))),
-            Arc::new(Expr::new(ExprKind::Mul(
-                Arc::new(Expr::new(ExprKind::FunctionCall {
-                    name: "cos".to_string(),
-                    args: vec![Expr::symbol("x")],
-                })),
-                Arc::new(Expr::new(ExprKind::FunctionCall {
-                    name: "sin".to_string(),
-                    args: vec![Expr::symbol("y")],
-                })),
-            ))),
-        ));
+        let expr = Expr::sum(vec![
+            Expr::product(vec![
+                Expr::func("sin", Expr::symbol("x")),
+                Expr::func("cos", Expr::symbol("y")),
+            ]),
+            Expr::product(vec![
+                Expr::func("cos", Expr::symbol("x")),
+                Expr::func("sin", Expr::symbol("y")),
+            ]),
+        ]);
         let simplified = simplify_expr(expr, HashSet::new());
-        let expected = Expr::new(ExprKind::FunctionCall {
-            name: "sin".to_string(),
-            args: vec![Expr::new(ExprKind::Add(
-                Arc::new(Expr::symbol("x")),
-                Arc::new(Expr::symbol("y")),
-            ))],
-        });
+        let expected = Expr::func("sin", Expr::sum(vec![Expr::symbol("x"), Expr::symbol("y")]));
         assert_eq!(simplified, expected);
     }
 
     #[test]
     fn test_trig_combination() {
         let simplified = simplify_expr(
-            Expr::new(ExprKind::FunctionCall {
-                name: "sin".to_string(),
-                args: vec![Expr::new(ExprKind::Add(
-                    Arc::new(Expr::symbol("x")),
-                    Arc::new(Expr::symbol("y")),
-                ))],
-            }),
+            Expr::func("sin", Expr::sum(vec![Expr::symbol("x"), Expr::symbol("y")])),
             HashSet::new(),
         );
         if let ExprKind::FunctionCall { name, args } = &simplified.kind {
             assert_eq!(name, "sin");
             assert_eq!(args.len(), 1);
-            if let ExprKind::Add(u, v) = &args[0].kind {
-                let is_xy = **u == Expr::symbol("x") && **v == Expr::symbol("y");
-                let is_yx = **u == Expr::symbol("y") && **v == Expr::symbol("x");
-                assert!(is_xy || is_yx);
+            if let ExprKind::Sum(terms) = &args[0].kind {
+                let has_x = terms.iter().any(|t| **t == Expr::symbol("x"));
+                let has_y = terms.iter().any(|t| **t == Expr::symbol("y"));
+                assert!(has_x && has_y);
             } else {
-                panic!("Expected Add inside sin");
+                panic!("Expected Sum inside sin");
             }
         } else {
             panic!("Expected FunctionCall sin");
@@ -70,32 +45,20 @@ mod tests {
     #[test]
     fn test_roots_numeric_integer() {
         // sqrt(4) -> 2, sqrt(2) stays symbolic
-        let expr = Expr::new(ExprKind::FunctionCall {
-            name: "sqrt".to_string(),
-            args: vec![Expr::number(4.0)],
-        });
+        let expr = Expr::func("sqrt", Expr::number(4.0));
         let simplified = simplify_expr(expr.clone(), HashSet::new());
         assert_eq!(simplified, Expr::number(2.0));
 
-        let expr2 = Expr::new(ExprKind::FunctionCall {
-            name: "sqrt".to_string(),
-            args: vec![Expr::number(2.0)],
-        });
+        let expr2 = Expr::func("sqrt", Expr::number(2.0));
         let simplified2 = simplify_expr(expr2.clone(), HashSet::new());
         assert_eq!(simplified2, expr2);
 
         // cbrt(27) -> 3, cbrt(2) remains symbolic
-        let expr = Expr::new(ExprKind::FunctionCall {
-            name: "cbrt".to_string(),
-            args: vec![Expr::number(27.0)],
-        });
+        let expr = Expr::func("cbrt", Expr::number(27.0));
         let simplified = simplify_expr(expr.clone(), HashSet::new());
         assert_eq!(simplified, Expr::number(3.0));
 
-        let expr2 = Expr::new(ExprKind::FunctionCall {
-            name: "cbrt".to_string(),
-            args: vec![Expr::number(2.0)],
-        });
+        let expr2 = Expr::func("cbrt", Expr::number(2.0));
         let simplified2 = simplify_expr(expr2.clone(), HashSet::new());
         assert_eq!(simplified2, expr2);
     }
@@ -117,16 +80,11 @@ mod tests {
         let funcs = std::collections::HashSet::new();
         let ast = parser::parse("3 * sin(x) - 4 * sin(x)^3", &fixed, &funcs).unwrap();
         let simplified = simplify_expr(ast, HashSet::new());
-        // 3*sin(x) - 4*sin(x)^3 (or equivalent canonical Form)
-        // Build expected expression structurally for exact matching
-        // Expect sin(3 * x)
-        let expected = Expr::new(ExprKind::FunctionCall {
-            name: "sin".to_string(),
-            args: vec![Expr::new(ExprKind::Mul(
-                Arc::new(Expr::number(3.0)),
-                Arc::new(Expr::symbol("x")),
-            ))],
-        });
+        // Expect sin(3 * x) or sin(Product([3, x]))
+        let expected = Expr::func(
+            "sin",
+            Expr::product(vec![Expr::number(3.0), Expr::symbol("x")]),
+        );
         assert_eq!(simplified, expected);
     }
 
@@ -137,13 +95,10 @@ mod tests {
         let funcs = std::collections::HashSet::new();
         let ast = parser::parse("4 * sinh(x)^3 + 3 * sinh(x)", &fixed, &funcs).unwrap();
         let simplified = simplify_expr(ast, HashSet::new());
-        let expected = Expr::new(ExprKind::FunctionCall {
-            name: "sinh".to_string(),
-            args: vec![Expr::new(ExprKind::Mul(
-                Arc::new(Expr::number(3.0)),
-                Arc::new(Expr::symbol("x")),
-            ))],
-        });
+        let expected = Expr::func(
+            "sinh",
+            Expr::product(vec![Expr::number(3.0), Expr::symbol("x")]),
+        );
         assert_eq!(simplified, expected);
     }
 
@@ -156,13 +111,10 @@ mod tests {
         let s = "3 * sin(x) - 4 * sin(x)^3";
         let ast = parser::parse(s, &fixed, &funcs).unwrap();
         let simplified = simplify_expr(ast, HashSet::new());
-        let expected = Expr::new(ExprKind::FunctionCall {
-            name: "sin".to_string(),
-            args: vec![Expr::new(ExprKind::Mul(
-                Arc::new(Expr::number(3.0)),
-                Arc::new(Expr::symbol("x")),
-            ))],
-        });
+        let expected = Expr::func(
+            "sin",
+            Expr::product(vec![Expr::number(3.0), Expr::symbol("x")]),
+        );
         assert_eq!(simplified, expected);
     }
 
@@ -191,25 +143,19 @@ mod tests {
         // small floating difference within tolerance should fold
         let ast = parser::parse("3.00000000001 * sin(x) - 4.0 * sin(x)^3", &fixed, &funcs).unwrap();
         let simplified = simplify_expr(ast, HashSet::new());
-        let expected = Expr::new(ExprKind::FunctionCall {
-            name: "sin".to_string(),
-            args: vec![Expr::new(ExprKind::Mul(
-                Arc::new(Expr::number(3.0)),
-                Arc::new(Expr::symbol("x")),
-            ))],
-        });
+        let expected = Expr::func(
+            "sin",
+            Expr::product(vec![Expr::number(3.0), Expr::symbol("x")]),
+        );
         assert_eq!(simplified, expected);
 
         // same for cos triple angle
         let ast = parser::parse("4.00000000001 * cos(x)^3 - 3.0 * cos(x)", &fixed, &funcs).unwrap();
         let simplified2 = simplify_expr(ast, HashSet::new());
-        let expected2 = Expr::new(ExprKind::FunctionCall {
-            name: "cos".to_string(),
-            args: vec![Expr::new(ExprKind::Mul(
-                Arc::new(Expr::number(3.0)),
-                Arc::new(Expr::symbol("x")),
-            ))],
-        });
+        let expected2 = Expr::func(
+            "cos",
+            Expr::product(vec![Expr::number(3.0), Expr::symbol("x")]),
+        );
         assert_eq!(simplified2, expected2);
     }
 
@@ -220,13 +166,10 @@ mod tests {
         let funcs = std::collections::HashSet::new();
         let ast = parser::parse("3.0 * sin(x) - 4.0 * sin(x)^3", &fixed, &funcs).unwrap();
         let simplified = simplify_expr(ast, HashSet::new());
-        let expected = Expr::new(ExprKind::FunctionCall {
-            name: "sin".to_string(),
-            args: vec![Expr::new(ExprKind::Mul(
-                Arc::new(Expr::number(3.0)),
-                Arc::new(Expr::symbol("x")),
-            ))],
-        });
+        let expected = Expr::func(
+            "sin",
+            Expr::product(vec![Expr::number(3.0), Expr::symbol("x")]),
+        );
         assert_eq!(simplified, expected);
     }
 
@@ -239,13 +182,10 @@ mod tests {
         let ast =
             parser::parse("4.00000000001 * sinh(x)^3 + 3.0 * sinh(x)", &fixed, &funcs).unwrap();
         let simplified = simplify_expr(ast, HashSet::new());
-        let expected = Expr::new(ExprKind::FunctionCall {
-            name: "sinh".to_string(),
-            args: vec![Expr::new(ExprKind::Mul(
-                Arc::new(Expr::number(3.0)),
-                Arc::new(Expr::symbol("x")),
-            ))],
-        });
+        let expected = Expr::func(
+            "sinh",
+            Expr::product(vec![Expr::number(3.0), Expr::symbol("x")]),
+        );
         assert_eq!(simplified, expected);
     }
 

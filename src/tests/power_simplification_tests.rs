@@ -3,18 +3,14 @@ mod tests {
     use crate::simplification::simplify_expr;
     use crate::{Expr, ExprKind};
     use std::collections::HashSet;
-    use std::sync::Arc;
 
     #[test]
     fn test_power_of_power() {
         // (x^2)^2 -> x^4
-        let expr = Expr::new(ExprKind::Pow(
-            Arc::new(Expr::new(ExprKind::Pow(
-                Arc::new(Expr::symbol("x")),
-                Arc::new(Expr::number(2.0)),
-            ))),
-            Arc::new(Expr::number(2.0)),
-        ));
+        let expr = Expr::pow(
+            Expr::pow(Expr::symbol("x"), Expr::number(2.0)),
+            Expr::number(2.0),
+        );
         let simplified = simplify_expr(expr, HashSet::new());
 
         // Expected: x^4
@@ -37,30 +33,26 @@ mod tests {
     #[test]
     fn test_power_of_power_symbolic() {
         // (x^a)^b -> x^(a*b)
-        let expr = Expr::new(ExprKind::Pow(
-            Arc::new(Expr::new(ExprKind::Pow(
-                Arc::new(Expr::symbol("x")),
-                Arc::new(Expr::symbol("a")),
-            ))),
-            Arc::new(Expr::symbol("b")),
-        ));
+        let expr = Expr::pow(
+            Expr::pow(Expr::symbol("x"), Expr::symbol("a")),
+            Expr::symbol("b"),
+        );
         let simplified = simplify_expr(expr, HashSet::new());
 
-        // Expected: x^(a*b)
+        // Expected: x^(a*b) or x^Product([a, b])
         if let ExprKind::Pow(base, exp) = &simplified.kind {
             if let ExprKind::Symbol(s) = &base.kind {
                 assert_eq!(s, "x");
             } else {
                 panic!("Expected base x");
             }
-            // Exponent should be a * b (or b * a depending on sorting)
-            if let ExprKind::Mul(lhs, rhs) = &exp.kind {
-                // Check for a*b or b*a
-                let s1 = format!("{}", lhs);
-                let s2 = format!("{}", rhs);
-                assert!((s1 == "a" && s2 == "b") || (s1 == "b" && s2 == "a"));
+            // Exponent should be a * b (Product([a, b]))
+            if let ExprKind::Product(factors) = &exp.kind {
+                let has_a = factors.iter().any(|f| **f == Expr::symbol("a"));
+                let has_b = factors.iter().any(|f| **f == Expr::symbol("b"));
+                assert!(has_a && has_b, "Expected a*b in exponent");
             } else {
-                panic!("Expected multiplication in exponent");
+                panic!("Expected Product in exponent");
             }
         } else {
             panic!("Expected power expression");
@@ -70,13 +62,10 @@ mod tests {
     #[test]
     fn test_sigma_power_of_power() {
         // (sigma^2)^2 -> sigma^4
-        let expr = Expr::new(ExprKind::Pow(
-            Arc::new(Expr::new(ExprKind::Pow(
-                Arc::new(Expr::symbol("sigma")),
-                Arc::new(Expr::number(2.0)),
-            ))),
-            Arc::new(Expr::number(2.0)),
-        ));
+        let expr = Expr::pow(
+            Expr::pow(Expr::symbol("sigma"), Expr::number(2.0)),
+            Expr::number(2.0),
+        );
         let simplified = simplify_expr(expr, HashSet::new());
 
         // Expected: sigma^4

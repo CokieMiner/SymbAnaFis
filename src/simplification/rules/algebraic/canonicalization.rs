@@ -1,113 +1,38 @@
 use crate::simplification::rules::{ExprKind, Rule, RuleCategory, RuleContext};
 use crate::{Expr, ExprKind as AstKind};
+use std::sync::Arc;
+
+// Note: With n-ary Sum and Product, canonicalization is simpler.
+// Sum already flattens additions, Product already flattens multiplications.
+// Subtraction is handled by adding negative terms to Sum.
 
 rule!(
-    CanonicalizeRule,
-    "canonicalize",
+    CanonicalizeProductRule,
+    "canonicalize_product",
     15,
     Algebraic,
-    &[ExprKind::Add, ExprKind::Mul, ExprKind::Sub],
+    &[ExprKind::Product],
     |expr: &Expr, _context: &RuleContext| {
-        match &expr.kind {
-            AstKind::Add(_, _) => {
-                let terms = crate::simplification::helpers::flatten_add(expr);
-                if terms.len() > 1 {
-                    Some(crate::simplification::helpers::rebuild_add(terms))
-                } else {
-                    None
-                }
+        if let AstKind::Product(factors) = &expr.kind {
+            if factors.len() <= 1 {
+                return None;
             }
-            AstKind::Mul(_, _) => {
-                let factors = crate::simplification::helpers::flatten_mul(expr);
-                if factors.len() > 1 {
-                    Some(crate::simplification::helpers::rebuild_mul(factors))
-                } else {
-                    None
-                }
+
+            // Check if already sorted (compare on Arc contents)
+            let is_sorted = factors.windows(2).all(|w| {
+                crate::simplification::helpers::compare_mul_factors(&w[0], &w[1])
+                    != std::cmp::Ordering::Greater
+            });
+
+            if is_sorted {
+                return None;
             }
-            AstKind::Sub(a, b) => {
-                // Convert a - b to a + (-b)
-                Some(Expr::add_expr(
-                    a.as_ref().clone(),
-                    Expr::mul_expr(Expr::number(-1.0), b.as_ref().clone()),
-                ))
-            }
-            _ => None,
-        }
-    }
-);
 
-rule!(
-    CanonicalizeMultiplicationRule,
-    "canonicalize_multiplication",
-    15,
-    Algebraic,
-    &[ExprKind::Mul],
-    |expr: &Expr, _context: &RuleContext| {
-        let mut factors = crate::simplification::helpers::flatten_mul(expr);
-
-        if factors.len() <= 1 {
-            return None;
-        }
-
-        // Check if already sorted
-        let is_sorted = factors.windows(2).all(|w| {
-            crate::simplification::helpers::compare_mul_factors(&w[0], &w[1])
-                != std::cmp::Ordering::Greater
-        });
-
-        if is_sorted {
-            return None;
-        }
-
-        // Sort factors for canonical ordering (numbers first, then symbols, etc.)
-        factors.sort_by(crate::simplification::helpers::compare_mul_factors);
-        Some(crate::simplification::helpers::rebuild_mul(factors))
-    }
-);
-
-rule!(
-    CanonicalizeAdditionRule,
-    "canonicalize_addition",
-    15,
-    Algebraic,
-    &[ExprKind::Add],
-    |expr: &Expr, _context: &RuleContext| {
-        let mut terms = crate::simplification::helpers::flatten_add(expr);
-
-        if terms.len() <= 1 {
-            return None;
-        }
-
-        // Check if already sorted
-        let is_sorted = terms.windows(2).all(|w| {
-            crate::simplification::helpers::compare_expr(&w[0], &w[1])
-                != std::cmp::Ordering::Greater
-        });
-
-        if is_sorted {
-            return None;
-        }
-
-        // Sort terms for canonical ordering
-        terms.sort_by(crate::simplification::helpers::compare_expr);
-        Some(crate::simplification::helpers::rebuild_add(terms))
-    }
-);
-
-rule!(
-    CanonicalizeSubtractionRule,
-    "canonicalize_subtraction",
-    15,
-    Algebraic,
-    &[ExprKind::Sub],
-    |expr: &Expr, _context: &RuleContext| {
-        // Convert subtraction to addition with negative
-        if let AstKind::Sub(a, b) = &expr.kind {
-            Some(Expr::add_expr(
-                a.as_ref().clone(),
-                Expr::mul_expr(Expr::number(-1.0), b.as_ref().clone()),
-            ))
+            // Clone Arcs and sort
+            let mut sorted_factors: Vec<Arc<Expr>> = factors.clone();
+            sorted_factors
+                .sort_by(|a, b| crate::simplification::helpers::compare_mul_factors(a, b));
+            Some(Expr::product_from_arcs(sorted_factors))
         } else {
             None
         }
@@ -115,70 +40,71 @@ rule!(
 );
 
 rule!(
-    NormalizeAddNegationRule,
-    "normalize_add_negation",
-    5,
+    CanonicalizeSumRule,
+    "canonicalize_sum",
+    15,
     Algebraic,
-    &[ExprKind::Add],
+    &[ExprKind::Sum],
     |expr: &Expr, _context: &RuleContext| {
-        // Convert additions with negative terms to subtraction form for cleaner display
-        if let AstKind::Add(a, b) = &expr.kind {
-            // Check if first term (a) is -1 * something: (-x) + y -> y - x
-            if let AstKind::Mul(coeff, inner) = &a.kind
-                && let AstKind::Number(n) = &coeff.kind
-                && (*n + 1.0).abs() < 1e-10
-            {
-                // Convert Add(Mul(-1, inner), b) to Sub(b, inner)
-                return Some(Expr::sub_expr(b.as_ref().clone(), inner.as_ref().clone()));
+        if let AstKind::Sum(terms) = &expr.kind {
+            if terms.len() <= 1 {
+                return None;
             }
-            // Check if second term (b) is -1 * something: x + (-y) -> x - y
-            if let AstKind::Mul(coeff, inner) = &b.kind
-                && let AstKind::Number(n) = &coeff.kind
-                && (*n + 1.0).abs() < 1e-10
-            {
-                // Convert Add(a, Mul(-1, inner)) to Sub(a, inner)
-                return Some(Expr::sub_expr(a.as_ref().clone(), inner.as_ref().clone()));
+
+            // Check if already sorted (compare on Arc contents)
+            let is_sorted = terms.windows(2).all(|w| {
+                crate::simplification::helpers::compare_expr(&w[0], &w[1])
+                    != std::cmp::Ordering::Greater
+            });
+
+            if is_sorted {
+                return None;
             }
-            // Check if first term is a negative number: (-n) + x -> x - n
-            if let AstKind::Number(n) = &a.kind
-                && *n < 0.0
-            {
-                return Some(Expr::sub_expr(b.as_ref().clone(), Expr::number(-*n)));
-            }
-            // Check if second term is a negative number: x + (-n) -> x - n
-            if let AstKind::Number(n) = &b.kind
-                && *n < 0.0
-            {
-                return Some(Expr::sub_expr(a.as_ref().clone(), Expr::number(-*n)));
-            }
+
+            // Clone Arcs and sort
+            let mut sorted_terms: Vec<Arc<Expr>> = terms.clone();
+            sorted_terms.sort_by(|a, b| crate::simplification::helpers::compare_expr(a, b));
+            Some(Expr::sum_from_arcs(sorted_terms))
+        } else {
+            None
         }
-        None
     }
 );
 
 rule!(
-    SimplifyNegativeOneRule,
-    "simplify_negative_one",
+    SimplifyNegativeProductRule,
+    "simplify_negative_product",
     80,
     Algebraic,
-    &[ExprKind::Mul],
+    &[ExprKind::Product],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Mul(a, b) = &expr.kind {
-            // Case: (-1) * 1 = -1
-            if let (AstKind::Number(n1), AstKind::Number(n2)) = (&a.kind, &b.kind) {
-                if (*n1 + 1.0).abs() < 1e-10 && (*n2 - 1.0).abs() < 1e-10 {
-                    return Some(Expr::number(-1.0));
+        if let AstKind::Product(factors) = &expr.kind {
+            // Look for multiple (-1) factors and simplify
+            let minus_one_count = factors
+                .iter()
+                .filter(|f| matches!(&f.kind, AstKind::Number(n) if (*n + 1.0).abs() < 1e-10))
+                .count();
+
+            if minus_one_count >= 2 {
+                // (-1) * (-1) = 1, so pairs cancel out
+                let remaining_minus_ones = minus_one_count % 2;
+                let other_factors: Vec<Arc<Expr>> = factors
+                    .iter()
+                    .filter(|f| !matches!(&f.kind, AstKind::Number(n) if (*n + 1.0).abs() < 1e-10))
+                    .cloned()
+                    .collect();
+
+                let mut result_factors: Vec<Arc<Expr>> = Vec::new();
+                if remaining_minus_ones == 1 {
+                    result_factors.push(Arc::new(Expr::number(-1.0)));
                 }
-                if (*n2 + 1.0).abs() < 1e-10 && (*n1 - 1.0).abs() < 1e-10 {
-                    return Some(Expr::number(-1.0));
+                result_factors.extend(other_factors);
+
+                if result_factors.is_empty() {
+                    return Some(Expr::number(1.0));
+                } else {
+                    return Some(Expr::product_from_arcs(result_factors));
                 }
-            }
-            // Case: (-1) * (-1) = 1
-            if let (AstKind::Number(n1), AstKind::Number(n2)) = (&a.kind, &b.kind)
-                && (*n1 + 1.0).abs() < 1e-10
-                && (*n2 + 1.0).abs() < 1e-10
-            {
-                return Some(Expr::number(1.0));
             }
         }
         None

@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests {
+    use crate::Expr;
     use crate::simplify;
-    use crate::{Expr, ExprKind};
-    use std::sync::Arc;
+
     #[test]
     fn test_fraction_cancellation_product_base() {
         // (C * R) / (C * R)^2 -> 1 / (C * R)
@@ -34,19 +34,11 @@ mod tests {
     fn test_sqrt_product_div_product() {
         let a = Expr::symbol("a");
         let b = Expr::symbol("b");
-        let expr = Expr::new(ExprKind::Div(
-            Arc::new(Expr::new(ExprKind::FunctionCall {
-                name: "sqrt".to_string(),
-                args: vec![Expr::new(ExprKind::Mul(
-                    Arc::new(a.clone()),
-                    Arc::new(b.clone()),
-                ))],
-            })),
-            Arc::new(Expr::new(ExprKind::Mul(
-                Arc::new(a.clone()),
-                Arc::new(b.clone()),
-            ))),
-        ));
+        // sqrt(a * b) / (a * b)
+        let expr = Expr::div_expr(
+            Expr::func("sqrt", Expr::product(vec![a.clone(), b.clone()])),
+            Expr::product(vec![a.clone(), b.clone()]),
+        );
 
         let simplified =
             crate::simplification::simplify_expr(expr, std::collections::HashSet::new());
@@ -67,27 +59,16 @@ mod tests {
         let t = Expr::symbol("t");
         let pi = Expr::symbol("pi");
 
-        let num = Expr::new(ExprKind::Mul(
-            Arc::new(Expr::new(ExprKind::FunctionCall {
-                name: "sqrt".to_string(),
-                args: vec![alpha.clone()],
-            })),
-            Arc::new(Expr::new(ExprKind::FunctionCall {
-                name: "sqrt".to_string(),
-                args: vec![t.clone()],
-            })),
-        ));
-        let den = Expr::new(ExprKind::Mul(
-            Arc::new(alpha.clone()),
-            Arc::new(Expr::new(ExprKind::Mul(
-                Arc::new(t.clone()),
-                Arc::new(Expr::new(ExprKind::FunctionCall {
-                    name: "sqrt".to_string(),
-                    args: vec![pi.clone()],
-                })),
-            ))),
-        ));
-        let expr = Expr::new(ExprKind::Div(Arc::new(num), Arc::new(den)));
+        let num = Expr::product(vec![
+            Expr::func("sqrt", alpha.clone()),
+            Expr::func("sqrt", t.clone()),
+        ]);
+        let den = Expr::product(vec![
+            alpha.clone(),
+            t.clone(),
+            Expr::func("sqrt", pi.clone()),
+        ]);
+        let expr = Expr::div_expr(num, den);
 
         let simplified =
             crate::simplification::simplify_expr(expr, std::collections::HashSet::new());
@@ -114,8 +95,13 @@ mod tests {
         let expr = "(x - 1)^2 / (x - 1)";
         let result = simplify(expr, None, None).unwrap();
         println!("(x-1)^2 / (x-1) = {}", result);
-        // Should be x - 1
-        assert_eq!(result.to_string(), "x - 1");
+        // Should be x - 1, but sorted order is -1 + x
+        let res_str = result.to_string();
+        assert!(
+            res_str == "x - 1" || res_str == "-1 + x",
+            "Got: {}",
+            res_str
+        );
     }
 
     #[test]
@@ -124,7 +110,12 @@ mod tests {
         let expr = "(x - 1)^2 * (x + 1) / (x^2 - 1)";
         let result = simplify(expr, None, None).unwrap();
         println!("(x-1)^2 * (x+1) / (x^2-1) = {}", result);
-        // Should be x - 1
-        assert_eq!(result.to_string(), "x - 1");
+        // Should be x - 1, but sorted order is -1 + x
+        let res_str = result.to_string();
+        assert!(
+            res_str == "x - 1" || res_str == "-1 + x",
+            "Got: {}",
+            res_str
+        );
     }
 }

@@ -1,21 +1,18 @@
 #[cfg(test)]
 mod division_bug_tests {
-    use crate::{Expr, ExprKind, simplification::simplify_expr};
+    use crate::{Expr, simplification::simplify_expr};
     use std::collections::HashSet;
-    use std::sync::Arc;
+
     #[test]
     fn verify_display_parens() {
         // Test 1: A / (C * R^2) - should have parentheses
-        let expr = Expr::new(ExprKind::Div(
-            Arc::new(Expr::symbol("A")),
-            Arc::new(Expr::new(ExprKind::Mul(
-                Arc::new(Expr::symbol("C")),
-                Arc::new(Expr::new(ExprKind::Pow(
-                    Arc::new(Expr::symbol("R")),
-                    Arc::new(Expr::number(2.0)),
-                ))),
-            ))),
-        ));
+        let expr = Expr::div_expr(
+            Expr::symbol("A"),
+            Expr::product(vec![
+                Expr::symbol("C"),
+                Expr::pow(Expr::symbol("R"), Expr::number(2.0)),
+            ]),
+        );
         let display = format!("{}", expr);
         println!("Display: {}", display);
         assert_eq!(
@@ -28,25 +25,18 @@ mod division_bug_tests {
     #[test]
     fn verify_simplification_cancellation() {
         // Test 2: (-C * R * V0) / (C * R^2) should simplify to -V0 / R
-        let expr = Expr::new(ExprKind::Div(
-            Arc::new(Expr::new(ExprKind::Mul(
-                Arc::new(Expr::new(ExprKind::Mul(
-                    Arc::new(Expr::new(ExprKind::Mul(
-                        Arc::new(Expr::number(-1.0)),
-                        Arc::new(Expr::symbol("C")),
-                    ))),
-                    Arc::new(Expr::symbol("R")),
-                ))),
-                Arc::new(Expr::symbol("V0")),
-            ))),
-            Arc::new(Expr::new(ExprKind::Mul(
-                Arc::new(Expr::symbol("C")),
-                Arc::new(Expr::new(ExprKind::Pow(
-                    Arc::new(Expr::symbol("R")),
-                    Arc::new(Expr::number(2.0)),
-                ))),
-            ))),
-        ));
+        let expr = Expr::div_expr(
+            Expr::product(vec![
+                Expr::number(-1.0),
+                Expr::symbol("C"),
+                Expr::symbol("R"),
+                Expr::symbol("V0"),
+            ]),
+            Expr::product(vec![
+                Expr::symbol("C"),
+                Expr::pow(Expr::symbol("R"), Expr::number(2.0)),
+            ]),
+        );
 
         println!("Original:   {}", expr);
         let simplified = simplify_expr(expr, HashSet::new());

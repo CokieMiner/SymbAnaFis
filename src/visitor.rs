@@ -54,28 +54,35 @@ pub fn walk_expr<V: ExprVisitor>(expr: &Expr, visitor: &mut V) {
             visitor.visit_symbol(s.as_ref());
         }
         ExprKind::FunctionCall { name, args } => {
-            if visitor.visit_function(name, args) {
+            if visitor.visit_function(name.as_str(), args) {
                 for arg in args {
                     walk_expr(arg, visitor);
                 }
             }
         }
-        ExprKind::Add(l, r) => {
-            if visitor.visit_binary("+", l, r) {
-                walk_expr(l, visitor);
-                walk_expr(r, visitor);
+        // N-ary Sum - visit as "+" with first two terms, then recurse through all
+        ExprKind::Sum(terms) => {
+            if terms.len() >= 2 {
+                // Visit binary for compatibility, then walk all children
+                if visitor.visit_binary("+", &terms[0], &terms[1]) {
+                    for term in terms {
+                        walk_expr(term, visitor);
+                    }
+                }
+            } else if terms.len() == 1 {
+                walk_expr(&terms[0], visitor);
             }
         }
-        ExprKind::Sub(l, r) => {
-            if visitor.visit_binary("-", l, r) {
-                walk_expr(l, visitor);
-                walk_expr(r, visitor);
-            }
-        }
-        ExprKind::Mul(l, r) => {
-            if visitor.visit_binary("*", l, r) {
-                walk_expr(l, visitor);
-                walk_expr(r, visitor);
+        // N-ary Product - visit as "*" with first two factors, then recurse through all
+        ExprKind::Product(factors) => {
+            if factors.len() >= 2 {
+                if visitor.visit_binary("*", &factors[0], &factors[1]) {
+                    for factor in factors {
+                        walk_expr(factor, visitor);
+                    }
+                }
+            } else if factors.len() == 1 {
+                walk_expr(&factors[0], visitor);
             }
         }
         ExprKind::Div(l, r) => {

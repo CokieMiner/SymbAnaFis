@@ -30,6 +30,15 @@ const HYPERBOLIC: &str = "(exp(x) - exp(-x)) / 2";
 const FRAC_ADD: &str = "(x^2 + 1) / (x + 1) + (x - 1) / (x + 1)";
 const POWER_COMBINE: &str = "x^2 * x^3";
 
+// Large physics expressions (for Rayon parallelism testing)
+const NORMAL_PDF: &str = "exp(-(x - mu)^2 / (2 * sigma^2)) / sqrt(2 * pi * sigma^2)";
+const WAVE_EQUATION: &str = "A * sin(k*x - omega*t) * exp(-gamma*t)";
+const GAUSSIAN_2D: &str = "exp(-((x - x0)^2 + (y - y0)^2) / (2 * sigma^2)) / (2 * pi * sigma^2)";
+const MAXWELL_BOLTZMANN: &str =
+    "4 * pi * (m / (2 * pi * k * T))^(3/2) * v^2 * exp(-m * v^2 / (2 * k * T))";
+const ORBITAL_ENERGY: &str = "-G * M * m / (2 * a) + L^2 / (2 * m * r^2) - G * M * m / r";
+const SCHRODINGER_1D: &str = "(-hbar^2 / (2 * m)) * d2psi + V * psi";
+
 // =============================================================================
 // Parsing Benchmarks
 // =============================================================================
@@ -177,6 +186,81 @@ fn bench_simplification(c: &mut Criterion) {
 }
 
 // =============================================================================
+// Large Expression Benchmarks (Testing Rayon parallelism benefits)
+// =============================================================================
+
+fn bench_large_expressions(c: &mut Criterion) {
+    let mut group = c.benchmark_group("large_expr");
+
+    // Normal PDF - ~30 nodes
+    group.bench_function("normal_pdf", |b| {
+        b.iter(|| diff(black_box(NORMAL_PDF), "x", Some(&["mu", "sigma"]), None))
+    });
+
+    // Wave equation - ~20 nodes
+    group.bench_function("wave_equation", |b| {
+        b.iter(|| {
+            diff(
+                black_box(WAVE_EQUATION),
+                "x",
+                Some(&["A", "k", "omega", "gamma"]),
+                None,
+            )
+        })
+    });
+
+    // 2D Gaussian - ~40 nodes
+    group.bench_function("gaussian_2d", |b| {
+        b.iter(|| {
+            diff(
+                black_box(GAUSSIAN_2D),
+                "x",
+                Some(&["x0", "y0", "sigma"]),
+                None,
+            )
+        })
+    });
+
+    // Maxwell-Boltzmann - ~50 nodes
+    group.bench_function("maxwell_boltzmann", |b| {
+        b.iter(|| {
+            diff(
+                black_box(MAXWELL_BOLTZMANN),
+                "v",
+                Some(&["m", "k", "T"]),
+                None,
+            )
+        })
+    });
+
+    // Orbital energy - ~35 nodes
+    group.bench_function("orbital_energy", |b| {
+        b.iter(|| {
+            diff(
+                black_box(ORBITAL_ENERGY),
+                "r",
+                Some(&["G", "M", "m", "a", "L"]),
+                None,
+            )
+        })
+    });
+
+    // Schrodinger 1D - ~25 nodes (with second derivative as symbol)
+    group.bench_function("schrodinger_1d", |b| {
+        b.iter(|| {
+            diff(
+                black_box(SCHRODINGER_1D),
+                "x",
+                Some(&["hbar", "m", "V", "psi", "d2psi"]),
+                None,
+            )
+        })
+    });
+
+    group.finish();
+}
+
+// =============================================================================
 // Combined Operations (Real-World Scenarios)
 // =============================================================================
 
@@ -230,6 +314,7 @@ criterion_group!(
     bench_diff_ast_only,
     bench_diff_full,
     bench_simplification,
+    bench_large_expressions,
     bench_combined,
 );
 

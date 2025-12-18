@@ -13,12 +13,22 @@ pub(crate) mod common {
     pub fn extract_coefficient(expr: &Expr) -> (f64, Expr) {
         match &expr.kind {
             ExprKind::Number(n) => (*n, Expr::number(1.0)),
-            ExprKind::Mul(coeff, base) => {
-                if let ExprKind::Number(n) = &coeff.kind {
-                    (*n, base.as_ref().clone())
-                } else {
-                    (1.0, expr.clone())
+            ExprKind::Product(factors) => {
+                // Check if first factor is a number coefficient
+                if let Some(first) = factors.first() {
+                    if let ExprKind::Number(n) = &first.kind {
+                        // Return coefficient and remaining factors
+                        let rest: Vec<_> = factors.iter().skip(1).map(|f| (**f).clone()).collect();
+                        if rest.is_empty() {
+                            return (*n, Expr::number(1.0));
+                        } else if rest.len() == 1 {
+                            return (*n, rest.into_iter().next().unwrap());
+                        } else {
+                            return (*n, Expr::product(rest));
+                        }
+                    }
                 }
+                (1.0, expr.clone())
             }
             _ => (1.0, expr.clone()),
         }

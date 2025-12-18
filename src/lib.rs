@@ -62,8 +62,8 @@ pub use helpers::{
 pub use parser::parse;
 pub use simplification::simplify_expr;
 pub use symbol::{
-    InternedSymbol, Symbol, SymbolError, clear_symbols, remove_symbol, symb, symb_get, symb_new,
-    symbol_exists,
+    InternedSymbol, Symbol, SymbolContext, SymbolError, clear_symbols, global_context,
+    remove_symbol, symb, symb_get, symb_new, symbol_count, symbol_exists, symbol_names,
 };
 pub use uncertainty::{CovEntry, CovarianceMatrix, relative_uncertainty, uncertainty_propagation};
 

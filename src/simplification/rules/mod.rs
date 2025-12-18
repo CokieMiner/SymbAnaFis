@@ -193,9 +193,8 @@ macro_rules! rule_with_helpers {
 pub(crate) enum ExprKind {
     Number,
     Symbol,
-    Add,
-    Sub,
-    Mul,
+    Sum,     // N-ary addition
+    Product, // N-ary multiplication
     Div,
     Pow,
     Function,   // Any function call
@@ -209,9 +208,8 @@ impl ExprKind {
         match &expr.kind {
             AstKind::Number(_) => ExprKind::Number,
             AstKind::Symbol(_) => ExprKind::Symbol,
-            AstKind::Add(_, _) => ExprKind::Add,
-            AstKind::Sub(_, _) => ExprKind::Sub,
-            AstKind::Mul(_, _) => ExprKind::Mul,
+            AstKind::Sum(_) => ExprKind::Sum,
+            AstKind::Product(_) => ExprKind::Product,
             AstKind::Div(_, _) => ExprKind::Div,
             AstKind::Pow(_, _) => ExprKind::Pow,
             AstKind::FunctionCall { .. } => ExprKind::Function,
@@ -257,9 +255,8 @@ pub(crate) enum RuleCategory {
 pub(crate) const ALL_EXPR_KINDS: &[ExprKind] = &[
     ExprKind::Number,
     ExprKind::Symbol,
-    ExprKind::Add,
-    ExprKind::Sub,
-    ExprKind::Mul,
+    ExprKind::Sum,
+    ExprKind::Product,
     ExprKind::Div,
     ExprKind::Pow,
     ExprKind::Function,
@@ -277,7 +274,6 @@ pub(crate) const ALL_EXPR_KINDS: &[ExprKind] = &[
 #[derive(Clone, Debug, Default)]
 pub(crate) struct RuleContext {
     pub depth: usize,
-    pub parent: Option<Expr>,
     pub variables: Arc<HashSet<String>>,
     pub fixed_vars: Arc<HashSet<String>>, // User-specified fixed variables (constants)
     pub domain_safe: bool,
@@ -286,11 +282,6 @@ pub(crate) struct RuleContext {
 impl RuleContext {
     pub fn with_depth(mut self, depth: usize) -> Self {
         self.depth = depth;
-        self
-    }
-
-    pub fn with_parent(mut self, parent: Expr) -> Self {
-        self.parent = Some(parent);
         self
     }
 

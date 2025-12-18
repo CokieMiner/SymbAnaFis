@@ -6,21 +6,28 @@ mod tests {
     fn debug_perfect_square_logic() {
         // Construct 4*x^2 + 4*x + 1
         let x = Expr::symbol("x");
-        let term1 = Expr::mul_expr(Expr::number(4.0), Expr::pow(x.clone(), Expr::number(2.0)));
-        let term2 = Expr::mul_expr(Expr::number(4.0), x.clone());
+        let term1 = Expr::product(vec![
+            Expr::number(4.0),
+            Expr::pow(x.clone(), Expr::number(2.0)),
+        ]);
+        let term2 = Expr::product(vec![Expr::number(4.0), x.clone()]);
         let term3 = Expr::number(1.0);
 
-        let expr = Expr::add_expr(Expr::add_expr(term1.clone(), term2.clone()), term3.clone());
+        let expr = Expr::sum(vec![term1.clone(), term2.clone(), term3.clone()]);
 
         println!("Expr: {}", expr);
 
-        // Manual flatten
-        let terms = helpers::flatten_add(&expr);
+        // Manual flatten - using local logic since helper was removed
+        let terms: Vec<Expr> = match &expr.kind {
+            ExprKind::Sum(ts) => ts.iter().map(|t| (**t).clone()).collect(),
+            _ => vec![expr.clone()],
+        };
+
         println!("Terms count: {}", terms.len());
         for (i, term) in terms.iter().enumerate() {
             println!("Term {}: {:?}", i, term);
 
-            // Debug flattening mul
+            // Debug flattening product
             let factors = helpers::flatten_mul(term);
             println!("  Factors: {:?}", factors);
 
@@ -48,21 +55,24 @@ mod tests {
                 ExprKind::Number(n) => {
                     constants.push(*n);
                 }
-                ExprKind::Mul(_, _) => {
-                    let (coeff, factors) = extract_coeff_and_factors_debug(term);
-                    println!("  Mul term decomp: coeff={}, factors={:?}", coeff, factors);
+                ExprKind::Product(_) => {
+                    let (coeff, non_numeric) = extract_coeff_and_factors_debug(term);
+                    println!(
+                        "  Product term decomp: coeff={}, factors={:?}",
+                        coeff, non_numeric
+                    );
 
-                    if factors.len() == 1 {
-                        if let ExprKind::Pow(base, exp) = &factors[0].kind
+                    if non_numeric.len() == 1 {
+                        if let ExprKind::Pow(base, exp) = &non_numeric[0].kind
                             && let ExprKind::Number(n) = &exp.kind
                             && (*n - 2.0).abs() < 1e-10
                         {
                             square_terms.push((coeff, base.as_ref().clone()));
                             continue;
                         }
-                        linear_terms.push((coeff, factors[0].clone(), Expr::number(1.0)));
-                    } else if factors.len() == 2 {
-                        linear_terms.push((coeff, factors[0].clone(), factors[1].clone()));
+                        linear_terms.push((coeff, non_numeric[0].clone(), Expr::number(1.0)));
+                    } else if non_numeric.len() == 2 {
+                        linear_terms.push((coeff, non_numeric[0].clone(), non_numeric[1].clone()));
                     }
                 }
                 _ => {

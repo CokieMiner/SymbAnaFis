@@ -158,50 +158,47 @@ impl Simplifier {
         }
 
         match &expr.kind {
-            AstKind::Add(u, v) => {
-                let u_simplified = self.apply_rules_bottom_up(u.clone(), depth + 1);
-                let v_simplified = self.apply_rules_bottom_up(v.clone(), depth + 1);
+            // N-ary Sum - simplify all terms
+            AstKind::Sum(terms) => {
+                let simplified_terms: Vec<Arc<Expr>> = terms
+                    .iter()
+                    .map(|t| self.apply_rules_bottom_up(t.clone(), depth + 1))
+                    .collect();
 
-                // Only create new node if children actually changed
-                if Arc::ptr_eq(&u_simplified, u) && Arc::ptr_eq(&v_simplified, v) {
+                // Check if any term changed
+                let changed = simplified_terms
+                    .iter()
+                    .zip(terms.iter())
+                    .any(|(new, old)| !Arc::ptr_eq(new, old));
+
+                if !changed {
                     self.apply_rules_to_node(expr, depth)
                 } else {
-                    // Use unwrap_or_clone for efficient extraction
-                    let new_expr = Arc::new(Expr::add_expr(
-                        unwrap_or_clone(u_simplified),
-                        unwrap_or_clone(v_simplified),
-                    ));
+                    let new_expr = Arc::new(Expr::sum_from_arcs(simplified_terms));
                     self.apply_rules_to_node(new_expr, depth)
                 }
             }
-            AstKind::Sub(u, v) => {
-                let u_simplified = self.apply_rules_bottom_up(u.clone(), depth + 1);
-                let v_simplified = self.apply_rules_bottom_up(v.clone(), depth + 1);
 
-                if Arc::ptr_eq(&u_simplified, u) && Arc::ptr_eq(&v_simplified, v) {
+            // N-ary Product - simplify all factors
+            AstKind::Product(factors) => {
+                let simplified_factors: Vec<Arc<Expr>> = factors
+                    .iter()
+                    .map(|f| self.apply_rules_bottom_up(f.clone(), depth + 1))
+                    .collect();
+
+                let changed = simplified_factors
+                    .iter()
+                    .zip(factors.iter())
+                    .any(|(new, old)| !Arc::ptr_eq(new, old));
+
+                if !changed {
                     self.apply_rules_to_node(expr, depth)
                 } else {
-                    let new_expr = Arc::new(Expr::sub_expr(
-                        unwrap_or_clone(u_simplified),
-                        unwrap_or_clone(v_simplified),
-                    ));
+                    let new_expr = Arc::new(Expr::product_from_arcs(simplified_factors));
                     self.apply_rules_to_node(new_expr, depth)
                 }
             }
-            AstKind::Mul(u, v) => {
-                let u_simplified = self.apply_rules_bottom_up(u.clone(), depth + 1);
-                let v_simplified = self.apply_rules_bottom_up(v.clone(), depth + 1);
 
-                if Arc::ptr_eq(&u_simplified, u) && Arc::ptr_eq(&v_simplified, v) {
-                    self.apply_rules_to_node(expr, depth)
-                } else {
-                    let new_expr = Arc::new(Expr::mul_expr(
-                        unwrap_or_clone(u_simplified),
-                        unwrap_or_clone(v_simplified),
-                    ));
-                    self.apply_rules_to_node(new_expr, depth)
-                }
-            }
             AstKind::Div(u, v) => {
                 let u_simplified = self.apply_rules_bottom_up(u.clone(), depth + 1);
                 let v_simplified = self.apply_rules_bottom_up(v.clone(), depth + 1);
@@ -209,10 +206,7 @@ impl Simplifier {
                 if Arc::ptr_eq(&u_simplified, u) && Arc::ptr_eq(&v_simplified, v) {
                     self.apply_rules_to_node(expr, depth)
                 } else {
-                    let new_expr = Arc::new(Expr::div_expr(
-                        unwrap_or_clone(u_simplified),
-                        unwrap_or_clone(v_simplified),
-                    ));
+                    let new_expr = Arc::new(Expr::div_from_arcs(u_simplified, v_simplified));
                     self.apply_rules_to_node(new_expr, depth)
                 }
             }
@@ -223,10 +217,7 @@ impl Simplifier {
                 if Arc::ptr_eq(&u_simplified, u) && Arc::ptr_eq(&v_simplified, v) {
                     self.apply_rules_to_node(expr, depth)
                 } else {
-                    let new_expr = Arc::new(Expr::pow(
-                        unwrap_or_clone(u_simplified),
-                        unwrap_or_clone(v_simplified),
-                    ));
+                    let new_expr = Arc::new(Expr::pow_from_arcs(u_simplified, v_simplified));
                     self.apply_rules_to_node(new_expr, depth)
                 }
             }
@@ -258,7 +249,7 @@ impl Simplifier {
 
     /// Apply all applicable rules to a single node in dependency order
     fn apply_rules_to_node(&mut self, mut current: Arc<Expr>, depth: usize) -> Arc<Expr> {
-        let mut context = self
+        let context = self
             .context
             .clone()
             .with_depth(depth)
@@ -302,8 +293,6 @@ impl Simplifier {
                     .insert(original_id, Some(Arc::clone(&new_expr)));
 
                 current = new_expr;
-
-                context = context.with_parent(current.as_ref().clone());
             } else {
                 // Cache as "no change"
                 self.rule_caches

@@ -133,9 +133,23 @@ fn test_chain_rule_derivative_from_examples() {
     // This should be -4 * cos(x) * cos(cos(2 * x)) * sin(x)
     let result = diff("sin(cos(2*x))", "x", None, None).unwrap();
 
+    println!("Result: {}", result);
+
     // The result should contain the correct simplified form
-    assert!(result.contains("-4"));
-    assert!(result.contains("cos(x)"));
-    assert!(result.contains("sin(x)"));
-    assert!(result.contains("cos(cos(2x))"));
+    assert!(result.contains("-4"), "Expected -4 in result: {}", result);
+    assert!(
+        result.contains("cos(x)"),
+        "Expected cos(x) in result: {}",
+        result
+    );
+    assert!(
+        result.contains("sin(x)"),
+        "Expected sin(x) in result: {}",
+        result
+    );
+    assert!(
+        result.contains("cos(cos(2x))"),
+        "Expected cos(cos(2x)) in result: {}",
+        result
+    );
 }

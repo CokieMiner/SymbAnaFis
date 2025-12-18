@@ -3,80 +3,99 @@ use crate::ExprKind as AstKind;
 use crate::simplification::rules::{ExprKind, Rule, RuleCategory, RuleContext};
 use std::sync::Arc;
 
-// ===== Identity Rules (Priority 100) =====
+// ===== Identity Rules for Sum (Priority 100) =====
 
 rule!(
-    AddZeroRule,
-    "add_zero",
+    SumIdentityRule,
+    "sum_identity",
     100,
     Numeric,
-    &[ExprKind::Add],
+    &[ExprKind::Sum],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Add(u, v) = &expr.kind {
-            if matches!(&u.kind, AstKind::Number(n) if *n == 0.0) {
-                return Some((**v).clone());
-            }
-            if matches!(&v.kind, AstKind::Number(n) if *n == 0.0) {
-                return Some((**u).clone());
+        if let AstKind::Sum(terms) = &expr.kind {
+            // Filter out zeros
+            let non_zero: Vec<Arc<Expr>> = terms
+                .iter()
+                .filter(|t| !matches!(&t.kind, AstKind::Number(n) if *n == 0.0))
+                .cloned()
+                .collect();
+
+            if non_zero.len() < terms.len() {
+                // Some zeros were filtered
+                if non_zero.is_empty() {
+                    return Some(Expr::number(0.0));
+                } else if non_zero.len() == 1 {
+                    let arc = non_zero.into_iter().next().unwrap();
+                    return Some(match Arc::try_unwrap(arc) {
+                        Ok(e) => e,
+                        Err(a) => (*a).clone(),
+                    });
+                } else {
+                    return Some(Expr::sum_from_arcs(non_zero));
+                }
             }
         }
         None
     }
 );
 
-rule!(
-    SubZeroRule,
-    "sub_zero",
-    100,
-    Numeric,
-    &[ExprKind::Sub],
-    |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Sub(u, v) = &expr.kind
-            && matches!(&v.kind, AstKind::Number(n) if *n == 0.0)
-        {
-            return Some((**u).clone());
-        }
-        None
-    }
-);
+// ===== Identity Rules for Product (Priority 100) =====
 
 rule!(
-    MulZeroRule,
-    "mul_zero",
+    ProductZeroRule,
+    "product_zero",
     100,
     Numeric,
-    &[ExprKind::Mul],
+    &[ExprKind::Product],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Mul(u, v) = &expr.kind {
-            if matches!(&u.kind, AstKind::Number(n) if *n == 0.0) {
+        if let AstKind::Product(factors) = &expr.kind {
+            // If any factor is zero, the product is zero
+            if factors
+                .iter()
+                .any(|f| matches!(&f.kind, AstKind::Number(n) if *n == 0.0))
+            {
                 return Some(Expr::number(0.0));
             }
-            if matches!(&v.kind, AstKind::Number(n) if *n == 0.0) {
-                return Some(Expr::number(0.0));
-            }
         }
         None
     }
 );
 
 rule!(
-    MulOneRule,
-    "mul_one",
+    ProductIdentityRule,
+    "product_identity",
     100,
     Numeric,
-    &[ExprKind::Mul],
+    &[ExprKind::Product],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Mul(u, v) = &expr.kind {
-            if matches!(&u.kind, AstKind::Number(n) if *n == 1.0) {
-                return Some((**v).clone());
-            }
-            if matches!(&v.kind, AstKind::Number(n) if *n == 1.0) {
-                return Some((**u).clone());
+        if let AstKind::Product(factors) = &expr.kind {
+            // Filter out ones
+            let non_one: Vec<Arc<Expr>> = factors
+                .iter()
+                .filter(|f| !matches!(&f.kind, AstKind::Number(n) if *n == 1.0))
+                .cloned()
+                .collect();
+
+            if non_one.len() < factors.len() {
+                // Some ones were filtered
+                if non_one.is_empty() {
+                    return Some(Expr::number(1.0));
+                } else if non_one.len() == 1 {
+                    let arc = non_one.into_iter().next().unwrap();
+                    return Some(match Arc::try_unwrap(arc) {
+                        Ok(e) => e,
+                        Err(a) => (*a).clone(),
+                    });
+                } else {
+                    return Some(Expr::product_from_arcs(non_one));
+                }
             }
         }
         None
     }
 );
+
+// ===== Division Identity Rules (Priority 100) =====
 
 rule!(
     DivOneRule,
@@ -109,6 +128,8 @@ rule!(
         None
     }
 );
+
+// ===== Power Identity Rules (Priority 100) =====
 
 rule!(
     PowZeroRule,
@@ -188,33 +209,26 @@ rule!(
             if let AstKind::Number(d) = &den.kind
                 && *d < 0.0
             {
-                // x / -y -> -x / y
+                // x / -y -> -x / y (negate numerator)
                 return Some(Expr::div_expr(
-                    Expr::mul_expr(Expr::number(-1.0), num.as_ref().clone()),
+                    Expr::product(vec![Expr::number(-1.0), num.as_ref().clone()]),
                     Expr::number(-*d),
                 ));
             }
 
-            // Check if denominator is (-1 * something)
-            if let AstKind::Mul(c, rest) = &den.kind
-                && matches!(&c.kind, AstKind::Number(n) if *n == -1.0)
-            {
-                // x / (-1 * y) -> -x / y
-                return Some(Expr::div_expr(
-                    Expr::mul_expr(Expr::number(-1.0), num.as_ref().clone()),
-                    rest.as_ref().clone(),
-                ));
-            }
-
-            // Check if denominator is (something * -1)
-            if let AstKind::Mul(rest, c) = &den.kind
-                && matches!(&c.kind, AstKind::Number(n) if *n == -1.0)
-            {
-                // x / (y * -1) -> -x / y
-                return Some(Expr::div_expr(
-                    Expr::mul_expr(Expr::number(-1.0), num.as_ref().clone()),
-                    rest.as_ref().clone(),
-                ));
+            // Check if denominator is a Product with -1 as first factor
+            if let AstKind::Product(factors) = &den.kind {
+                if let Some(first) = factors.first() {
+                    if matches!(&first.kind, AstKind::Number(n) if *n == -1.0) {
+                        // x / (-1 * y) -> -x / y
+                        let rest: Vec<Arc<Expr>> = factors.iter().skip(1).cloned().collect();
+                        let new_den = Expr::product_from_arcs(rest);
+                        return Some(Expr::div_expr(
+                            Expr::product(vec![Expr::number(-1.0), num.as_ref().clone()]),
+                            new_den,
+                        ));
+                    }
+                }
             }
         }
         None
@@ -224,176 +238,149 @@ rule!(
 // ===== Compaction Rules (Priority 90, 80) =====
 
 rule!(
-    ConstantFoldRule,
-    "constant_fold",
+    ConstantFoldSumRule,
+    "constant_fold_sum",
     90,
     Numeric,
-    &[
-        ExprKind::Add,
-        ExprKind::Sub,
-        ExprKind::Mul,
-        ExprKind::Div,
-        ExprKind::Pow
-    ],
+    &[ExprKind::Sum],
     |expr: &Expr, _context: &RuleContext| {
-        match &expr.kind {
-            AstKind::Add(u, v) => {
-                if let (AstKind::Number(a), AstKind::Number(b)) = (&u.kind, &v.kind) {
-                    let result = a + b;
-                    if !result.is_nan() && !result.is_infinite() {
-                        return Some(Expr::number(result));
-                    }
-                }
-                // Handle Div(Number, Number) + Number
-                if let (AstKind::Div(num, den), AstKind::Number(b)) = (&u.kind, &v.kind)
-                    && let (AstKind::Number(num_val), AstKind::Number(den_val)) =
-                        (&num.kind, &den.kind)
-                    && *den_val != 0.0
-                {
-                    let new_num = num_val + b * den_val;
-                    let result = new_num / den_val;
-                    if (result - result.round()).abs() < 1e-10 {
-                        return Some(Expr::number(result.round()));
-                    }
-                    return Some(Expr::div_expr(
-                        Expr::number(new_num),
-                        Expr::number(*den_val),
-                    ));
-                }
-                // Handle Number + Div(Number, Number)
-                if let (AstKind::Number(a), AstKind::Div(num, den)) = (&u.kind, &v.kind)
-                    && let (AstKind::Number(num_val), AstKind::Number(den_val)) =
-                        (&num.kind, &den.kind)
-                    && *den_val != 0.0
-                {
-                    let new_num = a * den_val + num_val;
-                    let result = new_num / den_val;
-                    if (result - result.round()).abs() < 1e-10 {
-                        return Some(Expr::number(result.round()));
-                    }
-                    return Some(Expr::div_expr(
-                        Expr::number(new_num),
-                        Expr::number(*den_val),
-                    ));
-                }
-            }
-            AstKind::Sub(u, v) => {
-                if let (AstKind::Number(a), AstKind::Number(b)) = (&u.kind, &v.kind) {
-                    let result = a - b;
-                    if !result.is_nan() && !result.is_infinite() {
-                        return Some(Expr::number(result));
-                    }
-                }
-                // Handle Div(Number, Number) - Number
-                if let (AstKind::Div(num, den), AstKind::Number(b)) = (&u.kind, &v.kind)
-                    && let (AstKind::Number(num_val), AstKind::Number(den_val)) =
-                        (&num.kind, &den.kind)
-                    && *den_val != 0.0
-                {
-                    let new_num = num_val - b * den_val;
-                    let result = new_num / den_val;
-                    if (result - result.round()).abs() < 1e-10 {
-                        return Some(Expr::number(result.round()));
-                    }
-                    return Some(Expr::div_expr(
-                        Expr::number(new_num),
-                        Expr::number(*den_val),
-                    ));
-                }
-                // Handle Number - Div(Number, Number)
-                if let (AstKind::Number(a), AstKind::Div(num, den)) = (&u.kind, &v.kind)
-                    && let (AstKind::Number(num_val), AstKind::Number(den_val)) =
-                        (&num.kind, &den.kind)
-                    && *den_val != 0.0
-                {
-                    let new_num = a * den_val - num_val;
-                    let result = new_num / den_val;
-                    if (result - result.round()).abs() < 1e-10 {
-                        return Some(Expr::number(result.round()));
-                    }
-                    return Some(Expr::div_expr(
-                        Expr::number(new_num),
-                        Expr::number(*den_val),
-                    ));
-                }
-            }
-            AstKind::Mul(u, v) => {
-                if let (AstKind::Number(a), AstKind::Number(b)) = (&u.kind, &v.kind) {
-                    let result = a * b;
-                    if !result.is_nan() && !result.is_infinite() {
-                        return Some(Expr::number(result));
-                    }
-                }
-                // Flatten and combine multiple numbers
-                let factors = crate::simplification::helpers::flatten_mul(expr);
-                let mut numbers: Vec<f64> = Vec::new();
-                let mut non_numbers: Vec<Expr> = Vec::new();
+        if let AstKind::Sum(terms) = &expr.kind {
+            // Collect numeric and non-numeric terms
+            let mut num_sum = 0.0;
+            let mut non_numeric: Vec<Arc<Expr>> = Vec::new();
+            let mut has_numeric = false;
 
-                for factor in &factors {
-                    if let AstKind::Number(n) = &factor.kind {
-                        numbers.push(*n);
+            for term in terms {
+                if let AstKind::Number(n) = &term.kind {
+                    num_sum += n;
+                    has_numeric = true;
+                } else {
+                    non_numeric.push(term.clone());
+                }
+            }
+
+            // Only fold if we have multiple numbers to combine
+            if has_numeric
+                && (terms.len() > non_numeric.len() + 1
+                    || (has_numeric && non_numeric.len() < terms.len()))
+            {
+                if non_numeric.is_empty() {
+                    // All numeric
+                    if !num_sum.is_nan() && !num_sum.is_infinite() {
+                        return Some(Expr::number(num_sum));
+                    }
+                } else if num_sum != 0.0 {
+                    // Mix - add the combined number to front
+                    let mut result_terms = vec![Arc::new(Expr::number(num_sum))];
+                    result_terms.extend(non_numeric);
+                    return Some(Expr::sum_from_arcs(result_terms));
+                } else if non_numeric.len() < terms.len() {
+                    // Numbers summed to zero, return non-numeric only
+                    if non_numeric.len() == 1 {
+                        let arc = non_numeric.into_iter().next().unwrap();
+                        return Some(match Arc::try_unwrap(arc) {
+                            Ok(e) => e,
+                            Err(a) => (*a).clone(),
+                        });
                     } else {
-                        non_numbers.push(factor.clone());
+                        return Some(Expr::sum_from_arcs(non_numeric));
                     }
                 }
+            }
+        }
+        None
+    }
+);
 
-                if numbers.len() >= 2 {
-                    let combined: f64 = numbers.iter().product();
-                    if !combined.is_nan() && !combined.is_infinite() {
-                        let mut result_factors = vec![Expr::number(combined)];
-                        result_factors.extend(non_numbers);
-                        return Some(crate::simplification::helpers::rebuild_mul(result_factors));
-                    }
-                }
+rule!(
+    ConstantFoldProductRule,
+    "constant_fold_product",
+    90,
+    Numeric,
+    &[ExprKind::Product],
+    |expr: &Expr, _context: &RuleContext| {
+        if let AstKind::Product(factors) = &expr.kind {
+            // Collect numeric and non-numeric factors
+            let mut num_product = 1.0;
+            let mut non_numeric: Vec<Arc<Expr>> = Vec::new();
+            let mut num_count = 0;
 
-                // Mul(Number, Div(Number, Number))
-                if let (AstKind::Number(a), AstKind::Div(b, c)) = (&u.kind, &v.kind)
-                    && let (AstKind::Number(b_val), AstKind::Number(c_val)) = (&b.kind, &c.kind)
-                    && *c_val != 0.0
-                {
-                    let result = (a * b_val) / c_val;
-                    if (result - result.round()).abs() < 1e-10 {
-                        return Some(Expr::number(result.round()));
-                    }
-                    return Some(Expr::div_expr(
-                        Expr::number(a * b_val),
-                        Expr::number(*c_val),
-                    ));
-                }
-                // Mul(Div(Number, Number), Number)
-                if let (AstKind::Div(b, c), AstKind::Number(a)) = (&u.kind, &v.kind)
-                    && let (AstKind::Number(b_val), AstKind::Number(c_val)) = (&b.kind, &c.kind)
-                    && *c_val != 0.0
-                {
-                    let result = (a * b_val) / c_val;
-                    if (result - result.round()).abs() < 1e-10 {
-                        return Some(Expr::number(result.round()));
-                    }
-                    return Some(Expr::div_expr(
-                        Expr::number(a * b_val),
-                        Expr::number(*c_val),
-                    ));
+            for factor in factors {
+                if let AstKind::Number(n) = &factor.kind {
+                    num_product *= n;
+                    num_count += 1;
+                } else {
+                    non_numeric.push(factor.clone());
                 }
             }
-            AstKind::Div(u, v) => {
-                if let (AstKind::Number(a), AstKind::Number(b)) = (&u.kind, &v.kind)
-                    && *b != 0.0
-                {
-                    let result = a / b;
-                    if (result - result.round()).abs() < 1e-10 {
-                        return Some(Expr::number(result.round()));
+
+            // Only fold if we have multiple numbers to combine
+            if num_count >= 2 {
+                if non_numeric.is_empty() {
+                    // All numeric
+                    if !num_product.is_nan() && !num_product.is_infinite() {
+                        return Some(Expr::number(num_product));
                     }
+                } else if num_product == 0.0 {
+                    return Some(Expr::number(0.0));
+                } else if num_product == 1.0 {
+                    // Combined to 1, return non-numeric only
+                    if non_numeric.len() == 1 {
+                        let arc = non_numeric.into_iter().next().unwrap();
+                        return Some(match Arc::try_unwrap(arc) {
+                            Ok(e) => e,
+                            Err(a) => (*a).clone(),
+                        });
+                    } else {
+                        return Some(Expr::product_from_arcs(non_numeric));
+                    }
+                } else {
+                    // Mix - add the combined number
+                    let mut result_factors = vec![Arc::new(Expr::number(num_product))];
+                    result_factors.extend(non_numeric);
+                    return Some(Expr::product_from_arcs(result_factors));
                 }
             }
-            AstKind::Pow(u, v) => {
-                if let (AstKind::Number(a), AstKind::Number(b)) = (&u.kind, &v.kind) {
-                    let result = a.powf(*b);
-                    if !result.is_nan() && !result.is_infinite() {
-                        return Some(Expr::number(result));
-                    }
+        }
+        None
+    }
+);
+
+rule!(
+    ConstantFoldDivRule,
+    "constant_fold_div",
+    90,
+    Numeric,
+    &[ExprKind::Div],
+    |expr: &Expr, _context: &RuleContext| {
+        if let AstKind::Div(u, v) = &expr.kind {
+            if let (AstKind::Number(a), AstKind::Number(b)) = (&u.kind, &v.kind)
+                && *b != 0.0
+            {
+                let result = a / b;
+                if (result - result.round()).abs() < 1e-10 {
+                    return Some(Expr::number(result.round()));
                 }
             }
-            _ => {}
+        }
+        None
+    }
+);
+
+rule!(
+    ConstantFoldPowRule,
+    "constant_fold_pow",
+    90,
+    Numeric,
+    &[ExprKind::Pow],
+    |expr: &Expr, _context: &RuleContext| {
+        if let AstKind::Pow(u, v) = &expr.kind {
+            if let (AstKind::Number(a), AstKind::Number(b)) = (&u.kind, &v.kind) {
+                let result = a.powf(*b);
+                if !result.is_nan() && !result.is_infinite() {
+                    return Some(Expr::number(result));
+                }
+            }
         }
         None
     }
@@ -442,10 +429,9 @@ rule_with_helpers!(FractionSimplifyRule, "fraction_simplify", 80, Numeric, &[Exp
 /// Get all numeric rules in priority order
 pub(crate) fn get_numeric_rules() -> Vec<Arc<dyn Rule + Send + Sync>> {
     vec![
-        Arc::new(AddZeroRule),
-        Arc::new(SubZeroRule),
-        Arc::new(MulZeroRule),
-        Arc::new(MulOneRule),
+        Arc::new(SumIdentityRule),
+        Arc::new(ProductZeroRule),
+        Arc::new(ProductIdentityRule),
         Arc::new(DivOneRule),
         Arc::new(ZeroDivRule),
         Arc::new(PowZeroRule),
@@ -453,7 +439,10 @@ pub(crate) fn get_numeric_rules() -> Vec<Arc<dyn Rule + Send + Sync>> {
         Arc::new(ZeroPowRule),
         Arc::new(OnePowRule),
         Arc::new(NormalizeSignDivRule),
-        Arc::new(ConstantFoldRule),
+        Arc::new(ConstantFoldSumRule),
+        Arc::new(ConstantFoldProductRule),
+        Arc::new(ConstantFoldDivRule),
+        Arc::new(ConstantFoldPowRule),
         Arc::new(FractionSimplifyRule),
     ]
 }

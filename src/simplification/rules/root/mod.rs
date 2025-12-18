@@ -1,6 +1,6 @@
 use crate::ast::{Expr, ExprKind as AstKind};
 use crate::simplification::rules::{ExprKind, Rule, RuleCategory, RuleContext};
-use std::sync::Arc; // May still be needed if not fully removed by helpers
+use std::sync::Arc;
 
 rule!(
     SqrtPowerRule,
@@ -106,31 +106,42 @@ rule!(
     }
 );
 
-rule!(SqrtMulRule, "sqrt_mul", 56, Root, &[ExprKind::Mul], alters_domain: true, |expr: &Expr, _context: &RuleContext| {
-    if let AstKind::Mul(u, v) = &expr.kind {
-        // Check for sqrt(a) * sqrt(b)
-        if let (
-            AstKind::FunctionCall {
-                name: u_name,
-                args: u_args,
-            },
-            AstKind::FunctionCall {
-                name: v_name,
-                args: v_args,
-            },
-        ) = (&u.kind, &v.kind)
-            && u_name == "sqrt"
-            && v_name == "sqrt"
-            && u_args.len() == 1
-            && v_args.len() == 1
-        {
-            return Some(Expr::func(
-                "sqrt",
-                Expr::mul_expr(
-                    u_args[0].clone(),
-                    v_args[0].clone(),
-                ),
-            ));
+rule!(SqrtProductRule, "sqrt_product", 56, Root, &[ExprKind::Product], alters_domain: true, |expr: &Expr, _context: &RuleContext| {
+    if let AstKind::Product(factors) = &expr.kind {
+        // Check for sqrt(a) * sqrt(b) among factors
+        for (i, f1) in factors.iter().enumerate() {
+            for (j, f2) in factors.iter().enumerate() {
+                if i >= j {
+                    continue;
+                }
+
+                if let (
+                    AstKind::FunctionCall { name: n1, args: args1 },
+                    AstKind::FunctionCall { name: n2, args: args2 },
+                ) = (&f1.kind, &f2.kind)
+                {
+                    if n1 == "sqrt" && n2 == "sqrt" && args1.len() == 1 && args2.len() == 1 {
+                        // sqrt(a) * sqrt(b) = sqrt(a*b)
+                        let combined = Expr::func(
+                            "sqrt",
+                            Expr::product(vec![args1[0].clone(), args2[0].clone()]),
+                        );
+
+                        let mut new_factors: Vec<Expr> = factors.iter()
+                            .enumerate()
+                            .filter(|(k, _)| *k != i && *k != j)
+                            .map(|(_, f)| (**f).clone())
+                            .collect();
+                        new_factors.push(combined);
+
+                        if new_factors.len() == 1 {
+                            return Some(new_factors.into_iter().next().unwrap());
+                        } else {
+                            return Some(Expr::product(new_factors));
+                        }
+                    }
+                }
+            }
         }
     }
     None
@@ -204,32 +215,40 @@ rule!(
     &[ExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
         // sqrt(a * x^2) → |x| * sqrt(a)
-        // sqrt(x^2 * a) → |x| * sqrt(a)
         if let AstKind::FunctionCall { name, args } = &expr.kind
             && name == "sqrt"
             && args.len() == 1
-            && let AstKind::Mul(u, v) = &args[0].kind
         {
-            // Check if either factor is a square (x^2)
-            let (square_base, other) = if let AstKind::Pow(base, exp) = &u.kind
-                && let AstKind::Number(n) = &exp.kind
-                && *n == 2.0
-            {
-                (Some(base), v)
-            } else if let AstKind::Pow(base, exp) = &v.kind
-                && let AstKind::Number(n) = &exp.kind
-                && *n == 2.0
-            {
-                (Some(base), u)
-            } else {
-                (None, u)
-            };
+            if let AstKind::Product(factors) = &args[0].kind {
+                // Look for a square factor x^2
+                for (i, factor) in factors.iter().enumerate() {
+                    if let AstKind::Pow(base, exp) = &factor.kind {
+                        if let AstKind::Number(n) = &exp.kind {
+                            if *n == 2.0 {
+                                // Found x^2, extract |x|
+                                let abs_base = Expr::func("abs", (**base).clone());
 
-            if let Some(base) = square_base {
-                // sqrt(other * base^2) = |base| * sqrt(other)
-                let abs_base = Expr::func("abs", base.as_ref().clone());
-                let sqrt_other = Expr::func("sqrt", other.as_ref().clone());
-                return Some(Expr::mul_expr(abs_base, sqrt_other));
+                                // Build remaining product for sqrt
+                                let remaining: Vec<Arc<Expr>> = factors
+                                    .iter()
+                                    .enumerate()
+                                    .filter(|(j, _)| *j != i)
+                                    .map(|(_, f)| f.clone())
+                                    .collect();
+
+                                let inner = Expr::product_from_arcs(remaining);
+                                let sqrt_remaining = if matches!(inner.kind, AstKind::Number(n) if (n - 1.0).abs() < 1e-10)
+                                {
+                                    Expr::number(1.0)
+                                } else {
+                                    Expr::func("sqrt", inner)
+                                };
+
+                                return Some(Expr::product(vec![abs_base, sqrt_remaining]));
+                            }
+                        }
+                    }
+                }
             }
         }
         None
@@ -242,7 +261,7 @@ pub(crate) fn get_root_rules() -> Vec<Arc<dyn Rule + Send + Sync>> {
         Arc::new(SqrtPowerRule),
         Arc::new(SqrtExtractSquareRule),
         Arc::new(CbrtPowerRule),
-        Arc::new(SqrtMulRule),
+        Arc::new(SqrtProductRule),
         Arc::new(SqrtDivRule),
         Arc::new(NormalizeRootsRule),
     ]

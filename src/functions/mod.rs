@@ -12,10 +12,7 @@ pub(crate) mod registry;
 
 /// Create a function call expression
 pub(crate) fn func(name: &str, arg: Expr) -> Expr {
-    Expr::new(ExprKind::FunctionCall {
-        name: name.to_string(),
-        args: vec![arg],
-    })
+    Expr::func(name, arg)
 }
 
 /// Multiply, optimizing for common cases (0 and 1)

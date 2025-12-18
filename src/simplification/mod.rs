@@ -46,33 +46,45 @@ pub(crate) fn simplify_domain_safe(expr: Expr, fixed_vars: HashSet<String>) -> E
 /// This runs at the very end after prettification
 fn evaluate_numeric_functions(expr: Expr) -> Expr {
     match expr.kind {
-        // Recursively process subexpressions first
-        ExprKind::Add(u, v) => Expr::add_expr(
-            evaluate_numeric_functions(u.as_ref().clone()),
-            evaluate_numeric_functions(v.as_ref().clone()),
-        ),
-        ExprKind::Sub(u, v) => Expr::sub_expr(
-            evaluate_numeric_functions(u.as_ref().clone()),
-            evaluate_numeric_functions(v.as_ref().clone()),
-        ),
-        ExprKind::Mul(u, v) => {
-            let u = evaluate_numeric_functions(u.as_ref().clone());
-            let v = evaluate_numeric_functions(v.as_ref().clone());
+        // N-ary Sum - recursively process all terms
+        ExprKind::Sum(terms) => {
+            let processed: Vec<Expr> = terms
+                .into_iter()
+                .map(|t| {
+                    evaluate_numeric_functions(
+                        std::sync::Arc::try_unwrap(t).unwrap_or_else(|arc| (*arc).clone()),
+                    )
+                })
+                .collect();
+            Expr::sum(processed)
+        }
 
-            // Canonical form: 0.5 * expr -> expr / 2 (for fractional coefficients)
-            // This makes log2(x^0.5) -> log2(x)/2 instead of 0.5*log2(x)
-            if let ExprKind::Number(n) = &u.kind
-                && *n == 0.5
-            {
-                return Expr::div_expr(v, Expr::number(2.0));
-            }
-            if let ExprKind::Number(n) = &v.kind
-                && *n == 0.5
-            {
-                return Expr::div_expr(u, Expr::number(2.0));
+        // N-ary Product - recursively process all factors
+        ExprKind::Product(factors) => {
+            let processed: Vec<Expr> = factors
+                .into_iter()
+                .map(|f| {
+                    evaluate_numeric_functions(
+                        std::sync::Arc::try_unwrap(f).unwrap_or_else(|arc| (*arc).clone()),
+                    )
+                })
+                .collect();
+
+            // Check for 0.5 coefficient: 0.5 * expr -> expr / 2
+            if processed.len() == 2 {
+                if let ExprKind::Number(n) = &processed[0].kind {
+                    if *n == 0.5 {
+                        return Expr::div_expr(processed[1].clone(), Expr::number(2.0));
+                    }
+                }
+                if let ExprKind::Number(n) = &processed[1].kind {
+                    if *n == 0.5 {
+                        return Expr::div_expr(processed[0].clone(), Expr::number(2.0));
+                    }
+                }
             }
 
-            Expr::mul_expr(u, v)
+            Expr::product(processed)
         }
         ExprKind::Div(u, v) => {
             let u = evaluate_numeric_functions(u.as_ref().clone());

@@ -53,7 +53,7 @@ impl Expr {
                 }
 
                 // Check for custom derivative first
-                if let Some(custom_rule) = custom_derivatives.get(name)
+                if let Some(custom_rule) = custom_derivatives.get(name.as_str())
                     && args.len() == 1
                 {
                     let inner = &args[0];
@@ -62,7 +62,7 @@ impl Expr {
                 }
 
                 // Check Registry
-                if let Some(def) = crate::functions::registry::Registry::get(name)
+                if let Some(def) = crate::functions::registry::Registry::get(name.as_str())
                     && def.validate_arity(args.len())
                 {
                     let arg_primes: Vec<Expr> = args
@@ -73,7 +73,7 @@ impl Expr {
                 }
 
                 // Check multi-arg custom functions (CustomFn) with registered partial derivatives
-                if let Some(custom_fn) = custom_fns.get(name) {
+                if let Some(custom_fn) = custom_fns.get(name.as_str()) {
                     // Use multi-variable chain rule: dF/dx = Σ (∂F/∂arg[i]) * (darg[i]/dx)
                     let mut terms = Vec::new();
 
@@ -152,68 +152,66 @@ impl Expr {
                 }
             }
 
-            // Sum rule: (u + v)' = u' + v'
-            ExprKind::Add(u, v) => {
-                let u_prime = u.derive(var, fixed_vars, custom_derivatives, custom_fns);
-                let v_prime = v.derive(var, fixed_vars, custom_derivatives, custom_fns);
-                if u_prime.is_zero_num() {
-                    v_prime
-                } else if v_prime.is_zero_num() {
-                    u_prime
+            // Sum rule: (a + b + c + ...)' = a' + b' + c' + ...
+            ExprKind::Sum(terms) => {
+                let derivatives: Vec<Expr> = terms
+                    .iter()
+                    .map(|t| t.derive(var, fixed_vars, custom_derivatives, custom_fns))
+                    .filter(|d| !d.is_zero_num())
+                    .collect();
+
+                if derivatives.is_empty() {
+                    Expr::number(0.0)
+                } else if derivatives.len() == 1 {
+                    derivatives.into_iter().next().unwrap()
                 } else {
-                    Expr::add_expr(u_prime, v_prime)
+                    Expr::sum(derivatives)
                 }
             }
 
-            // Subtraction rule: (u - v)' = u' - v'
-            ExprKind::Sub(u, v) => {
-                let u_prime = u.derive(var, fixed_vars, custom_derivatives, custom_fns);
-                let v_prime = v.derive(var, fixed_vars, custom_derivatives, custom_fns);
-                if v_prime.is_zero_num() {
-                    u_prime
-                } else {
-                    Expr::sub_expr(u_prime, v_prime)
+            // N-ary Product rule: (a * b * c)' = a' * b * c + a * b' * c + a * b * c'
+            ExprKind::Product(factors) => {
+                let n = factors.len();
+                let mut result_terms: Vec<Expr> = Vec::new();
+
+                // For each factor, compute: (product of all others) * factor'
+                for i in 0..n {
+                    let factor_prime =
+                        factors[i].derive(var, fixed_vars, custom_derivatives, custom_fns);
+
+                    // Skip if derivative is zero
+                    if factor_prime.is_zero_num() {
+                        continue;
+                    }
+
+                    // Collect all other factors
+                    let other_factors: Vec<Expr> = factors
+                        .iter()
+                        .enumerate()
+                        .filter(|(j, _)| *j != i)
+                        .map(|(_, f)| (**f).clone())
+                        .collect();
+
+                    if other_factors.is_empty() {
+                        // Only one factor: derivative is just factor_prime
+                        result_terms.push(factor_prime);
+                    } else if factor_prime.is_one_num() {
+                        // factor' is 1: just use product of other factors
+                        result_terms.push(Expr::product(other_factors));
+                    } else {
+                        // General case: other_factors * factor_prime
+                        let mut all_factors = other_factors;
+                        all_factors.push(factor_prime);
+                        result_terms.push(Expr::product(all_factors));
+                    }
                 }
-            }
 
-            // Product rule: (u * v)' = u' * v + u * v'
-            ExprKind::Mul(u, v) => {
-                let u_prime = u.derive(var, fixed_vars, custom_derivatives, custom_fns);
-                let v_prime = v.derive(var, fixed_vars, custom_derivatives, custom_fns);
-
-                // Term 1: u' * v
-                let term1 = if u_prime.is_zero_num() {
+                if result_terms.is_empty() {
                     Expr::number(0.0)
-                } else if u_prime.is_one_num() {
-                    (**v).clone()
-                } else if v.is_one_num() {
-                    u_prime.clone()
-                } else if v.is_zero_num() {
-                    Expr::number(0.0)
+                } else if result_terms.len() == 1 {
+                    result_terms.into_iter().next().unwrap()
                 } else {
-                    Expr::mul_expr(u_prime.clone(), (**v).clone())
-                };
-
-                // Term 2: u * v'
-                let term2 = if v_prime.is_zero_num() {
-                    Expr::number(0.0)
-                } else if v_prime.is_one_num() {
-                    (**u).clone()
-                } else if u.is_one_num() {
-                    v_prime.clone()
-                } else if u.is_zero_num() {
-                    Expr::number(0.0)
-                } else {
-                    Expr::mul_expr((**u).clone(), v_prime.clone())
-                };
-
-                // Combine terms
-                if term1.is_zero_num() {
-                    term2
-                } else if term2.is_zero_num() {
-                    term1
-                } else {
-                    Expr::add_expr(term1, term2)
+                    Expr::sum(result_terms)
                 }
             }
 
@@ -366,10 +364,7 @@ impl Expr {
                             // ln(1) = 0
                             Expr::number(0.0)
                         } else {
-                            Expr::new(ExprKind::FunctionCall {
-                                name: "ln".to_string(),
-                                args: vec![u.as_ref().clone()],
-                            })
+                            Expr::func("ln", u.as_ref().clone())
                         };
                         let term1 = if v_prime.is_zero_num() || ln_u.is_zero_num() {
                             Expr::number(0.0)
@@ -516,38 +511,32 @@ mod tests {
 
     #[test]
     fn test_derive_sinh() {
-        let expr = Expr::new(ExprKind::FunctionCall {
-            name: "sinh".to_string(),
-            args: vec![Expr::symbol("x")],
-        });
+        let expr = Expr::func("sinh", Expr::symbol("x"));
         let result = expr.derive("x", &HashSet::new(), &HashMap::new(), &HashMap::new());
         // Result should be cosh(x) * 1 (unoptimized) or cosh(x) (optimized)
         match result.kind {
             ExprKind::FunctionCall { name, .. } => assert_eq!(name, "cosh"),
-            ExprKind::Mul(lhs, _) => {
-                if let ExprKind::FunctionCall { name, .. } = &lhs.kind {
-                    assert_eq!(name, "cosh");
-                } else {
-                    panic!("Expected cosh in Mul, got {:?}", lhs);
-                }
+            ExprKind::Product(factors) => {
+                // Check that one of the factors is cosh
+                let has_cosh = factors.iter().any(
+                    |f| matches!(&f.kind, ExprKind::FunctionCall { name, .. } if name == "cosh"),
+                );
+                assert!(has_cosh, "Expected cosh in Product, got {:?}", factors);
             }
-            _ => panic!("Expected cosh or Mul(cosh, 1), got {:?}", result),
+            _ => panic!("Expected cosh or Product with cosh, got {:?}", result),
         }
     }
 
     #[test]
     fn test_custom_derivative_fallback() {
         let x = Expr::symbol("x");
-        let expr = Expr::new(ExprKind::FunctionCall {
-            name: "custom".to_string(),
-            args: vec![x],
-        });
+        let expr = Expr::func("custom", x);
         // Should return symbolic derivative if no rule
         let result = expr.derive("x", &HashSet::new(), &HashMap::new(), &HashMap::new());
         // Returns Mul(partial, arg_prime) usually
         assert!(matches!(
             result.kind,
-            ExprKind::Mul(_, _) | ExprKind::Symbol(_)
+            ExprKind::Product(_) | ExprKind::Symbol(_)
         ));
     }
 
@@ -576,7 +565,7 @@ mod tests {
         let expr = Expr::pow(Expr::symbol("x"), Expr::symbol("x"));
         let result = expr.derive("x", &HashSet::new(), &HashMap::new(), &HashMap::new());
         // Result should be multiplication (complex expression)
-        assert!(matches!(result.kind, ExprKind::Mul(_, _)));
+        assert!(matches!(result.kind, ExprKind::Product(_)));
     }
 
     #[test]

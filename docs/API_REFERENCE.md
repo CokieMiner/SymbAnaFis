@@ -85,18 +85,70 @@ let temp = Symbol::anon();  // Unique ID, no name
 ### Registry Management
 
 ```rust
-use symb_anafis::{symbol_exists, remove_symbol, clear_symbols};
+use symb_anafis::{symbol_exists, symbol_count, symbol_names, remove_symbol, clear_symbols};
 
 // Check if symbol exists
 if symbol_exists("x") {
     println!("x is registered");
 }
 
+// Count registered symbols
+let count = symbol_count();  // e.g., 5
+
+// List all symbol names
+let names = symbol_names();  // e.g., ["x", "y", "z"]
+
 // Remove a specific symbol
 remove_symbol("x");  // Returns true if removed
 
 // Clear all symbols (use with caution!)
 clear_symbols();
+```
+
+### SymbolContext: Isolated Symbol Registries
+
+For isolated symbol namespaces (useful for testing, avoiding collisions, or multi-tenant systems):
+
+```rust
+use symb_anafis::SymbolContext;
+
+// Create isolated contexts
+let ctx1 = SymbolContext::new();
+let ctx2 = SymbolContext::new();
+
+// Same name, different contexts = DIFFERENT symbols!
+let x1 = ctx1.symb("x");  // id: 1234
+let x2 = ctx2.symb("x");  // id: 5678 (different!)
+
+// Build expressions using context symbols
+let y = ctx1.symb("y");
+let expr = x1 + y;  // Uses symbols from ctx1
+```
+
+**SymbolContext API:**
+
+| Method | Description |
+|--------|-------------|
+| `SymbolContext::new()` | Create new isolated context |
+| `ctx.symb("x")` | Get or create symbol |
+| `ctx.symb_new("x")` | Create only (errors if exists) |
+| `ctx.get("x")` | Get if exists (returns `Option<Symbol>`) |
+| `ctx.contains("x")` | Check if symbol exists |
+| `ctx.len()` | Count symbols in context |
+| `ctx.is_empty()` | Check if context has no symbols |
+| `ctx.symbol_names()` | List all symbol names |
+| `ctx.remove("x")` | Remove a symbol |
+| `ctx.clear()` | Remove all symbols |
+| `ctx.anon()` | Create anonymous symbol (unique ID, no name) |
+
+**Global Context Accessor:**
+
+```rust
+use symb_anafis::global_context;
+
+// Get the singleton global context
+let ctx = global_context();
+let x = ctx.symb("x");  // Equivalent to symb("x")
 ```
 
 ---

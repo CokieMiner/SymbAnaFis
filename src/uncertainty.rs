@@ -15,7 +15,7 @@
 //! # TODO
 //!
 //! - [ ] Cross-term optimization: compute upper triangle only and double cross-terms
-//!       σ² = Σᵢ (∂f/∂xᵢ)² σᵢ² + 2 Σᵢ<ⱼ (∂f/∂xᵢ)(∂f/∂xⱼ) Cov(xᵢ, xⱼ)
+//!   σ² = Σᵢ (∂f/∂xᵢ)² σᵢ² + 2 Σᵢ<ⱼ (∂f/∂xᵢ)(∂f/∂xⱼ) Cov(xᵢ, xⱼ)
 //! - [ ] Matrix symmetry validation: assert Cov[i][j] = Cov[j][i]
 
 use crate::{Diff, DiffError, Expr};

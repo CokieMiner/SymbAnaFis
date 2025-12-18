@@ -652,3 +652,108 @@ fn test_closure_evaluation() {
         );
     }
 }
+
+// ============================================================================
+// LARGE PHYSICS EXPRESSIONS - PERFORMANCE TESTS
+// ============================================================================
+
+/// Test that large physics expressions complete differentiation in reasonable time
+/// These are the expressions used in benchmarks - if they hang, benchmarks will too
+#[test]
+fn test_large_expr_normal_pdf() {
+    use std::time::Instant;
+    let start = Instant::now();
+    let result = diff(
+        "exp(-(x - mu)^2 / (2 * sigma^2)) / sqrt(2 * pi * sigma^2)",
+        "x",
+        Some(&["mu", "sigma"]),
+        None,
+    );
+    let elapsed = start.elapsed();
+    assert!(result.is_ok(), "Normal PDF diff failed: {:?}", result);
+    assert!(
+        elapsed.as_secs() < 5,
+        "Normal PDF took too long: {:?}",
+        elapsed
+    );
+}
+
+#[test]
+fn test_large_expr_wave_equation() {
+    use std::time::Instant;
+    let start = Instant::now();
+    let result = diff(
+        "A * sin(k*x - omega*t) * exp(-gamma*t)",
+        "x",
+        Some(&["A", "k", "omega", "gamma"]),
+        None,
+    );
+    let elapsed = start.elapsed();
+    assert!(result.is_ok(), "Wave equation diff failed: {:?}", result);
+    assert!(
+        elapsed.as_secs() < 5,
+        "Wave equation took too long: {:?}",
+        elapsed
+    );
+}
+
+#[test]
+fn test_large_expr_gaussian_2d() {
+    use std::time::Instant;
+    let start = Instant::now();
+    let result = diff(
+        "exp(-((x - x0)^2 + (y - y0)^2) / (2 * sigma^2)) / (2 * pi * sigma^2)",
+        "x",
+        Some(&["x0", "y0", "sigma"]),
+        None,
+    );
+    let elapsed = start.elapsed();
+    assert!(result.is_ok(), "Gaussian 2D diff failed: {:?}", result);
+    assert!(
+        elapsed.as_secs() < 5,
+        "Gaussian 2D took too long: {:?}",
+        elapsed
+    );
+}
+
+#[test]
+fn test_large_expr_maxwell_boltzmann() {
+    use std::time::Instant;
+    let start = Instant::now();
+    let result = diff(
+        "4 * pi * (m / (2 * pi * k * T))^(3/2) * v^2 * exp(-m * v^2 / (2 * k * T))",
+        "v",
+        Some(&["m", "k", "T"]),
+        None,
+    );
+    let elapsed = start.elapsed();
+    assert!(
+        result.is_ok(),
+        "Maxwell-Boltzmann diff failed: {:?}",
+        result
+    );
+    assert!(
+        elapsed.as_secs() < 5,
+        "Maxwell-Boltzmann took too long: {:?}",
+        elapsed
+    );
+}
+
+#[test]
+fn test_large_expr_orbital_energy() {
+    use std::time::Instant;
+    let start = Instant::now();
+    let result = diff(
+        "-G * M * m / (2 * a) + L^2 / (2 * m * r^2) - G * M * m / r",
+        "r",
+        Some(&["G", "M", "m", "a", "L"]),
+        None,
+    );
+    let elapsed = start.elapsed();
+    assert!(result.is_ok(), "Orbital energy diff failed: {:?}", result);
+    assert!(
+        elapsed.as_secs() < 5,
+        "Orbital energy took too long: {:?} - POSSIBLE SIMPLIFICATION CYCLE",
+        elapsed
+    );
+}

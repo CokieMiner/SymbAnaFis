@@ -88,7 +88,7 @@ fn test_symbol_method_chaining() {
     // Symbol.pow(2.0) works and returns Expr, but sin() returns Expr, so use pow_of
     let expr = x.clone().sin().pow_of(2.0) + x.clone().cos().pow_of(2.0);
 
-    assert_eq!(format!("{}", expr), "sin(x)^2 + cos(x)^2");
+    assert_eq!(format!("{}", expr), "cos(x)^2 + sin(x)^2");
 
     let diff = Diff::new();
     let res = diff.differentiate(expr, &x).unwrap();
