@@ -48,19 +48,19 @@ fn bench_parsing(c: &mut Criterion) {
     let empty_set = HashSet::new();
 
     group.bench_function("polynomial", |b| {
-        b.iter(|| parse(black_box(POLYNOMIAL), &empty_set, &empty_set))
+        b.iter(|| parse(black_box(POLYNOMIAL), &empty_set, &empty_set, None))
     });
 
     group.bench_function("trig_simple", |b| {
-        b.iter(|| parse(black_box(TRIG_SIMPLE), &empty_set, &empty_set))
+        b.iter(|| parse(black_box(TRIG_SIMPLE), &empty_set, &empty_set, None))
     });
 
     group.bench_function("complex_expr", |b| {
-        b.iter(|| parse(black_box(COMPLEX_EXPR), &empty_set, &empty_set))
+        b.iter(|| parse(black_box(COMPLEX_EXPR), &empty_set, &empty_set, None))
     });
 
     group.bench_function("nested_trig", |b| {
-        b.iter(|| parse(black_box(NESTED_TRIG), &empty_set, &empty_set))
+        b.iter(|| parse(black_box(NESTED_TRIG), &empty_set, &empty_set, None))
     });
 
     group.finish();
@@ -75,10 +75,10 @@ fn bench_diff_ast_only(c: &mut Criterion) {
     let empty_set = HashSet::new();
 
     // Pre-parse expressions for AST-only benchmarking
-    let poly_expr = parse(POLYNOMIAL, &empty_set, &empty_set).unwrap();
-    let trig_expr = parse(TRIG_SIMPLE, &empty_set, &empty_set).unwrap();
-    let complex_expr = parse(COMPLEX_EXPR, &empty_set, &empty_set).unwrap();
-    let nested_expr = parse(NESTED_TRIG, &empty_set, &empty_set).unwrap();
+    let poly_expr = parse(POLYNOMIAL, &empty_set, &empty_set, None).unwrap();
+    let trig_expr = parse(TRIG_SIMPLE, &empty_set, &empty_set, None).unwrap();
+    let complex_expr = parse(COMPLEX_EXPR, &empty_set, &empty_set, None).unwrap();
+    let nested_expr = parse(NESTED_TRIG, &empty_set, &empty_set, None).unwrap();
 
     let x = symb_anafis::symb("x");
 

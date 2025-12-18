@@ -38,19 +38,19 @@ fn bench_parsing_comparison(c: &mut Criterion) {
 
     // SymbAnaFis parsing
     group.bench_function("symb_anafis/polynomial", |b| {
-        b.iter(|| symb_anafis::parse(black_box(POLYNOMIAL), &empty_set, &empty_set))
+        b.iter(|| symb_anafis::parse(black_box(POLYNOMIAL), &empty_set, &empty_set, None))
     });
 
     group.bench_function("symb_anafis/trig_simple", |b| {
-        b.iter(|| symb_anafis::parse(black_box(TRIG_SIMPLE), &empty_set, &empty_set))
+        b.iter(|| symb_anafis::parse(black_box(TRIG_SIMPLE), &empty_set, &empty_set, None))
     });
 
     group.bench_function("symb_anafis/complex_expr", |b| {
-        b.iter(|| symb_anafis::parse(black_box(COMPLEX_EXPR), &empty_set, &empty_set))
+        b.iter(|| symb_anafis::parse(black_box(COMPLEX_EXPR), &empty_set, &empty_set, None))
     });
 
     group.bench_function("symb_anafis/nested_trig", |b| {
-        b.iter(|| symb_anafis::parse(black_box(NESTED_TRIG), &empty_set, &empty_set))
+        b.iter(|| symb_anafis::parse(black_box(NESTED_TRIG), &empty_set, &empty_set, None))
     });
 
     // Symbolica parsing
@@ -82,10 +82,10 @@ fn bench_diff_ast_comparison(c: &mut Criterion) {
     let empty_set = HashSet::new();
 
     // Pre-parse for SymbAnaFis
-    let poly_expr = symb_anafis::parse(POLYNOMIAL, &empty_set, &empty_set).unwrap();
-    let trig_expr = symb_anafis::parse(TRIG_SIMPLE, &empty_set, &empty_set).unwrap();
-    let complex_expr = symb_anafis::parse(COMPLEX_EXPR, &empty_set, &empty_set).unwrap();
-    let nested_expr = symb_anafis::parse(NESTED_TRIG, &empty_set, &empty_set).unwrap();
+    let poly_expr = symb_anafis::parse(POLYNOMIAL, &empty_set, &empty_set, None).unwrap();
+    let trig_expr = symb_anafis::parse(TRIG_SIMPLE, &empty_set, &empty_set, None).unwrap();
+    let complex_expr = symb_anafis::parse(COMPLEX_EXPR, &empty_set, &empty_set, None).unwrap();
+    let nested_expr = symb_anafis::parse(NESTED_TRIG, &empty_set, &empty_set, None).unwrap();
 
     // Pre-parse for Symbolica
     let x_sym = symbol!("x");

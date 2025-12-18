@@ -3,7 +3,7 @@ use std::collections::HashSet;
 
 #[test]
 fn test_abs_function_simplification() {
-    let expr = parse("abs(sigma)", &HashSet::new(), &HashSet::new()).unwrap();
+    let expr = parse("abs(sigma)", &HashSet::new(), &HashSet::new(), None).unwrap();
     println!("Parsed expr: {:?}", expr);
 
     let expr_str = expr.to_string();
@@ -24,6 +24,7 @@ fn test_abs_in_product() {
         "sqrt(2) * (mu - x) * abs(sigma) / (2 * sigma^4)",
         &HashSet::new(),
         &HashSet::new(),
+        None,
     )
     .unwrap();
     println!("Parsed expr: {:?}", expr);

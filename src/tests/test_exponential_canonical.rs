@@ -13,7 +13,7 @@ mod tests {
         // exp(b)^a → exp(a*b) - this rule is still valid
         let result = simplify_string("exp(x)^2", None, None).unwrap();
 
-        if let Ok(ast) = parse(&result, &HashSet::new(), &HashSet::new()) {
+        if let Ok(ast) = parse(&result, &HashSet::new(), &HashSet::new(), None) {
             match ast.kind {
                 ExprKind::FunctionCall { name, args } => {
                     assert_eq!(name, "exp");

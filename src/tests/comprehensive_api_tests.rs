@@ -22,7 +22,7 @@ fn approx_eq(a: f64, b: f64, eps: f64) -> bool {
 fn eval(expr_str: &str) -> Option<f64> {
     let fixed = HashSet::new();
     let custom = HashSet::new();
-    let expr = parser_parse(expr_str, &fixed, &custom).ok()?;
+    let expr = parser_parse(expr_str, &fixed, &custom, None).ok()?;
     let vars: HashMap<&str, f64> = HashMap::new();
     match &expr.evaluate(&vars).kind {
         ExprKind::Number(n) => Some(*n),
@@ -33,7 +33,7 @@ fn eval(expr_str: &str) -> Option<f64> {
 fn eval_with(expr_str: &str, vars: &[(&str, f64)]) -> Option<f64> {
     let fixed = HashSet::new();
     let custom = HashSet::new();
-    let expr = parser_parse(expr_str, &fixed, &custom).ok()?;
+    let expr = parser_parse(expr_str, &fixed, &custom, None).ok()?;
     let var_map: HashMap<&str, f64> = vars.iter().cloned().collect();
     match &expr.evaluate(&var_map).kind {
         ExprKind::Number(n) => Some(*n),
@@ -187,7 +187,7 @@ mod api_tests {
     fn test_expr_evaluate() {
         let fixed = HashSet::new();
         let custom = HashSet::new();
-        let expr = parser_parse("2 + 3", &fixed, &custom).unwrap();
+        let expr = parser_parse("2 + 3", &fixed, &custom, None).unwrap();
         let vars = HashMap::new();
         let result = expr.evaluate(&vars);
         if let ExprKind::Number(n) = result.kind {
@@ -330,7 +330,7 @@ mod api_tests {
         let fixed_vars = HashSet::new();
 
         // Parse expression containing custom function: f(x) + x
-        let expr = parser_parse("f(x) + x", &fixed_vars, &custom_fns).unwrap();
+        let expr = parser_parse("f(x) + x", &fixed_vars, &custom_fns, None).unwrap();
 
         // Evaluate with x = 2.0 (custom function remains symbolic)
         let vars: HashMap<&str, f64> = [("x", 2.0)].iter().cloned().collect();

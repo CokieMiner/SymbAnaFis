@@ -10,7 +10,7 @@ mod tests {
         // Parse (1 + x) * (1 - x)
         let vars: HashSet<String> = ["x".to_string()].into_iter().collect();
         let funcs: HashSet<String> = HashSet::new();
-        let expr = parse("(1 + x) * (1 - x)", &vars, &funcs).unwrap();
+        let expr = parse("(1 + x) * (1 - x)", &vars, &funcs, None).unwrap();
         println!("Parsed: {:?}", expr);
 
         // Check structure - now uses Product and Sum with negated terms

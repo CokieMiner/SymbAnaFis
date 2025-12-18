@@ -141,7 +141,7 @@ fn test_diff_erfc_erf() {
 #[test]
 fn test_diff_higher_order() {
     // d^5/dx^5 sin(x) = cos(x)
-    let expr = parse("sin(x)", &HashSet::new(), &HashSet::new()).unwrap();
+    let expr = parse("sin(x)", &HashSet::new(), &HashSet::new(), None).unwrap();
     let mut result = expr.clone();
     for _ in 0..5 {
         result = result.derive("x", &HashSet::new(), &HashMap::new(), &HashMap::new());
@@ -162,7 +162,7 @@ fn test_diff_higher_order() {
 
 #[test]
 fn test_eval_extreme_values() {
-    let expr = parse("exp(x)", &HashSet::new(), &HashSet::new()).unwrap();
+    let expr = parse("exp(x)", &HashSet::new(), &HashSet::new(), None).unwrap();
 
     // Very large value
     let mut vars = HashMap::new();
@@ -186,7 +186,7 @@ fn test_eval_extreme_values() {
 #[test]
 fn test_eval_precision_sensitive() {
     // 1/3 * 3 should be approximately 1
-    let expr = parse("1/3 * 3", &HashSet::new(), &HashSet::new()).unwrap();
+    let expr = parse("1/3 * 3", &HashSet::new(), &HashSet::new(), None).unwrap();
     let result = expr.evaluate(&HashMap::new());
     if let ExprKind::Number(n) = result.kind {
         assert!((n - 1.0).abs() < 1e-10, "1/3 * 3 = {} should be ~1", n);
@@ -196,7 +196,7 @@ fn test_eval_precision_sensitive() {
 #[test]
 fn test_eval_special_function_poles() {
     // gamma(0) should return None/NaN (pole)
-    let expr = parse("gamma(x)", &HashSet::new(), &HashSet::new()).unwrap();
+    let expr = parse("gamma(x)", &HashSet::new(), &HashSet::new(), None).unwrap();
     let mut vars = HashMap::new();
     vars.insert("x", 0.0);
     let result = expr.evaluate(&vars);
@@ -209,7 +209,7 @@ fn test_eval_special_function_poles() {
 
 #[test]
 fn test_eval_trigamma_at_various_points() {
-    let expr = parse("trigamma(x)", &HashSet::new(), &HashSet::new()).unwrap();
+    let expr = parse("trigamma(x)", &HashSet::new(), &HashSet::new(), None).unwrap();
     for x in [0.5, 1.0, 2.0, 5.0, 10.0] {
         let mut vars = HashMap::new();
         vars.insert("x", x);
@@ -223,7 +223,7 @@ fn test_eval_trigamma_at_various_points() {
 #[test]
 fn test_eval_zeta_deriv_convergence() {
     // zeta_deriv(2, 3) - second derivative at s=3
-    let expr = parse("zeta_deriv(2, s)", &HashSet::new(), &HashSet::new()).unwrap();
+    let expr = parse("zeta_deriv(2, s)", &HashSet::new(), &HashSet::new(), None).unwrap();
     let mut vars = HashMap::new();
     vars.insert("s", 3.0);
     let result = expr.evaluate(&vars);
@@ -239,7 +239,13 @@ fn test_eval_zeta_deriv_convergence() {
 #[test]
 fn test_eval_complex_expression_accuracy() {
     // sin^2(x) + cos^2(x) = 1 for all x
-    let expr = parse("sin(x)^2 + cos(x)^2", &HashSet::new(), &HashSet::new()).unwrap();
+    let expr = parse(
+        "sin(x)^2 + cos(x)^2",
+        &HashSet::new(),
+        &HashSet::new(),
+        None,
+    )
+    .unwrap();
     for x in [0.0, 0.5, 1.0, 2.0, PI, 100.0] {
         let mut vars = HashMap::new();
         vars.insert("x", x);
@@ -259,7 +265,7 @@ fn test_eval_complex_expression_accuracy() {
 #[test]
 fn test_eval_bessel_accuracy() {
     // J_0(0) = 1
-    let expr = parse("besselj(0, x)", &HashSet::new(), &HashSet::new()).unwrap();
+    let expr = parse("besselj(0, x)", &HashSet::new(), &HashSet::new(), None).unwrap();
     let mut vars = HashMap::new();
     vars.insert("x", 0.0);
     let result = expr.evaluate(&vars);
@@ -365,7 +371,7 @@ fn test_custom_function_diff() {
     custom.insert("f".to_string());
 
     // Parse f(x) with custom function
-    let expr = parse("f(x)", &HashSet::new(), &custom).unwrap();
+    let expr = parse("f(x)", &HashSet::new(), &custom, None).unwrap();
 
     // The derivative should be symbolic: f'(x) or similar
     let deriv = expr.derive("x", &HashSet::new(), &HashMap::new(), &HashMap::new());
@@ -402,7 +408,7 @@ fn test_nested_custom_functions() {
     custom.insert("g".to_string());
 
     // f(g(x))
-    let expr = parse("f(g(x))", &HashSet::new(), &custom).unwrap();
+    let expr = parse("f(g(x))", &HashSet::new(), &custom, None).unwrap();
     let deriv = expr.derive("x", &HashSet::new(), &HashMap::new(), &HashMap::new());
     // Should produce chain rule: f'(g(x)) * g'(x)
     let s = format!("{}", deriv);
@@ -414,7 +420,7 @@ fn test_custom_function_evaluation() {
     let mut custom = HashSet::new();
     custom.insert("f".to_string());
 
-    let expr = parse("f(x) + 1", &HashSet::new(), &custom).unwrap();
+    let expr = parse("f(x) + 1", &HashSet::new(), &custom, None).unwrap();
 
     // Define custom evaluator: f(x) = x^2
     let mut custom_evals: HashMap<String, CustomEvalFn> = HashMap::new();
@@ -441,14 +447,14 @@ fn test_custom_function_evaluation() {
 
 #[test]
 fn test_empty_expression_handling() {
-    let result = parse("", &HashSet::new(), &HashSet::new());
+    let result = parse("", &HashSet::new(), &HashSet::new(), None);
     assert!(result.is_err(), "Empty expression should fail");
 }
 
 #[test]
 fn test_unicode_variable_names() {
     // Greek letters
-    let result = parse("α + β * γ", &HashSet::new(), &HashSet::new());
+    let result = parse("α + β * γ", &HashSet::new(), &HashSet::new(), None);
     assert!(result.is_ok(), "Unicode variables failed: {:?}", result);
 }
 
@@ -469,7 +475,7 @@ fn test_very_long_expression() {
 #[test]
 fn test_deeply_nested_parentheses() {
     // ((((((x))))))
-    let result = parse("((((((x))))))", &HashSet::new(), &HashSet::new());
+    let result = parse("((((((x))))))", &HashSet::new(), &HashSet::new(), None);
     assert!(result.is_ok());
     let expr = result.unwrap();
     assert_eq!(format!("{}", expr), "x");
@@ -478,7 +484,7 @@ fn test_deeply_nested_parentheses() {
 #[test]
 fn test_implicit_multiplication() {
     // 2x should be 2*x
-    let result = parse("2x", &HashSet::new(), &HashSet::new());
+    let result = parse("2x", &HashSet::new(), &HashSet::new(), None);
     assert!(
         result.is_ok(),
         "Implicit multiplication failed: {:?}",
@@ -488,14 +494,14 @@ fn test_implicit_multiplication() {
 
 #[test]
 fn test_scientific_notation() {
-    let result = parse("1e10 + 2.5e-5", &HashSet::new(), &HashSet::new());
+    let result = parse("1e10 + 2.5e-5", &HashSet::new(), &HashSet::new(), None);
     assert!(result.is_ok(), "Scientific notation failed: {:?}", result);
 }
 
 #[test]
 fn test_division_by_symbolic_zero() {
     // x / (x - x) - should handle symbolically
-    let result = parse("x / (x - x)", &HashSet::new(), &HashSet::new());
+    let result = parse("x / (x - x)", &HashSet::new(), &HashSet::new(), None);
     assert!(result.is_ok());
     // Simplification might produce infinity or undefined
 }
@@ -503,7 +509,7 @@ fn test_division_by_symbolic_zero() {
 #[test]
 fn test_zero_to_zero_power() {
     // 0^0 - mathematically undefined but IEEE 754 says 1
-    let expr = parse("0^0", &HashSet::new(), &HashSet::new()).unwrap();
+    let expr = parse("0^0", &HashSet::new(), &HashSet::new(), None).unwrap();
     let result = expr.evaluate(&HashMap::new());
     if let ExprKind::Number(n) = result.kind {
         assert_eq!(n, 1.0, "0^0 should be 1 per IEEE 754");
@@ -513,7 +519,7 @@ fn test_zero_to_zero_power() {
 #[test]
 fn test_negative_base_fractional_exponent() {
     // (-8)^(1/3) = -2 (real cube root)
-    let expr = parse("(-8)^(1/3)", &HashSet::new(), &HashSet::new()).unwrap();
+    let expr = parse("(-8)^(1/3)", &HashSet::new(), &HashSet::new(), None).unwrap();
     let result = expr.evaluate(&HashMap::new());
     if let ExprKind::Number(n) = result.kind {
         // Note: IEEE 754 pow(-8, 1/3) = NaN, cbrt(-8) = -2
@@ -551,7 +557,7 @@ fn test_full_pipeline_with_evaluation() {
     let deriv = diff("x^3", "x", None, None).unwrap();
     // d/dx[x^3] = 3x^2
 
-    let expr = parse(&deriv, &HashSet::new(), &HashSet::new()).unwrap();
+    let expr = parse(&deriv, &HashSet::new(), &HashSet::new(), None).unwrap();
     let mut vars = HashMap::new();
     vars.insert("x", 2.0);
     let result = expr.evaluate(&vars);
@@ -639,7 +645,7 @@ fn test_closure_evaluation() {
     let d5 = diff(&d4, "x", None, None).unwrap();
 
     // d^5/dx^5 exp(x) = exp(x)
-    let expr = parse(&d5, &HashSet::new(), &HashSet::new()).unwrap();
+    let expr = parse(&d5, &HashSet::new(), &HashSet::new(), None).unwrap();
     let mut vars = HashMap::new();
     vars.insert("x", 1.0);
     let result = expr.evaluate(&vars);

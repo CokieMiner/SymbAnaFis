@@ -14,7 +14,7 @@
 //!     .differentiate(expr, &x)?;  // Now uses Symbol!
 //! ```
 
-use crate::{DiffError, Expr, Symbol, parser, simplification, symb};
+use crate::{DiffError, Expr, Symbol, parser, simplification, symbol::SymbolContext};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -92,6 +92,7 @@ pub struct Diff {
     custom_fns: HashMap<String, CustomFn>, // New: multi-arg functions
     max_depth: Option<usize>,
     max_nodes: Option<usize>,
+    context: Option<SymbolContext>,
 }
 
 impl Diff {
@@ -140,6 +141,12 @@ impl Diff {
     /// Add a custom function name (for parsing)
     pub fn custom_fn(mut self, name: impl Into<String>) -> Self {
         self.custom_functions.insert(name.into());
+        self
+    }
+
+    /// Set the symbol context for parsing and variable creation
+    pub fn with_context(mut self, context: &SymbolContext) -> Self {
+        self.context = Some(context.clone());
         self
     }
 
@@ -309,10 +316,19 @@ impl Diff {
         }
 
         // Parse
-        let ast = parser::parse(formula, &self.fixed_vars, &self.custom_functions)?;
+        let ast = parser::parse(
+            formula,
+            &self.fixed_vars,
+            &self.custom_functions,
+            self.context.as_ref(), // Pass the context
+        )?;
 
         // Create a temporary Symbol for the variable
-        let var_sym = symb(var);
+        let var_sym = if let Some(ctx) = &self.context {
+            ctx.symb(var)
+        } else {
+            crate::symb(var) // Global fallback
+        };
 
         // Differentiate
         let result = self.differentiate(ast, &var_sym)?;
@@ -342,6 +358,7 @@ pub struct Simplify {
     custom_evals: HashMap<String, CustomEvalFn>,
     max_depth: Option<usize>,
     max_nodes: Option<usize>,
+    context: Option<SymbolContext>,
 }
 
 impl Simplify {
@@ -390,6 +407,12 @@ impl Simplify {
     /// Add a custom function name
     pub fn custom_fn(mut self, name: impl Into<String>) -> Self {
         self.custom_functions.insert(name.into());
+        self
+    }
+
+    /// Set the symbol context for parsing
+    pub fn with_context(mut self, context: &SymbolContext) -> Self {
+        self.context = Some(context.clone());
         self
     }
 
@@ -448,7 +471,12 @@ impl Simplify {
 
     /// Parse and simplify a string formula
     pub fn simplify_str(&self, formula: &str) -> Result<String, DiffError> {
-        let ast = parser::parse(formula, &self.fixed_vars, &self.custom_functions)?;
+        let ast = parser::parse(
+            formula,
+            &self.fixed_vars,
+            &self.custom_functions,
+            self.context.as_ref(),
+        )?;
         let result = self.simplify(ast)?;
         Ok(format!("{}", result))
     }

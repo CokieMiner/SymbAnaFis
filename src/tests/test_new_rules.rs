@@ -68,7 +68,7 @@ mod tests {
         use crate::parser;
         let fixed = std::collections::HashSet::new();
         let funcs = std::collections::HashSet::new();
-        let ast = parser::parse("12 / 3", &fixed, &funcs).unwrap();
+        let ast = parser::parse("12 / 3", &fixed, &funcs, None).unwrap();
         let simplified = simplify_expr(ast, HashSet::new());
         assert_eq!(format!("{}", simplified), "4");
     }
@@ -78,7 +78,7 @@ mod tests {
         use crate::parser;
         let fixed = std::collections::HashSet::new();
         let funcs = std::collections::HashSet::new();
-        let ast = parser::parse("3 * sin(x) - 4 * sin(x)^3", &fixed, &funcs).unwrap();
+        let ast = parser::parse("3 * sin(x) - 4 * sin(x)^3", &fixed, &funcs, None).unwrap();
         let simplified = simplify_expr(ast, HashSet::new());
         // Expect sin(3 * x) or sin(Product([3, x]))
         let expected = Expr::func(
@@ -93,7 +93,7 @@ mod tests {
         use crate::parser;
         let fixed = std::collections::HashSet::new();
         let funcs = std::collections::HashSet::new();
-        let ast = parser::parse("4 * sinh(x)^3 + 3 * sinh(x)", &fixed, &funcs).unwrap();
+        let ast = parser::parse("4 * sinh(x)^3 + 3 * sinh(x)", &fixed, &funcs, None).unwrap();
         let simplified = simplify_expr(ast, HashSet::new());
         let expected = Expr::func(
             "sinh",
@@ -109,7 +109,7 @@ mod tests {
         let funcs = std::collections::HashSet::new();
         // Test the canonical form
         let s = "3 * sin(x) - 4 * sin(x)^3";
-        let ast = parser::parse(s, &fixed, &funcs).unwrap();
+        let ast = parser::parse(s, &fixed, &funcs, None).unwrap();
         let simplified = simplify_expr(ast, HashSet::new());
         let expected = Expr::func(
             "sin",
@@ -124,13 +124,14 @@ mod tests {
         let fixed = std::collections::HashSet::new();
         let funcs = std::collections::HashSet::new();
         // Floating coefficient should not fold
-        let ast = parser::parse("3.000000001 * sin(x) - 4 * sin(x)^3", &fixed, &funcs).unwrap();
+        let ast =
+            parser::parse("3.000000001 * sin(x) - 4 * sin(x)^3", &fixed, &funcs, None).unwrap();
         let simplified = simplify_expr(ast, HashSet::new());
         // Expect no simplification to triple-angle
         assert!(!matches!(simplified.kind, ExprKind::FunctionCall { name, .. } if name == "sin"));
 
         // Symbolic coefficient should not fold
-        let ast = parser::parse("a * sin(x) - 4 * sin(x)^3", &fixed, &funcs).unwrap();
+        let ast = parser::parse("a * sin(x) - 4 * sin(x)^3", &fixed, &funcs, None).unwrap();
         let simplified = simplify_expr(ast, HashSet::new());
         assert!(!matches!(simplified.kind, ExprKind::FunctionCall { name, .. } if name == "sin"));
     }
@@ -141,7 +142,13 @@ mod tests {
         let fixed = std::collections::HashSet::new();
         let funcs = std::collections::HashSet::new();
         // small floating difference within tolerance should fold
-        let ast = parser::parse("3.00000000001 * sin(x) - 4.0 * sin(x)^3", &fixed, &funcs).unwrap();
+        let ast = parser::parse(
+            "3.00000000001 * sin(x) - 4.0 * sin(x)^3",
+            &fixed,
+            &funcs,
+            None,
+        )
+        .unwrap();
         let simplified = simplify_expr(ast, HashSet::new());
         let expected = Expr::func(
             "sin",
@@ -150,7 +157,13 @@ mod tests {
         assert_eq!(simplified, expected);
 
         // same for cos triple angle
-        let ast = parser::parse("4.00000000001 * cos(x)^3 - 3.0 * cos(x)", &fixed, &funcs).unwrap();
+        let ast = parser::parse(
+            "4.00000000001 * cos(x)^3 - 3.0 * cos(x)",
+            &fixed,
+            &funcs,
+            None,
+        )
+        .unwrap();
         let simplified2 = simplify_expr(ast, HashSet::new());
         let expected2 = Expr::func(
             "cos",
@@ -164,7 +177,7 @@ mod tests {
         use crate::parser;
         let fixed = std::collections::HashSet::new();
         let funcs = std::collections::HashSet::new();
-        let ast = parser::parse("3.0 * sin(x) - 4.0 * sin(x)^3", &fixed, &funcs).unwrap();
+        let ast = parser::parse("3.0 * sin(x) - 4.0 * sin(x)^3", &fixed, &funcs, None).unwrap();
         let simplified = simplify_expr(ast, HashSet::new());
         let expected = Expr::func(
             "sin",
@@ -179,8 +192,13 @@ mod tests {
         let fixed = std::collections::HashSet::new();
         let funcs = std::collections::HashSet::new();
         // sinh triple angle small difference
-        let ast =
-            parser::parse("4.00000000001 * sinh(x)^3 + 3.0 * sinh(x)", &fixed, &funcs).unwrap();
+        let ast = parser::parse(
+            "4.00000000001 * sinh(x)^3 + 3.0 * sinh(x)",
+            &fixed,
+            &funcs,
+            None,
+        )
+        .unwrap();
         let simplified = simplify_expr(ast, HashSet::new());
         let expected = Expr::func(
             "sinh",
@@ -195,15 +213,15 @@ mod tests {
         let fixed = std::collections::HashSet::new();
         let funcs = std::collections::HashSet::new();
         // sqrt(9) -> 3; sqrt(8) should remain symbolic
-        let ast = parser::parse("sqrt(9)", &fixed, &funcs).unwrap();
+        let ast = parser::parse("sqrt(9)", &fixed, &funcs, None).unwrap();
         assert_eq!(simplify_expr(ast, HashSet::new()), Expr::number(3.0));
-        let ast = parser::parse("sqrt(8)", &fixed, &funcs).unwrap();
+        let ast = parser::parse("sqrt(8)", &fixed, &funcs, None).unwrap();
         assert_eq!(simplify_expr(ast.clone(), HashSet::new()), ast);
 
         // cbrt(27) -> 3; cbrt(9) stays symbolic
-        let ast = parser::parse("cbrt(27)", &fixed, &funcs).unwrap();
+        let ast = parser::parse("cbrt(27)", &fixed, &funcs, None).unwrap();
         assert_eq!(simplify_expr(ast, HashSet::new()), Expr::number(3.0));
-        let ast = parser::parse("cbrt(9)", &fixed, &funcs).unwrap();
+        let ast = parser::parse("cbrt(9)", &fixed, &funcs, None).unwrap();
         assert_eq!(simplify_expr(ast.clone(), HashSet::new()), ast);
     }
 
@@ -213,10 +231,10 @@ mod tests {
         let fixed = std::collections::HashSet::new();
         let funcs = std::collections::HashSet::new();
         // 18 / 3 -> 6
-        let ast = parser::parse("18 / 3", &fixed, &funcs).unwrap();
+        let ast = parser::parse("18 / 3", &fixed, &funcs, None).unwrap();
         assert_eq!(format!("{}", simplify_expr(ast, HashSet::new())), "6");
         // 7 / 2 remains 7/2
-        let ast = parser::parse("7 / 2", &fixed, &funcs).unwrap();
+        let ast = parser::parse("7 / 2", &fixed, &funcs, None).unwrap();
         let simplified = simplify_expr(ast.clone(), HashSet::new());
         assert_eq!(simplified, ast);
     }
@@ -228,21 +246,21 @@ mod tests {
         let funcs = std::collections::HashSet::new();
         // triple-angle reduced
         let s = "3 * sin(x) - 4 * sin(x)^3";
-        let ast = parser::parse(s, &fixed, &funcs).unwrap();
+        let ast = parser::parse(s, &fixed, &funcs, None).unwrap();
         let orig = format!("{}", ast);
         let simplified = format!("{}", simplify_expr(ast, HashSet::new()));
         assert!(simplified.len() < orig.len());
 
         // numeric fraction reduced
         let s = "12 / 3";
-        let ast = parser::parse(s, &fixed, &funcs).unwrap();
+        let ast = parser::parse(s, &fixed, &funcs, None).unwrap();
         let orig = format!("{}", ast);
         let simplified = format!("{}", simplify_expr(ast, HashSet::new()));
         assert!(simplified.len() < orig.len());
 
         // sqrt numeric example
         let s = "sqrt(9)";
-        let ast = parser::parse(s, &fixed, &funcs).unwrap();
+        let ast = parser::parse(s, &fixed, &funcs, None).unwrap();
         let orig = format!("{}", ast);
         let simplified = format!("{}", simplify_expr(ast, HashSet::new()));
         assert!(simplified.len() < orig.len());

@@ -38,7 +38,7 @@ fn test_orbital_denominator_squared() {
 
     let fixed_vars: HashSet<String> = ["a".to_string(), "e".to_string()].iter().cloned().collect();
     let custom_functions: HashSet<String> = HashSet::new();
-    let result_ast = parse(&result, &fixed_vars, &custom_functions).unwrap();
+    let result_ast = parse(&result, &fixed_vars, &custom_functions, None).unwrap();
 
     // Expect derivative denominator to be (1 + e*cos(theta))^2
     if let ExprKind::Div(_, denom) = result_ast.kind {
@@ -46,7 +46,7 @@ fn test_orbital_denominator_squared() {
             // base must be (1 + e*cos(theta)), exponent must be 2
             assert_eq!(exp.as_ref().clone(), Expr::number(2.0));
             let expected_base =
-                parse("e * cos(theta) + 1", &fixed_vars, &custom_functions).unwrap();
+                parse("e * cos(theta) + 1", &fixed_vars, &custom_functions, None).unwrap();
             assert_eq!(
                 base.as_ref().clone(),
                 expected_base,

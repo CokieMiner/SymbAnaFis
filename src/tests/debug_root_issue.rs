@@ -11,7 +11,7 @@ mod tests {
         let expr_str = "x^(3 * 1 / 3)";
         println!("Parsing: {}", expr_str);
 
-        let expr = parse(expr_str, &HashSet::new(), &HashSet::new()).unwrap();
+        let expr = parse(expr_str, &HashSet::new(), &HashSet::new(), None).unwrap();
         println!("AST: {:?}", expr);
 
         // We can also check the exponent specifically
@@ -27,14 +27,14 @@ mod tests {
         assert_eq!(format!("{}", result), "x");
 
         // Test sqrt(x^2) = |x| for all real x
-        let expr_sqrt = parse("sqrt(x^2)", &HashSet::new(), &HashSet::new()).unwrap();
+        let expr_sqrt = parse("sqrt(x^2)", &HashSet::new(), &HashSet::new(), None).unwrap();
         println!("AST sqrt: {:?}", expr_sqrt);
         let result_sqrt = simplify_expr(expr_sqrt, HashSet::new());
         println!("Result sqrt: {}", result_sqrt);
         assert_eq!(format!("{}", result_sqrt), "abs(x)");
 
         // Test cbrt(x^3)
-        let expr_cbrt = parse("cbrt(x^3)", &HashSet::new(), &HashSet::new()).unwrap();
+        let expr_cbrt = parse("cbrt(x^3)", &HashSet::new(), &HashSet::new(), None).unwrap();
         println!("AST cbrt: {:?}", expr_cbrt);
         let result_cbrt = simplify_expr(expr_cbrt, HashSet::new());
         println!("Result cbrt: {}", result_cbrt);

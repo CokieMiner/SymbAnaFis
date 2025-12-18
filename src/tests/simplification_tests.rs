@@ -14,6 +14,7 @@ mod tests {
             "1/(x^2 - 1) - 1/(x^2 + 1)",
             &HashSet::new(),
             &HashSet::new(),
+            None,
         )
         .unwrap();
         let result = simplify_expr(expr.clone(), HashSet::new());
@@ -22,14 +23,16 @@ mod tests {
         println!("Simplified: {}", result);
 
         // Test simpler cases that should work
-        let test1 = parser::parse("x^2 + 1 - x^2 + 1", &HashSet::new(), &HashSet::new()).unwrap();
+        let test1 =
+            parser::parse("x^2 + 1 - x^2 + 1", &HashSet::new(), &HashSet::new(), None).unwrap();
         let result1 = simplify_expr(test1.clone(), HashSet::new());
         println!("\nTest x^2 + 1 - x^2 + 1:");
         println!("  Original: {}", test1);
         println!("  Simplified: {}", result1);
         assert_eq!(format!("{}", result1), "2");
 
-        let test2 = parser::parse("(1 + x) * (1 - x)", &HashSet::new(), &HashSet::new()).unwrap();
+        let test2 =
+            parser::parse("(1 + x) * (1 - x)", &HashSet::new(), &HashSet::new(), None).unwrap();
         let result2 = simplify_expr(test2.clone(), HashSet::new());
         println!("\nTest (1 + x) * (1 - x):");
         println!("  Original: {}", test2);
@@ -39,6 +42,7 @@ mod tests {
             "x^2 + (1 + x) * (1 - x) + 1",
             &HashSet::new(),
             &HashSet::new(),
+            None,
         )
         .unwrap();
         let result3 = simplify_expr(test3.clone(), HashSet::new());
@@ -48,7 +52,8 @@ mod tests {
         println!("  Expected: 2");
 
         // This is what we're seeing - let me check if it further simplifies
-        let test4 = parser::parse("x^2 + 1 - x^2 + 1", &HashSet::new(), &HashSet::new()).unwrap();
+        let test4 =
+            parser::parse("x^2 + 1 - x^2 + 1", &HashSet::new(), &HashSet::new(), None).unwrap();
         let result4 = simplify_expr(test4.clone(), HashSet::new());
         println!("\nDirect test of x^2 + 1 - x^2 + 1:");
         println!("  Original: {}", test4);

@@ -21,11 +21,11 @@ mod tests {
         let custom = HashSet::new();
 
         // Actually, let's just create a simplified reproduction in the test
-        let tokens_debug = crate::parser::parse(&d2, &fixed, &custom);
+        let tokens_debug = crate::parser::parse(&d2, &fixed, &custom, None);
         if let Err(e) = &tokens_debug {
             println!("Parse error: {:?}", e);
         }
-        let expr = parser::parse(&d2, &fixed, &custom).unwrap();
+        let expr = parser::parse(&d2, &fixed, &custom, None).unwrap();
         let mut vars = HashMap::new();
         vars.insert("s", 3.0);
 

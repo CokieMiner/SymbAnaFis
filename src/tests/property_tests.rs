@@ -83,7 +83,7 @@ mod parser_fuzz_tests {
             let fixed = HashSet::new();
             let custom = HashSet::new();
             // Parser should either succeed or return Err, never panic
-            let _ = parser::parse(&input, &fixed, &custom);
+            let _ = parser::parse(&input, &fixed, &custom, None);
             TestResult::passed()
         }
         QuickCheck::new()
@@ -101,7 +101,7 @@ mod parser_fuzz_tests {
             let fixed = HashSet::new();
             let custom = HashSet::new();
             // This should either parse or not, but not panic
-            let result = parser::parse(&expr_str, &fixed, &custom);
+            let result = parser::parse(&expr_str, &fixed, &custom, None);
             result.is_ok() || result.is_err() // Always true if no panic
         }
         QuickCheck::new()
@@ -124,9 +124,9 @@ mod parser_fuzz_tests {
             let fixed = HashSet::new();
             let custom = HashSet::new();
 
-            if let Ok(expr) = parser::parse(&expr_str, &fixed, &custom) {
+            if let Ok(expr) = parser::parse(&expr_str, &fixed, &custom, None) {
                 let displayed = format!("{}", expr);
-                if parser::parse(&displayed, &fixed, &custom).is_err() {
+                if parser::parse(&displayed, &fixed, &custom, None).is_err() {
                     failed_cases += 1;
                 }
             }
@@ -175,7 +175,7 @@ mod parser_fuzz_tests {
 
         for case in &edge_cases {
             // Should not panic - may succeed or fail with error
-            let _ = parser::parse(case, &fixed, &custom);
+            let _ = parser::parse(case, &fixed, &custom, None);
         }
     }
 
@@ -192,7 +192,7 @@ mod parser_fuzz_tests {
         }
 
         // Should handle without stack overflow
-        let result = parser::parse(&expr, &fixed, &custom);
+        let result = parser::parse(&expr, &fixed, &custom, None);
         assert!(
             result.is_ok(),
             "Deep nesting should parse: {}",
@@ -236,14 +236,14 @@ mod algebraic_property_tests {
             // After simplification, should evaluate to x
             let fixed = HashSet::new();
             let custom = HashSet::new();
-            let expr = parser::parse(&result, &fixed, &custom).unwrap();
+            let expr = parser::parse(&result, &fixed, &custom, None).unwrap();
             let vars: HashMap<&str, f64> = [("x", x_val)].iter().cloned().collect();
 
             if let ExprKind::Number(n) = expr.evaluate(&vars).kind {
                 TestResult::from_bool(approx_eq(n, x_val))
             } else {
                 // Result is symbolic, check that it evaluated correctly
-                let orig = parser::parse("x", &fixed, &custom).unwrap();
+                let orig = parser::parse("x", &fixed, &custom, None).unwrap();
                 let orig_result = orig.evaluate(&vars);
                 if let ExprKind::Number(n) = orig_result.kind {
                     TestResult::from_bool(approx_eq(n, x_val))
@@ -268,7 +268,7 @@ mod algebraic_property_tests {
             let result = simplify("x * 1", None, None).unwrap();
             let fixed = HashSet::new();
             let custom = HashSet::new();
-            let expr = parser::parse(&result, &fixed, &custom).unwrap();
+            let expr = parser::parse(&result, &fixed, &custom, None).unwrap();
             let vars: HashMap<&str, f64> = [("x", x_val)].iter().cloned().collect();
 
             if let ExprKind::Number(n) = expr.evaluate(&vars).kind {
@@ -293,7 +293,7 @@ mod algebraic_property_tests {
             let result = simplify("x * 0", None, None).unwrap();
             let fixed = HashSet::new();
             let custom = HashSet::new();
-            let expr = parser::parse(&result, &fixed, &custom).unwrap();
+            let expr = parser::parse(&result, &fixed, &custom, None).unwrap();
             let vars: HashMap<&str, f64> = [("x", x_val)].iter().cloned().collect();
 
             if let ExprKind::Number(n) = expr.evaluate(&vars).kind {
@@ -318,7 +318,7 @@ mod algebraic_property_tests {
             let result = simplify("x^1", None, None).unwrap();
             let fixed = HashSet::new();
             let custom = HashSet::new();
-            let expr = parser::parse(&result, &fixed, &custom).unwrap();
+            let expr = parser::parse(&result, &fixed, &custom, None).unwrap();
             let vars: HashMap<&str, f64> = [("x", x_val)].iter().cloned().collect();
 
             if let ExprKind::Number(n) = expr.evaluate(&vars).kind {
@@ -343,7 +343,7 @@ mod algebraic_property_tests {
             let result = simplify("x^0", None, None).unwrap();
             let fixed = HashSet::new();
             let custom = HashSet::new();
-            let expr = parser::parse(&result, &fixed, &custom).unwrap();
+            let expr = parser::parse(&result, &fixed, &custom, None).unwrap();
             let vars: HashMap<&str, f64> = [("x", x_val)].iter().cloned().collect();
 
             if let ExprKind::Number(n) = expr.evaluate(&vars).kind {
@@ -368,7 +368,7 @@ mod algebraic_property_tests {
             let result = simplify("x - x", None, None).unwrap();
             let fixed = HashSet::new();
             let custom = HashSet::new();
-            let expr = parser::parse(&result, &fixed, &custom).unwrap();
+            let expr = parser::parse(&result, &fixed, &custom, None).unwrap();
             let vars: HashMap<&str, f64> = [("x", x_val)].iter().cloned().collect();
 
             if let ExprKind::Number(n) = expr.evaluate(&vars).kind {
@@ -393,7 +393,7 @@ mod algebraic_property_tests {
             let result = simplify("x / x", None, None).unwrap();
             let fixed = HashSet::new();
             let custom = HashSet::new();
-            let expr = parser::parse(&result, &fixed, &custom).unwrap();
+            let expr = parser::parse(&result, &fixed, &custom, None).unwrap();
             let vars: HashMap<&str, f64> = [("x", x_val)].iter().cloned().collect();
 
             if let ExprKind::Number(n) = expr.evaluate(&vars).kind {
@@ -417,7 +417,7 @@ mod algebraic_property_tests {
 
             let fixed = HashSet::new();
             let custom = HashSet::new();
-            let expr = parser::parse("sin(x)^2 + cos(x)^2", &fixed, &custom).unwrap();
+            let expr = parser::parse("sin(x)^2 + cos(x)^2", &fixed, &custom, None).unwrap();
             let vars: HashMap<&str, f64> = [("x", x_val)].iter().cloned().collect();
 
             if let ExprKind::Number(n) = expr.evaluate(&vars).kind {
@@ -441,7 +441,7 @@ mod algebraic_property_tests {
 
             let fixed = HashSet::new();
             let custom = HashSet::new();
-            let expr = parser::parse("exp(ln(x))", &fixed, &custom).unwrap();
+            let expr = parser::parse("exp(ln(x))", &fixed, &custom, None).unwrap();
             let vars: HashMap<&str, f64> = [("x", x_val)].iter().cloned().collect();
 
             if let ExprKind::Number(n) = expr.evaluate(&vars).kind {
@@ -466,7 +466,7 @@ mod algebraic_property_tests {
 
             let fixed = HashSet::new();
             let custom = HashSet::new();
-            let expr = parser::parse("ln(exp(x))", &fixed, &custom).unwrap();
+            let expr = parser::parse("ln(exp(x))", &fixed, &custom, None).unwrap();
             let vars: HashMap<&str, f64> = [("x", x_val)].iter().cloned().collect();
 
             if let ExprKind::Number(n) = expr.evaluate(&vars).kind {
@@ -497,7 +497,7 @@ mod algebraic_property_tests {
 
             let fixed = HashSet::new();
             let custom = HashSet::new();
-            let deriv_expr = parser::parse(&derivative, &fixed, &custom).unwrap();
+            let deriv_expr = parser::parse(&derivative, &fixed, &custom, None).unwrap();
             let vars: HashMap<&str, f64> = [("x", x_val)].iter().cloned().collect();
 
             if let ExprKind::Number(result) = deriv_expr.evaluate(&vars).kind {
@@ -524,8 +524,8 @@ mod algebraic_property_tests {
             let fixed = HashSet::new();
             let custom = HashSet::new();
 
-            let expr1 = parser::parse("x + y", &fixed, &custom).unwrap();
-            let expr2 = parser::parse("y + x", &fixed, &custom).unwrap();
+            let expr1 = parser::parse("x + y", &fixed, &custom, None).unwrap();
+            let expr2 = parser::parse("y + x", &fixed, &custom, None).unwrap();
 
             let vars: HashMap<&str, f64> = [("x", x), ("y", y)].iter().cloned().collect();
 
@@ -552,8 +552,8 @@ mod algebraic_property_tests {
             let fixed = HashSet::new();
             let custom = HashSet::new();
 
-            let expr1 = parser::parse("x * y", &fixed, &custom).unwrap();
-            let expr2 = parser::parse("y * x", &fixed, &custom).unwrap();
+            let expr1 = parser::parse("x * y", &fixed, &custom, None).unwrap();
+            let expr2 = parser::parse("y * x", &fixed, &custom, None).unwrap();
 
             let vars: HashMap<&str, f64> = [("x", x), ("y", y)].iter().cloned().collect();
 

@@ -13,10 +13,12 @@ use std::collections::HashSet;
 /// * `input` - The formula string to parse
 /// * `fixed_vars` - Set of variable names that are constants
 /// * `custom_functions` - Set of custom function names
+/// * `context` - Optional symbol context. If provided, symbols are created/looked up there.
 pub fn parse(
     input: &str,
     fixed_vars: &HashSet<String>,
     custom_functions: &HashSet<String>,
+    context: Option<&crate::symbol::SymbolContext>,
 ) -> Result<Expr, DiffError> {
     // Pipeline: validate -> balance -> lex -> implicit_mul -> parse
 
@@ -35,5 +37,5 @@ pub fn parse(
     let tokens_with_mul = implicit_mul::insert_implicit_multiplication(tokens, custom_functions);
 
     // Step 5: Build AST
-    pratt::parse_expression(&tokens_with_mul)
+    pratt::parse_expression(&tokens_with_mul, context)
 }

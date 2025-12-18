@@ -88,7 +88,7 @@ fn bench_large_expressions(c: &mut Criterion) {
     // -------------------------------------------------------------------------
 
     group.bench_function("symb_anafis/parse_mixed_300", |b| {
-        b.iter(|| symb_anafis::parse(black_box(&mixed_str), &empty_set, &empty_set))
+        b.iter(|| symb_anafis::parse(black_box(&mixed_str), &empty_set, &empty_set, None))
     });
 
     group.bench_function("symbolica/parse_mixed_300", |b| {
@@ -100,7 +100,7 @@ fn bench_large_expressions(c: &mut Criterion) {
     // -------------------------------------------------------------------------
 
     // Pre-parse
-    let mixed_expr = symb_anafis::parse(&mixed_str, &empty_set, &empty_set).unwrap();
+    let mixed_expr = symb_anafis::parse(&mixed_str, &empty_set, &empty_set, None).unwrap();
     let mixed_atom = parse!(&mixed_str);
 
     group.bench_function("symb_anafis/diff_mixed_300", |b| {

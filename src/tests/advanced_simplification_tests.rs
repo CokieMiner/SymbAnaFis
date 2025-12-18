@@ -6,7 +6,7 @@ use std::collections::HashSet;
 fn parse_expr(s: &str) -> crate::Expr {
     let fixed_vars = HashSet::new();
     let custom_funcs = HashSet::new();
-    parser::parse(s, &fixed_vars, &custom_funcs).unwrap()
+    parser::parse(s, &fixed_vars, &custom_funcs, None).unwrap()
 }
 
 #[test]

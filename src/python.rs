@@ -512,7 +512,7 @@ fn parse(
         .map(|v| v.into_iter().collect())
         .unwrap_or_default();
 
-    crate::parse(formula, &fixed, &custom)
+    crate::parse(formula, &fixed, &custom, None)
         .map(|expr| expr.to_string())
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e)))
 }
@@ -601,7 +601,7 @@ fn uncertainty_propagation_py(
     variables: Vec<String>,
     variances: Option<Vec<f64>>,
 ) -> PyResult<String> {
-    let expr = crate::parser::parse(formula, &HashSet::new(), &HashSet::new())
+    let expr = crate::parser::parse(formula, &HashSet::new(), &HashSet::new(), None)
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e)))?;
 
     let var_strs: Vec<&str> = variables.iter().map(|s| s.as_str()).collect();
@@ -630,7 +630,7 @@ fn relative_uncertainty_py(
     variables: Vec<String>,
     variances: Option<Vec<f64>>,
 ) -> PyResult<String> {
-    let expr = crate::parser::parse(formula, &HashSet::new(), &HashSet::new())
+    let expr = crate::parser::parse(formula, &HashSet::new(), &HashSet::new(), None)
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e)))?;
 
     let var_strs: Vec<&str> = variables.iter().map(|s| s.as_str()).collect();

@@ -6,13 +6,22 @@
 use crate::parser::tokens::{Operator, Token};
 use crate::{DiffError, Expr};
 
+use crate::symbol::SymbolContext;
+
 /// Parse tokens into an AST using Pratt parsing algorithm
-pub(crate) fn parse_expression(tokens: &[Token]) -> Result<Expr, DiffError> {
+pub(crate) fn parse_expression(
+    tokens: &[Token],
+    context: Option<&SymbolContext>,
+) -> Result<Expr, DiffError> {
     if tokens.is_empty() {
         return Err(DiffError::UnexpectedEndOfInput);
     }
 
-    let mut parser = Parser { tokens, pos: 0 };
+    let mut parser = Parser {
+        tokens,
+        pos: 0,
+        context,
+    };
 
     parser.parse_expr(0)
 }
@@ -20,6 +29,7 @@ pub(crate) fn parse_expression(tokens: &[Token]) -> Result<Expr, DiffError> {
 struct Parser<'a> {
     tokens: &'a [Token],
     pos: usize,
+    context: Option<&'a SymbolContext>,
 }
 
 impl<'a> Parser<'a> {
@@ -117,7 +127,11 @@ impl<'a> Parser<'a> {
 
                     Ok(Expr::func_multi(name.clone(), args))
                 } else {
-                    Ok(Expr::symbol(name.clone()))
+                    if let Some(ctx) = self.context {
+                        Ok(ctx.symb(name).to_expr())
+                    } else {
+                        Ok(Expr::symbol(name.clone()))
+                    }
                 }
             }
 
@@ -192,13 +206,19 @@ impl<'a> Parser<'a> {
 
                 let arg_exprs = if args.is_empty() {
                     // Implicit dependency on the differentiation variable
-                    vec![Expr::symbol(var.clone())]
+                    // Implicit dependency on the differentiation variable
+                    vec![if let Some(ctx) = self.context {
+                        ctx.symb(var).to_expr()
+                    } else {
+                        Expr::symbol(var.clone())
+                    }]
                 } else {
                     // Parse the tokenized arguments
                     // We create a temporary sub-parser for the argument tokens
                     let mut sub_parser = Parser {
                         tokens: args,
                         pos: 0,
+                        context: self.context,
                     };
                     let mut exprs = Vec::new();
 
@@ -284,14 +304,14 @@ mod tests {
     #[test]
     fn test_parse_number() {
         let tokens = vec![Token::Number(314.0 / 100.0)];
-        let ast = parse_expression(&tokens).unwrap();
+        let ast = parse_expression(&tokens, None).unwrap();
         assert_eq!(ast, Expr::number(314.0 / 100.0));
     }
 
     #[test]
     fn test_parse_symbol() {
         let tokens = vec![Token::Identifier("x".to_string())];
-        let ast = parse_expression(&tokens).unwrap();
+        let ast = parse_expression(&tokens, None).unwrap();
         assert_eq!(ast, Expr::symbol("x"));
     }
 
@@ -302,7 +322,7 @@ mod tests {
             Token::Operator(Operator::Add),
             Token::Number(2.0),
         ];
-        let ast = parse_expression(&tokens).unwrap();
+        let ast = parse_expression(&tokens, None).unwrap();
         assert!(matches!(ast.kind, ExprKind::Sum(_)));
     }
 
@@ -313,7 +333,7 @@ mod tests {
             Token::Operator(Operator::Mul),
             Token::Number(2.0),
         ];
-        let ast = parse_expression(&tokens).unwrap();
+        let ast = parse_expression(&tokens, None).unwrap();
         assert!(matches!(ast.kind, ExprKind::Product(_)));
     }
 
@@ -324,7 +344,7 @@ mod tests {
             Token::Operator(Operator::Pow),
             Token::Number(2.0),
         ];
-        let ast = parse_expression(&tokens).unwrap();
+        let ast = parse_expression(&tokens, None).unwrap();
         assert!(matches!(ast.kind, ExprKind::Pow(_, _)));
     }
 
@@ -336,7 +356,7 @@ mod tests {
             Token::Identifier("x".to_string()),
             Token::RightParen,
         ];
-        let ast = parse_expression(&tokens).unwrap();
+        let ast = parse_expression(&tokens, None).unwrap();
         assert!(matches!(ast.kind, ExprKind::FunctionCall { .. }));
     }
 
@@ -350,7 +370,7 @@ mod tests {
             Token::Operator(Operator::Mul),
             Token::Number(3.0),
         ];
-        let ast = parse_expression(&tokens).unwrap();
+        let ast = parse_expression(&tokens, None).unwrap();
 
         // With n-ary Sum, this becomes Sum([x, Product([2, 3])])
         match &ast.kind {
@@ -378,7 +398,7 @@ mod tests {
             Token::Operator(Operator::Mul),
             Token::Number(2.0),
         ];
-        let ast = parse_expression(&tokens).unwrap();
+        let ast = parse_expression(&tokens, None).unwrap();
 
         // With n-ary Product: Product([Sum([x, 1]), 2])
         match &ast.kind {
@@ -399,7 +419,7 @@ mod tests {
     fn test_empty_parentheses() {
         // () should be an error, NOT 1.0 or anything else
         let tokens = vec![Token::LeftParen, Token::RightParen];
-        let result = parse_expression(&tokens);
+        let result = parse_expression(&tokens, None);
         assert!(
             result.is_err(),
             "Empty parentheses should fail to parse, but got: {:?}",

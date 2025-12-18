@@ -35,7 +35,7 @@ mod tests {
         // Test (x+1)^3 expansion: x^3 + 3*x^2 + 3*x + 1
         let expr_str = "x^3 + 3*x^2 + 3*x + 1";
         let empty: HashSet<String> = HashSet::new();
-        let parsed = parse(expr_str, &empty, &empty).unwrap();
+        let parsed = parse(expr_str, &empty, &empty, None).unwrap();
         println!("Input: {}", expr_str);
         println!("Parsed AST: {:?}", parsed);
 

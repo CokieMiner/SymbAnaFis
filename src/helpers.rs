@@ -115,7 +115,7 @@ pub fn jacobian(exprs: &[Expr], vars: &[&Symbol]) -> Vec<Vec<Expr>> {
 /// ```
 pub fn gradient_str(formula: &str, vars: &[&str]) -> Result<Vec<String>, DiffError> {
     let (fixed_vars, custom_fns) = empty_context();
-    let expr = parser::parse(formula, &fixed_vars, &custom_fns)?;
+    let expr = parser::parse(formula, &fixed_vars, &custom_fns, None)?;
 
     // Call internal directly - no Symbol conversion needed!
     let grad = gradient_internal(&expr, vars);
@@ -131,7 +131,7 @@ pub fn gradient_str(formula: &str, vars: &[&str]) -> Result<Vec<String>, DiffErr
 /// ```
 pub fn hessian_str(formula: &str, vars: &[&str]) -> Result<Vec<Vec<String>>, DiffError> {
     let (fixed_vars, custom_fns) = empty_context();
-    let expr = parser::parse(formula, &fixed_vars, &custom_fns)?;
+    let expr = parser::parse(formula, &fixed_vars, &custom_fns, None)?;
 
     // Call internal directly - no Symbol conversion needed!
     let hess = hessian_internal(&expr, vars);
@@ -153,7 +153,7 @@ pub fn jacobian_str(formulas: &[&str], vars: &[&str]) -> Result<Vec<Vec<String>>
 
     let exprs: Vec<Expr> = formulas
         .iter()
-        .map(|f| parser::parse(f, &fixed_vars, &custom_fns))
+        .map(|f| parser::parse(f, &fixed_vars, &custom_fns, None))
         .collect::<Result<Vec<_>, _>>()?;
 
     // Call internal directly - no Symbol conversion needed!
@@ -177,7 +177,7 @@ pub fn jacobian_str(formulas: &[&str], vars: &[&str]) -> Result<Vec<Vec<String>>
 /// ```
 pub fn evaluate_str(formula: &str, vars: &[(&str, f64)]) -> Result<String, DiffError> {
     let (fixed_vars, custom_fns) = empty_context();
-    let expr = parser::parse(formula, &fixed_vars, &custom_fns)?;
+    let expr = parser::parse(formula, &fixed_vars, &custom_fns, None)?;
 
     let var_map: std::collections::HashMap<&str, f64> = vars.iter().cloned().collect();
     let result = expr.evaluate(&var_map);

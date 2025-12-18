@@ -20,7 +20,7 @@ fn approx_eq(a: f64, b: f64) -> bool {
 fn eval_expr(expr_str: &str, vars: &[(&str, f64)]) -> Option<f64> {
     let fixed_vars = HashSet::new();
     let custom_funcs = HashSet::new();
-    let expr = parse(expr_str, &fixed_vars, &custom_funcs).ok()?;
+    let expr = parse(expr_str, &fixed_vars, &custom_funcs, None).ok()?;
     let var_map: HashMap<&str, f64> = vars.iter().cloned().collect();
     let result = expr.evaluate(&var_map);
     if let ExprKind::Number(n) = &result.kind {
@@ -382,7 +382,7 @@ fn test_eval_with_variables() {
 fn test_partial_evaluation() {
     let fixed_vars = HashSet::new();
     let custom_funcs = HashSet::new();
-    let expr = parse("sin(x) + cos(0)", &fixed_vars, &custom_funcs).unwrap();
+    let expr = parse("sin(x) + cos(0)", &fixed_vars, &custom_funcs, None).unwrap();
     let vars = HashMap::new();
     // Don't provide x, only evaluate cos(0)
     let result = expr.evaluate(&vars);
@@ -398,7 +398,7 @@ fn test_unknown_function_preserved() {
     let fixed_vars = HashSet::new();
     let mut custom_funcs = HashSet::new();
     custom_funcs.insert("my_custom_func".to_string()); // Register as custom function
-    let expr = parse("my_custom_func(2, 3)", &fixed_vars, &custom_funcs).unwrap();
+    let expr = parse("my_custom_func(2, 3)", &fixed_vars, &custom_funcs, None).unwrap();
     let vars = HashMap::new();
     let result = expr.evaluate(&vars);
 

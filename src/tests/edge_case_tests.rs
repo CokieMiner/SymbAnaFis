@@ -109,7 +109,7 @@ mod parentheses_edge_cases {
         // This requires the lexer to recursively lex "x+y" and proper AST construction
         let fixed_vars = HashSet::new();
         let custom_funcs = HashSet::new();
-        let expr = crate::parser::parse("∂_f(x+y)/∂_x", &fixed_vars, &custom_funcs).unwrap();
+        let expr = crate::parser::parse("∂_f(x+y)/∂_x", &fixed_vars, &custom_funcs, None).unwrap();
         // Check structure: Derivative { inner: FunctionCall(f, args=[Add(x,y)]), var: x, order: 1 }
         if let ExprKind::Derivative { inner, var, order } = expr.kind {
             assert_eq!(var, "x");
@@ -144,7 +144,7 @@ mod parentheses_edge_cases {
         // Test parsing of ∂_f(x, y)/∂_x (function with 2 arguments)
         let fixed_vars = HashSet::new();
         let custom_funcs = HashSet::new();
-        let expr = crate::parser::parse("∂_f(x,y)/∂_x", &fixed_vars, &custom_funcs).unwrap();
+        let expr = crate::parser::parse("∂_f(x,y)/∂_x", &fixed_vars, &custom_funcs, None).unwrap();
 
         if let ExprKind::Derivative { inner, .. } = expr.kind {
             if let ExprKind::FunctionCall { name, args } = &inner.kind {

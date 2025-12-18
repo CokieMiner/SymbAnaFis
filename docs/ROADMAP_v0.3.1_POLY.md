@@ -66,9 +66,9 @@ Replaced string-based term signatures with `u64` structural hashing:
 
 ---
 
-### Phase 7b: Inline Hashing (v0.3.1 - Next)
+### Phase 7b: Inline Hashing (v0.3.1 - IMMEDIATE PRIORITY)
 
-**Goal**: Eliminate `HashMap` equality check overhead (`__memcmp_evex_movbe` ~8%).
+**Goal**: Eliminate `HashMap` equality check overhead (`__memcmp_evex_movbe` ~8%). Crucial prerequisite for efficient Phase 8.
 
 **Optimization**:
 - Store `hash: u64` directly in `Expr` struct.
@@ -86,31 +86,50 @@ Replaced string-based term signatures with `u64` structural hashing:
 
 ---
 
-### Phase 8: Memory Pooling (v0.3.1 Target)
+### Phase 7c: Context-Aware Parsing (Completed)
 
-**Goal**: Elimination of `malloc`/`free` overhead and atomic reference counting (currently ~15% of runtime).
+**Goal**: Enable isolated symbol scope for parallel parsing and advanced builder patterns.
 
-#### Architecture Change: Arena-based AST
-Shift from `Arc<Expr>` to `ExprId` handles:
+**Implementation**:
+- Introduced `SymbolContext` struct to hold thread-local/task-local symbol registries.
+- Updated `parser::parse` to accept `Option<&SymbolContext>`.
+- Modified `Diff` and `Simplify` builders to propagate context.
+- Ensured thread safety for parallel operations (`Rayon`).
 
-```rust
-pub struct ExprArena {
-    nodes: Vec<Expr>,        // Contiguous memory
-    syms: Interner<String>,  // Deduplicated strings
-}
+**Benefit**:
+- Prevents symbol collisions in concurrent environments.
+- Allows "local" variables that don't pollute the global symbol table.
+- Essential for correct polynomial generator internals (Phase 8).
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ExprId(u32); // 4-byte handle
-```
 
-#### Refactoring Scope (High Impact)
-1. **Core AST**: Modify `ExprKind` to store `ExprId` instead of `Arc<Expr>`.
-2. **Rules**: Update all ~35 simplification rules to take `&ExprArena` context.
-3. **Engine**: Manage arena lifetime and garbage collection (if needed).
+---
+
+### Phase 8: Universal Polynomial Architecture (The "Arena" Revolution)
+
+**Status**: Targets v0.4.0 (Prototype Branch)
+
+**The "Nuclear Option"**: Moving from `Arc<Expr>` to `ExprId` (Arena allocation) offers massive cache locality and zero-atomic overhead wins, but risks API ergonomics.
+
+#### Architectural Decision: The "Hybrid" Approach (Smart Handles)
+To allow zero-overhead arenas while preserving `x + y` syntax:
+1.  **Context**: A thread-local or passed `Context` struct holding the Arena.
+2.  **Smart Handles**: `ExprRef` struct wrapping `(ExprId, &Context)`.
+3.  **Global Registry Backing**: `Symbol` remains a `Copy` `u64` wrapper backed by a global registry for convenience (like `println!("{}", x)`), while Contexts provide isolation.
+
+#### The "Gotcha": Context vs Global Collision
+- `Expr::symbol("x")` (Global ID) != `ctx.symb("x")` (Context ID).
+- **Rule**: When using a Context, ALWAYS create variables via `ctx` to avoid collisions. The parser has been updated (Phase 7c) to respect this rule.
+
+#### Implementation Strategy
+- **Stage 1 (v0.3.1)**: Inline Hashing (Phase 7b) and Context-Aware Parsing (Phase 7c).
+- **Stage 2 (Technically v0.4.0)**: Create `ExprArena`, `ExprId`, and `ExprRef`.
+    - Prototype in a separate branch to benchmark raw speedup (target: 3x).
+    - If successful, merge as the new engine core.
 
 #### Expected Benefit
-- **Performance**: 2x-5x speedup in differentiation/simplification (cache locality + no allocation).
-- **Memory**: ~40% reduction in memory usage (no Arc overhead, smaller struct).
+- **Differentiation**: `d(P)/dx` becomes simple polynomial derivative over the ring.
+- **Simplification**: Like terms combine automatically by reduction.
+- **Parsing**: "Bump allocation" speed (instant).
 
 ---
 
@@ -139,6 +158,9 @@ pub struct ExprId(u32); // 4-byte handle
 | `src/simplification/helpers.rs` | **New**: Allocation-free get_term_hash |
 | `src/poly.rs` | Add try_from_sum, to_sum |
 | `src/visitor.rs` | Handle Sum/Product |
+| `src/symbol.rs` | **New**: `SymbolContext` for isolated parsing scopes |
+| `src/parser/` | Context-aware parsing signatures |
+| `src/builder.rs` | Context propagation in Builder API |
 | All test files | Update for new AST |
 
 ---

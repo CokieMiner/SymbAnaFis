@@ -156,7 +156,7 @@ impl EvalResult {
     pub fn to_expr(&self) -> Result<Expr, DiffError> {
         match self {
             EvalResult::Expr(e) => Ok(e.clone()),
-            EvalResult::String(s) => parser::parse(s, &HashSet::new(), &HashSet::new()),
+            EvalResult::String(s) => parser::parse(s, &HashSet::new(), &HashSet::new(), None),
         }
     }
 
@@ -230,7 +230,7 @@ pub fn evaluate_parallel(
         .map(|input| match input {
             ExprInput::Parsed(e) => Ok((e, false)), // false = was Expr
             ExprInput::String(s) => {
-                let expr = parser::parse(&s, &HashSet::new(), &HashSet::new())?;
+                let expr = parser::parse(&s, &HashSet::new(), &HashSet::new(), None)?;
                 Ok((expr, true)) // true = was String
             }
         })
