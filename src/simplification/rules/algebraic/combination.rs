@@ -405,8 +405,8 @@ rule!(
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::Product(factors) = &expr.kind {
             // Check if first factor is -1
-            if let Some(first) = factors.first() {
-                if matches!(&first.kind, AstKind::Number(n) if (*n + 1.0).abs() < 1e-10) {
+            if let Some(first) = factors.first()
+                && matches!(&first.kind, AstKind::Number(n) if (*n + 1.0).abs() < 1e-10) {
                     // Get the remaining factors
                     let rest: Vec<_> = factors.iter().skip(1).map(|f| (**f).clone()).collect();
                     if rest.len() == 1 {
@@ -421,7 +421,6 @@ rule!(
                         }
                     }
                 }
-            }
         }
         None
     }

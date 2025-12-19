@@ -155,6 +155,8 @@ fn next_id() -> u64 {
 pub struct Expr {
     /// Unique ID for debugging and caching (not used in equality comparisons)
     pub id: u64,
+    /// Structural hash for O(1) equality rejection (Phase 7b optimization)
+    pub hash: u64,
     /// The kind of expression (structure)
     pub kind: ExprKind,
     /// Phase-specific simplification tracking
@@ -168,9 +170,15 @@ impl Deref for Expr {
     }
 }
 
-// Structural equality based on KIND only
+// Structural equality based on KIND only (with hash fast-reject)
 impl PartialEq for Expr {
+    #[inline]
     fn eq(&self, other: &Self) -> bool {
+        // Fast reject: different hashes mean definitely not equal
+        if self.hash != other.hash {
+            return false;
+        }
+        // Slow path: verify structural equality (handles hash collisions)
         self.kind == other.kind
     }
 }
@@ -178,8 +186,10 @@ impl PartialEq for Expr {
 impl Eq for Expr {}
 
 impl std::hash::Hash for Expr {
+    #[inline]
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.kind.hash(state);
+        // Use pre-computed hash directly
+        self.hash.hash(state);
     }
 }
 
@@ -215,7 +225,7 @@ pub enum ExprKind {
     /// Division (binary - not associative)
     Div(Arc<Expr>, Arc<Expr>),
 
-    /// Exponentiation (binary - not associative)  
+    /// Exponentiation (binary - not associative)
     Pow(Arc<Expr>, Arc<Expr>),
 
     /// Partial derivative notation: ∂^order/∂var^order of inner expression
@@ -230,11 +240,109 @@ pub enum ExprKind {
 // EXPR CONSTRUCTORS AND METHODS
 // =============================================================================
 
+/// Compute structural hash for an ExprKind (Phase 7b optimization).
+/// Unlike get_term_hash in helpers.rs (which ignores numeric coefficients for
+/// like-term grouping), this hashes ALL content for true structural equality.
+fn compute_expr_hash(kind: &ExprKind) -> u64 {
+    // FNV-1a constants
+    const FNV_OFFSET: u64 = 14695981039346656037;
+    const FNV_PRIME: u64 = 1099511628211;
+
+    #[inline(always)]
+    fn hash_u64(mut hash: u64, n: u64) -> u64 {
+        for byte in n.to_le_bytes() {
+            hash ^= byte as u64;
+            hash = hash.wrapping_mul(FNV_PRIME);
+        }
+        hash
+    }
+
+    #[inline(always)]
+    fn hash_f64(hash: u64, n: f64) -> u64 {
+        hash_u64(hash, n.to_bits())
+    }
+
+    #[inline(always)]
+    fn hash_byte(mut hash: u64, b: u8) -> u64 {
+        hash ^= b as u64;
+        hash.wrapping_mul(FNV_PRIME)
+    }
+
+    fn hash_kind(hash: u64, kind: &ExprKind) -> u64 {
+        match kind {
+            ExprKind::Number(n) => {
+                let h = hash_byte(hash, b'N');
+                hash_f64(h, *n)
+            }
+
+            ExprKind::Symbol(s) => {
+                let h = hash_byte(hash, b'S');
+                hash_u64(h, s.id())
+            }
+
+            // Sum: Use commutative (order-independent) hashing
+            ExprKind::Sum(terms) => {
+                let h = hash_byte(hash, b'+');
+                // Commutative: sum of individual hashes
+                let mut acc: u64 = 0;
+                for t in terms {
+                    acc = acc.wrapping_add(t.hash);
+                }
+                hash_u64(h, acc)
+            }
+
+            // Product: Use commutative (order-independent) hashing
+            ExprKind::Product(factors) => {
+                let h = hash_byte(hash, b'*');
+                // Commutative: sum of individual hashes
+                let mut acc: u64 = 0;
+                for f in factors {
+                    acc = acc.wrapping_add(f.hash);
+                }
+                hash_u64(h, acc)
+            }
+
+            // Div: Non-commutative, ordered
+            ExprKind::Div(num, den) => {
+                let h = hash_byte(hash, b'/');
+                let h = hash_u64(h, num.hash);
+                hash_u64(h, den.hash)
+            }
+
+            // Pow: Non-commutative, ordered
+            ExprKind::Pow(base, exp) => {
+                let h = hash_byte(hash, b'^');
+                let h = hash_u64(h, base.hash);
+                hash_u64(h, exp.hash)
+            }
+
+            // FunctionCall: Name + ordered args
+            ExprKind::FunctionCall { name, args } => {
+                let h = hash_byte(hash, b'F');
+                let h = hash_u64(h, name.id());
+                args.iter().fold(h, |acc, arg| hash_u64(acc, arg.hash))
+            }
+
+            // Derivative: var + order + inner
+            ExprKind::Derivative { inner, var, order } => {
+                let h = hash_byte(hash, b'D');
+                let h = var.as_bytes().iter().fold(h, |acc, &b| hash_byte(acc, b));
+                let h = hash_u64(h, *order as u64);
+                hash_u64(h, inner.hash)
+            }
+        }
+    }
+
+    hash_kind(FNV_OFFSET, kind)
+}
+
 impl Expr {
     /// Create a new expression with fresh ID and default flags
     pub fn new(kind: ExprKind) -> Self {
+        let hash = compute_expr_hash(&kind);
         Expr {
             id: next_id(),
+            hash,
             kind,
             flags: ExprFlags::default(),
         }
@@ -242,8 +350,10 @@ impl Expr {
 
     /// Create a new expression with specific flags
     pub fn with_flags(kind: ExprKind, flags: ExprFlags) -> Self {
+        let hash = compute_expr_hash(&kind);
         Expr {
             id: next_id(),
+            hash,
             kind,
             flags,
         }
@@ -303,7 +413,8 @@ impl Expr {
     // -------------------------------------------------------------------------
 
     /// Create a sum expression from terms.
-    /// Automatically flattens nested sums and sorts for canonical form.
+    /// Flattens nested sums. Sorting and like-term combination is deferred to simplification
+    /// for performance (avoids O(N²) cascade during differentiation).
     pub fn sum(terms: Vec<Expr>) -> Self {
         if terms.is_empty() {
             return Expr::number(0.0);
@@ -313,25 +424,34 @@ impl Expr {
         }
 
         let mut flat: Vec<Arc<Expr>> = Vec::with_capacity(terms.len());
+        let mut numeric_sum: f64 = 0.0;
 
         for t in terms {
             match t.kind {
                 ExprKind::Sum(inner) => flat.extend(inner),
+                ExprKind::Number(n) => numeric_sum += n, // Combine numbers immediately
                 _ => flat.push(Arc::new(t)),
             }
         }
 
+        // Add accumulated numeric constant at the BEGINNING (canonical order: numbers first)
+        if numeric_sum.abs() > 1e-14 {
+            flat.insert(0, Arc::new(Expr::number(numeric_sum)));
+        }
+
+        if flat.is_empty() {
+            return Expr::number(0.0);
+        }
         if flat.len() == 1 {
             return Arc::try_unwrap(flat.pop().unwrap()).unwrap_or_else(|arc| (*arc).clone());
         }
 
-        // Sort for canonical form
-        flat.sort_by(|a, b| expr_cmp(a, b));
-
+        // Note: Sorting and like-term combination deferred to simplify()
+        // This is critical for O(N log N) differentiation instead of O(N²)
         Expr::new(ExprKind::Sum(flat))
     }
 
-    /// Create sum from Arc terms (flattens and sorts for canonical form)
+    /// Create sum from Arc terms (flattens only, sorting deferred to simplification)
     pub fn sum_from_arcs(terms: Vec<Arc<Expr>>) -> Self {
         if terms.is_empty() {
             return Expr::number(0.0);
@@ -341,21 +461,30 @@ impl Expr {
                 .unwrap_or_else(|arc| (*arc).clone());
         }
 
-        // Flatten nested sums
+        // Flatten nested sums and combine numbers
         let mut flat: Vec<Arc<Expr>> = Vec::with_capacity(terms.len());
+        let mut numeric_sum: f64 = 0.0;
+
         for t in terms {
             match &t.kind {
                 ExprKind::Sum(inner) => flat.extend(inner.clone()),
+                ExprKind::Number(n) => numeric_sum += n,
                 _ => flat.push(t),
             }
         }
 
+        // Add accumulated numeric constant at the BEGINNING (canonical order: numbers first)
+        if numeric_sum.abs() > 1e-14 {
+            flat.insert(0, Arc::new(Expr::number(numeric_sum)));
+        }
+
+        if flat.is_empty() {
+            return Expr::number(0.0);
+        }
         if flat.len() == 1 {
             return Arc::try_unwrap(flat.pop().unwrap()).unwrap_or_else(|arc| (*arc).clone());
         }
 
-        // Sort for canonical form
-        flat.sort_by(|a, b| expr_cmp(a, b));
         Expr::new(ExprKind::Sum(flat))
     }
 
@@ -364,7 +493,7 @@ impl Expr {
     // -------------------------------------------------------------------------
 
     /// Create a product expression from factors.
-    /// Automatically flattens nested products and sorts for canonical form.
+    /// Flattens nested products. Sorting deferred to simplification.
     pub fn product(factors: Vec<Expr>) -> Self {
         if factors.is_empty() {
             return Expr::number(1.0);
@@ -374,20 +503,32 @@ impl Expr {
         }
 
         let mut flat: Vec<Arc<Expr>> = Vec::with_capacity(factors.len());
+        let mut numeric_prod: f64 = 1.0;
 
         for f in factors {
             match f.kind {
                 ExprKind::Product(inner) => flat.extend(inner),
+                ExprKind::Number(n) => {
+                    if n == 0.0 {
+                        return Expr::number(0.0); // Early exit for zero
+                    }
+                    numeric_prod *= n;
+                }
                 _ => flat.push(Arc::new(f)),
             }
         }
 
+        // Add numeric coefficient if not 1.0
+        if (numeric_prod - 1.0).abs() > 1e-14 {
+            flat.insert(0, Arc::new(Expr::number(numeric_prod)));
+        }
+
+        if flat.is_empty() {
+            return Expr::number(1.0);
+        }
         if flat.len() == 1 {
             return Arc::try_unwrap(flat.pop().unwrap()).unwrap_or_else(|arc| (*arc).clone());
         }
-
-        // Sort for canonical form
-        flat.sort_by(|a, b| expr_cmp(a, b));
 
         Expr::new(ExprKind::Product(flat))
     }
@@ -438,6 +579,17 @@ impl Expr {
     /// Create multiplication: a * b → Product([a, b])
     pub fn mul_expr(left: Expr, right: Expr) -> Self {
         Expr::product(vec![left, right])
+    }
+
+    /// Create multiplication from Arc operands (avoids Expr cloning)
+    pub fn mul_from_arcs(factors: Vec<Arc<Expr>>) -> Self {
+        Expr::product_from_arcs(factors)
+    }
+
+    /// Unwrap an Arc<Expr> without cloning if refcount is 1
+    #[inline]
+    pub fn unwrap_arc(arc: Arc<Expr>) -> Expr {
+        Arc::try_unwrap(arc).unwrap_or_else(|a| (*a).clone())
     }
 
     /// Create division
@@ -763,55 +915,56 @@ impl Expr {
                 })
             }
             ExprKind::Sum(terms) => {
-                let eval_terms: Vec<Expr> = terms
-                    .iter()
-                    .map(|t| t.evaluate_with_custom(vars, custom_evals))
-                    .collect();
+                // Optimized: single-pass accumulation
+                let mut num_sum: f64 = 0.0;
+                let mut others: Vec<Expr> = Vec::new();
 
-                // Try to combine all numeric terms
-                let (nums, others): (Vec<_>, Vec<_>) = eval_terms
-                    .into_iter()
-                    .partition(|e| matches!(e.kind, ExprKind::Number(_)));
-
-                let num_sum: f64 = nums.iter().filter_map(|e| e.as_number()).sum();
-
-                let mut result_terms: Vec<Expr> = others;
-                if num_sum != 0.0 || result_terms.is_empty() {
-                    result_terms.push(Expr::number(num_sum));
+                for t in terms {
+                    let eval_t = t.evaluate_with_custom(vars, custom_evals);
+                    if let ExprKind::Number(n) = eval_t.kind {
+                        num_sum += n;
+                    } else {
+                        others.push(eval_t);
+                    }
                 }
 
-                if result_terms.len() == 1 {
-                    result_terms.pop().unwrap()
+                if others.is_empty() {
+                    Expr::number(num_sum)
+                } else if num_sum != 0.0 {
+                    others.push(Expr::number(num_sum));
+                    Expr::sum(others)
+                } else if others.len() == 1 {
+                    others.pop().unwrap()
                 } else {
-                    Expr::sum(result_terms)
+                    Expr::sum(others)
                 }
             }
             ExprKind::Product(factors) => {
-                let eval_factors: Vec<Expr> = factors
-                    .iter()
-                    .map(|f| f.evaluate_with_custom(vars, custom_evals))
-                    .collect();
+                // Optimized: single-pass accumulation with early zero exit
+                let mut num_prod: f64 = 1.0;
+                let mut others: Vec<Expr> = Vec::new();
 
-                // Try to combine all numeric factors
-                let (nums, others): (Vec<_>, Vec<_>) = eval_factors
-                    .into_iter()
-                    .partition(|e| matches!(e.kind, ExprKind::Number(_)));
-
-                let num_prod: f64 = nums.iter().filter_map(|e| e.as_number()).product();
-
-                if num_prod == 0.0 {
-                    return Expr::number(0.0);
+                for f in factors {
+                    let eval_f = f.evaluate_with_custom(vars, custom_evals);
+                    if let ExprKind::Number(n) = eval_f.kind {
+                        if n == 0.0 {
+                            return Expr::number(0.0); // Early exit
+                        }
+                        num_prod *= n;
+                    } else {
+                        others.push(eval_f);
+                    }
                 }
 
-                let mut result_factors: Vec<Expr> = others;
-                if num_prod != 1.0 || result_factors.is_empty() {
-                    result_factors.insert(0, Expr::number(num_prod));
-                }
-
-                if result_factors.len() == 1 {
-                    result_factors.pop().unwrap()
+                if others.is_empty() {
+                    Expr::number(num_prod)
+                } else if num_prod != 1.0 {
+                    others.insert(0, Expr::number(num_prod));
+                    Expr::product(others)
+                } else if others.len() == 1 {
+                    others.pop().unwrap()
                 } else {
-                    Expr::product(result_factors)
+                    Expr::product(others)
                 }
             }
             ExprKind::Div(a, b) => {

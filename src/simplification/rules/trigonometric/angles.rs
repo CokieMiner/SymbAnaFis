@@ -35,57 +35,47 @@ rule!(
     Trigonometric,
     &[ExprKind::Sum],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Sum(terms) = &expr.kind {
-            if terms.len() == 2 {
+        if let AstKind::Sum(terms) = &expr.kind
+            && terms.len() == 2 {
                 // Look for patterns like cos^2(x) - sin^2(x) or sin^2(x) - cos^2(x)
                 let t1 = &terms[0];
                 let t2 = &terms[1];
 
                 // Helper to extract negated term
                 fn extract_negated(term: &Expr) -> Option<Expr> {
-                    if let AstKind::Product(factors) = &term.kind {
-                        if factors.len() == 2 {
-                            if let AstKind::Number(n) = &factors[0].kind {
-                                if (*n + 1.0).abs() < 1e-10 {
+                    if let AstKind::Product(factors) = &term.kind
+                        && factors.len() == 2
+                            && let AstKind::Number(n) = &factors[0].kind
+                                && (*n + 1.0).abs() < 1e-10 {
                                     return Some((*factors[1]).clone());
                                 }
-                            }
-                        }
-                    }
                     None
                 }
 
                 // Try t1 = cos^2(x), t2 = -sin^2(x)
                 if let (Some(("cos", arg1)), Some(negated)) =
                     (helpers::get_fn_pow_named(t1, 2.0), extract_negated(t2))
-                {
-                    if let Some(("sin", arg2)) = helpers::get_fn_pow_named(&negated, 2.0) {
-                        if arg1 == arg2 {
+                    && let Some(("sin", arg2)) = helpers::get_fn_pow_named(&negated, 2.0)
+                        && arg1 == arg2 {
                             // cos^2(x) - sin^2(x) = cos(2x)
                             return Some(Expr::func(
                                 "cos",
                                 Expr::product(vec![Expr::number(2.0), arg1]),
                             ));
                         }
-                    }
-                }
 
                 // Try t1 = sin^2(x), t2 = -cos^2(x)
                 if let (Some(("sin", arg1)), Some(negated)) =
                     (helpers::get_fn_pow_named(t1, 2.0), extract_negated(t2))
-                {
-                    if let Some(("cos", arg2)) = helpers::get_fn_pow_named(&negated, 2.0) {
-                        if arg1 == arg2 {
+                    && let Some(("cos", arg2)) = helpers::get_fn_pow_named(&negated, 2.0)
+                        && arg1 == arg2 {
                             // sin^2(x) - cos^2(x) = -cos(2x)
                             return Some(Expr::product(vec![
                                 Expr::number(-1.0),
                                 Expr::func("cos", Expr::product(vec![Expr::number(2.0), arg1])),
                             ]));
                         }
-                    }
-                }
             }
-        }
         None
     }
 );
@@ -99,8 +89,8 @@ rule!(
     |expr: &Expr, _context: &RuleContext| {
         // k*sin(x)cos(y) + k*cos(x)sin(y) = k*sin(x+y)
         // k*sin(x)cos(y) - k*cos(x)sin(y) = k*sin(x-y)
-        if let AstKind::Sum(terms) = &expr.kind {
-            if terms.len() == 2 {
+        if let AstKind::Sum(terms) = &expr.kind
+            && terms.len() == 2 {
                 let u = &terms[0];
                 let v = &terms[1];
 
@@ -112,16 +102,15 @@ rule!(
                 let parse_sin_cos = |e: &Expr| -> Option<(Expr, Expr)> {
                     // Helper to get name/arg from FunctionCall OR Pow(FunctionCall, 1)
                     let get_op = |t: &Expr| -> Option<(String, Expr)> {
-                        if let AstKind::FunctionCall { name, args } = &t.kind {
-                            if args.len() == 1 {
+                        if let AstKind::FunctionCall { name, args } = &t.kind
+                            && args.len() == 1 {
                                 return Some((name.to_string(), args[0].clone()));
                             }
-                        }
                         helpers::get_fn_pow_named(t, 1.0).map(|(n, e)| (n.to_string(), e))
                     };
 
-                    if let AstKind::Product(factors) = &e.kind {
-                        if factors.len() == 2 {
+                    if let AstKind::Product(factors) = &e.kind
+                        && factors.len() == 2 {
                             let f1 = &factors[0];
                             let f2 = &factors[1];
                             // Try matches
@@ -134,7 +123,6 @@ rule!(
                                 }
                             }
                         }
-                    }
                     None
                 };
 
@@ -172,31 +160,25 @@ rule!(
                     }
                 }
             }
-        }
         None
     }
 );
 
 fn is_cos_minus_sin(expr: &Expr) -> bool {
     // In n-ary, cos(x) - sin(x) = Sum([cos(x), Product([-1, sin(x)])])
-    if let AstKind::Sum(terms) = &expr.kind {
-        if terms.len() == 2 {
+    if let AstKind::Sum(terms) = &expr.kind
+        && terms.len() == 2 {
             let a = &terms[0];
             let b = &terms[1];
 
-            if is_cos(a) {
-                if let AstKind::Product(factors) = &b.kind {
-                    if factors.len() == 2 {
-                        if let AstKind::Number(n) = &factors[0].kind {
-                            if (*n + 1.0).abs() < 1e-10 {
+            if is_cos(a)
+                && let AstKind::Product(factors) = &b.kind
+                    && factors.len() == 2
+                        && let AstKind::Number(n) = &factors[0].kind
+                            && (*n + 1.0).abs() < 1e-10 {
                                 return is_sin(&factors[1]);
                             }
-                        }
-                    }
-                }
-            }
         }
-    }
     false
 }
 
@@ -249,15 +231,12 @@ fn get_sin_arg(expr: &Expr) -> Option<Expr> {
         if terms.len() >= 2 {
             // Look in second term (which may be -sin(x) = Product([-1, sin(x)]))
             let second = &terms[1];
-            if let AstKind::Product(factors) = &second.kind {
-                if factors.len() == 2 {
-                    if let AstKind::Number(n) = &factors[0].kind {
-                        if (*n + 1.0).abs() < 1e-10 {
+            if let AstKind::Product(factors) = &second.kind
+                && factors.len() == 2
+                    && let AstKind::Number(n) = &factors[0].kind
+                        && (*n + 1.0).abs() < 1e-10 {
                             return get_sin_arg(&factors[1]);
                         }
-                    }
-                }
-            }
             get_sin_arg(second)
         } else {
             None
@@ -274,8 +253,8 @@ rule!(
     Trigonometric,
     &[ExprKind::Product],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Product(factors) = &expr.kind {
-            if factors.len() == 2 {
+        if let AstKind::Product(factors) = &expr.kind
+            && factors.len() == 2 {
                 let a = &factors[0];
                 let b = &factors[1];
 
@@ -299,7 +278,6 @@ rule!(
                     ));
                 }
             }
-        }
         None
     }
 );

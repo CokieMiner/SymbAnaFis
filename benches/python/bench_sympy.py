@@ -277,6 +277,64 @@ def run_evaluation_benchmarks():
     return results
 
 
+def run_large_expr_benchmarks():
+    """Benchmark large expression handling."""
+    print("\n=== Large Expression Benchmarks (300 terms) ===")
+    from bench_runner import generate_mixed_complex
+    
+    large_expr_str = generate_mixed_complex(300)
+    x = symbols('x')
+    results = []
+    
+    # Parsing
+    # SymPy parsing of large expressions can be slow, reduce runs
+    mean, std = benchmark("parse_300", lambda: sympify(large_expr_str), runs=20)
+    results.append(("parse_300", mean, std))
+    print(f"  Parsing: {mean/1000:.2f} ± {std/1000:.2f} ms")
+    
+    # Differentiation (Full Pipeline)
+    # This involves parsing + diff, so it's heavy
+    mean, std = benchmark("full_300", lambda: sp.diff(sympify(large_expr_str), x), runs=10)
+    results.append(("full_300", mean, std))
+    print(f"  Full Diff: {mean/1000:.2f} ± {std/1000:.2f} ms")
+    
+    # Differentiation + Simplification
+    # This is VERY slow for SymPy on large expressions
+    
+    # Differentiation + Simplification
+    # This is VERY slow for SymPy on large expressions
+    print("  Full Diff + Simplify (running 1 iteration, 5min timeout)...")
+    
+    import signal
+    from contextlib import contextmanager
+
+    class TimeoutException(Exception): pass
+
+    @contextmanager
+    def time_limit(seconds):
+        def signal_handler(signum, frame):
+            raise TimeoutException("Timed out!")
+        signal.signal(signal.SIGALRM, signal_handler)
+        signal.alarm(seconds)
+        try:
+            yield
+        finally:
+            signal.alarm(0)
+
+    try:
+        with time_limit(300):  # 5 minutes
+            mean, std = benchmark("full_300_simp", lambda: sp.simplify(sp.diff(sympify(large_expr_str), x)), runs=1)
+            results.append(("full_300_simp", mean, std))
+            print(f"  Diff + Simplify: {mean/1000:.2f} ± {std/1000:.2f} ms")
+    except TimeoutException:
+        print(f"  Diff + Simplify: Timed out (> 300s)")
+        # Use -1.0 to indicate timeout/failure in the results
+        results.append(("full_300_simp", None, None))
+
+    
+    return results
+
+
 def main():
     print("=" * 60)
     print("SymPy Benchmark Suite")
@@ -290,6 +348,7 @@ def main():
     all_results["differentiation"] = run_differentiation_benchmarks()
     all_results["simplification"] = run_simplification_benchmarks()
     all_results["evaluation"] = run_evaluation_benchmarks()
+    all_results["large_expr"] = run_large_expr_benchmarks()
     
     print("\n" + "=" * 60)
     print("Benchmark Complete!")

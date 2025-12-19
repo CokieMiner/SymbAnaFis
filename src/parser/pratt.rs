@@ -56,10 +56,56 @@ impl<'a> Parser<'a> {
                 break;
             }
 
+            // Special case: collect additive chains to avoid O(N²) cascade
+            // Only activate at the additive level (precedence 10)
+            if let Token::Operator(Operator::Add | Operator::Sub) = token {
+                if precedence == 10 && min_precedence <= 10 {
+                    left = self.parse_additive_chain(left)?;
+                    continue;
+                }
+            }
+
             left = self.parse_infix(left, precedence)?;
         }
 
         Ok(left)
+    }
+
+    /// Collect all additive terms (+ and -) at precedence 10, then call Expr::sum once.
+    /// This avoids O(N²) cascading when parsing large sums like "a + b + c + d + ..."
+    fn parse_additive_chain(&mut self, first: Expr) -> Result<Expr, DiffError> {
+        let mut terms: Vec<Expr> = vec![first];
+
+        loop {
+            let is_add = match self.current() {
+                Some(Token::Operator(Operator::Add)) => Some(true),
+                Some(Token::Operator(Operator::Sub)) => Some(false),
+                _ => None,
+            };
+
+            match is_add {
+                Some(add) => {
+                    self.advance();
+                    // Parse next term at precedence 11 (higher than additive)
+                    // This ensures we stop at the next + or - at the same level
+                    let term = self.parse_expr(11)?;
+
+                    if !add {
+                        // a - b becomes a + (-1)*b
+                        terms.push(Expr::product(vec![Expr::number(-1.0), term]));
+                    } else {
+                        terms.push(term);
+                    }
+                }
+                None => break,
+            }
+        }
+
+        if terms.len() == 1 {
+            Ok(terms.pop().unwrap())
+        } else {
+            Ok(Expr::sum(terms)) // Single call with all terms!
+        }
     }
 
     fn parse_arguments(&mut self) -> Result<Vec<Expr>, DiffError> {
@@ -126,12 +172,10 @@ impl<'a> Parser<'a> {
                     }
 
                     Ok(Expr::func_multi(name.clone(), args))
+                } else if let Some(ctx) = self.context {
+                    Ok(ctx.symb(name).to_expr())
                 } else {
-                    if let Some(ctx) = self.context {
-                        Ok(ctx.symb(name).to_expr())
-                    } else {
-                        Ok(Expr::symbol(name.clone()))
-                    }
+                    Ok(Expr::symbol(name.clone()))
                 }
             }
 
@@ -323,7 +367,8 @@ mod tests {
             Token::Number(2.0),
         ];
         let ast = parse_expression(&tokens, None).unwrap();
-        assert!(matches!(ast.kind, ExprKind::Sum(_)));
+        // 1 + 2 now combines like terms → 3
+        assert!(matches!(ast.kind, ExprKind::Number(n) if (n - 3.0).abs() < 1e-10));
     }
 
     #[test]
@@ -362,7 +407,7 @@ mod tests {
 
     #[test]
     fn test_precedence() {
-        // x + 2 * 3 should be x + (2 * 3)
+        // x + 2 * 3 should be x + 6 (2*3 evaluated, then combined with x)
         let tokens = vec![
             Token::Identifier("x".to_string()),
             Token::Operator(Operator::Add),
@@ -372,15 +417,17 @@ mod tests {
         ];
         let ast = parse_expression(&tokens, None).unwrap();
 
-        // With n-ary Sum, this becomes Sum([x, Product([2, 3])])
+        // With like-term combination: Sum([6, x])
         match &ast.kind {
             ExprKind::Sum(terms) => {
                 assert_eq!(terms.len(), 2);
-                // One should be a symbol, one should be a product
+                // One should be a symbol, one should be a number (6)
                 let has_symbol = terms.iter().any(|t| matches!(t.kind, ExprKind::Symbol(_)));
-                let has_product = terms.iter().any(|t| matches!(t.kind, ExprKind::Product(_)));
+                let has_six = terms
+                    .iter()
+                    .any(|t| matches!(t.kind, ExprKind::Number(n) if (n - 6.0).abs() < 1e-10));
                 assert!(has_symbol, "Expected a symbol in sum");
-                assert!(has_product, "Expected a product in sum");
+                assert!(has_six, "Expected number 6 in sum (from 2*3)");
             }
             _ => panic!("Expected Sum at top level, got {:?}", ast.kind),
         }

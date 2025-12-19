@@ -37,6 +37,7 @@ pub mod functions;
 mod helpers;
 mod math;
 mod parser;
+pub mod poly;
 mod simplification;
 mod symbol;
 pub mod traits;

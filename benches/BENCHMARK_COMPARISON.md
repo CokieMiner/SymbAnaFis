@@ -1,7 +1,7 @@
 # SymbAnaFis vs SymPy vs Symbolica Benchmark Comparison
 
-**Date:** December 17, 2025 (Updated for v0.3.1 + Interned Function Names)
-**SymbAnaFis Version:** 0.3.1 (N-ary AST + InternedSymbol for function names)
+**Date:** December 19, 2025 (Updated: Lazy Canonicalization + GCD Fix)
+**SymbAnaFis Version:** 0.3.1 (N-ary AST + Lazy Canonicalization)
 **SymPy Version:** 1.14.0
 **Symbolica Version:** 1.0.1
 **System:** Linux (Fedora 43)
@@ -23,8 +23,9 @@ SymbAnaFis is a symbolic mathematics library written in Rust, designed for parsi
 
 | Category | Winner | Notes |
 |----------|--------|-------|
-| **Parsing** | SymbAnaFis | **1.2x - 1.9x faster** |
-| **Differentiation** | Symbolica | **18x - 49x faster** |
+| **Parsing** | SymbAnaFis | **1.3x - 1.9x faster** (except poly) |
+| **Differentiation** | Symbolica | **7.5x - 22x faster** (Full Pipeline) |
+| **300-term Parsing** | ~Tie | 384µs vs 349µs (1.1x slower) |
 
 > **Note**: SymbAnaFis `diff()` always includes simplification. Symbolica's `derivative()` also auto-normalizes. Both are fair comparisons.
 
@@ -36,10 +37,10 @@ SymbAnaFis is a symbolic mathematics library written in Rust, designed for parsi
 
 | Expression | SymbAnaFis (ns) | Symbolica (µs) | vs Symbolica |
 |------------|-----------------|----------------|--------------|
-| Polynomial `x^3+2*x^2+x+1` | 1156 | 1.42 | **1.2x faster** |
-| Trig `sin(x)*cos(x)` | 645 | 1.02 | **1.6x faster** |
-| Complex `x^2*sin(x)*exp(x)` | 967 | 1.36 | **1.4x faster** |
-| Nested `sin(cos(tan(x)))` | 556 | 1.07 | **1.9x faster** |
+| Polynomial `x^3+2*x^2+x+1` | 1060 | 1.39 | **1.3x faster** 🎉 |
+| Trig `sin(x)*cos(x)` | 652 | 1.01 | **1.5x faster** |
+| Complex `x^2*sin(x)*exp(x)` | 977 | 1.35 | **1.4x faster** |
+| Nested `sin(cos(tan(x)))` | 561 | 1.05 | **1.9x faster** |
 
 ### 2. Differentiation (Pre-parsed, includes simplification)
 
@@ -47,110 +48,115 @@ Both libraries auto-simplify/normalize results during differentiation.
 
 | Expression | SymbAnaFis (µs) | Symbolica (µs) | vs Symbolica |
 |------------|-----------------|----------------|--------------|
-| Polynomial | 17.09 | 1.18 | -14x slower |
-| Trig | 45.93 | 0.94 | -49x slower |
-| Complex | 60.51 | 1.39 | -43x slower |
-| Nested Trig | 27.91 | 0.85 | -33x slower |
+| Polynomial | 17.02 | 1.18 | -14.4x slower |
+| Trig | 28.96 | 0.93 | -31x slower |
+| Complex | 59.45 | 1.41 | -42x slower |
+| Nested Trig | 39.58 | 0.85 | -47x slower |
 
 ### 3. Differentiation (Full Pipeline: parse + diff + simplify)
 
 | Expression | SymbAnaFis (µs) | Symbolica (µs) | vs Symbolica |
 |------------|-----------------|----------------|--------------|
-| Polynomial | 18.83 | 2.66 | -7x slower |
-| Trig `sin(x)*cos(x)` | 47.04 | 2.02 | -23x slower |
-| Chain `sin(x^2)` | 14.11 | 1.32 | -10x slower |
-| Exp `exp(x^2)` | 15.39 | 1.30 | -12x slower |
-| Complex | 62.85 | 2.84 | -22x slower |
-| Quotient `(x^2+1)/(x-1)` | 45.25 | 2.64 | -17x slower |
-| Nested | 29.25 | 2.05 | -14x slower |
-| Power `x^x` | 22.95 | 1.40 | -16x slower |
+| Polynomial | 18.44 | 2.68 | -6.9x slower |
+| Trig `sin(x)*cos(x)` | 30.26 | 2.05 | -14.8x slower |
+| Chain `sin(x^2)` | 13.98 | 1.31 | -10.7x slower |
+| Exp `exp(x^2)` | 15.26 | 1.29 | -11.8x slower |
+| Complex | 60.99 | 2.82 | -21.6x slower |
+| Quotient `(x^2+1)/(x-1)` | 50.17 | 2.59 | -19.4x slower |
+| Nested | 41.06 | 2.05 | -20x slower |
+| Power `x^x` | 22.52 | 1.39 | -16.2x slower |
 
 ### 4. Large Complex Expressions (300 mixed terms)
 
 | Operation | SymbAnaFis | Symbolica | Ratio |
 | :--- | :--- | :--- | :--- |
-| **Parse** | 1.09 ms | 0.35 ms | **3.1x slower** |
-| **Diff (AST reuse)** | 6.30 ms | 0.36 ms | **17.5x slower** |
-| **Full (parse+diff)** | 7.49 ms | 0.72 ms | **10.4x slower** |
+| **Parse** | 242 µs | 353 µs | **1.5x faster** 🎉 |
+| **Diff (AST reuse)** | 6.76 ms | 351 µs | **19x slower** |
+| **Full (parse+diff)** | 7.27 ms | 716 µs | **10x slower** |
+
+> **Optimizations (Dec 2025):**
+> - Parser N-ary collection: 8.7ms → 385µs (−95%)
+> - Lazy canonicalization: 385µs → 242µs (−37% parse)
+> - GCD multivariate fix: prevents infinite loop
 
 ### 5. Large Physics Expressions
 
 | Expression | SymbAnaFis (µs) | Symbolica (µs) | vs Symbolica |
 | :--- | :--- | :--- | :--- |
-| **Maxwell-Boltzmann** | 185.96 | 9.24 | -20x slower |
-| **Gaussian 2D** | 240.37 | 8.46 | -28x slower |
-| **Orbital Energy** | 111.35 | 7.86 | -14x slower |
-| **Wave Equation** | 36.48 | 4.05 | -9x slower |
-| **Normal PDF** | 198.78 | 6.12 | -32x slower |
+| **Maxwell-Boltzmann** | 204.27 | 9.32 | -22x slower |
+| **Gaussian 2D** | 201.87 | 8.51 | -24x slower |
+| **Orbital Energy** | 97.06 | 7.68 | -13x slower |
+| **Wave Equation** | 36.02 | 4.05 | -9x slower |
+| **Normal PDF** | 180.37 | 6.13 | -29x slower |
 
 ### 6. Internal Benchmarks (SymbAnaFis only)
 
 #### Parsing
 | Expression | Time (µs) |
 |------------|-----------|
-| Polynomial | 1.41 |
-| Trig | 0.74 |
-| Complex | 1.29 |
-| Nested | 0.65 |
+| Polynomial | 1.76 |
+| Trig | 0.75 |
+| Complex | 1.38 |
+| Nested | 0.64 |
 
 #### Differentiation (includes simplification)
 | Expression | Time (µs) |
 |------------|-----------|
-| Polynomial | 19.76 |
-| Trig | 56.33 |
-| Complex | 74.50 |
-| Nested | 35.07 |
+| Polynomial | 22.73 |
+| Trig | 37.35 |
+| Complex | 74.64 |
+| Nested | 34.60 |
 
 #### Differentiation (Full Pipeline)
 | Expression | Time (µs) |
 |------------|-----------|
-| Polynomial | 23.86 |
-| Trig | 55.70 |
-| Chain sin | 17.29 |
-| Exp squared | 19.35 |
-| Complex | 77.85 |
-| Quotient | 56.92 |
-| Nested | 36.77 |
-| Power x^x | 29.25 |
+| Polynomial | 25.34 |
+| Trig | 38.45 |
+| Chain sin | 17.16 |
+| Exp squared | 19.11 |
+| Complex | 78.55 |
+| Quotient | 62.98 |
+| Nested | 36.27 |
+| Power x^x | 29.01 |
 
 #### Simplification
 | Pattern | Time (µs) |
 |---------|-----------|
-| Pythagorean `sin²+cos²` | 16.80 |
-| Perfect Square | 13.02 |
-| Fraction Cancel | 22.09 |
-| Exp Combine | 19.55 |
-| Like Terms | 12.74 |
-| Hyperbolic | 27.16 |
-| Frac Add | 46.90 |
-| Power Combine | 10.83 |
+| Pythagorean `sin²+cos²` | 17.76 |
+| Perfect Square | 13.52 |
+| Fraction Cancel | 19.17 |
+| Exp Combine | 20.24 |
+| Like Terms | 4.42 |
+| Hyperbolic | 27.84 |
+| Frac Add | 45.05 |
+| Power Combine | 8.44 |
 
 #### Evaluation
 | Function | Time (ns) |
 |----------|-----------|
-| Polynomial | 1726 |
-| sin | 474 |
-| cos | 483 |
-| exp | 469 |
-| ln | 457 |
-| sqrt | 476 |
-| gamma | 444 |
-| digamma | 428 |
-| trigamma | 435 |
-| erf | 513 |
-| erfc | 539 |
-| zeta | 1186 |
-| lambertw | 902 |
-| besselj(0) | 586 |
-| besselj(1) | 542 |
-| bessely(0) | 566 |
-| bessely(1) | 567 |
-| besseli(0) | 553 |
-| besselk(0) | 557 |
-| polygamma(2) | 623 |
-| polygamma(3) | 635 |
-| polygamma(4) | 639 |
-| tetragamma | 421 |
+| Polynomial | 2040 |
+| sin | 517 |
+| cos | 519 |
+| exp | 516 |
+| ln | 494 |
+| sqrt | 503 |
+| gamma | 492 |
+| digamma | 486 |
+| trigamma | 474 |
+| erf | 537 |
+| erfc | 557 |
+| zeta | 1220 |
+| lambertw | 923 |
+| besselj(0) | 634 |
+| besselj(1) | 643 |
+| bessely(0) | 646 |
+| bessely(1) | 638 |
+| besseli(0) | 644 |
+| besselk(0) | 637 |
+| polygamma(2) | 720 |
+| polygamma(3) | 706 |
+| polygamma(4) | 718 |
+| tetragamma | 493 |
 
 
 ### 5. Large Expressions (300 Mixed Terms)
@@ -159,46 +165,60 @@ Benchmarks on a complex expression with 300 terms including polynomials, trigono
 
 | Operation | SymbAnaFis | Symbolica | Ratio |
 |-----------|------------|-----------|-------|
-| Parsing | 1.10 ms | 350 µs | **3.1x** slower |
-| Differentiation | 18.7 ms | 359 µs | **52x** slower |
-| Full Pipeline | 20.2 ms | 722 µs | **28x** slower |
+| Parsing | 384 µs | 349 µs | **1.1x** slower |
+| Differentiation | 6.96 ms | 352 µs | **19.8x** slower |
+| Full Pipeline | 7.31 ms | 722 µs | **10.1x** slower |
 
 > **Note:** The performance gap widens significantly for very large expressions. This is primarily due to SymbAnaFis using a tree-based AST with `Arc` smart pointers and cloning during differentiation, whereas Symbolica uses a highly optimized arena allocator (Atoms) that avoids most allocations. **Memory pooling** is the next planned optimization to address this.
 
 
-## Python Benchmark Results (SymbAnaFis Python bindings vs SymPy)
+## Python Benchmark Comparison
 
-### Parsing
+**Date:** 2025-12-18 11:28
+**SymPy Version:** 1.14.0
+
+## Parsing
+
 | Expression | SymPy (µs) | SymbAnaFis (µs) | Speedup |
 |------------|------------|-----------------|---------|
-| Polynomial | 134.81 | 7.20 | **18.7x faster** |
-| Trig | 114.78 | 5.37 | **21.4x faster** |
-| Complex | 131.54 | 7.57 | **17.4x faster** |
-| Nested | 111.35 | 5.44 | **20.5x faster** |
+| polynomial | 124.81 | 2.20 | **56.8x** faster |
+| trig_simple | 104.28 | 1.17 | **88.8x** faster |
+| complex_expr | 116.87 | 1.81 | **64.6x** faster |
+| nested_trig | 101.79 | 1.10 | **92.4x** faster |
 
-### Differentiation (Full Pipeline)
-| Expression | SymPy (µs) | SymbAnaFis (µs) | Result |
-|------------|------------|-----------------|--------|
-| Polynomial | 172.38 | 254.43 | -1.5x slower |
-| Trig | 143.20 | 422.19 | -2.9x slower |
-| Chain sin | 205.99 | 181.45 | **1.1x faster** |
-| Exp squared | 204.82 | 172.63 | **1.2x faster** |
-| Complex | 155.12 | 1175.70 | -7.6x slower |
-| Quotient | 158.08 | 516.54 | -3.3x slower |
-| Nested | 216.71 | 453.38 | -2.1x slower |
-| Power x^x | 196.64 | 210.55 | -1.1x slower |
+## Differentiation (Full Pipeline)
 
-### Simplification
-| Pattern | SymPy (µs) | SymbAnaFis (µs) | Speedup |
-|---------|------------|-----------------|---------|
-| Pythagorean | 5481.19 | 127.05 | **43.1x faster** |
-| Perfect Square | 2196.08 | 123.95 | **17.7x faster** |
-| Fraction Cancel | 1931.20 | 103.80 | **18.6x faster** |
-| Exp Combine | 1646.49 | 140.42 | **11.7x faster** |
-| Like Terms | 633.67 | 112.20 | **5.6x faster** |
-| Hyperbolic | 3687.42 | 173.07 | **21.3x faster** |
-| Frac Add | 1510.18 | 391.54 | **3.9x faster** |
-| Power Combine | 636.26 | 84.25 | **7.6x faster** |
+| Expression | SymPy (µs) | SymbAnaFis (µs) | Speedup |
+|------------|------------|-----------------|---------|
+| polynomial | 157.15 | 23.22 | **6.8x** faster |
+| trig_simple | 130.77 | 55.69 | **2.3x** faster |
+| chain_sin | 193.30 | 17.08 | **11.3x** faster |
+| exp_squared | 192.39 | 19.07 | **10.1x** faster |
+| complex_expr | 148.70 | 73.28 | **2.0x** faster |
+| quotient | 150.58 | 54.08 | **2.8x** faster |
+| nested_trig | 208.46 | 35.45 | **5.9x** faster |
+| power_xx | 186.00 | 27.68 | **6.7x** faster |
+
+## Simplification
+
+| Expression | SymPy (µs) | SymbAnaFis (µs) | Speedup |
+|------------|------------|-----------------|---------|
+| pythagorean | 5327.40 | 18.43 | **289.1x** faster |
+| perfect_square | 2199.58 | 14.34 | **153.4x** faster |
+| fraction_cancel | 1887.17 | 23.21 | **81.3x** faster |
+| exp_combine | 1571.92 | 21.12 | **74.4x** faster |
+| like_terms | 618.39 | 12.77 | **48.4x** faster |
+| hyperbolic | 3585.65 | 28.72 | **124.8x** faster |
+| frac_add | 1485.94 | 40.31 | **36.9x** faster |
+| power_combine | 623.07 | 11.09 | **56.2x** faster |
+
+## Large Expressions (300 terms)
+
+| Operation | SymPy (ms) | SymbAnaFis (ms) | Speedup |
+|-----------|------------|-----------------|---------|
+| Parsing | 145.71 | 1.46 | **99.9x** faster |
+| Full Pipeline (Parse+Diff) | 149.42 | 8.35 | **17.9x** faster |
+| Full Pipeline + Simplify | Timeout (> 15m) | 8.19 | -- |
 
 ---
 

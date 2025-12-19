@@ -66,14 +66,15 @@ Replaced string-based term signatures with `u64` structural hashing:
 
 ---
 
-### Phase 7b: Inline Hashing (v0.3.1 - IMMEDIATE PRIORITY)
+### Phase 7b: Inline Hashing (Completed)
 
 **Goal**: Eliminate `HashMap` equality check overhead (`__memcmp_evex_movbe` ~8%). Crucial prerequisite for efficient Phase 8.
 
-**Optimization**:
-- Store `hash: u64` directly in `Expr` struct.
-- Compute hash once during construction (O(N)).
-- Implement `PartialEq`/`Eq` to check hash first:
+**Implementation**:
+- Added `hash: u64` field directly in `Expr` struct.
+- Hash computed once during `Expr::new()` construction using FNV-1a.
+- Uses commutative (order-independent) hashing for Sum/Product.
+- `PartialEq` checks hash first for fast rejection:
   ```rust
   impl PartialEq for Expr {
       fn eq(&self, other: &Self) -> bool {

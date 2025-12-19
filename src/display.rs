@@ -19,17 +19,16 @@ use std::sync::Arc;
 fn extract_negative(expr: &Expr) -> Option<Expr> {
     match &expr.kind {
         ExprKind::Product(factors) => {
-            if !factors.is_empty() {
-                if let ExprKind::Number(n) = &factors[0].kind {
-                    if (*n + 1.0).abs() < 1e-10 {
-                        // Remove the -1 factor
-                        if factors.len() == 2 {
-                            return Some((*factors[1]).clone());
-                        } else {
-                            let remaining: Vec<Arc<Expr>> = factors[1..].to_vec();
-                            return Some(Expr::product_from_arcs(remaining));
-                        }
-                    }
+            if !factors.is_empty()
+                && let ExprKind::Number(n) = &factors[0].kind
+                && (*n + 1.0).abs() < 1e-10
+            {
+                // Remove the -1 factor
+                if factors.len() == 2 {
+                    return Some((*factors[1]).clone());
+                } else {
+                    let remaining: Vec<Arc<Expr>> = factors[1..].to_vec();
+                    return Some(Expr::product_from_arcs(remaining));
                 }
             }
         }
@@ -134,20 +133,19 @@ impl fmt::Display for Expr {
                 }
 
                 // Check for leading -1
-                if factors.len() >= 1 {
-                    if let ExprKind::Number(n) = &factors[0].kind {
-                        if (*n + 1.0).abs() < 1e-10 {
-                            // Leading -1: display as negation
-                            if factors.len() == 1 {
-                                return write!(f, "-1");
-                            } else if factors.len() == 2 {
-                                return write!(f, "-{}", format_factor(&factors[1]));
-                            } else {
-                                let remaining: Vec<Arc<Expr>> = factors[1..].to_vec();
-                                let rest = Expr::product_from_arcs(remaining);
-                                return write!(f, "-{}", format_factor(&rest));
-                            }
-                        }
+                if !factors.is_empty()
+                    && let ExprKind::Number(n) = &factors[0].kind
+                    && (*n + 1.0).abs() < 1e-10
+                {
+                    // Leading -1: display as negation
+                    if factors.len() == 1 {
+                        return write!(f, "-1");
+                    } else if factors.len() == 2 {
+                        return write!(f, "-{}", format_factor(&factors[1]));
+                    } else {
+                        let remaining: Vec<Arc<Expr>> = factors[1..].to_vec();
+                        let rest = Expr::product_from_arcs(remaining);
+                        return write!(f, "-{}", format_factor(&rest));
                     }
                 }
 
@@ -199,10 +197,10 @@ impl fmt::Display for Expr {
 
             ExprKind::Pow(u, v) => {
                 // Special case: e^x displays as exp(x)
-                if let ExprKind::Symbol(s) = &u.kind {
-                    if s == "e" {
-                        return write!(f, "exp({})", v);
-                    }
+                if let ExprKind::Symbol(s) = &u.kind
+                    && s == "e"
+                {
+                    return write!(f, "exp({})", v);
                 }
 
                 let base_str = format!("{}", u);
@@ -506,12 +504,10 @@ fn format_latex(expr: &Expr, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                         write!(f, "{}", LatexFormatter(term))?;
                     }
                     first = false;
+                } else if let Some(positive_term) = extract_negative(term) {
+                    write!(f, " - {}", latex_factor(&positive_term))?;
                 } else {
-                    if let Some(positive_term) = extract_negative(term) {
-                        write!(f, " - {}", latex_factor(&positive_term))?;
-                    } else {
-                        write!(f, " + {}", LatexFormatter(term))?;
-                    }
+                    write!(f, " + {}", LatexFormatter(term))?;
                 }
             }
             Ok(())
@@ -523,17 +519,16 @@ fn format_latex(expr: &Expr, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             }
 
             // Check for leading -1
-            if !factors.is_empty() {
-                if let ExprKind::Number(n) = &factors[0].kind {
-                    if (*n + 1.0).abs() < 1e-10 {
-                        if factors.len() == 1 {
-                            return write!(f, "-1");
-                        }
-                        let remaining: Vec<Arc<Expr>> = factors[1..].to_vec();
-                        let rest = Expr::product_from_arcs(remaining);
-                        return write!(f, "-{}", latex_factor(&rest));
-                    }
+            if !factors.is_empty()
+                && let ExprKind::Number(n) = &factors[0].kind
+                && (*n + 1.0).abs() < 1e-10
+            {
+                if factors.len() == 1 {
+                    return write!(f, "-1");
                 }
+                let remaining: Vec<Arc<Expr>> = factors[1..].to_vec();
+                let rest = Expr::product_from_arcs(remaining);
+                return write!(f, "-{}", latex_factor(&rest));
             }
 
             let factor_strs: Vec<String> = factors.iter().map(|fac| latex_factor(fac)).collect();
@@ -550,10 +545,10 @@ fn format_latex(expr: &Expr, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         }
 
         ExprKind::Pow(u, v) => {
-            if let ExprKind::Symbol(s) = &u.kind {
-                if s == "e" {
-                    return write!(f, r"e^{{{}}}", LatexFormatter(v));
-                }
+            if let ExprKind::Symbol(s) = &u.kind
+                && s == "e"
+            {
+                return write!(f, r"e^{{{}}}", LatexFormatter(v));
             }
 
             let base_str = if needs_parens_as_base(u) {
@@ -700,12 +695,10 @@ fn format_unicode(expr: &Expr, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                         write!(f, "{}", UnicodeFormatter(term))?;
                     }
                     first = false;
+                } else if let Some(positive) = extract_negative(term) {
+                    write!(f, " − {}", unicode_factor(&positive))?;
                 } else {
-                    if let Some(positive) = extract_negative(term) {
-                        write!(f, " − {}", unicode_factor(&positive))?;
-                    } else {
-                        write!(f, " + {}", UnicodeFormatter(term))?;
-                    }
+                    write!(f, " + {}", UnicodeFormatter(term))?;
                 }
             }
             Ok(())
@@ -715,17 +708,16 @@ fn format_unicode(expr: &Expr, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             if factors.is_empty() {
                 return write!(f, "1");
             }
-            if !factors.is_empty() {
-                if let ExprKind::Number(n) = &factors[0].kind {
-                    if (*n + 1.0).abs() < 1e-10 {
-                        if factors.len() == 1 {
-                            return write!(f, "−1");
-                        }
-                        let remaining: Vec<Arc<Expr>> = factors[1..].to_vec();
-                        let rest = Expr::product_from_arcs(remaining);
-                        return write!(f, "−{}", unicode_factor(&rest));
-                    }
+            if !factors.is_empty()
+                && let ExprKind::Number(n) = &factors[0].kind
+                && (*n + 1.0).abs() < 1e-10
+            {
+                if factors.len() == 1 {
+                    return write!(f, "−1");
                 }
+                let remaining: Vec<Arc<Expr>> = factors[1..].to_vec();
+                let rest = Expr::product_from_arcs(remaining);
+                return write!(f, "−{}", unicode_factor(&rest));
             }
             let factor_strs: Vec<String> = factors.iter().map(|fac| unicode_factor(fac)).collect();
             write!(f, "{}", factor_strs.join("·"))
@@ -748,10 +740,10 @@ fn format_unicode(expr: &Expr, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         }
 
         ExprKind::Pow(u, v) => {
-            if let ExprKind::Symbol(s) = &u.kind {
-                if s == "e" {
-                    return write!(f, "exp({})", UnicodeFormatter(v));
-                }
+            if let ExprKind::Symbol(s) = &u.kind
+                && s == "e"
+            {
+                return write!(f, "exp({})", UnicodeFormatter(v));
             }
             let base = if needs_parens_as_base(u) {
                 format!("({})", UnicodeFormatter(u))
@@ -805,9 +797,10 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(clippy::approx_constant)]
     fn test_display_number() {
         assert_eq!(format!("{}", Expr::number(3.0)), "3");
-        assert!(format!("{}", Expr::number(3.14)).starts_with("3.14"));
+        assert!(format!("{}", Expr::number(3.141)).starts_with("3.141"));
     }
 
     #[test]
@@ -817,8 +810,13 @@ mod tests {
 
     #[test]
     fn test_display_sum() {
-        let expr = Expr::sum(vec![Expr::symbol("x"), Expr::number(1.0)]);
-        assert_eq!(format!("{}", expr), "1 + x"); // Sorted: numbers before symbols
+        use crate::simplification::simplify_expr;
+        use std::collections::HashSet;
+        let expr = simplify_expr(
+            Expr::sum(vec![Expr::symbol("x"), Expr::number(1.0)]),
+            HashSet::new(),
+        );
+        assert_eq!(format!("{}", expr), "1 + x"); // Sorted after simplify: numbers before symbols
     }
 
     #[test]

@@ -5,91 +5,74 @@ fn check_sin_triple(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
     // Check for 3*sin(x) - 4*sin^3(x) pattern
     if let AstKind::Product(factors) = &u.kind {
         // Look for coefficient 3 and sin(x)
-        if factors.len() == 2 {
-            if let AstKind::Number(n) = &factors[0].kind {
-                if (*n - 3.0).abs() < eps {
-                    if let AstKind::FunctionCall { name, args } = &factors[1].kind {
-                        if name == "sin" && args.len() == 1 {
+        if factors.len() == 2
+            && let AstKind::Number(n) = &factors[0].kind
+                && (*n - 3.0).abs() < eps
+                    && let AstKind::FunctionCall { name, args } = &factors[1].kind
+                        && name == "sin" && args.len() == 1 {
                             let x = &args[0];
-                            if let Some((coeff, _is_neg)) = extract_sin_cubed(v, x, eps) {
-                                if (coeff - 4.0).abs() < eps {
+                            if let Some((coeff, _is_neg)) = extract_sin_cubed(v, x, eps)
+                                && (coeff - 4.0).abs() < eps {
                                     return Some(Expr::func(
                                         "sin",
                                         Expr::product(vec![Expr::number(3.0), x.clone()]),
                                     ));
                                 }
-                            }
                         }
-                    }
-                }
-            }
-        }
     }
     None
 }
 
 fn check_sin_triple_add(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
     // Check for 3*sin(x) + (-4*sin^3(x)) pattern
-    if let AstKind::Product(factors) = &u.kind {
-        if factors.len() == 2 {
-            if let AstKind::Number(n) = &factors[0].kind {
-                if (*n - 3.0).abs() < eps {
-                    if let AstKind::FunctionCall { name, args } = &factors[1].kind {
-                        if name == "sin" && args.len() == 1 {
+    if let AstKind::Product(factors) = &u.kind
+        && factors.len() == 2
+            && let AstKind::Number(n) = &factors[0].kind
+                && (*n - 3.0).abs() < eps
+                    && let AstKind::FunctionCall { name, args } = &factors[1].kind
+                        && name == "sin" && args.len() == 1 {
                             let x = &args[0];
-                            if let Some((coeff, is_neg)) = extract_sin_cubed(v, x, eps) {
-                                if is_neg && (coeff - 4.0).abs() < eps {
+                            if let Some((coeff, is_neg)) = extract_sin_cubed(v, x, eps)
+                                && is_neg && (coeff - 4.0).abs() < eps {
                                     return Some(Expr::func(
                                         "sin",
                                         Expr::product(vec![Expr::number(3.0), x.clone()]),
                                     ));
                                 }
-                            }
                         }
-                    }
-                }
-            }
-        }
-    }
     // Check reversed
-    if let AstKind::Product(factors) = &v.kind {
-        if factors.len() == 2 {
-            if let AstKind::Number(n) = &factors[0].kind {
-                if (*n - 3.0).abs() < eps {
-                    if let AstKind::FunctionCall { name, args } = &factors[1].kind {
-                        if name == "sin" && args.len() == 1 {
+    if let AstKind::Product(factors) = &v.kind
+        && factors.len() == 2
+            && let AstKind::Number(n) = &factors[0].kind
+                && (*n - 3.0).abs() < eps
+                    && let AstKind::FunctionCall { name, args } = &factors[1].kind
+                        && name == "sin" && args.len() == 1 {
                             let x = &args[0];
-                            if let Some((coeff, is_neg)) = extract_sin_cubed(u, x, eps) {
-                                if is_neg && (coeff - 4.0).abs() < eps {
+                            if let Some((coeff, is_neg)) = extract_sin_cubed(u, x, eps)
+                                && is_neg && (coeff - 4.0).abs() < eps {
                                     return Some(Expr::func(
                                         "sin",
                                         Expr::product(vec![Expr::number(3.0), x.clone()]),
                                     ));
                                 }
-                            }
                         }
-                    }
-                }
-            }
-        }
-    }
     None
 }
 
 fn check_cos_triple(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
     // Check for 4*cos^3(x) - 3*cos(x) pattern
-    if let AstKind::Product(factors) = &u.kind {
-        if factors.len() == 2 {
-            if let AstKind::Number(n) = &factors[0].kind {
-                if (*n - 4.0).abs() < eps {
-                    if let AstKind::Pow(base, exp) = &factors[1].kind {
-                        if let AstKind::Number(e) = &exp.kind {
-                            if *e == 3.0 {
-                                if let AstKind::FunctionCall { name, args } = &base.kind {
-                                    if name == "cos" && args.len() == 1 {
+    if let AstKind::Product(factors) = &u.kind
+        && factors.len() == 2
+            && let AstKind::Number(n) = &factors[0].kind
+                && (*n - 4.0).abs() < eps
+                    && let AstKind::Pow(base, exp) = &factors[1].kind
+                        && let AstKind::Number(e) = &exp.kind
+                            && *e == 3.0
+                                && let AstKind::FunctionCall { name, args } = &base.kind
+                                    && name == "cos" && args.len() == 1 {
                                         let x = &args[0];
-                                        if let Some((coeff, _is_neg)) = extract_cos(v, x, eps) {
-                                            if (coeff - 3.0).abs() < eps {
+                                        if let Some((coeff, _is_neg)) = extract_cos(v, x, eps)
+                                            && (coeff - 3.0).abs() < eps {
                                                 return Some(Expr::func(
                                                     "cos",
                                                     Expr::product(vec![
@@ -98,33 +81,24 @@ fn check_cos_triple(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
                                                     ]),
                                                 ));
                                             }
-                                        }
                                     }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
     None
 }
 
 fn check_cos_triple_add(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
     // Check for 4*cos^3(x) + (-3*cos(x)) pattern
-    if let AstKind::Product(factors) = &u.kind {
-        if factors.len() == 2 {
-            if let AstKind::Number(n) = &factors[0].kind {
-                if (*n - 4.0).abs() < eps {
-                    if let AstKind::Pow(base, exp) = &factors[1].kind {
-                        if let AstKind::Number(e) = &exp.kind {
-                            if *e == 3.0 {
-                                if let AstKind::FunctionCall { name, args } = &base.kind {
-                                    if name == "cos" && args.len() == 1 {
+    if let AstKind::Product(factors) = &u.kind
+        && factors.len() == 2
+            && let AstKind::Number(n) = &factors[0].kind
+                && (*n - 4.0).abs() < eps
+                    && let AstKind::Pow(base, exp) = &factors[1].kind
+                        && let AstKind::Number(e) = &exp.kind
+                            && *e == 3.0
+                                && let AstKind::FunctionCall { name, args } = &base.kind
+                                    && name == "cos" && args.len() == 1 {
                                         let x = &args[0];
-                                        if let Some((coeff, is_neg)) = extract_cos(v, x, eps) {
-                                            if is_neg && (coeff - 3.0).abs() < eps {
+                                        if let Some((coeff, is_neg)) = extract_cos(v, x, eps)
+                                            && is_neg && (coeff - 3.0).abs() < eps {
                                                 return Some(Expr::func(
                                                     "cos",
                                                     Expr::product(vec![
@@ -133,29 +107,20 @@ fn check_cos_triple_add(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
                                                     ]),
                                                 ));
                                             }
-                                        }
                                     }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
     // Check reversed
-    if let AstKind::Product(factors) = &v.kind {
-        if factors.len() == 2 {
-            if let AstKind::Number(n) = &factors[0].kind {
-                if (*n - 4.0).abs() < eps {
-                    if let AstKind::Pow(base, exp) = &factors[1].kind {
-                        if let AstKind::Number(e) = &exp.kind {
-                            if *e == 3.0 {
-                                if let AstKind::FunctionCall { name, args } = &base.kind {
-                                    if name == "cos" && args.len() == 1 {
+    if let AstKind::Product(factors) = &v.kind
+        && factors.len() == 2
+            && let AstKind::Number(n) = &factors[0].kind
+                && (*n - 4.0).abs() < eps
+                    && let AstKind::Pow(base, exp) = &factors[1].kind
+                        && let AstKind::Number(e) = &exp.kind
+                            && *e == 3.0
+                                && let AstKind::FunctionCall { name, args } = &base.kind
+                                    && name == "cos" && args.len() == 1 {
                                         let x = &args[0];
-                                        if let Some((coeff, is_neg)) = extract_cos(u, x, eps) {
-                                            if is_neg && (coeff - 3.0).abs() < eps {
+                                        if let Some((coeff, is_neg)) = extract_cos(u, x, eps)
+                                            && is_neg && (coeff - 3.0).abs() < eps {
                                                 return Some(Expr::func(
                                                     "cos",
                                                     Expr::product(vec![
@@ -164,54 +129,34 @@ fn check_cos_triple_add(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
                                                     ]),
                                                 ));
                                             }
-                                        }
                                     }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
     None
 }
 
 fn extract_sin_cubed(expr: &Expr, x: &Expr, _eps: f64) -> Option<(f64, bool)> {
     // Match c * sin^3(x) pattern
-    if let AstKind::Product(factors) = &expr.kind {
-        if factors.len() == 2 {
-            if let AstKind::Number(n) = &factors[0].kind {
-                if let AstKind::Pow(base, exp) = &factors[1].kind {
-                    if let AstKind::Number(e) = &exp.kind {
-                        if *e == 3.0 {
-                            if let AstKind::FunctionCall { name, args } = &base.kind {
-                                if name == "sin" && args.len() == 1 && args[0] == *x {
+    if let AstKind::Product(factors) = &expr.kind
+        && factors.len() == 2
+            && let AstKind::Number(n) = &factors[0].kind
+                && let AstKind::Pow(base, exp) = &factors[1].kind
+                    && let AstKind::Number(e) = &exp.kind
+                        && *e == 3.0
+                            && let AstKind::FunctionCall { name, args } = &base.kind
+                                && name == "sin" && args.len() == 1 && args[0] == *x {
                                     return Some((n.abs(), *n < 0.0));
                                 }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
     None
 }
 
 fn extract_cos(expr: &Expr, x: &Expr, _eps: f64) -> Option<(f64, bool)> {
     // Match c * cos(x) pattern
-    if let AstKind::Product(factors) = &expr.kind {
-        if factors.len() == 2 {
-            if let AstKind::Number(n) = &factors[0].kind {
-                if let AstKind::FunctionCall { name, args } = &factors[1].kind {
-                    if name == "cos" && args.len() == 1 && args[0] == *x {
+    if let AstKind::Product(factors) = &expr.kind
+        && factors.len() == 2
+            && let AstKind::Number(n) = &factors[0].kind
+                && let AstKind::FunctionCall { name, args } = &factors[1].kind
+                    && name == "cos" && args.len() == 1 && args[0] == *x {
                         return Some((n.abs(), *n < 0.0));
                     }
-                }
-            }
-        }
-    }
     None
 }
 
@@ -223,17 +168,17 @@ rule!(
     &[ExprKind::Sum],
     |expr: &Expr, _context: &RuleContext| {
         let eps = 1e-10;
-        if let AstKind::Sum(terms) = &expr.kind {
-            if terms.len() == 2 {
+        if let AstKind::Sum(terms) = &expr.kind
+            && terms.len() == 2 {
                 let u = &terms[0];
                 let v = &terms[1];
 
                 // Helper to extract negated term from Product([-1, x])
                 fn extract_negated(term: &Expr) -> Option<Expr> {
-                    if let AstKind::Product(factors) = &term.kind {
-                        if factors.len() >= 2 {
-                            if let AstKind::Number(n) = &factors[0].kind {
-                                if (*n + 1.0).abs() < 1e-10 {
+                    if let AstKind::Product(factors) = &term.kind
+                        && factors.len() >= 2
+                            && let AstKind::Number(n) = &factors[0].kind
+                                && (*n + 1.0).abs() < 1e-10 {
                                     // Rebuild without the -1 factor
                                     let remaining: Vec<Expr> =
                                         factors.iter().skip(1).map(|f| (**f).clone()).collect();
@@ -243,9 +188,6 @@ rule!(
                                         return Some(Expr::product(remaining));
                                     }
                                 }
-                            }
-                        }
-                    }
                     None
                 }
 
@@ -269,7 +211,6 @@ rule!(
                     return Some(result);
                 }
             }
-        }
         None
     }
 );

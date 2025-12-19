@@ -256,8 +256,8 @@ rule_with_helpers!(LogCombinationRule, "log_combination", 85, Exponential, &[Exp
         // Helper defined above
     },
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Sum(terms) = &expr.kind {
-            if terms.len() == 2 {
+        if let AstKind::Sum(terms) = &expr.kind
+            && terms.len() == 2 {
                 let u = &terms[0];
                 let v = &terms[1];
 
@@ -271,22 +271,17 @@ rule_with_helpers!(LogCombinationRule, "log_combination", 85, Exponential, &[Exp
 
                 // ln(a) + (-ln(b)) = ln(a/b)
                 // Check if v is Product([-1, ln(b)])
-                if let AstKind::Product(factors) = &v.kind {
-                    if factors.len() == 2 {
-                        if let AstKind::Number(n) = &factors[0].kind {
-                            if (*n + 1.0).abs() < 1e-10 {
-                                if let (Some(arg1), Some(arg2)) = (get_ln_arg(u), get_ln_arg(&factors[1])) {
+                if let AstKind::Product(factors) = &v.kind
+                    && factors.len() == 2
+                        && let AstKind::Number(n) = &factors[0].kind
+                            && (*n + 1.0).abs() < 1e-10
+                                && let (Some(arg1), Some(arg2)) = (get_ln_arg(u), get_ln_arg(&factors[1])) {
                                     return Some(Expr::func(
                                         "ln",
                                         Expr::div_expr(arg1, arg2),
                                     ));
                                 }
-                            }
-                        }
-                    }
-                }
             }
-        }
         None
     }
 );

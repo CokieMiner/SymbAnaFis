@@ -51,7 +51,6 @@ pub(crate) fn get_algebraic_rules() -> Vec<Arc<dyn Rule + Send + Sync>> {
         Arc::new(expansion::ExpandPowerForCancellationRule),
         Arc::new(expansion::PowerExpansionRule),
         Arc::new(expansion::PolynomialExpansionRule),
-        Arc::new(expansion::ExpandDifferenceOfSquaresProductRule),
         // Factoring rules
         Arc::new(factoring::FractionCancellationRule),
         Arc::new(factoring::PerfectSquareRule),
@@ -60,6 +59,7 @@ pub(crate) fn get_algebraic_rules() -> Vec<Arc<dyn Rule + Send + Sync>> {
         Arc::new(factoring::NumericGcdFactoringRule),
         Arc::new(factoring::CommonTermFactoringRule),
         Arc::new(factoring::CommonPowerFactoringRule),
+        Arc::new(factoring::PolyGcdSimplifyRule),
         // Canonicalization rules (simplified for n-ary)
         Arc::new(canonicalization::CanonicalizeProductRule),
         Arc::new(canonicalization::CanonicalizeSumRule),

@@ -66,13 +66,14 @@ fn test_recursion_limits() {
 
 #[test]
 fn test_node_limits() {
-    // Create broad tree
+    // Create broad tree with different bases to avoid like-term combination
+    // Use sin(x^n) for each n to create unique terms
     let x = symb("x");
-    let mut broad: Expr = x.into();
-    for _ in 0..10 {
-        broad = broad.clone() + broad.clone();
+    let mut terms: Vec<Expr> = Vec::new();
+    for i in 1..=20 {
+        terms.push(Expr::func("sin", x.clone().pow(i as f64)));
     }
-    // 2^10 terms roughly
+    let broad = Expr::sum(terms);
 
     let diff_strict = Diff::new().max_nodes(50);
     let res = diff_strict.differentiate(broad, &x);
@@ -88,7 +89,9 @@ fn test_symbol_method_chaining() {
     // Symbol.pow(2.0) works and returns Expr, but sin() returns Expr, so use pow_of
     let expr = x.clone().sin().pow_of(2.0) + x.clone().cos().pow_of(2.0);
 
-    assert_eq!(format!("{}", expr), "cos(x)^2 + sin(x)^2");
+    // Accept either ordering (canonical ordering now deferred to simplify)
+    let display = format!("{}", expr);
+    assert!(display == "cos(x)^2 + sin(x)^2" || display == "sin(x)^2 + cos(x)^2");
 
     let diff = Diff::new();
     let res = diff.differentiate(expr, &x).unwrap();

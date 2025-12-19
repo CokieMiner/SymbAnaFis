@@ -33,8 +33,69 @@ def format_time(us: float) -> str:
         return f"{us * 1000:.2f} ns"
     elif us < 1000:
         return f"{us:.2f} µs"
-    else:
+    elif us < 1_000_000:
         return f"{us / 1000:.2f} ms"
+    else:
+        return f"{us / 1_000_000:.2f} s"
+
+
+def generate_mixed_complex(n: int) -> str:
+    """
+    Generates a complex mixed expression with N terms.
+    Includes: polynomials, trig, exponentials, fractions, and nested functions.
+    Matches the logic in benches/rust/large_expr.rs.
+    """
+    terms = []
+    
+    for i in range(1, n + 1):
+        if i > 1:
+            pass # Operators will be joined later
+            
+        term = ""
+        # Mix term types based on index
+        mode = i % 5
+        if mode == 0:
+            # Polynomial term: i*x^i
+            term = f"{i}*x^{i % 10 + 1}"
+        elif mode == 1:
+            # Trig term: sin(i*x) * cos(x)
+            term = f"sin({i}*x)*cos(x)"
+        elif mode == 2:
+            # Exponential/Log: exp(x/i) + ln(x + i)
+            # Python's ln is usually log, but SymbAnaFis parses ln
+            term = f"(exp(x/{i}) + ln(x + {i}))"
+        elif mode == 3:
+            # Rational: (x^2 + i) / (x + i)
+            term = f"(x^2 + {i})/(x + {i})"
+        elif mode == 4:
+            # Nested: sin(exp(x) + i)
+            term = f"sin(exp(x) + {i})"
+            
+        terms.append(term)
+
+    # Join with mixed operators
+    result = []
+    for i, term in enumerate(terms):
+        if i == 0:
+            result.append(term)
+        else:
+            # Match Rust logic:
+            # if i % 3 == 0: " + "
+            # elif i % 3 == 1: " - "
+            # else: " + "
+            # Note: Rust loop was 1-based (i), here enumerate is 0-based index.
+            # But the Rust logic used `i` which was the 1-based term count.
+            # Let's align with the term count `count = i + 1`
+            count = i + 1
+            if count % 3 == 0:
+                result.append(" + ")
+            elif count % 3 == 1:
+                result.append(" - ")
+            else:
+                result.append(" + ")
+            result.append(term)
+            
+    return "".join(result)
 
 
 def calculate_speedup(sympy_us: float, our_us: float) -> str:
@@ -134,6 +195,35 @@ def generate_comparison_table(results: dict[str, Any]) -> str:
             if name in sympy_simp and name in our_simp:
                 speedup = calculate_speedup(sympy_simp[name], our_simp[name])
                 lines.append(f"| {name} | {sympy_simp[name]:.2f} | {our_simp[name]:.2f} | {speedup} |")
+        lines.append("")
+    
+    # Large Expression comparison
+    if "large_expr" in sympy_results and "large_expr" in our_results:
+        lines.append("## Large Expressions (300 terms)")
+        lines.append("")
+        lines.append("| Operation | SymPy (ms) | SymbAnaFis (ms) | Speedup |")
+        lines.append("|-----------|------------|-----------------|---------|")
+        
+        sympy_large = {r[0]: r[1] for r in sympy_results["large_expr"]}
+        our_large = {r[0]: r[1] for r in our_results["large_expr"]}
+        
+        # Convert µs to ms for display
+        for name, display_name in [("parse_300", "Parsing"), ("full_300", "Full Pipeline (Parse+Diff)"), ("full_300_simp", "Full Pipeline + Simplify")]:
+            if name in sympy_large and name in our_large:
+                s_val = sympy_large[name]
+                o_val = our_large[name]
+                
+                # Handle timeout (None)
+                if s_val is None:
+                    sympy_str = "Timeout (> 5m)"
+                    speedup = "N/A"
+                else:
+                    sympy_str = f"{s_val/1000:.2f}"
+                    speedup = calculate_speedup(s_val, o_val) if o_val is not None else "N/A"
+                
+                our_str = f"{o_val/1000:.2f}" if o_val is not None else "Failed"
+                
+                lines.append(f"| {display_name} | {sympy_str} | {our_str} | {speedup} |")
         lines.append("")
     
     return "\n".join(lines)

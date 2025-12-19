@@ -53,10 +53,8 @@ pub(crate) fn is_multiple_of_two_pi(expr: &Expr) -> bool {
             }
         }
 
-        if has_pi {
-            if let Some(n) = num_coeff {
-                return n % 2.0 == 0.0;
-            }
+        if has_pi && let Some(n) = num_coeff {
+            return n % 2.0 == 0.0;
         }
     }
     false
@@ -102,77 +100,66 @@ pub(crate) fn compare_expr(a: &Expr, b: &Expr) -> std::cmp::Ordering {
     use crate::ExprKind::*;
     use std::cmp::Ordering;
 
-    // Helper to get polynomial degree for addition term ordering
-    fn get_poly_degree(e: &Expr) -> (i32, f64, String) {
-        // Returns (type_priority, exponent/degree, variable_name)
-        // Lower type_priority = comes first in sorted order for polynomial terms
+    /// Extract (base_name, degree) for polynomial-style ordering.
+    /// Ordering: Numbers first, then by base name (alphabetical), then by degree (low-to-high).
+    fn get_sort_key(e: &Expr) -> (i32, String, f64) {
+        // Returns (type_priority, base_name, degree)
+        // Lower type_priority = comes first
+        // Lower degree = comes first (low-to-high)
         match &e.kind {
-            Number(_) => (100, 0.0, String::new()), // Constants come last
-            Symbol(s) => (50, -1.0, s.to_string()), // Variables are degree 1, negative so they sort first
+            Number(_) => (0, String::new(), 0.0),  // Numbers first
+            Symbol(s) => (10, s.to_string(), 1.0), // Variables are degree 1
             Pow(base, exp) => {
                 if let Symbol(s) = &base.kind {
                     if let Number(n) = &exp.kind {
-                        (10, -*n, s.to_string()) // Negative exponent so higher powers sort first
+                        (10, s.to_string(), *n) // Same priority as symbol, degree from exponent
                     } else {
-                        (20, -999.0, s.to_string()) // Symbolic exponent - treat as very high degree
+                        (10, s.to_string(), 999.0) // Symbolic exponent - treat as very high degree
                     }
                 } else {
-                    (30, 0.0, String::new()) // Non-symbol base
+                    (30, String::new(), 0.0) // Non-symbol base - complex
                 }
             }
             Product(factors) => {
-                // For c*x^n or c*x, extract the variable part's degree
-                let mut best: Option<(i32, f64, String)> = None;
+                // For c*x^n or c*x, extract the variable part's key
                 for f in factors {
-                    let info = get_poly_degree(f);
-                    if best.is_none() || info.0 < best.as_ref().unwrap().0 {
-                        best = Some(info);
+                    let key = get_sort_key(f);
+                    if key.0 == 10 {
+                        // Found a polynomial term
+                        return key;
                     }
                 }
-                match best {
-                    Some((t, e, v)) => (15.min(t), e, v),
-                    None => (15, 0.0, String::new()),
-                }
+                (20, String::new(), 0.0) // No polynomial term found
             }
-            FunctionCall { name, .. } => (60, 0.0, name.to_string()),
-            Sum(..) => (70, 0.0, String::new()),
-            Div(..) => (40, 0.0, String::new()),
-            Derivative { var, .. } => (65, 0.0, var.clone()),
+            FunctionCall { name, .. } => (40, name.to_string(), 0.0),
+            Sum(..) => (50, String::new(), 0.0),
+            Div(..) => (35, String::new(), 0.0),
+            Derivative { var, .. } => (45, var.clone(), 0.0),
         }
     }
 
-    let (type_a, exp_a, var_a) = get_poly_degree(a);
-    let (type_b, exp_b, var_b) = get_poly_degree(b);
+    let (type_a, base_a, deg_a) = get_sort_key(a);
+    let (type_b, base_b, deg_b) = get_sort_key(b);
 
-    // First compare by type priority (lower = comes first)
+    // 1. Compare by type priority (numbers first)
     match type_a.cmp(&type_b) {
         Ordering::Equal => {}
         ord => return ord,
     }
 
-    // Then by exponent (for Pow and Mul with variables)
-    match exp_a.partial_cmp(&exp_b).unwrap_or(Ordering::Equal) {
-        Ordering::Equal => {}
-        ord => return ord,
-    }
-
-    // Then alphabetically by variable name
-    match var_a.cmp(&var_b) {
-        Ordering::Equal => {}
-        ord => return ord,
-    }
-
-    // For numbers, compare by value (smaller numbers first for coefficients)
+    // 2. For numbers, compare by value
     if let (Number(n1), Number(n2)) = (&a.kind, &b.kind) {
         return n1.partial_cmp(n2).unwrap_or(Ordering::Equal);
     }
 
-    // For symbols, alphabetical order
-    if let (Symbol(s1), Symbol(s2)) = (&a.kind, &b.kind) {
-        return s1.cmp(s2);
+    // 3. Compare by base name (alphabetical) - keeps same base adjacent
+    match base_a.cmp(&base_b) {
+        Ordering::Equal => {}
+        ord => return ord,
     }
 
-    Ordering::Equal
+    // 4. Compare by degree (low-to-high)
+    deg_a.partial_cmp(&deg_b).unwrap_or(Ordering::Equal)
 }
 
 /// Compare expressions for multiplication factor ordering
@@ -536,7 +523,7 @@ pub(crate) fn get_term_hash(expr: &Expr) -> u64 {
             ExprKind::FunctionCall { name, args } => {
                 let h = hash_one_byte(hash, b'F');
                 let h = hash_u64(h, name.id());
-                args.iter().fold(h, |acc, arg| hash_term_inner(acc, arg))
+                args.iter().fold(h, hash_term_inner)
             }
 
             // Sums: Commutative mix of terms

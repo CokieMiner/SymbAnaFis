@@ -68,25 +68,22 @@ rule!(ExpMulLnRule, "exp_mul_ln", 80, Algebraic, &[ExprKind::Function], alters_d
 });
 
 rule!(EPowLnRule, "e_pow_ln", 85, Algebraic, &[ExprKind::Pow], alters_domain: true, |expr: &Expr, context: &RuleContext| {
-    if let AstKind::Pow(base, exp) = &expr.kind {
-        if let AstKind::Symbol(s) = &base.kind
+    if let AstKind::Pow(base, exp) = &expr.kind
+        && let AstKind::Symbol(s) = &base.kind
             && s == "e"
             && !context.fixed_vars.contains("e")
-        {
-            if let AstKind::FunctionCall { name, args } = &exp.kind
+            && let AstKind::FunctionCall { name, args } = &exp.kind
                 && name == "ln"
                 && args.len() == 1
             {
                 return Some(args[0].clone());
             }
-        }
-    }
     None
 });
 
 rule!(EPowMulLnRule, "e_pow_mul_ln", 85, Algebraic, &[ExprKind::Pow], alters_domain: true, |expr: &Expr, context: &RuleContext| {
-    if let AstKind::Pow(base, exp) = &expr.kind {
-        if let AstKind::Symbol(s) = &base.kind
+    if let AstKind::Pow(base, exp) = &expr.kind
+        && let AstKind::Symbol(s) = &base.kind
             && s == "e"
             && !context.fixed_vars.contains("e")
         {
@@ -114,6 +111,5 @@ rule!(EPowMulLnRule, "e_pow_mul_ln", 85, Algebraic, &[ExprKind::Pow], alters_dom
                 }
             }
         }
-    }
     None
 });

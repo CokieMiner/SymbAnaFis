@@ -15,8 +15,8 @@ pub(crate) mod common {
             ExprKind::Number(n) => (*n, Expr::number(1.0)),
             ExprKind::Product(factors) => {
                 // Check if first factor is a number coefficient
-                if let Some(first) = factors.first() {
-                    if let ExprKind::Number(n) = &first.kind {
+                if let Some(first) = factors.first()
+                    && let ExprKind::Number(n) = &first.kind {
                         // Return coefficient and remaining factors
                         let rest: Vec<_> = factors.iter().skip(1).map(|f| (**f).clone()).collect();
                         if rest.is_empty() {
@@ -27,7 +27,6 @@ pub(crate) mod common {
                             return (*n, Expr::product(rest));
                         }
                     }
-                }
                 (1.0, expr.clone())
             }
             _ => (1.0, expr.clone()),

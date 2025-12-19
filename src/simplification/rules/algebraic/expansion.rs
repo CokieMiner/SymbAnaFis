@@ -19,8 +19,8 @@ rule!(
 
             // Helper to check if expansion is useful
             let check_and_expand = |target: &Expr, other: &Expr| -> Option<Expr> {
-                if let AstKind::Pow(base, exp) = &target.kind {
-                    if let AstKind::Product(base_factors) = &base.kind {
+                if let AstKind::Pow(base, exp) = &target.kind
+                    && let AstKind::Product(base_factors) = &base.kind {
                         // Check if any base factor is present in 'other'
                         let mut useful = false;
                         for factor in base_factors.iter() {
@@ -38,7 +38,6 @@ rule!(
                             return Some(Expr::product(pow_factors));
                         }
                     }
-                }
                 None
             };
 
@@ -65,9 +64,9 @@ rule!(
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::Pow(base, exp) = &expr.kind {
             // Expand (a*b)^n -> a^n * b^n ONLY if expansion enables simplification
-            if let AstKind::Product(base_factors) = &base.kind {
-                if let AstKind::Number(n) = &exp.kind {
-                    if *n > 1.0 && n.fract() == 0.0 && (*n as i64) < 10 {
+            if let AstKind::Product(base_factors) = &base.kind
+                && let AstKind::Number(n) = &exp.kind
+                    && *n > 1.0 && n.fract() == 0.0 && (*n as i64) < 10 {
                         // Check if expansion would enable simplification
                         let has_simplifiable = base_factors.iter().any(|f| match &f.kind {
                             AstKind::Pow(_, inner_exp) => {
@@ -100,13 +99,11 @@ rule!(
                             return Some(Expr::product(factors));
                         }
                     }
-                }
-            }
 
             // Expand (a/b)^n -> a^n / b^n ONLY if expansion enables simplification
-            if let AstKind::Div(a, b) = &base.kind {
-                if let AstKind::Number(n) = &exp.kind {
-                    if *n > 1.0 && n.fract() == 0.0 && (*n as i64) < 10 {
+            if let AstKind::Div(a, b) = &base.kind
+                && let AstKind::Number(n) = &exp.kind
+                    && *n > 1.0 && n.fract() == 0.0 && (*n as i64) < 10 {
                         // Helper to check if a term would simplify when raised to power n
                         let would_simplify = |term: &Expr| -> bool {
                             match &term.kind {
@@ -156,8 +153,6 @@ rule!(
                             return Some(Expr::div_expr(a_pow, b_pow));
                         }
                     }
-                }
-            }
         }
         None
     }
@@ -172,10 +167,10 @@ rule!(
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::Pow(base, exp) = &expr.kind {
             // Expand (a + b)^n for small integer n - only on 2-term sums
-            if let AstKind::Sum(terms) = &base.kind {
-                if terms.len() == 2 {
-                    if let AstKind::Number(n) = &exp.kind {
-                        if *n >= 2.0 && *n <= 4.0 && n.fract() == 0.0 {
+            if let AstKind::Sum(terms) = &base.kind
+                && terms.len() == 2
+                    && let AstKind::Number(n) = &exp.kind
+                        && *n >= 2.0 && *n <= 4.0 && n.fract() == 0.0 {
                             let a = &terms[0];
                             let b = &terms[1];
 
@@ -241,77 +236,14 @@ rule!(
                                 _ => {}
                             }
                         }
-                    }
-                }
-            }
         }
         None
     }
 );
 
-rule!(
-    ExpandDifferenceOfSquaresProductRule,
-    "expand_difference_of_squares_product",
-    85,
-    Algebraic,
-    &[ExprKind::Product],
-    |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Product(factors) = &expr.kind {
-            if factors.len() == 2 {
-                let a = &factors[0];
-                let b = &factors[1];
-
-                // Check for (x + y) * (x - y) pattern where second is Sum with negated second term
-                // In n-ary, subtraction is represented as Sum([x, Product([-1, y])])
-                let check_difference_of_squares = |left: &Expr, right: &Expr| -> Option<Expr> {
-                    // left should be Sum([a1, a2])
-                    // right should be Sum([s1, Product([-1, s2])]) where a1=s1 and a2=s2
-                    if let (AstKind::Sum(left_terms), AstKind::Sum(right_terms)) =
-                        (&left.kind, &right.kind)
-                    {
-                        if left_terms.len() == 2 && right_terms.len() == 2 {
-                            let l1 = &left_terms[0];
-                            let l2 = &left_terms[1];
-                            let r1 = &right_terms[0];
-                            let r2 = &right_terms[1];
-
-                            // Check if r2 is -l2 (i.e., Product([-1, l2]))
-                            if **l1 == **r1 {
-                                if let AstKind::Product(r2_factors) = &r2.kind {
-                                    if r2_factors.len() == 2 {
-                                        if let AstKind::Number(n) = &r2_factors[0].kind {
-                                            if (*n + 1.0).abs() < 1e-10 && *r2_factors[1] == **l2 {
-                                                // (a + b)(a - b) = a^2 - b^2
-                                                let a_squared =
-                                                    Expr::pow((**l1).clone(), Expr::number(2.0));
-                                                let b_squared =
-                                                    Expr::pow((**l2).clone(), Expr::number(2.0));
-                                                // a^2 - b^2 = Sum([a^2, Product([-1, b^2])])
-                                                return Some(Expr::sum(vec![
-                                                    a_squared,
-                                                    Expr::product(vec![
-                                                        Expr::number(-1.0),
-                                                        b_squared,
-                                                    ]),
-                                                ]));
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    None
-                };
-
-                if let Some(result) = check_difference_of_squares(a, b) {
-                    return Some(result);
-                }
-                if let Some(result) = check_difference_of_squares(b, a) {
-                    return Some(result);
-                }
-            }
-        }
-        None
-    }
-);
+// REMOVED: ExpandDifferenceOfSquaresProductRule
+// This rule created a cycle with FactorDifferenceOfSquaresRule:
+//   (x-y)(x+y) -> x^2 - y^2 -> (x-y)(x+y) -> ...
+// We prefer the FACTORED form for canonicalization, so this expansion
+// rule was intentionally removed. If explicit expand() is needed later,
+// this rule can be re-implemented as part of a separate "expand" pass.

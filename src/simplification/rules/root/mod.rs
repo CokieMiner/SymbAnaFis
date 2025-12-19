@@ -119,8 +119,7 @@ rule!(SqrtProductRule, "sqrt_product", 56, Root, &[ExprKind::Product], alters_do
                     AstKind::FunctionCall { name: n1, args: args1 },
                     AstKind::FunctionCall { name: n2, args: args2 },
                 ) = (&f1.kind, &f2.kind)
-                {
-                    if n1 == "sqrt" && n2 == "sqrt" && args1.len() == 1 && args2.len() == 1 {
+                    && n1 == "sqrt" && n2 == "sqrt" && args1.len() == 1 && args2.len() == 1 {
                         // sqrt(a) * sqrt(b) = sqrt(a*b)
                         let combined = Expr::func(
                             "sqrt",
@@ -140,7 +139,6 @@ rule!(SqrtProductRule, "sqrt_product", 56, Root, &[ExprKind::Product], alters_do
                             return Some(Expr::product(new_factors));
                         }
                     }
-                }
             }
         }
     }
@@ -218,13 +216,12 @@ rule!(
         if let AstKind::FunctionCall { name, args } = &expr.kind
             && name == "sqrt"
             && args.len() == 1
-        {
-            if let AstKind::Product(factors) = &args[0].kind {
+            && let AstKind::Product(factors) = &args[0].kind {
                 // Look for a square factor x^2
                 for (i, factor) in factors.iter().enumerate() {
-                    if let AstKind::Pow(base, exp) = &factor.kind {
-                        if let AstKind::Number(n) = &exp.kind {
-                            if *n == 2.0 {
+                    if let AstKind::Pow(base, exp) = &factor.kind
+                        && let AstKind::Number(n) = &exp.kind
+                            && *n == 2.0 {
                                 // Found x^2, extract |x|
                                 let abs_base = Expr::func("abs", (**base).clone());
 
@@ -246,11 +243,8 @@ rule!(
 
                                 return Some(Expr::product(vec![abs_base, sqrt_remaining]));
                             }
-                        }
-                    }
                 }
             }
-        }
         None
     }
 );

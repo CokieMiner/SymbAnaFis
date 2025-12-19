@@ -33,10 +33,12 @@ fn test_abs_in_product() {
     let simplified = simplify(&expr_str, None, None).unwrap();
     println!("Simplified expr: {}", simplified);
 
-    // Check that it simplifies correctly (abs may be simplified away)
+    // Check that it simplifies correctly - accept equivalent orderings
+    // (-x + mu) is same as (mu - x)
     assert!(
-        simplified.contains("sqrt(2)") && simplified.contains("mu - x"),
-        "Expected simplification to contain 'sqrt(2)' and 'mu - x', got '{}'",
+        simplified.contains("sqrt(2)")
+            && (simplified.contains("mu - x") || simplified.contains("-x + mu")),
+        "Expected simplification to contain 'sqrt(2)' and 'mu - x' or '-x + mu', got '{}'",
         simplified
     );
 }

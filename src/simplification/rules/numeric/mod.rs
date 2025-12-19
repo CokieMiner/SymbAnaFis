@@ -217,18 +217,17 @@ rule!(
             }
 
             // Check if denominator is a Product with -1 as first factor
-            if let AstKind::Product(factors) = &den.kind {
-                if let Some(first) = factors.first() {
-                    if matches!(&first.kind, AstKind::Number(n) if *n == -1.0) {
-                        // x / (-1 * y) -> -x / y
-                        let rest: Vec<Arc<Expr>> = factors.iter().skip(1).cloned().collect();
-                        let new_den = Expr::product_from_arcs(rest);
-                        return Some(Expr::div_expr(
-                            Expr::product(vec![Expr::number(-1.0), num.as_ref().clone()]),
-                            new_den,
-                        ));
-                    }
-                }
+            if let AstKind::Product(factors) = &den.kind
+                && let Some(first) = factors.first()
+                && matches!(&first.kind, AstKind::Number(n) if *n == -1.0)
+            {
+                // x / (-1 * y) -> -x / y
+                let rest: Vec<Arc<Expr>> = factors.iter().skip(1).cloned().collect();
+                let new_den = Expr::product_from_arcs(rest);
+                return Some(Expr::div_expr(
+                    Expr::product(vec![Expr::number(-1.0), num.as_ref().clone()]),
+                    new_den,
+                ));
             }
         }
         None
@@ -259,11 +258,8 @@ rule!(
                 }
             }
 
-            // Only fold if we have multiple numbers to combine
-            if has_numeric
-                && (terms.len() > non_numeric.len() + 1
-                    || (has_numeric && non_numeric.len() < terms.len()))
-            {
+            // Only fold if we have numeric values that simplified away
+            if has_numeric && non_numeric.len() < terms.len() {
                 if non_numeric.is_empty() {
                     // All numeric
                     if !num_sum.is_nan() && !num_sum.is_infinite() {
@@ -353,14 +349,13 @@ rule!(
     Numeric,
     &[ExprKind::Div],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Div(u, v) = &expr.kind {
-            if let (AstKind::Number(a), AstKind::Number(b)) = (&u.kind, &v.kind)
-                && *b != 0.0
-            {
-                let result = a / b;
-                if (result - result.round()).abs() < 1e-10 {
-                    return Some(Expr::number(result.round()));
-                }
+        if let AstKind::Div(u, v) = &expr.kind
+            && let (AstKind::Number(a), AstKind::Number(b)) = (&u.kind, &v.kind)
+            && *b != 0.0
+        {
+            let result = a / b;
+            if (result - result.round()).abs() < 1e-10 {
+                return Some(Expr::number(result.round()));
             }
         }
         None
@@ -374,12 +369,12 @@ rule!(
     Numeric,
     &[ExprKind::Pow],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Pow(u, v) = &expr.kind {
-            if let (AstKind::Number(a), AstKind::Number(b)) = (&u.kind, &v.kind) {
-                let result = a.powf(*b);
-                if !result.is_nan() && !result.is_infinite() {
-                    return Some(Expr::number(result));
-                }
+        if let AstKind::Pow(u, v) = &expr.kind
+            && let (AstKind::Number(a), AstKind::Number(b)) = (&u.kind, &v.kind)
+        {
+            let result = a.powf(*b);
+            if !result.is_nan() && !result.is_infinite() {
+                return Some(Expr::number(result));
             }
         }
         None

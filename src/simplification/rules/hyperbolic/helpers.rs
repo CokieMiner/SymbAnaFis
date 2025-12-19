@@ -24,18 +24,15 @@ impl ExpTerm {
         }
 
         // Reciprocal form: 1/e^x or 1/exp(x)
-        if let AstKind::Div(num, den) = &expr.kind {
-            if let AstKind::Number(n) = &num.kind {
-                if *n == 1.0 {
-                    if let Some(arg) = Self::get_direct_exp_arg(den) {
+        if let AstKind::Div(num, den) = &expr.kind
+            && let AstKind::Number(n) = &num.kind
+                && *n == 1.0
+                    && let Some(arg) = Self::get_direct_exp_arg(den) {
                         // 1/e^x = e^(-x)
                         return Some(ExpTerm {
                             arg: Self::negate(&arg),
                         });
                     }
-                }
-            }
-        }
 
         None
     }
@@ -44,11 +41,10 @@ impl ExpTerm {
     pub fn get_direct_exp_arg(expr: &Expr) -> Option<Expr> {
         match &expr.kind {
             AstKind::Pow(base, exp) => {
-                if let AstKind::Symbol(b) = &base.kind {
-                    if b == "e" {
+                if let AstKind::Symbol(b) = &base.kind
+                    && b == "e" {
                         return Some((**exp).clone());
                     }
-                }
                 None
             }
             AstKind::FunctionCall { name, args } => {
@@ -69,55 +65,46 @@ impl ExpTerm {
     /// Check if two arguments are negations of each other: arg1 = -arg2
     pub fn args_are_negations(arg1: &Expr, arg2: &Expr) -> bool {
         // Check if arg1 = Product([-1, arg2])
-        if let AstKind::Product(factors) = &arg1.kind {
-            if factors.len() == 2 {
-                if let AstKind::Number(n) = &factors[0].kind {
-                    if *n == -1.0 && *factors[1] == *arg2 {
+        if let AstKind::Product(factors) = &arg1.kind
+            && factors.len() == 2 {
+                if let AstKind::Number(n) = &factors[0].kind
+                    && *n == -1.0 && *factors[1] == *arg2 {
                         return true;
                     }
-                }
-                if let AstKind::Number(n) = &factors[1].kind {
-                    if *n == -1.0 && *factors[0] == *arg2 {
+                if let AstKind::Number(n) = &factors[1].kind
+                    && *n == -1.0 && *factors[0] == *arg2 {
                         return true;
                     }
-                }
             }
-        }
         // Check if arg2 = Product([-1, arg1])
-        if let AstKind::Product(factors) = &arg2.kind {
-            if factors.len() == 2 {
-                if let AstKind::Number(n) = &factors[0].kind {
-                    if *n == -1.0 && *factors[1] == *arg1 {
+        if let AstKind::Product(factors) = &arg2.kind
+            && factors.len() == 2 {
+                if let AstKind::Number(n) = &factors[0].kind
+                    && *n == -1.0 && *factors[1] == *arg1 {
                         return true;
                     }
-                }
-                if let AstKind::Number(n) = &factors[1].kind {
-                    if *n == -1.0 && *factors[0] == *arg1 {
+                if let AstKind::Number(n) = &factors[1].kind
+                    && *n == -1.0 && *factors[0] == *arg1 {
                         return true;
                     }
-                }
             }
-        }
         false
     }
 
     /// Create the negation of an expression: x -> -1 * x
     pub fn negate(expr: &Expr) -> Expr {
         // If it's already a negation, return the inner part
-        if let AstKind::Product(factors) = &expr.kind {
-            if factors.len() == 2 {
-                if let AstKind::Number(n) = &factors[0].kind {
-                    if *n == -1.0 {
+        if let AstKind::Product(factors) = &expr.kind
+            && factors.len() == 2 {
+                if let AstKind::Number(n) = &factors[0].kind
+                    && *n == -1.0 {
                         return (*factors[1]).clone();
                     }
-                }
-                if let AstKind::Number(n) = &factors[1].kind {
-                    if *n == -1.0 {
+                if let AstKind::Number(n) = &factors[1].kind
+                    && *n == -1.0 {
                         return (*factors[0]).clone();
                     }
-                }
             }
-        }
         Expr::product(vec![Expr::number(-1.0), expr.clone()])
     }
 }
@@ -158,20 +145,17 @@ pub(crate) fn match_sinh_pattern_sub(u: &Expr, v: &Expr) -> Option<Expr> {
 /// If expr is -x (i.e., Product([-1, x])), return x
 /// Otherwise return expr as-is
 pub(crate) fn get_positive_form(expr: &Expr) -> Expr {
-    if let AstKind::Product(factors) = &expr.kind {
-        if factors.len() == 2 {
-            if let AstKind::Number(n) = &factors[0].kind {
-                if *n == -1.0 {
+    if let AstKind::Product(factors) = &expr.kind
+        && factors.len() == 2 {
+            if let AstKind::Number(n) = &factors[0].kind
+                && *n == -1.0 {
                     return (*factors[1]).clone();
                 }
-            }
-            if let AstKind::Number(n) = &factors[1].kind {
-                if *n == -1.0 {
+            if let AstKind::Number(n) = &factors[1].kind
+                && *n == -1.0 {
                     return (*factors[0]).clone();
                 }
-            }
         }
-    }
     expr.clone()
 }
 
@@ -182,8 +166,8 @@ pub(crate) fn match_alt_cosh_pattern(numerator: &Expr, denominator: &Expr) -> Op
     let x = match_two_times_exp(denominator)?;
 
     // Numerator must be e^(2x) + 1
-    if let AstKind::Sum(terms) = &numerator.kind {
-        if terms.len() == 2 {
+    if let AstKind::Sum(terms) = &numerator.kind
+        && terms.len() == 2 {
             // Check for e^(2x) + 1 or 1 + e^(2x)
             let exp_term = if matches!(&terms[1].kind, AstKind::Number(n) if *n == 1.0) {
                 &terms[0]
@@ -194,13 +178,11 @@ pub(crate) fn match_alt_cosh_pattern(numerator: &Expr, denominator: &Expr) -> Op
             };
 
             // Check exp_term = e^(2x)
-            if let Some(exp_arg) = ExpTerm::get_direct_exp_arg(exp_term) {
-                if is_double_of(&exp_arg, &x) {
+            if let Some(exp_arg) = ExpTerm::get_direct_exp_arg(exp_term)
+                && is_double_of(&exp_arg, &x) {
                     return Some(x);
                 }
-            }
         }
-    }
     None
 }
 
@@ -211,61 +193,51 @@ pub(crate) fn match_alt_sinh_pattern(numerator: &Expr, denominator: &Expr) -> Op
     let x = match_two_times_exp(denominator)?;
 
     // Numerator must be e^(2x) + (-1) (n-ary representation of subtraction)
-    if let AstKind::Sum(terms) = &numerator.kind {
-        if terms.len() == 2 {
+    if let AstKind::Sum(terms) = &numerator.kind
+        && terms.len() == 2 {
             // Check for e^(2x) + (-1)
-            if let AstKind::Number(n) = &terms[1].kind {
-                if *n == -1.0 {
-                    if let Some(exp_arg) = ExpTerm::get_direct_exp_arg(&terms[0]) {
-                        if is_double_of(&exp_arg, &x) {
+            if let AstKind::Number(n) = &terms[1].kind
+                && *n == -1.0
+                    && let Some(exp_arg) = ExpTerm::get_direct_exp_arg(&terms[0])
+                        && is_double_of(&exp_arg, &x) {
                             return Some(x);
                         }
-                    }
-                }
-            }
         }
-    }
     None
 }
 
 /// Match pattern: 2 * e^x or Product([2, e^x])
 /// Returns the argument x if pattern matches
 pub(crate) fn match_two_times_exp(expr: &Expr) -> Option<Expr> {
-    if let AstKind::Product(factors) = &expr.kind {
-        if factors.len() == 2 {
+    if let AstKind::Product(factors) = &expr.kind
+        && factors.len() == 2 {
             // 2 * e^x
-            if let AstKind::Number(n) = &factors[0].kind {
-                if *n == 2.0 {
+            if let AstKind::Number(n) = &factors[0].kind
+                && *n == 2.0 {
                     return ExpTerm::get_direct_exp_arg(&factors[1]);
                 }
-            }
             // e^x * 2
-            if let AstKind::Number(n) = &factors[1].kind {
-                if *n == 2.0 {
+            if let AstKind::Number(n) = &factors[1].kind
+                && *n == 2.0 {
                     return ExpTerm::get_direct_exp_arg(&factors[0]);
                 }
-            }
         }
-    }
     None
 }
 
 /// Check if expr = 2 * other (i.e., expr is double of other)
 pub(crate) fn is_double_of(expr: &Expr, other: &Expr) -> bool {
-    if let AstKind::Product(factors) = &expr.kind {
-        if factors.len() == 2 {
-            if let AstKind::Number(n) = &factors[0].kind {
-                if *n == 2.0 && *factors[1] == *other {
+    if let AstKind::Product(factors) = &expr.kind
+        && factors.len() == 2 {
+            if let AstKind::Number(n) = &factors[0].kind
+                && *n == 2.0 && *factors[1] == *other {
                     return true;
                 }
-            }
-            if let AstKind::Number(n) = &factors[1].kind {
-                if *n == 2.0 && *factors[0] == *other {
+            if let AstKind::Number(n) = &factors[1].kind
+                && *n == 2.0 && *factors[0] == *other {
                     return true;
                 }
-            }
         }
-    }
     false
 }
 
@@ -277,8 +249,8 @@ pub(crate) fn match_alt_sech_pattern(numerator: &Expr, denominator: &Expr) -> Op
     let x = match_two_times_exp(numerator)?;
 
     // Denominator must be e^(2x) + 1
-    if let AstKind::Sum(terms) = &denominator.kind {
-        if terms.len() == 2 {
+    if let AstKind::Sum(terms) = &denominator.kind
+        && terms.len() == 2 {
             // Check for e^(2x) + 1 or 1 + e^(2x)
             let exp_term = if matches!(&terms[1].kind, AstKind::Number(n) if *n == 1.0) {
                 &terms[0]
@@ -289,13 +261,11 @@ pub(crate) fn match_alt_sech_pattern(numerator: &Expr, denominator: &Expr) -> Op
             };
 
             // Check exp_term = e^(2x)
-            if let Some(exp_arg) = ExpTerm::get_direct_exp_arg(exp_term) {
-                if is_double_of(&exp_arg, &x) {
+            if let Some(exp_arg) = ExpTerm::get_direct_exp_arg(exp_term)
+                && is_double_of(&exp_arg, &x) {
                     return Some(x);
                 }
-            }
         }
-    }
     None
 }
 
@@ -307,11 +277,10 @@ pub(crate) fn match_e2x_minus_1_factored(expr: &Expr) -> Option<Expr> {
         // Check pairwise for factored form
         for (i, f1) in factors.iter().enumerate() {
             for (j, f2) in factors.iter().enumerate() {
-                if i != j {
-                    if let Some(x) = try_match_factored_sinh_times_exp(f1, f2) {
+                if i != j
+                    && let Some(x) = try_match_factored_sinh_times_exp(f1, f2) {
                         return Some(x);
                     }
-                }
             }
         }
     }
@@ -324,37 +293,30 @@ fn try_match_factored_sinh_times_exp(factor: &Expr, exp_part: &Expr) -> Option<E
     let x = ExpTerm::get_direct_exp_arg(exp_part)?;
 
     // factor should be Sum([e^x, Product([-1, 1/e^x])]) representing (e^x - 1/e^x)
-    if let AstKind::Sum(terms) = &factor.kind {
-        if terms.len() == 2 {
+    if let AstKind::Sum(terms) = &factor.kind
+        && terms.len() == 2 {
             // Check for e^x as first term
-            if let Some(arg_u) = ExpTerm::get_direct_exp_arg(&terms[0]) {
-                if arg_u == x {
+            if let Some(arg_u) = ExpTerm::get_direct_exp_arg(&terms[0])
+                && arg_u == x {
                     // Check second term is -1/e^x
-                    if let Some(negated) = extract_negated_term(&terms[1]) {
-                        if let AstKind::Div(num, den) = &negated.kind {
-                            if let AstKind::Number(n) = &num.kind {
-                                if *n == 1.0 {
-                                    if let Some(arg_v) = ExpTerm::get_direct_exp_arg(den) {
-                                        if arg_v == x {
+                    if let Some(negated) = extract_negated_term(&terms[1])
+                        && let AstKind::Div(num, den) = &negated.kind
+                            && let AstKind::Number(n) = &num.kind
+                                && *n == 1.0
+                                    && let Some(arg_v) = ExpTerm::get_direct_exp_arg(den)
+                                        && arg_v == x {
                                             return Some(x);
                                         }
-                                    }
-                                }
-                            }
-                        }
-                    }
                 }
-            }
         }
-    }
     None
 }
 
 /// Match pattern: e^(2x) + 1 directly
 /// Returns Some(x) if pattern matches
 pub(crate) fn match_e2x_plus_1(expr: &Expr) -> Option<Expr> {
-    if let AstKind::Sum(terms) = &expr.kind {
-        if terms.len() == 2 {
+    if let AstKind::Sum(terms) = &expr.kind
+        && terms.len() == 2 {
             // Check for e^(2x) + 1 or 1 + e^(2x)
             let exp_term = if matches!(&terms[1].kind, AstKind::Number(n) if *n == 1.0) {
                 &terms[0]
@@ -367,95 +329,77 @@ pub(crate) fn match_e2x_plus_1(expr: &Expr) -> Option<Expr> {
             // Check exp_term = e^(2x)
             if let Some(exp_arg) = ExpTerm::get_direct_exp_arg(exp_term) {
                 // exp_arg should be 2*x
-                if let AstKind::Product(factors) = &exp_arg.kind {
-                    if factors.len() == 2 {
-                        if let AstKind::Number(n) = &factors[0].kind {
-                            if *n == 2.0 {
+                if let AstKind::Product(factors) = &exp_arg.kind
+                    && factors.len() == 2 {
+                        if let AstKind::Number(n) = &factors[0].kind
+                            && *n == 2.0 {
                                 return Some((*factors[1]).clone());
                             }
-                        }
-                        if let AstKind::Number(n) = &factors[1].kind {
-                            if *n == 2.0 {
+                        if let AstKind::Number(n) = &factors[1].kind
+                            && *n == 2.0 {
                                 return Some((*factors[0]).clone());
                             }
-                        }
                     }
-                }
             }
         }
-    }
     None
 }
 
 /// Match pattern: e^(2x) - 1 directly (not factored form)
 /// Returns Some(x) if pattern matches
 pub(crate) fn match_e2x_minus_1_direct(expr: &Expr) -> Option<Expr> {
-    if let AstKind::Sum(terms) = &expr.kind {
-        if terms.len() == 2 {
+    if let AstKind::Sum(terms) = &expr.kind
+        && terms.len() == 2 {
             // Check for e^(2x) + (-1)
-            if let AstKind::Number(n) = &terms[1].kind {
-                if *n == -1.0 {
+            if let AstKind::Number(n) = &terms[1].kind
+                && *n == -1.0 {
                     // Check u = e^(2x)
                     if let Some(exp_arg) = ExpTerm::get_direct_exp_arg(&terms[0]) {
                         // exp_arg should be 2*x
-                        if let AstKind::Product(factors) = &exp_arg.kind {
-                            if factors.len() == 2 {
-                                if let AstKind::Number(n) = &factors[0].kind {
-                                    if *n == 2.0 {
+                        if let AstKind::Product(factors) = &exp_arg.kind
+                            && factors.len() == 2 {
+                                if let AstKind::Number(n) = &factors[0].kind
+                                    && *n == 2.0 {
                                         return Some((*factors[1]).clone());
                                     }
-                                }
-                                if let AstKind::Number(n) = &factors[1].kind {
-                                    if *n == 2.0 {
+                                if let AstKind::Number(n) = &factors[1].kind
+                                    && *n == 2.0 {
                                         return Some((*factors[0]).clone());
                                     }
-                                }
                             }
-                        }
                     }
                 }
-            }
             // Check (-1) + e^(2x)
-            if let AstKind::Number(n) = &terms[0].kind {
-                if *n == -1.0 {
-                    if let Some(exp_arg) = ExpTerm::get_direct_exp_arg(&terms[1]) {
-                        if let AstKind::Product(factors) = &exp_arg.kind {
-                            if factors.len() == 2 {
-                                if let AstKind::Number(n) = &factors[0].kind {
-                                    if *n == 2.0 {
+            if let AstKind::Number(n) = &terms[0].kind
+                && *n == -1.0
+                    && let Some(exp_arg) = ExpTerm::get_direct_exp_arg(&terms[1])
+                        && let AstKind::Product(factors) = &exp_arg.kind
+                            && factors.len() == 2 {
+                                if let AstKind::Number(n) = &factors[0].kind
+                                    && *n == 2.0 {
                                         return Some((*factors[1]).clone());
                                     }
-                                }
-                                if let AstKind::Number(n) = &factors[1].kind {
-                                    if *n == 2.0 {
+                                if let AstKind::Number(n) = &factors[1].kind
+                                    && *n == 2.0 {
                                         return Some((*factors[0]).clone());
                                     }
-                                }
                             }
-                        }
-                    }
-                }
-            }
         }
-    }
     None
 }
 
 /// Try to extract the inner expression from Product([-1, expr])
 pub(crate) fn extract_negated_term(expr: &Expr) -> Option<Expr> {
-    if let AstKind::Product(factors) = &expr.kind {
-        if factors.len() == 2 {
-            if let AstKind::Number(n) = &factors[0].kind {
-                if *n == -1.0 {
+    if let AstKind::Product(factors) = &expr.kind
+        && factors.len() == 2 {
+            if let AstKind::Number(n) = &factors[0].kind
+                && *n == -1.0 {
                     return Some((*factors[1]).clone());
                 }
-            }
-            if let AstKind::Number(n) = &factors[1].kind {
-                if *n == -1.0 {
+            if let AstKind::Number(n) = &factors[1].kind
+                && *n == -1.0 {
                     return Some((*factors[0]).clone());
                 }
-            }
         }
-    }
     None
 }

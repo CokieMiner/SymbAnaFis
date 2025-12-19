@@ -53,8 +53,8 @@ rule!(
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::Div(num, outer_den) = &expr.kind {
             // Check if num is a Sum containing a Div
-            if let AstKind::Sum(terms) = &num.kind {
-                if terms.len() == 2 {
+            if let AstKind::Sum(terms) = &num.kind
+                && terms.len() == 2 {
                     // Look for pattern: Sum([a, Div(b, c)]) / d -> Sum([a*c, b]) / (c*d)
                     for (i, term) in terms.iter().enumerate() {
                         if let AstKind::Div(b, c) = &term.kind {
@@ -69,7 +69,6 @@ rule!(
                         }
                     }
                 }
-            }
         }
         None
     }
@@ -82,8 +81,8 @@ rule!(
     Algebraic,
     &[ExprKind::Sum],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Sum(terms) = &expr.kind {
-            if terms.len() == 2 {
+        if let AstKind::Sum(terms) = &expr.kind
+            && terms.len() == 2 {
                 let u = &terms[0];
                 let v = &terms[1];
 
@@ -129,7 +128,6 @@ rule!(
                     return Some(Expr::div_expr(new_num, (**d).clone()));
                 }
             }
-        }
         None
     }
 );

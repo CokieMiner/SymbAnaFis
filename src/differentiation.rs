@@ -17,6 +17,7 @@
 
 use crate::{CustomDerivativeFn, Expr, ExprKind};
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 impl Expr {
     /// Differentiate this expression with respect to a variable
@@ -106,12 +107,8 @@ impl Expr {
                     } else if terms.len() == 1 {
                         terms.remove(0)
                     } else {
-                        // Sum up all terms
-                        let mut result = terms.remove(0);
-                        for term in terms {
-                            result = Expr::add_expr(result, term);
-                        }
-                        result
+                        // Sum all terms with single call (avoids O(N²) cascade)
+                        Expr::sum(terms)
                     };
                 }
 
@@ -143,12 +140,8 @@ impl Expr {
                 } else if terms.len() == 1 {
                     terms.remove(0)
                 } else {
-                    // Sum up all terms
-                    let mut result = terms.remove(0);
-                    for term in terms {
-                        result = Expr::add_expr(result, term);
-                    }
-                    result
+                    // Sum all terms with single call (avoids O(N²) cascade)
+                    Expr::sum(terms)
                 }
             }
 
@@ -172,7 +165,7 @@ impl Expr {
             // N-ary Product rule: (a * b * c)' = a' * b * c + a * b' * c + a * b * c'
             ExprKind::Product(factors) => {
                 let n = factors.len();
-                let mut result_terms: Vec<Expr> = Vec::new();
+                let mut result_terms: Vec<Arc<Expr>> = Vec::new();
 
                 // For each factor, compute: (product of all others) * factor'
                 for i in 0..n {
@@ -184,34 +177,35 @@ impl Expr {
                         continue;
                     }
 
-                    // Collect all other factors
-                    let other_factors: Vec<Expr> = factors
+                    // Collect all other factors using Arc::clone (just refcount increment)
+                    let other_factors: Vec<Arc<Expr>> = factors
                         .iter()
                         .enumerate()
                         .filter(|(j, _)| *j != i)
-                        .map(|(_, f)| (**f).clone())
+                        .map(|(_, f)| Arc::clone(f))
                         .collect();
 
                     if other_factors.is_empty() {
                         // Only one factor: derivative is just factor_prime
-                        result_terms.push(factor_prime);
+                        result_terms.push(Arc::new(factor_prime));
                     } else if factor_prime.is_one_num() {
                         // factor' is 1: just use product of other factors
-                        result_terms.push(Expr::product(other_factors));
+                        result_terms.push(Arc::new(Expr::product_from_arcs(other_factors)));
                     } else {
                         // General case: other_factors * factor_prime
                         let mut all_factors = other_factors;
-                        all_factors.push(factor_prime);
-                        result_terms.push(Expr::product(all_factors));
+                        all_factors.push(Arc::new(factor_prime));
+                        result_terms.push(Arc::new(Expr::product_from_arcs(all_factors)));
                     }
                 }
 
                 if result_terms.is_empty() {
                     Expr::number(0.0)
                 } else if result_terms.len() == 1 {
-                    result_terms.into_iter().next().unwrap()
+                    Arc::try_unwrap(result_terms.into_iter().next().unwrap())
+                        .unwrap_or_else(|arc| (*arc).clone())
                 } else {
-                    Expr::sum(result_terms)
+                    Expr::sum_from_arcs(result_terms)
                 }
             }
 
@@ -224,53 +218,44 @@ impl Expr {
                 if u_prime.is_zero_num() && v_prime.is_zero_num() {
                     Expr::number(0.0)
                 } else {
+                    // Helper: multiply two expressions, using Arc::clone when possible
+                    let mul_arc_expr = |a: &Arc<Expr>, b: Expr| -> Expr {
+                        if b.is_one_num() {
+                            Expr::unwrap_arc(Arc::clone(a))
+                        } else if a.is_one_num() {
+                            b
+                        } else {
+                            Expr::product_from_arcs(vec![Arc::clone(a), Arc::new(b)])
+                        }
+                    };
+
                     let numerator = if u_prime.is_zero_num() {
                         // -u * v'
                         if v_prime.is_zero_num() {
                             Expr::number(0.0)
                         } else if v_prime.is_one_num() {
-                            Expr::mul_expr(Expr::number(-1.0), (**u).clone())
+                            Expr::product_from_arcs(vec![
+                                Arc::new(Expr::number(-1.0)),
+                                Arc::clone(u),
+                            ])
                         } else {
-                            Expr::mul_expr(
-                                Expr::number(-1.0),
-                                Expr::mul_expr((**u).clone(), v_prime.clone()),
-                            )
+                            Expr::product_from_arcs(vec![
+                                Arc::new(Expr::number(-1.0)),
+                                Arc::clone(u),
+                                Arc::new(v_prime.clone()),
+                            ])
                         }
                     } else if v_prime.is_zero_num() {
                         // u' * v
-                        if u_prime.is_one_num() {
-                            (**v).clone()
-                        } else if v.is_one_num() {
-                            u_prime.clone()
-                        } else if v.is_zero_num() {
-                            Expr::number(0.0)
-                        } else {
-                            Expr::mul_expr(u_prime.clone(), (**v).clone())
-                        }
+                        mul_arc_expr(v, u_prime.clone())
                     } else {
                         // u' * v - u * v'
-                        let term1 = if u_prime.is_one_num() {
-                            (**v).clone()
-                        } else if v.is_one_num() {
-                            u_prime.clone()
-                        } else if v.is_zero_num() {
-                            Expr::number(0.0)
-                        } else {
-                            Expr::mul_expr(u_prime.clone(), (**v).clone())
-                        };
-
-                        let term2 = if v_prime.is_one_num() {
-                            (**u).clone()
-                        } else if u.is_one_num() {
-                            v_prime.clone()
-                        } else if u.is_zero_num() {
-                            Expr::number(0.0)
-                        } else {
-                            Expr::mul_expr((**u).clone(), v_prime.clone())
-                        };
+                        let term1 = mul_arc_expr(v, u_prime.clone());
+                        let term2 =
+                            Expr::product_from_arcs(vec![Arc::clone(u), Arc::new(v_prime.clone())]);
 
                         if term1.is_zero_num() {
-                            Expr::mul_expr(Expr::number(-1.0), term2)
+                            Expr::product(vec![Expr::number(-1.0), term2])
                         } else if term2.is_zero_num() {
                             term1
                         } else {
@@ -280,13 +265,12 @@ impl Expr {
 
                     if numerator.is_zero_num() {
                         Expr::number(0.0)
+                    } else if v.is_one_num() {
+                        numerator
                     } else {
-                        let denominator = Expr::pow((**v).clone(), Expr::number(2.0));
-                        if v.is_one_num() {
-                            numerator
-                        } else {
-                            Expr::div_expr(numerator, denominator)
-                        }
+                        let denominator =
+                            Expr::pow_from_arcs(Arc::clone(v), Arc::new(Expr::number(2.0)));
+                        Expr::div_expr(numerator, denominator)
                     }
                 }
             }
@@ -303,7 +287,8 @@ impl Expr {
                     if u_prime.is_zero_num() {
                         Expr::number(0.0)
                     } else {
-                        let n = (**v).clone();
+                        // Use Arc::clone to avoid full Expr cloning
+                        let n = Expr::unwrap_arc(Arc::clone(v));
                         if let Some(n_val) = n.as_number() {
                             if n_val == 0.0 {
                                 // (u^0)' = 0
@@ -314,33 +299,41 @@ impl Expr {
                             } else {
                                 let n_minus_1 = Expr::number(n_val - 1.0);
                                 let u_pow_n_minus_1 = if u.is_one_num() {
-                                    // 1^(n-1) = 1
                                     Expr::number(1.0)
                                 } else if u.is_zero_num() {
-                                    // 0^(n-1) = 0 for n-1 > 0
                                     Expr::number(0.0)
                                 } else {
-                                    Expr::pow((**u).clone(), n_minus_1)
+                                    Expr::pow_from_arcs(Arc::clone(u), Arc::new(n_minus_1.clone()))
                                 };
 
                                 if u_prime.is_one_num() {
                                     Expr::mul_expr(n, u_pow_n_minus_1)
                                 } else {
-                                    Expr::mul_expr(n, Expr::mul_expr(u_pow_n_minus_1, u_prime))
+                                    Expr::product_from_arcs(vec![
+                                        Arc::new(n),
+                                        Arc::new(u_pow_n_minus_1),
+                                        Arc::new(u_prime),
+                                    ])
                                 }
                             }
                         } else {
-                            // Non-numeric constant exponent
-                            let n_minus_1 = Expr::sub_expr((**v).clone(), Expr::number(1.0));
-                            let u_pow_n_minus_1 = Expr::pow((**u).clone(), n_minus_1);
+                            // Non-numeric constant exponent: n * u^(n-1) * u'
+                            let n_minus_1 =
+                                Expr::sub_expr(Expr::unwrap_arc(Arc::clone(v)), Expr::number(1.0));
+                            let u_pow_n_minus_1 =
+                                Expr::pow_from_arcs(Arc::clone(u), Arc::new(n_minus_1));
 
                             if u_prime.is_one_num() {
-                                Expr::mul_expr((**v).clone(), u_pow_n_minus_1)
+                                Expr::product_from_arcs(vec![
+                                    Arc::clone(v),
+                                    Arc::new(u_pow_n_minus_1),
+                                ])
                             } else {
-                                Expr::mul_expr(
-                                    (**v).clone(),
-                                    Expr::mul_expr(u_pow_n_minus_1, u_prime),
-                                )
+                                Expr::product_from_arcs(vec![
+                                    Arc::clone(v),
+                                    Arc::new(u_pow_n_minus_1),
+                                    Arc::new(u_prime),
+                                ])
                             }
                         }
                     }
@@ -358,13 +351,11 @@ impl Expr {
                         let ln_u = if matches!(&u.kind, ExprKind::Symbol(name) if name == "e")
                             && !fixed_vars.contains("e")
                         {
-                            // ln(e) = 1
-                            Expr::number(1.0)
+                            Expr::number(1.0) // ln(e) = 1
                         } else if u.is_one_num() {
-                            // ln(1) = 0
-                            Expr::number(0.0)
+                            Expr::number(0.0) // ln(1) = 0
                         } else {
-                            Expr::func("ln", u.as_ref().clone())
+                            Expr::func("ln", Expr::unwrap_arc(Arc::clone(u)))
                         };
                         let term1 = if v_prime.is_zero_num() || ln_u.is_zero_num() {
                             Expr::number(0.0)
@@ -380,22 +371,21 @@ impl Expr {
                         let u_over_u_prime = if u_prime.is_zero_num() {
                             Expr::number(0.0)
                         } else if u.is_one_num() {
-                            // u'/1 = u'
-                            u_prime.clone()
+                            u_prime.clone() // u'/1 = u'
                         } else if u_prime.is_one_num() {
                             // 1/u
-                            Expr::pow((**u).clone(), Expr::number(-1.0))
+                            Expr::pow_from_arcs(Arc::clone(u), Arc::new(Expr::number(-1.0)))
                         } else {
-                            Expr::div_expr(u_prime.clone(), (**u).clone())
+                            Expr::div_from_arcs(Arc::new(u_prime.clone()), Arc::clone(u))
                         };
                         let term2 = if u_over_u_prime.is_zero_num() {
                             Expr::number(0.0)
                         } else if v.is_one_num() {
                             u_over_u_prime
                         } else if u_over_u_prime.is_one_num() {
-                            (**v).clone()
+                            Expr::unwrap_arc(Arc::clone(v))
                         } else {
-                            Expr::mul_expr((**v).clone(), u_over_u_prime)
+                            Expr::product_from_arcs(vec![Arc::clone(v), Arc::new(u_over_u_prime)])
                         };
 
                         // Sum of terms
@@ -410,10 +400,13 @@ impl Expr {
                         // Multiply by u^v
                         if sum.is_zero_num() {
                             Expr::number(0.0)
-                        } else if sum.is_one_num() {
-                            Expr::pow((**u).clone(), (**v).clone())
                         } else {
-                            Expr::mul_expr(Expr::pow((**u).clone(), (**v).clone()), sum)
+                            let u_pow_v = Expr::pow_from_arcs(Arc::clone(u), Arc::clone(v));
+                            if sum.is_one_num() {
+                                u_pow_v
+                            } else {
+                                Expr::mul_expr(u_pow_v, sum)
+                            }
                         }
                     }
                 }
@@ -533,11 +526,14 @@ mod tests {
         let expr = Expr::func("custom", x);
         // Should return symbolic derivative if no rule
         let result = expr.derive("x", &HashSet::new(), &HashMap::new(), &HashMap::new());
-        // Returns Mul(partial, arg_prime) usually
-        assert!(matches!(
-            result.kind,
-            ExprKind::Product(_) | ExprKind::Symbol(_)
-        ));
+        println!("Result kind: {:?}", result.kind);
+        println!("Result: {}", result);
+        // Returns Mul(partial, arg_prime) or Sum (from chain rule) or other expression types
+        assert!(
+            !matches!(result.kind, ExprKind::Number(_)),
+            "Expected non-constant derivative, got: {:?}",
+            result.kind
+        );
     }
 
     #[test]

@@ -17,8 +17,8 @@ mod tests {
             assert!(has_2, "Expected factor 2.0");
 
             let has_ln = factors.iter().any(|f| {
-                if let ExprKind::FunctionCall { name, args } = &f.kind {
-                    if name == "ln" {
+                if let ExprKind::FunctionCall { name, args } = &f.kind
+                    && name == "ln" {
                         // The argument should be abs(x)
                         if let ExprKind::FunctionCall {
                             name: abs_name,
@@ -28,7 +28,6 @@ mod tests {
                             return abs_name == "abs" && abs_args[0] == Expr::symbol("x");
                         }
                     }
-                }
                 false
             });
             assert!(has_ln, "Expected ln(abs(x))");
@@ -73,17 +72,15 @@ mod tests {
             assert!(has_4, "Expected factor 4.0");
 
             let has_log = factors.iter().any(|f| {
-                if let ExprKind::FunctionCall { name, args } = &f.kind {
-                    if name == "log10" {
-                        if let ExprKind::FunctionCall {
+                if let ExprKind::FunctionCall { name, args } = &f.kind
+                    && name == "log10"
+                        && let ExprKind::FunctionCall {
                             name: abs_name,
                             args: abs_args,
                         } = &args[0].kind
                         {
                             return abs_name == "abs" && abs_args[0] == Expr::symbol("x");
                         }
-                    }
-                }
                 false
             });
             assert!(has_log, "Expected log10(abs(x))");

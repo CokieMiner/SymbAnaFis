@@ -204,6 +204,33 @@ def run_combined_benchmarks():
     return results
 
 
+def run_large_expr_benchmarks():
+    """Benchmark large expression handling."""
+    print("\n=== Large Expression Benchmarks (300 terms) ===")
+    from bench_runner import generate_mixed_complex
+    
+    large_expr_str = generate_mixed_complex(300)
+    results = []
+    
+    # Parsing
+    mean, std = benchmark("parse_300", lambda: symb_anafis.parse(large_expr_str), runs=100)
+    results.append(("parse_300", mean, std))
+    print(f"  Parsing: {mean:.2f} ± {std:.2f} µs")
+    
+    # Differentiation (Full Pipeline)
+    mean, std = benchmark("full_300", lambda: symb_anafis.diff(large_expr_str, "x"), runs=50)
+    results.append(("full_300", mean, std))
+    print(f"  Full Diff: {mean/1000:.2f} ± {std/1000:.2f} ms")
+
+    # Repeat for comparison with SymPy's Diff+Simplify (since we always simplify)
+    # We can just reuse the same lambda or copy the result, but running it again is cleaner for the runner logic
+    mean, std = benchmark("full_300_simp", lambda: symb_anafis.diff(large_expr_str, "x"), runs=50)
+    results.append(("full_300_simp", mean, std))
+    # print(f"  (Rep) Full Diff: {mean/1000:.2f} ± {std/1000:.2f} ms") # Optional print
+    
+    return results
+
+
 def main():
     print("=" * 60)
     print("SymbAnaFis Python Bindings Benchmark Suite")
@@ -216,6 +243,7 @@ def main():
     all_results["differentiation"] = run_differentiation_benchmarks()
     all_results["simplification"] = run_simplification_benchmarks()
     all_results["combined"] = run_combined_benchmarks()
+    all_results["large_expr"] = run_large_expr_benchmarks()
     
     print("\n" + "=" * 60)
     print("Benchmark Complete!")

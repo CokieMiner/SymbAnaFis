@@ -14,8 +14,8 @@ rule!(
             && args.len() == 1
         {
             // Check for Sum pattern: pi/2 + (-x) = pi/2 - x
-            if let AstKind::Sum(terms) = &args[0].kind {
-                if terms.len() == 2 {
+            if let AstKind::Sum(terms) = &args[0].kind
+                && terms.len() == 2 {
                     let u = &terms[0];
                     let v = &terms[1];
 
@@ -34,21 +34,18 @@ rule!(
 
                     // Helper to extract negated term from Product([-1, x])
                     fn extract_negated(term: &Expr) -> Option<Expr> {
-                        if let AstKind::Product(factors) = &term.kind {
-                            if factors.len() == 2 {
-                                if let AstKind::Number(n) = &factors[0].kind {
-                                    if (*n + 1.0).abs() < 1e-10 {
+                        if let AstKind::Product(factors) = &term.kind
+                            && factors.len() == 2
+                                && let AstKind::Number(n) = &factors[0].kind
+                                    && (*n + 1.0).abs() < 1e-10 {
                                         return Some((*factors[1]).clone());
                                     }
-                                }
-                            }
-                        }
                         None
                     }
 
                     // Check pi/2 + (-x) pattern
-                    if is_pi_div_2(u) {
-                        if let Some(x) = extract_negated(v) {
+                    if is_pi_div_2(u)
+                        && let Some(x) = extract_negated(v) {
                             match name.as_str() {
                                 "sin" => return Some(Expr::func("cos", x)),
                                 "cos" => return Some(Expr::func("sin", x)),
@@ -59,11 +56,10 @@ rule!(
                                 _ => {}
                             }
                         }
-                    }
 
                     // Check (-x) + pi/2 pattern
-                    if is_pi_div_2(v) {
-                        if let Some(x) = extract_negated(u) {
+                    if is_pi_div_2(v)
+                        && let Some(x) = extract_negated(u) {
                             match name.as_str() {
                                 "sin" => return Some(Expr::func("cos", x)),
                                 "cos" => return Some(Expr::func("sin", x)),
@@ -74,9 +70,7 @@ rule!(
                                 _ => {}
                             }
                         }
-                    }
                 }
-            }
         }
         None
     }
@@ -92,9 +86,8 @@ rule!(
         if let AstKind::FunctionCall { name, args } = &expr.kind
             && (name == "sin" || name == "cos")
             && args.len() == 1
-        {
-            if let AstKind::Sum(terms) = &args[0].kind {
-                if terms.len() == 2 {
+            && let AstKind::Sum(terms) = &args[0].kind
+                && terms.len() == 2 {
                     let lhs = &terms[0];
                     let rhs = &terms[1];
 
@@ -106,8 +99,6 @@ rule!(
                         return Some(Expr::func(name.clone(), (**rhs).clone()));
                     }
                 }
-            }
-        }
         None
     }
 );
@@ -122,29 +113,25 @@ rule!(
         if let AstKind::FunctionCall { name, args } = &expr.kind
             && (name == "sin" || name == "cos")
             && args.len() == 1
-        {
-            if let AstKind::Sum(terms) = &args[0].kind {
-                if terms.len() == 2 {
+            && let AstKind::Sum(terms) = &args[0].kind
+                && terms.len() == 2 {
                     let u = &terms[0];
                     let v = &terms[1];
 
                     // Helper to extract negated term from Product([-1, x])
                     fn extract_negated(term: &Expr) -> Option<Expr> {
-                        if let AstKind::Product(factors) = &term.kind {
-                            if factors.len() == 2 {
-                                if let AstKind::Number(n) = &factors[0].kind {
-                                    if (*n + 1.0).abs() < 1e-10 {
+                        if let AstKind::Product(factors) = &term.kind
+                            && factors.len() == 2
+                                && let AstKind::Number(n) = &factors[0].kind
+                                    && (*n + 1.0).abs() < 1e-10 {
                                         return Some((*factors[1]).clone());
                                     }
-                                }
-                            }
-                        }
                         None
                     }
 
                     // Check π + (-x) pattern: sin(π - x) = sin(x), cos(π - x) = -cos(x)
-                    if helpers::is_pi(u) {
-                        if let Some(x) = extract_negated(v) {
+                    if helpers::is_pi(u)
+                        && let Some(x) = extract_negated(v) {
                             match name.as_str() {
                                 "sin" => return Some(Expr::func("sin", x)),
                                 "cos" => {
@@ -156,7 +143,6 @@ rule!(
                                 _ => {}
                             }
                         }
-                    }
 
                     // Check π + x pattern: sin(π + x) = -sin(x), cos(π + x) = -cos(x)
                     if helpers::is_pi(u) {
@@ -183,8 +169,6 @@ rule!(
                         }
                     }
                 }
-            }
-        }
         None
     }
 );
@@ -199,29 +183,25 @@ rule!(
         if let AstKind::FunctionCall { name, args } = &expr.kind
             && (name == "sin" || name == "cos")
             && args.len() == 1
-        {
-            if let AstKind::Sum(terms) = &args[0].kind {
-                if terms.len() == 2 {
+            && let AstKind::Sum(terms) = &args[0].kind
+                && terms.len() == 2 {
                     let u = &terms[0];
                     let v = &terms[1];
 
                     // Helper to extract negated term from Product([-1, x])
                     fn extract_negated(term: &Expr) -> Option<Expr> {
-                        if let AstKind::Product(factors) = &term.kind {
-                            if factors.len() == 2 {
-                                if let AstKind::Number(n) = &factors[0].kind {
-                                    if (*n + 1.0).abs() < 1e-10 {
+                        if let AstKind::Product(factors) = &term.kind
+                            && factors.len() == 2
+                                && let AstKind::Number(n) = &factors[0].kind
+                                    && (*n + 1.0).abs() < 1e-10 {
                                         return Some((*factors[1]).clone());
                                     }
-                                }
-                            }
-                        }
                         None
                     }
 
                     // Check 3π/2 + (-x) pattern
-                    if helpers::is_three_pi_over_two(u) {
-                        if let Some(x) = extract_negated(v) {
+                    if helpers::is_three_pi_over_two(u)
+                        && let Some(x) = extract_negated(v) {
                             match name.as_str() {
                                 "sin" => {
                                     return Some(Expr::product(vec![
@@ -238,10 +218,9 @@ rule!(
                                 _ => {}
                             }
                         }
-                    }
 
-                    if helpers::is_three_pi_over_two(v) {
-                        if let Some(x) = extract_negated(u) {
+                    if helpers::is_three_pi_over_two(v)
+                        && let Some(x) = extract_negated(u) {
                             match name.as_str() {
                                 "sin" => {
                                     return Some(Expr::product(vec![
@@ -258,10 +237,7 @@ rule!(
                                 _ => {}
                             }
                         }
-                    }
                 }
-            }
-        }
         None
     }
 );
@@ -275,27 +251,24 @@ rule!(
     |expr: &Expr, _context: &RuleContext| {
         if let Some((name, arg)) = get_trig_function(expr) {
             // Check for Product([-1, x]) pattern
-            if let AstKind::Product(factors) = &arg.kind {
-                if factors.len() == 2 {
-                    if let AstKind::Number(n) = &factors[0].kind {
-                        if *n == -1.0 {
+            if let AstKind::Product(factors) = &arg.kind
+                && factors.len() == 2
+                    && let AstKind::Number(n) = &factors[0].kind
+                        && *n == -1.0 {
                             let inner = (*factors[1]).clone();
                             match name {
                                 "sin" | "tan" => {
                                     return Some(Expr::product(vec![
                                         Expr::number(-1.0),
-                                        Expr::func(name.to_string(), inner),
+                                        Expr::func(name, inner),
                                     ]));
                                 }
                                 "cos" | "sec" => {
-                                    return Some(Expr::func(name.to_string(), inner));
+                                    return Some(Expr::func(name, inner));
                                 }
                                 _ => {}
                             }
                         }
-                    }
-                }
-            }
         }
         None
     }

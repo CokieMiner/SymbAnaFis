@@ -52,7 +52,8 @@ These handle polynomial operations, factoring, absolute value, sign functions, a
 - **power_of_quotient** (priority: 88) - Rule for (a/b)^n -> a^n / b^n when expansion enables simplification
 - **power_expansion** (priority: 86) - Rule for expanding powers: (a*b)^n -> a^n * b^n when beneficial
 - **mul_div_combination** (priority: 85) - Rule for a * (b / c) -> (a * b) / c
-- **expand_difference_of_squares_product** (priority: 85) - Rule for expanding (a+b)(a-b) -> a² - b² when beneficial
+
+> **Note**: `expand_difference_of_squares_product` was removed to prevent rule cycling with `factor_difference_of_squares`. The engine now prefers the factored form `(a-b)(a+b)` over `a² - b²`.
 
 #### Identity/Cancellation Phase (70-84)
 - **power_zero** (priority: 80) - Rule for x^0 = 1 (when x != 0)
@@ -63,7 +64,7 @@ These handle polynomial operations, factoring, absolute value, sign functions, a
 - **exp_mul_ln** (priority: 80) - Rule for exp(a * ln(b)) -> b^a **[alters domain]**
 - **abs_sign_mul** (priority: 80) - Rule for abs(x) * sign(x) -> x
 - **div_self** (priority: 78) - Rule for x / x = 1 (when x != 0) **[alters domain]**
-- **fraction_cancellation** (priority: 76) - Rule for cancelling common terms in fractions: (a*b)/(a*c) -> b/c **[alters domain]**
+- **fraction_cancellation** (priority: 76) - Rule for cancelling common terms in fractions: (a*b)/(a*c) -> b/c (respects domain-safe mode internally)
 - **power_power** (priority: 75) - Rule for (x^a)^b -> x^(a*b). Returns abs(x) when (x^even)^(1/even) simplifies to x^1
 - **power_mul** (priority: 75) - Rule for x^a * x^b -> x^(a+b)
 - **power_div** (priority: 75) - Rule for x^a / x^b -> x^(a-b)
@@ -72,18 +73,20 @@ These handle polynomial operations, factoring, absolute value, sign functions, a
 - **power_collection** (priority: 60) - Rule for collecting powers in multiplication: x^a * x^b -> x^(a+b)
 - **combine_factors** (priority: 58) - Rule for combining like factors in multiplication: x * x -> x^2
 - **common_exponent_div** (priority: 55) - Rule for x^a / y^a -> (x/y)^a (compaction)
-- **common_exponent_mul** (priority: 55) - Rule for x^a * y^a -> (x*y)^a (compaction)
+- **common_exponent_mul** (priority: 55) - Rule for x^a * y^a -> (x*y)^a (compaction). **Skips combining when either base^exp results in an integer** to prefer expanded numeric coefficients (e.g., `9*y^2` instead of `(3y)^2`)
 - **combine_like_terms_addition** (priority: 52) - Rule for combining like terms in addition: 2x + 3x -> 5x
 - **fraction_to_end** (priority: 50) - Rule for ((1/a) * b) / c -> b / (a * c)
 - **combine_terms** (priority: 50) - Rule for combining like terms in addition: 2x + 3x -> 5x
 - **distribute_negation** (priority: 50) - Rule for distributing negation: -(A + B) -> -A - B
-- **perfect_square** (priority: 48) - Rule for perfect squares: a^2 + 2ab + b^2 -> (a+b)^2
 - **factor_difference_of_squares** (priority: 46) - Rule for factoring difference of squares: a^2 - b^2 -> (a-b)(a+b)
 - **add_fraction** (priority: 45) - Rule for adding fractions: a + b/c -> (a*c + b)/c
 - **numeric_gcd_factoring** (priority: 42) - Rule for factoring out numeric GCD: 2*a + 2*b -> 2*(a+b)
 - **perfect_cube** (priority: 40) - Rule for perfect cubes: a^3 + 3a^2b + 3ab^2 + b^3 -> (a+b)^3
 - **common_term_factoring** (priority: 40) - Rule for factoring out common terms: ax + bx -> x(a+b)
 - **common_power_factoring** (priority: 39) - Rule for factoring out common powers: x³ + x² -> x²(x + 1)
+
+#### Pattern Recognition (Priority 100)
+- **perfect_square** (priority: 100) - Rule for perfect squares: a^2 + 2ab + b^2 -> (a+b)^2
 
 #### Absolute Value & Sign Rules
 - **abs_numeric** (priority: 95) - Rule for absolute value of numeric constants: abs(5) -> 5, abs(-3) -> 3
@@ -166,7 +169,7 @@ These handle logarithmic and exponential function identities.
 - **log_base_values** (priority: 95) - Rule for specific log values: log10(1)=0, log10(10)=1, log2(1)=0, log2(2)=1
 - **exp_ln_identity** (priority: 90) - Rule for exp(ln(x)) = x (for x > 0) **[alters domain]**
 - **ln_exp_identity** (priority: 90) - Rule for ln(exp(x)) = x **[alters domain]**
-- **log_power** (priority: 90) - Rule for log(x^n) = n * log(x). For even integer exponents, uses abs: log(x^2) = 2*log(abs(x)). Odd exponents **[alters domain]**
+- **log_power** (priority: 90) - Rule for log(x^n) = n * log(x). For even integer exponents, uses abs: log(x^2) = 2*log(abs(x)). Respects domain-safe mode for odd exponents.
 - **log_combination** (priority: 85) - Rule for ln(a) + ln(b) = ln(a*b) and ln(a) - ln(b) = ln(a/b)
 
 ### Root Rules (Category: Root)
@@ -177,7 +180,7 @@ These handle square root and cube root simplifications.
 - **cbrt_power** (priority: 85) - Rule for cbrt(x^n) = x^(n/3)
 
 #### Compression/Consolidation Phase (40-69)
-- **sqrt_mul** (priority: 56) - Rule for sqrt(x) * sqrt(y) = sqrt(x*y) **[alters domain]**
+- **sqrt_product** (priority: 56) - Rule for sqrt(x) * sqrt(y) = sqrt(x*y) **[alters domain]**
 - **sqrt_div** (priority: 56) - Rule for sqrt(x)/sqrt(y) = sqrt(x/y) **[alters domain]**
 - **normalize_roots** (priority: 50) - Rule that applies the monolithic root normalization
 
@@ -236,13 +239,13 @@ diff("e*x", "x", Some(&["e"]), None)?;
 
 | Category | Count |
 |----------|-------|
-| Numeric | 13 |
-| Algebraic | 51 |
+| Numeric | 15 |
+| Algebraic | 47 |
 | Trigonometric | 23 |
 | Hyperbolic | 21 |
 | Exponential | 9 |
 | Root | 6 |
-| **Total** | **123** |
+| **Total** | **121** |
 
 ## Implementation Details
 

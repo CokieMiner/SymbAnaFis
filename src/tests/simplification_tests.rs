@@ -323,4 +323,32 @@ mod tests {
             panic!("Expected Div, got {:?}", simplified);
         }
     }
+
+    #[test]
+    fn test_polynomial_gcd_simplification() {
+        use crate::parser;
+
+        // (x^2 - 1) / (x - 1) should simplify to (x + 1)
+        // Since x^2 - 1 = (x-1)(x+1), GCD is (x-1)
+        let expr = parser::parse(
+            "(x^2 - 1) / (x - 1)",
+            &HashSet::new(),
+            &HashSet::new(),
+            None,
+        )
+        .unwrap();
+        let simplified = simplify_expr(expr.clone(), HashSet::new());
+
+        println!("PolyGCD test: {} -> {}", expr, simplified);
+
+        // Should become x + 1
+        let expected = parser::parse("x + 1", &HashSet::new(), &HashSet::new(), None).unwrap();
+        let expected_simplified = simplify_expr(expected, HashSet::new());
+
+        assert_eq!(
+            format!("{}", simplified),
+            format!("{}", expected_simplified),
+            "Expected (x^2-1)/(x-1) to simplify to x+1"
+        );
+    }
 }

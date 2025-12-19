@@ -72,16 +72,14 @@ fn evaluate_numeric_functions(expr: Expr) -> Expr {
 
             // Check for 0.5 coefficient: 0.5 * expr -> expr / 2
             if processed.len() == 2 {
-                if let ExprKind::Number(n) = &processed[0].kind {
-                    if *n == 0.5 {
+                if let ExprKind::Number(n) = &processed[0].kind
+                    && *n == 0.5 {
                         return Expr::div_expr(processed[1].clone(), Expr::number(2.0));
                     }
-                }
-                if let ExprKind::Number(n) = &processed[1].kind {
-                    if *n == 0.5 {
+                if let ExprKind::Number(n) = &processed[1].kind
+                    && *n == 0.5 {
                         return Expr::div_expr(processed[0].clone(), Expr::number(2.0));
                     }
-                }
             }
 
             Expr::product(processed)
