@@ -1,4 +1,7 @@
 use crate::core::expr::{Expr, ExprKind as AstKind};
+use crate::core::known_symbols::{
+    ACOSH, ASINH, ATANH, COSH, COTH, CSCH, SECH, SINH, TANH, get_symbol,
+};
 use crate::simplification::rules::{ExprKind, Rule, RuleCategory, RuleContext};
 
 rule!(
@@ -9,7 +12,7 @@ rule!(
     &[ExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::FunctionCall { name, args } = &expr.kind
-            && name == "sinh"
+            && name.id() == *SINH
             && args.len() == 1
             && matches!(args[0].kind, AstKind::Number(n) if n == 0.0)
         {
@@ -27,7 +30,7 @@ rule!(
     &[ExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::FunctionCall { name, args } = &expr.kind
-            && name == "cosh"
+            && name.id() == *COSH
             && args.len() == 1
             && matches!(args[0].kind, AstKind::Number(n) if n == 0.0)
         {
@@ -45,7 +48,7 @@ rule!(
     &[ExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::FunctionCall { name, args } = &expr.kind
-            && name == "sinh"
+            && name.id() == *SINH
             && args.len() == 1
             && let AstKind::Product(factors) = &args[0].kind
             && factors.len() == 2
@@ -55,7 +58,7 @@ rule!(
             {
                 return Some(Expr::product(vec![
                     Expr::number(-1.0),
-                    Expr::func("sinh", (*factors[1]).clone()),
+                    Expr::func_symbol(get_symbol(&SINH), (*factors[1]).clone()),
                 ]));
             }
             if let AstKind::Number(n) = &factors[1].kind
@@ -63,7 +66,7 @@ rule!(
             {
                 return Some(Expr::product(vec![
                     Expr::number(-1.0),
-                    Expr::func("sinh", (*factors[0]).clone()),
+                    Expr::func_symbol(get_symbol(&SINH), (*factors[0]).clone()),
                 ]));
             }
         }
@@ -79,7 +82,7 @@ rule!(
     &[ExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::FunctionCall { name, args } = &expr.kind
-            && name == "cosh"
+            && name.id() == *COSH
             && args.len() == 1
             && let AstKind::Product(factors) = &args[0].kind
             && factors.len() == 2
@@ -87,12 +90,12 @@ rule!(
             if let AstKind::Number(n) = &factors[0].kind
                 && *n == -1.0
             {
-                return Some(Expr::func("cosh", (*factors[1]).clone()));
+                return Some(Expr::func_symbol(get_symbol(&COSH), (*factors[1]).clone()));
             }
             if let AstKind::Number(n) = &factors[1].kind
                 && *n == -1.0
             {
-                return Some(Expr::func("cosh", (*factors[0]).clone()));
+                return Some(Expr::func_symbol(get_symbol(&COSH), (*factors[0]).clone()));
             }
         }
         None
@@ -107,7 +110,7 @@ rule!(
     &[ExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::FunctionCall { name, args } = &expr.kind
-            && name == "tanh"
+            && name.id() == *TANH
             && args.len() == 1
             && let AstKind::Product(factors) = &args[0].kind
             && factors.len() == 2
@@ -117,7 +120,7 @@ rule!(
             {
                 return Some(Expr::product(vec![
                     Expr::number(-1.0),
-                    Expr::func("tanh", (*factors[1]).clone()),
+                    Expr::func_symbol(get_symbol(&TANH), (*factors[1]).clone()),
                 ]));
             }
             if let AstKind::Number(n) = &factors[1].kind
@@ -125,7 +128,7 @@ rule!(
             {
                 return Some(Expr::product(vec![
                     Expr::number(-1.0),
-                    Expr::func("tanh", (*factors[0]).clone()),
+                    Expr::func_symbol(get_symbol(&TANH), (*factors[0]).clone()),
                 ]));
             }
         }
@@ -141,13 +144,13 @@ rule!(
     &[ExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::FunctionCall { name, args } = &expr.kind
-            && name == "sinh"
+            && name.id() == *SINH
             && args.len() == 1
             && let AstKind::FunctionCall {
                 name: inner_name,
                 args: inner_args,
             } = &args[0].kind
-            && inner_name == "asinh"
+            && inner_name.id() == *ASINH
             && inner_args.len() == 1
         {
             return Some((*inner_args[0]).clone());
@@ -164,13 +167,13 @@ rule!(
     &[ExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::FunctionCall { name, args } = &expr.kind
-            && name == "cosh"
+            && name.id() == *COSH
             && args.len() == 1
             && let AstKind::FunctionCall {
                 name: inner_name,
                 args: inner_args,
             } = &args[0].kind
-            && inner_name == "acosh"
+            && inner_name.id() == *ACOSH
             && inner_args.len() == 1
         {
             return Some((*inner_args[0]).clone());
@@ -187,13 +190,13 @@ rule!(
     &[ExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::FunctionCall { name, args } = &expr.kind
-            && name == "tanh"
+            && name.id() == *TANH
             && args.len() == 1
             && let AstKind::FunctionCall {
                 name: inner_name,
                 args: inner_args,
             } = &args[0].kind
-            && inner_name == "atanh"
+            && inner_name.id() == *ATANH
             && inner_args.len() == 1
         {
             return Some((*inner_args[0]).clone());
@@ -231,10 +234,10 @@ rule!(
 
             // cosh^2(x) + (-sinh^2(x)) = 1
             if let Some((name1, arg1)) = get_hyperbolic_power(u, 2.0)
-                && name1 == "cosh"
+                && name1.id() == *COSH
                 && let Some(negated) = extract_negated(v)
                 && let Some((name2, arg2)) = get_hyperbolic_power(&negated, 2.0)
-                && name2 == "sinh"
+                && name2.id() == *SINH
                 && arg1 == arg2
             {
                 return Some(Expr::number(1.0));
@@ -245,23 +248,32 @@ rule!(
                 && *n == 1.0
                 && let Some(negated) = extract_negated(v)
                 && let Some((name, arg)) = get_hyperbolic_power(&negated, 2.0)
-                && name == "tanh"
+                && name.id() == *TANH
             {
-                return Some(Expr::pow(Expr::func("sech", arg), Expr::number(2.0)));
+                return Some(Expr::pow(
+                    Expr::func_symbol(get_symbol(&SECH), arg),
+                    Expr::number(2.0),
+                ));
             }
 
             // coth^2(x) - 1 = csch^2(x)
             if let (Some((n1, a1)), AstKind::Number(num)) = (get_hyperbolic_power(u, 2.0), &v.kind)
-                && n1 == "coth"
+                && n1.id() == *COTH
                 && (*num + 1.0).abs() < 1e-10
             {
-                return Some(Expr::pow(Expr::func("csch", a1), Expr::number(2.0)));
+                return Some(Expr::pow(
+                    Expr::func_symbol(get_symbol(&CSCH), a1),
+                    Expr::number(2.0),
+                ));
             }
             if let (AstKind::Number(num), Some((n2, a2))) = (&u.kind, get_hyperbolic_power(v, 2.0))
-                && n2 == "coth"
+                && n2.id() == *COTH
                 && (*num + 1.0).abs() < 1e-10
             {
-                return Some(Expr::pow(Expr::func("csch", a2), Expr::number(2.0)));
+                return Some(Expr::pow(
+                    Expr::func_symbol(get_symbol(&CSCH), a2),
+                    Expr::number(2.0),
+                ));
             }
         }
 
@@ -290,15 +302,18 @@ rule!(
     }
 );
 
-fn get_hyperbolic_power(expr: &Expr, power: f64) -> Option<(&str, Expr)> {
+fn get_hyperbolic_power(
+    expr: &Expr,
+    power: f64,
+) -> Option<(crate::core::symbol::InternedSymbol, Expr)> {
     if let AstKind::Pow(base, exp) = &expr.kind
         && let AstKind::Number(p) = &exp.kind
         && *p == power
         && let AstKind::FunctionCall { name, args } = &base.kind
         && args.len() == 1
-        && (name == "sinh" || name == "cosh" || name == "tanh" || name == "coth")
+        && (name.id() == *SINH || name.id() == *COSH || name.id() == *TANH || name.id() == *COTH)
     {
-        return Some((name.as_str(), (*args[0]).clone()));
+        return Some((name.clone(), (*args[0]).clone()));
     }
     None
 }
@@ -308,14 +323,14 @@ fn is_cosh_minus_sinh_term(expr: &Expr) -> Option<Expr> {
     if let AstKind::Sum(terms) = &expr.kind
         && terms.len() == 2
         && let AstKind::FunctionCall { name: n1, args: a1 } = &terms[0].kind
-        && n1 == "cosh"
+        && n1.id() == *COSH
         && a1.len() == 1
         && let AstKind::Product(factors) = &terms[1].kind
         && factors.len() == 2
         && let AstKind::Number(n) = &factors[0].kind
         && *n == -1.0
         && let AstKind::FunctionCall { name: n2, args: a2 } = &factors[1].kind
-        && n2 == "sinh"
+        && n2.id() == *SINH
         && a2.len() == 1
         && a1[0] == a2[0]
     {
@@ -329,10 +344,10 @@ fn is_cosh_plus_sinh_term(expr: &Expr) -> Option<Expr> {
     if let AstKind::Sum(terms) = &expr.kind
         && terms.len() == 2
         && let AstKind::FunctionCall { name: n1, args: a1 } = &terms[0].kind
-        && n1 == "cosh"
+        && n1.id() == *COSH
         && a1.len() == 1
         && let AstKind::FunctionCall { name: n2, args: a2 } = &terms[1].kind
-        && n2 == "sinh"
+        && n2.id() == *SINH
         && a2.len() == 1
         && a1[0] == a2[0]
     {
@@ -355,31 +370,32 @@ rule!(
             let v = &terms[1];
 
             // 4*sinh(x)^3 + 3*sinh(x) -> sinh(3x)
-            if let (Some((c1, arg1, p1)), Some((c2, arg2, p2))) =
-                (parse_fn_term(u, "sinh"), parse_fn_term(v, "sinh"))
-                && arg1 == arg2
+            if let (Some((c1, arg1, p1)), Some((c2, arg2, p2))) = (
+                parse_fn_term(u, get_symbol(&SINH)),
+                parse_fn_term(v, get_symbol(&SINH)),
+            ) && arg1 == arg2
             {
                 let eps = 1e-10;
                 if ((c1 - 4.0).abs() < eps && p1 == 3.0 && c2 == 3.0 && p2 == 1.0)
                     || ((c2 - 4.0).abs() < eps && p2 == 3.0 && c1 == 3.0 && p1 == 1.0)
                 {
-                    return Some(Expr::func(
-                        "sinh",
+                    return Some(Expr::func_symbol(
+                        get_symbol(&SINH),
                         Expr::product(vec![Expr::number(3.0), arg1]),
                     ));
                 }
             }
 
             // 4*cosh(x)^3 + (-3*cosh(x)) -> cosh(3x) (subtraction represented as sum with negated term)
-            if let Some((c1, arg1, p1)) = parse_fn_term(u, "cosh")
-                && let Some((c2, arg2, p2)) = parse_fn_term(v, "cosh")
+            if let Some((c1, arg1, p1)) = parse_fn_term(u, get_symbol(&COSH))
+                && let Some((c2, arg2, p2)) = parse_fn_term(v, get_symbol(&COSH))
                 && arg1 == arg2
             {
                 let eps = 1e-10;
                 // 4*cosh^3(x) - 3*cosh(x) -> cosh(3x)
                 if (c1 - 4.0).abs() < eps && p1 == 3.0 && c2 == -3.0 && p2 == 1.0 {
-                    return Some(Expr::func(
-                        "cosh",
+                    return Some(Expr::func_symbol(
+                        get_symbol(&COSH),
                         Expr::product(vec![Expr::number(3.0), arg1]),
                     ));
                 }
@@ -389,10 +405,13 @@ rule!(
     }
 );
 
-fn parse_fn_term(expr: &Expr, func_name: &str) -> Option<(f64, Expr, f64)> {
+fn parse_fn_term(
+    expr: &Expr,
+    func_name: crate::core::symbol::InternedSymbol,
+) -> Option<(f64, Expr, f64)> {
     // Direct function call: func(x) -> (1.0, x, 1.0)
     if let AstKind::FunctionCall { name, args } = &expr.kind
-        && name == func_name
+        && *name == func_name
         && args.len() == 1
     {
         return Some((1.0, (*args[0]).clone(), 1.0));
@@ -402,7 +421,7 @@ fn parse_fn_term(expr: &Expr, func_name: &str) -> Option<(f64, Expr, f64)> {
     if let AstKind::Pow(base, exp) = &expr.kind
         && let AstKind::Number(p) = &exp.kind
         && let AstKind::FunctionCall { name, args } = &base.kind
-        && name == func_name
+        && *name == func_name
         && args.len() == 1
     {
         return Some((1.0, (*args[0]).clone(), *p));
@@ -415,7 +434,7 @@ fn parse_fn_term(expr: &Expr, func_name: &str) -> Option<(f64, Expr, f64)> {
     {
         // c * func(x)
         if let AstKind::FunctionCall { name, args } = &factors[1].kind
-            && name == func_name
+            && *name == func_name
             && args.len() == 1
         {
             return Some((*c, (*args[0]).clone(), 1.0));
@@ -424,7 +443,7 @@ fn parse_fn_term(expr: &Expr, func_name: &str) -> Option<(f64, Expr, f64)> {
         if let AstKind::Pow(base, exp) = &factors[1].kind
             && let AstKind::Number(p) = &exp.kind
             && let AstKind::FunctionCall { name, args } = &base.kind
-            && name == func_name
+            && *name == func_name
             && args.len() == 1
         {
             return Some((*c, (*args[0]).clone(), *p));

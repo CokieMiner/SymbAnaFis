@@ -91,6 +91,7 @@ const BUILTINS: &[&str] = &[
     "elliptic_e",
     "elliptic_k",
     "zeta_deriv",
+    "spherical_harmonic",
 ];
 
 use std::sync::OnceLock;
@@ -104,6 +105,7 @@ fn get_builtins_set() -> &'static HashSet<&'static str> {
 }
 
 /// Check if a string is a builtin function name (O(1) lookup)
+#[inline]
 fn is_builtin(name: &str) -> bool {
     get_builtins_set().contains(name)
 }
@@ -364,7 +366,6 @@ fn scan_characters(input: &str) -> Result<Vec<RawToken>, DiffError> {
 
             // Unicode derivatives (∂)
             _ if input[pos..].starts_with('∂') => {
-                let _start_pos = pos;
                 let mut remaining_chars = input[pos..].chars().peekable();
                 let deriv_str = scan_derivative_notation(&mut remaining_chars)?;
                 pos += deriv_str.len(); // Advance pos by the byte length of the derivative string
@@ -385,7 +386,6 @@ fn scan_characters(input: &str) -> Result<Vec<RawToken>, DiffError> {
                 .map(|c| c.is_alphabetic() || c == '_')
                 .unwrap_or(false) =>
             {
-                let _start_pos = pos;
                 let mut seq = String::new();
                 for ch in input[pos..].chars() {
                     if ch.is_alphanumeric() || ch == '_' {

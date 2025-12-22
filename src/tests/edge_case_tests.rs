@@ -115,7 +115,7 @@ mod parentheses_edge_cases {
             assert_eq!(var, "x");
             assert_eq!(order, 1);
             if let ExprKind::FunctionCall { name, args } = &inner.kind {
-                assert_eq!(name, "f");
+                assert_eq!(name.as_str(), "f");
                 assert_eq!(args.len(), 1);
                 // Verify arg is x+y (now Sum)
                 match &args[0].kind {
@@ -123,10 +123,10 @@ mod parentheses_edge_cases {
                         assert!(terms.len() == 2);
                         let has_x = terms
                             .iter()
-                            .any(|t| matches!(&t.kind, ExprKind::Symbol(s) if s == "x"));
+                            .any(|t| matches!(&t.kind, ExprKind::Symbol(s) if s.as_str() == "x"));
                         let has_y = terms
                             .iter()
-                            .any(|t| matches!(&t.kind, ExprKind::Symbol(s) if s == "y"));
+                            .any(|t| matches!(&t.kind, ExprKind::Symbol(s) if s.as_str() == "y"));
                         assert!(has_x && has_y, "Expected x and y in sum");
                     }
                     _ => panic!("Expected Sum expression for argument"),
@@ -148,11 +148,11 @@ mod parentheses_edge_cases {
 
         if let ExprKind::Derivative { inner, .. } = expr.kind {
             if let ExprKind::FunctionCall { name, args } = &inner.kind {
-                assert_eq!(name, "f");
+                assert_eq!(name.as_str(), "f");
                 assert_eq!(args.len(), 2);
                 // Verify args are x and y
-                assert!(matches!(args[0].kind, ExprKind::Symbol(ref s) if s == "x"));
-                assert!(matches!(args[1].kind, ExprKind::Symbol(ref s) if s == "y"));
+                assert!(matches!(args[0].kind, ExprKind::Symbol(ref s) if s.as_str() == "x"));
+                assert!(matches!(args[1].kind, ExprKind::Symbol(ref s) if s.as_str() == "y"));
             } else {
                 panic!("Expected FunctionCall");
             }

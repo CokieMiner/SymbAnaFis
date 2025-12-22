@@ -52,12 +52,12 @@ mod tests {
 
             if let ExprKind::Div(num, den) = &base.kind {
                 if let ExprKind::Symbol(s) = &num.kind {
-                    assert_eq!(s, "x");
+                    assert_eq!(s.as_str(), "x");
                 } else {
                     panic!("Expected numerator x");
                 }
                 if let ExprKind::Symbol(s) = &den.kind {
-                    assert_eq!(s, "y");
+                    assert_eq!(s.as_str(), "y");
                 } else {
                     panic!("Expected denominator y");
                 }
@@ -79,10 +79,10 @@ mod tests {
         let simplified = simplify_expr(expr, HashSet::new());
 
         if let ExprKind::FunctionCall { name, args } = &simplified.kind {
-            assert_eq!(name, "sqrt");
+            assert_eq!(name.as_str(), "sqrt");
             assert_eq!(args.len(), 1);
             if let ExprKind::Symbol(s) = &args[0].kind {
-                assert_eq!(s, "x");
+                assert_eq!(s.as_str(), "x");
             } else {
                 panic!("Expected argument x");
             }
@@ -98,10 +98,10 @@ mod tests {
         let simplified = simplify_expr(expr, HashSet::new());
 
         if let ExprKind::FunctionCall { name, args } = &simplified.kind {
-            assert_eq!(name, "sqrt");
+            assert_eq!(name.as_str(), "sqrt");
             assert_eq!(args.len(), 1);
             if let ExprKind::Symbol(s) = &args[0].kind {
-                assert_eq!(s, "x");
+                assert_eq!(s.as_str(), "x");
             } else {
                 panic!("Expected argument x");
             }
@@ -120,10 +120,10 @@ mod tests {
         let simplified = simplify_expr(expr, HashSet::new());
 
         if let ExprKind::FunctionCall { name, args } = &simplified.kind {
-            assert_eq!(name, "cbrt");
+            assert_eq!(name.as_str(), "cbrt");
             assert_eq!(args.len(), 1);
             if let ExprKind::Symbol(s) = &args[0].kind {
-                assert_eq!(s, "x");
+                assert_eq!(s.as_str(), "x");
             } else {
                 panic!("Expected argument x");
             }

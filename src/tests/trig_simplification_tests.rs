@@ -15,7 +15,7 @@ fn test_trig_symmetry_extended() {
         assert!(factors.len() == 2);
         assert!(matches!(&factors[0].kind, ExprKind::Number(n) if *n == -1.0));
         if let ExprKind::FunctionCall { name, args } = &factors[1].kind {
-            assert_eq!(name, "tan");
+            assert_eq!(name.as_str(), "tan");
             assert_eq!(*args[0], Expr::symbol("x"));
         } else {
             panic!("Expected function call");
@@ -31,7 +31,7 @@ fn test_trig_symmetry_extended() {
     );
     let simplified = simplify_expr(expr, HashSet::new());
     if let ExprKind::FunctionCall { name, args } = &simplified.kind {
-        assert_eq!(name, "sec");
+        assert_eq!(name.as_str(), "sec");
         assert_eq!(*args[0], Expr::symbol("x"));
     } else {
         panic!("Expected sec(x)");
@@ -82,7 +82,7 @@ fn test_pythagorean_identities() {
     if let ExprKind::Pow(base, exp) = &simplified.kind {
         assert_eq!(**exp, Expr::number(2.0));
         if let ExprKind::FunctionCall { name, args } = &base.kind {
-            assert_eq!(name, "sec");
+            assert_eq!(name.as_str(), "sec");
             assert_eq!(*args[0], Expr::symbol("x"));
         } else {
             panic!("Expected sec(x)");
@@ -100,7 +100,7 @@ fn test_pythagorean_identities() {
     if let ExprKind::Pow(base, exp) = &simplified.kind {
         assert_eq!(**exp, Expr::number(2.0));
         if let ExprKind::FunctionCall { name, args } = &base.kind {
-            assert_eq!(name, "csc");
+            assert_eq!(name.as_str(), "csc");
             assert_eq!(*args[0], Expr::symbol("x"));
         } else {
             panic!("Expected csc(x)");
@@ -123,7 +123,7 @@ fn test_cofunction_identities() {
     );
     let simplified = simplify_expr(expr, HashSet::new());
     if let ExprKind::FunctionCall { name, args } = &simplified.kind {
-        assert_eq!(name, "cos");
+        assert_eq!(name.as_str(), "cos");
         assert_eq!(*args[0], Expr::symbol("x"));
     } else {
         panic!("Expected cos(x)");
@@ -139,7 +139,7 @@ fn test_cofunction_identities() {
     );
     let simplified = simplify_expr(expr, HashSet::new());
     if let ExprKind::FunctionCall { name, args } = &simplified.kind {
-        assert_eq!(name, "sin");
+        assert_eq!(name.as_str(), "sin");
         assert_eq!(*args[0], Expr::symbol("x"));
     } else {
         panic!("Expected sin(x)");
@@ -156,7 +156,7 @@ fn test_trig_periodicity() {
     );
     let simplified = simplify_expr(expr, HashSet::new());
     if let ExprKind::FunctionCall { name, args } = &simplified.kind {
-        assert_eq!(name, "sin");
+        assert_eq!(name.as_str(), "sin");
         assert_eq!(*args[0], Expr::symbol("x"));
     } else {
         panic!("Expected sin(x)");
@@ -169,7 +169,7 @@ fn test_trig_periodicity() {
     );
     let simplified = simplify_expr(expr, HashSet::new());
     if let ExprKind::FunctionCall { name, args } = &simplified.kind {
-        assert_eq!(name, "cos");
+        assert_eq!(name.as_str(), "cos");
         assert_eq!(*args[0], Expr::symbol("x"));
     } else {
         panic!("Expected cos(x)");
@@ -186,7 +186,7 @@ fn test_trig_periodicity_general() {
     );
     let simplified = simplify_expr(expr, HashSet::new());
     if let ExprKind::FunctionCall { name, args } = &simplified.kind {
-        assert_eq!(name, "sin");
+        assert_eq!(name.as_str(), "sin");
         assert_eq!(*args[0], Expr::symbol("x"));
     } else {
         panic!("Expected sin(x)");
@@ -199,7 +199,7 @@ fn test_trig_periodicity_general() {
     );
     let simplified = simplify_expr(expr, HashSet::new());
     if let ExprKind::FunctionCall { name, args } = &simplified.kind {
-        assert_eq!(name, "cos");
+        assert_eq!(name.as_str(), "cos");
         assert_eq!(*args[0], Expr::symbol("x"));
     } else {
         panic!("Expected cos(x)");
@@ -219,7 +219,7 @@ fn test_trig_reflection_shifts() {
     );
     let simplified = simplify_expr(expr, HashSet::new());
     if let ExprKind::FunctionCall { name, args } = &simplified.kind {
-        assert_eq!(name, "sin");
+        assert_eq!(name.as_str(), "sin");
         assert_eq!(*args[0], Expr::symbol("x"));
     } else {
         panic!("Expected sin(x)");
@@ -232,7 +232,7 @@ fn test_trig_reflection_shifts() {
         assert!(factors.len() == 2);
         assert!(matches!(&factors[0].kind, ExprKind::Number(n) if *n == -1.0));
         if let ExprKind::FunctionCall { name, args } = &factors[1].kind {
-            assert_eq!(name, "cos");
+            assert_eq!(name.as_str(), "cos");
             assert_eq!(*args[0], Expr::symbol("x"));
         } else {
             panic!("Expected cos(x)");
@@ -254,7 +254,7 @@ fn test_trig_reflection_shifts() {
         assert!(factors.len() == 2);
         assert!(matches!(&factors[0].kind, ExprKind::Number(n) if *n == -1.0));
         if let ExprKind::FunctionCall { name, args } = &factors[1].kind {
-            assert_eq!(name, "cos");
+            assert_eq!(name.as_str(), "cos");
             assert_eq!(*args[0], Expr::symbol("x"));
         } else {
             panic!("Expected cos(x)");
@@ -305,14 +305,14 @@ fn test_double_angle_formulas() {
             .any(|f| matches!(&f.kind, ExprKind::Number(n) if *n == 2.0));
         let has_sin = factors.iter().any(|f| {
             if let ExprKind::FunctionCall { name, args } = &f.kind {
-                name == "sin" && *args[0] == Expr::symbol("x")
+                name.as_str() == "sin" && *args[0] == Expr::symbol("x")
             } else {
                 false
             }
         });
         let has_cos = factors.iter().any(|f| {
             if let ExprKind::FunctionCall { name, args } = &f.kind {
-                name == "cos" && *args[0] == Expr::symbol("x")
+                name.as_str() == "cos" && *args[0] == Expr::symbol("x")
             } else {
                 false
             }
@@ -334,14 +334,14 @@ fn test_double_angle_formulas() {
     let simplified = simplify_expr(expr, HashSet::new());
     // Should stay as cos(2*x) or cos(Product([2, x]))
     if let ExprKind::FunctionCall { name, args } = &simplified.kind {
-        assert_eq!(name, "cos");
+        assert_eq!(name.as_str(), "cos");
         if let ExprKind::Product(factors) = &args[0].kind {
             let has_2 = factors
                 .iter()
                 .any(|f| matches!(&f.kind, ExprKind::Number(n) if *n == 2.0));
             let has_x = factors
                 .iter()
-                .any(|f| matches!(&f.kind, ExprKind::Symbol(s) if s == "x"));
+                .any(|f| matches!(&f.kind, ExprKind::Symbol(s) if s.as_str() == "x"));
             assert!(has_2 && has_x);
         } else {
             panic!("Expected 2*x");
@@ -358,14 +358,14 @@ fn test_double_angle_formulas() {
     let simplified = simplify_expr(expr, HashSet::new());
     // Should stay as tan(2*x)
     if let ExprKind::FunctionCall { name, args } = &simplified.kind {
-        assert_eq!(name, "tan");
+        assert_eq!(name.as_str(), "tan");
         if let ExprKind::Product(factors) = &args[0].kind {
             let has_2 = factors
                 .iter()
                 .any(|f| matches!(&f.kind, ExprKind::Number(n) if *n == 2.0));
             let has_x = factors
                 .iter()
-                .any(|f| matches!(&f.kind, ExprKind::Symbol(s) if s == "x"));
+                .any(|f| matches!(&f.kind, ExprKind::Symbol(s) if s.as_str() == "x"));
             assert!(has_2 && has_x);
         } else {
             panic!("Expected 2*x");

@@ -1126,11 +1126,12 @@ mod custom_fn_differentiation_tests {
     /// Test basic CustomFn registration and differentiation
     #[test]
     fn test_custom_fn_basic_differentiation() {
+        use std::sync::Arc;
         // Define a custom 2-arg function: f(a, b) = a * b (for testing)
         // ∂f/∂a = b, ∂f/∂b = a
         let custom_fn = CustomFn::new(2)
-            .partial(0, |args: &[Expr]| args[1].clone()) // ∂f/∂a = b
-            .partial(1, |args: &[Expr]| args[0].clone()); // ∂f/∂b = a
+            .partial(0, |args: &[Arc<Expr>]| Expr::from(&args[1])) // ∂f/∂a = b
+            .partial(1, |args: &[Arc<Expr>]| Expr::from(&args[0])); // ∂f/∂b = a
 
         // Create expression: custom_mul(t, t^2)
         // d/dt custom_mul(t, t^2) = ∂f/∂a * dt/dt + ∂f/∂b * d(t^2)/dt
@@ -1166,9 +1167,10 @@ mod custom_fn_differentiation_tests {
     /// Test CustomFn with single partial derivative
     #[test]
     fn test_custom_fn_single_partial() {
+        use std::sync::Arc;
         // Define f(x) = custom function where ∂f/∂x = 2*x
-        let custom_fn = CustomFn::new(1).partial(0, |args: &[Expr]| {
-            Expr::mul_expr(Expr::number(2.0), args[0].clone())
+        let custom_fn = CustomFn::new(1).partial(0, |args: &[Arc<Expr>]| {
+            Expr::mul_expr(Expr::number(2.0), Expr::from(&args[0]))
         });
 
         let x = symb("x");
@@ -1201,9 +1203,10 @@ mod custom_fn_differentiation_tests {
         //      = cos²(x) - sin²(x)
         //      = cos(2x) [by double angle formula]
 
+        use std::sync::Arc;
         let custom_fn = CustomFn::new(2)
-            .partial(0, |args: &[Expr]| args[1].clone()) // ∂f/∂u = v
-            .partial(1, |args: &[Expr]| args[0].clone()); // ∂f/∂v = u
+            .partial(0, |args: &[Arc<Expr>]| Expr::from(&args[1])) // ∂f/∂u = v
+            .partial(1, |args: &[Arc<Expr>]| Expr::from(&args[0])); // ∂f/∂v = u
 
         let x = symb("x");
         let sin_x = Expr::func("sin", Expr::symbol("x"));
@@ -1236,9 +1239,10 @@ mod custom_fn_differentiation_tests {
         // Evaluate f(5, x)
         // d/dx = b * 0 + a * 1 = a = 5
 
+        use std::sync::Arc;
         let custom_fn = CustomFn::new(2)
-            .partial(0, |args: &[Expr]| args[1].clone())
-            .partial(1, |args: &[Expr]| args[0].clone());
+            .partial(0, |args: &[Arc<Expr>]| Expr::from(&args[1]))
+            .partial(1, |args: &[Arc<Expr>]| Expr::from(&args[0]));
 
         let x = symb("x");
         let f_call = Expr::call::<2>("f", [Expr::number(5.0), Expr::symbol("x")]);
@@ -1262,8 +1266,9 @@ mod custom_fn_differentiation_tests {
     /// Test CustomFn without all partials defined (should use symbolic notation)
     #[test]
     fn test_custom_fn_missing_partial() {
+        use std::sync::Arc;
         // f(a, b) where only ∂f/∂a is defined
-        let custom_fn = CustomFn::new(2).partial(0, |args: &[Expr]| args[1].clone());
+        let custom_fn = CustomFn::new(2).partial(0, |args: &[Arc<Expr>]| Expr::from(&args[1]));
         // Note: ∂f/∂b is NOT defined
 
         let x = symb("x");

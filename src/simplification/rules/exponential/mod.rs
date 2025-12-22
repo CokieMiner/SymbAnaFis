@@ -1,4 +1,5 @@
 use crate::core::expr::{Expr, ExprKind as AstKind};
+use crate::core::known_symbols::{get_symbol, CBRT, COSH, E, EXP, LN, LOG2, LOG10, SQRT};
 use crate::simplification::rules::{ExprKind, Rule, RuleCategory, RuleContext};
 use std::sync::Arc;
 
@@ -10,7 +11,7 @@ rule!(
     &[ExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::FunctionCall { name, args } = &expr.kind
-            && name == "ln"
+            && name.id() == *LN
             && args.len() == 1
             && matches!(&args[0].kind, AstKind::Number(n) if *n == 1.0)
         {
@@ -28,18 +29,18 @@ rule!(
     &[ExprKind::Function],
     |expr: &Expr, context: &RuleContext| {
         if let AstKind::FunctionCall { name, args } = &expr.kind
-            && name == "ln"
+            && name.id() == *LN
             && args.len() == 1
         {
             // Check for ln(exp(1))
             if matches!(&args[0].kind, AstKind::FunctionCall { name: exp_name, args: exp_args }
-                       if exp_name == "exp" && exp_args.len() == 1 && matches!(&exp_args[0].kind, AstKind::Number(n) if *n == 1.0))
+                       if exp_name.id() == *EXP && exp_args.len() == 1 && matches!(&exp_args[0].kind, AstKind::Number(n) if *n == 1.0))
             {
                 return Some(Expr::number(1.0));
             }
             // Check for ln(e) where e is a symbol (and not a user-defined variable)
             if let AstKind::Symbol(s) = &args[0].kind
-                && s == "e"
+                && s.id() == *E
                 && !context.fixed_vars.contains("e")
             {
                 return Some(Expr::number(1.0));
@@ -57,7 +58,7 @@ rule!(
     &[ExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::FunctionCall { name, args } = &expr.kind
-            && name == "exp"
+            && name.id() == *EXP
             && args.len() == 1
             && matches!(&args[0].kind, AstKind::Number(n) if *n == 0.0)
         {
@@ -69,13 +70,13 @@ rule!(
 
 rule!(ExpLnIdentityRule, "exp_ln_identity", 90, Exponential, &[ExprKind::Function], alters_domain: true, |expr: &Expr, _context: &RuleContext| {
     if let AstKind::FunctionCall { name, args } = &expr.kind
-        && name == "exp"
+        && name.id() == *EXP
         && args.len() == 1
         && let AstKind::FunctionCall {
             name: inner_name,
             args: inner_args,
         } = &args[0].kind
-        && inner_name == "ln"
+        && inner_name.id() == *LN
         && inner_args.len() == 1
     {
         return Some((*inner_args[0]).clone());
@@ -85,7 +86,7 @@ rule!(ExpLnIdentityRule, "exp_ln_identity", 90, Exponential, &[ExprKind::Functio
 
 rule!(LnExpIdentityRule, "ln_exp_identity", 90, Exponential, &[ExprKind::Function], alters_domain: true, |expr: &Expr, _context: &RuleContext| {
     if let AstKind::FunctionCall { name, args } = &expr.kind
-        && name == "ln"
+        && name.id() == *LN
         && args.len() == 1
     {
         // Check for ln(exp(x))
@@ -93,7 +94,7 @@ rule!(LnExpIdentityRule, "ln_exp_identity", 90, Exponential, &[ExprKind::Functio
             name: inner_name,
             args: inner_args,
         } = &args[0].kind
-            && inner_name == "exp"
+            && inner_name.id() == *EXP
             && inner_args.len() == 1
         {
             return Some((*inner_args[0]).clone());
@@ -101,7 +102,7 @@ rule!(LnExpIdentityRule, "ln_exp_identity", 90, Exponential, &[ExprKind::Functio
         // Check for ln(e^x)
         if let AstKind::Pow(base, exp) = &args[0].kind
             && let AstKind::Symbol(b) = &base.kind
-            && b == "e"
+            && b.id() == *E
         {
             return Some((**exp).clone());
         }
@@ -118,7 +119,7 @@ rule!(
     |expr: &Expr, context: &RuleContext| {
         if let AstKind::FunctionCall { name, args } = &expr.kind
             && args.len() == 1
-            && (name == "ln" || name == "log10" || name == "log2")
+            && (name.id() == *LN || name.id() == *LOG10 || name.id() == *LOG2)
         {
             let content = &args[0];
             // log(x^n) = n * log(x)
@@ -139,7 +140,7 @@ rule!(
                         if context.domain_safe {
                             let is_positive = matches!(&base.kind,
                                 AstKind::FunctionCall { name: fn_name, .. }
-                                if fn_name == "exp" || fn_name == "cosh"
+                                if fn_name.id() == *EXP || fn_name.id() == *COSH
                             );
                             if !is_positive {
                                 return None;
@@ -168,7 +169,7 @@ rule!(
                 args: inner_args,
             } = &content.kind
             {
-                if inner_name == "sqrt" && inner_args.len() == 1 {
+                if inner_name.id() == *SQRT && inner_args.len() == 1 {
                     if context.domain_safe {
                         return None;
                     }
@@ -178,7 +179,7 @@ rule!(
                     ]));
                 }
                 // log(cbrt(x)) = (1/3) * log(x)
-                if inner_name == "cbrt" && inner_args.len() == 1 {
+                if inner_name.id() == *CBRT && inner_args.len() == 1 {
                     if context.domain_safe {
                         return None;
                     }
@@ -203,14 +204,14 @@ rule!(
         if let AstKind::FunctionCall { name, args } = &expr.kind
             && args.len() == 1
         {
-            if name == "log10" {
+            if name.id() == *LOG10 {
                 if matches!(&args[0].kind, AstKind::Number(n) if *n == 1.0) {
                     return Some(Expr::number(0.0));
                 }
                 if matches!(&args[0].kind, AstKind::Number(n) if *n == 10.0) {
                     return Some(Expr::number(1.0));
                 }
-            } else if name == "log2" {
+            } else if name.id() == *LOG2 {
                 if matches!(&args[0].kind, AstKind::Number(n) if *n == 1.0) {
                     return Some(Expr::number(0.0));
                 }
@@ -231,7 +232,7 @@ rule!(
     &[ExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::FunctionCall { name, args } = &expr.kind
-            && name == "exp"
+            && name.id() == *EXP
             && args.len() == 1
         {
             return Some(Expr::pow(Expr::symbol("e"), (*args[0]).clone()));
@@ -243,7 +244,7 @@ rule!(
 /// Helper function to extract ln argument
 fn get_ln_arg(expr: &Expr) -> Option<Expr> {
     if let AstKind::FunctionCall { name, args } = &expr.kind
-        && name == "ln"
+        && name.id() == *LN
         && args.len() == 1
     {
         return Some((*args[0]).clone());
@@ -263,8 +264,8 @@ rule_with_helpers!(LogCombinationRule, "log_combination", 85, Exponential, &[Exp
 
                 // ln(a) + ln(b) = ln(a * b)
                 if let (Some(arg1), Some(arg2)) = (get_ln_arg(u), get_ln_arg(v)) {
-                    return Some(Expr::func(
-                        "ln",
+                    return Some(Expr::func_symbol(
+                        get_symbol(&LN),
                         Expr::product(vec![arg1, arg2]),
                     ));
                 }
@@ -276,8 +277,8 @@ rule_with_helpers!(LogCombinationRule, "log_combination", 85, Exponential, &[Exp
                         && let AstKind::Number(n) = &factors[0].kind
                             && (*n + 1.0).abs() < 1e-10
                                 && let (Some(arg1), Some(arg2)) = (get_ln_arg(u), get_ln_arg(&factors[1])) {
-                                    return Some(Expr::func(
-                                        "ln",
+                                    return Some(Expr::func_symbol(
+                                        get_symbol(&LN),
                                         Expr::div_expr(arg1, arg2),
                                     ));
                                 }

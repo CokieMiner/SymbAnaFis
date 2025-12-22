@@ -1,4 +1,5 @@
 use crate::core::expr::{Expr, ExprKind as AstKind};
+use crate::core::known_symbols::{get_symbol, COS, COT, CSC, SEC, SIN, TAN};
 use crate::simplification::helpers;
 use crate::simplification::patterns::trigonometric::get_trig_function;
 use crate::simplification::rules::{ExprKind, Rule, RuleCategory, RuleContext};
@@ -48,13 +49,13 @@ rule!(
                 if is_pi_div_2(u)
                     && let Some(x) = extract_negated(v)
                 {
-                    match name.as_str() {
-                        "sin" => return Some(Expr::func("cos", x)),
-                        "cos" => return Some(Expr::func("sin", x)),
-                        "tan" => return Some(Expr::func("cot", x)),
-                        "cot" => return Some(Expr::func("tan", x)),
-                        "sec" => return Some(Expr::func("csc", x)),
-                        "csc" => return Some(Expr::func("sec", x)),
+                    match name {
+                        n if n.id() == *SIN => return Some(Expr::func_symbol(get_symbol(&COS), x)),
+                        n if n.id() == *COS => return Some(Expr::func_symbol(get_symbol(&SIN), x)),
+                        n if n.id() == *TAN => return Some(Expr::func_symbol(get_symbol(&COT), x)),
+                        n if n.id() == *COT => return Some(Expr::func_symbol(get_symbol(&TAN), x)),
+                        n if n.id() == *SEC => return Some(Expr::func_symbol(get_symbol(&CSC), x)),
+                        n if n.id() == *CSC => return Some(Expr::func_symbol(get_symbol(&SEC), x)),
                         _ => {}
                     }
                 }
@@ -63,13 +64,13 @@ rule!(
                 if is_pi_div_2(v)
                     && let Some(x) = extract_negated(u)
                 {
-                    match name.as_str() {
-                        "sin" => return Some(Expr::func("cos", x)),
-                        "cos" => return Some(Expr::func("sin", x)),
-                        "tan" => return Some(Expr::func("cot", x)),
-                        "cot" => return Some(Expr::func("tan", x)),
-                        "sec" => return Some(Expr::func("csc", x)),
-                        "csc" => return Some(Expr::func("sec", x)),
+                    match name {
+                        n if n.id() == *SIN => return Some(Expr::func_symbol(get_symbol(&COS), x)),
+                        n if n.id() == *COS => return Some(Expr::func_symbol(get_symbol(&SIN), x)),
+                        n if n.id() == *TAN => return Some(Expr::func_symbol(get_symbol(&COT), x)),
+                        n if n.id() == *COT => return Some(Expr::func_symbol(get_symbol(&TAN), x)),
+                        n if n.id() == *SEC => return Some(Expr::func_symbol(get_symbol(&CSC), x)),
+                        n if n.id() == *CSC => return Some(Expr::func_symbol(get_symbol(&SEC), x)),
                         _ => {}
                     }
                 }
@@ -87,7 +88,7 @@ rule!(
     &[ExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::FunctionCall { name, args } = &expr.kind
-            && (name == "sin" || name == "cos")
+            && (name.id() == *SIN || name.id() == *COS)
             && args.len() == 1
             && let AstKind::Sum(terms) = &args[0].kind
             && terms.len() == 2
@@ -115,7 +116,7 @@ rule!(
     &[ExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::FunctionCall { name, args } = &expr.kind
-            && (name == "sin" || name == "cos")
+            && (name.id() == *SIN || name.id() == *COS)
             && args.len() == 1
             && let AstKind::Sum(terms) = &args[0].kind
             && terms.len() == 2
@@ -139,12 +140,12 @@ rule!(
             if helpers::is_pi(u)
                 && let Some(x) = extract_negated(v)
             {
-                match name.as_str() {
-                    "sin" => return Some(Expr::func("sin", x)),
-                    "cos" => {
+                match name {
+                    n if n.id() == *SIN => return Some(Expr::func_symbol(get_symbol(&SIN), x)),
+                    n if n.id() == *COS => {
                         return Some(Expr::product(vec![
                             Expr::number(-1.0),
-                            Expr::func("cos", x),
+                            Expr::func_symbol(get_symbol(&COS), x),
                         ]));
                     }
                     _ => {}
@@ -153,11 +154,11 @@ rule!(
 
             // Check π + x pattern: sin(π + x) = -sin(x), cos(π + x) = -cos(x)
             if helpers::is_pi(u) {
-                match name.as_str() {
-                    "sin" | "cos" => {
+                match name {
+                    n if n.id() == *SIN || n.id() == *COS => {
                         return Some(Expr::product(vec![
                             Expr::number(-1.0),
-                            Expr::func(name.clone(), (**v).clone()),
+                            Expr::func_symbol(name.clone(), (**v).clone()),
                         ]));
                     }
                     _ => {}
@@ -165,11 +166,11 @@ rule!(
             }
 
             if helpers::is_pi(v) {
-                match name.as_str() {
-                    "sin" | "cos" => {
+                match name {
+                    n if n.id() == *SIN || n.id() == *COS => {
                         return Some(Expr::product(vec![
                             Expr::number(-1.0),
-                            Expr::func(name.clone(), (**u).clone()),
+                            Expr::func_symbol(name.clone(), (**u).clone()),
                         ]));
                     }
                     _ => {}
@@ -188,7 +189,7 @@ rule!(
     &[ExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::FunctionCall { name, args } = &expr.kind
-            && (name == "sin" || name == "cos")
+            && (name.id() == *SIN || name.id() == *COS)
             && args.len() == 1
             && let AstKind::Sum(terms) = &args[0].kind
             && terms.len() == 2
@@ -212,17 +213,17 @@ rule!(
             if helpers::is_three_pi_over_two(u)
                 && let Some(x) = extract_negated(v)
             {
-                match name.as_str() {
-                    "sin" => {
+                match name {
+                    n if n.id() == *SIN => {
                         return Some(Expr::product(vec![
                             Expr::number(-1.0),
-                            Expr::func("cos", x),
+                            Expr::func_symbol(get_symbol(&COS), x),
                         ]));
                     }
-                    "cos" => {
+                    n if n.id() == *COS => {
                         return Some(Expr::product(vec![
                             Expr::number(-1.0),
-                            Expr::func("sin", x),
+                            Expr::func_symbol(get_symbol(&SIN), x),
                         ]));
                     }
                     _ => {}
@@ -232,17 +233,17 @@ rule!(
             if helpers::is_three_pi_over_two(v)
                 && let Some(x) = extract_negated(u)
             {
-                match name.as_str() {
-                    "sin" => {
+                match name {
+                    n if n.id() == *SIN => {
                         return Some(Expr::product(vec![
                             Expr::number(-1.0),
-                            Expr::func("cos", x),
+                            Expr::func_symbol(get_symbol(&COS), x),
                         ]));
                     }
-                    "cos" => {
+                    n if n.id() == *COS => {
                         return Some(Expr::product(vec![
                             Expr::number(-1.0),
-                            Expr::func("sin", x),
+                            Expr::func_symbol(get_symbol(&SIN), x),
                         ]));
                     }
                     _ => {}
@@ -268,15 +269,15 @@ rule!(
                 && *n == -1.0
             {
                 let inner = (*factors[1]).clone();
-                match name {
-                    "sin" | "tan" => {
+                match &name {
+                    n if n.id() == *SIN || n.id() == *TAN => {
                         return Some(Expr::product(vec![
                             Expr::number(-1.0),
-                            Expr::func(name, inner),
+                            Expr::func_symbol(name.clone(), inner),
                         ]));
                     }
-                    "cos" | "sec" => {
-                        return Some(Expr::func(name, inner));
+                    n if n.id() == *COS || n.id() == *SEC => {
+                        return Some(Expr::func_symbol(name.clone(), inner));
                     }
                     _ => {}
                 }

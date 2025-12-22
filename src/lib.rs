@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! Symbolic Differentiation Library
 //!
 //! A fast, focused Rust library for symbolic differentiation.
@@ -14,18 +15,19 @@
 //! # Usage Examples
 //!
 //! ## String-based API (original)
-//! ```ignore
+//! ```
 //! use symb_anafis::diff;
 //! let result = diff("x^2", "x", None, None).unwrap();
-//! assert_eq!(result, "2x");
+//! assert_eq!(result, "2*x");
 //! ```
 //!
 //! ## Type-safe API (new)
-//! ```ignore
+//! ```
 //! use symb_anafis::{symb, Diff};
 //! let x = symb("x");
-//! let expr = x.pow(2.0) + x.sin();  // No clone needed!
+//! let expr = x.pow(2.0) + x.sin();
 //! let derivative = Diff::new().differentiate(expr, &x).unwrap();
+//! // derivative is: 2*x + cos(x)
 //! ```
 
 // New module structure
@@ -47,6 +49,7 @@ pub use core::visitor;
 mod tests;
 
 // Re-export key types from core
+pub use core::{CompileError, CompiledEvaluator};
 pub use core::{DiffError, Span};
 pub use core::{Expr, ExprKind};
 pub use core::{
@@ -84,15 +87,19 @@ pub const DEFAULT_MAX_NODES: usize = 10_000;
 /// The derivative as a string, or an error if parsing/differentiation fails
 ///
 /// # Example
-/// ```ignore
+/// ```
+/// use symb_anafis::diff;
 /// let result = diff("a * sin(x)", "x", Some(&["a"]), None);
 /// assert!(result.is_ok());
+/// assert_eq!(result.unwrap(), "a*cos(x)");
 /// ```
 ///
 /// # Note
 /// For more control (domain_safe, max_depth, etc.), use the `Diff` builder:
-/// ```ignore
-/// Diff::new().domain_safe(true).diff_str("x^2", "x")
+/// ```
+/// use symb_anafis::Diff;
+/// let result = Diff::new().domain_safe(true).diff_str("x^2", "x").unwrap();
+/// assert_eq!(result, "2*x");
 /// ```
 pub fn diff(
     formula: &str,
@@ -107,9 +114,7 @@ pub fn diff(
     }
 
     if let Some(funcs) = custom_functions {
-        for f in funcs {
-            builder = builder.custom_fn(*f);
-        }
+        builder = funcs.iter().fold(builder, |b, f| b.custom_fn(*f));
     }
 
     builder
@@ -129,31 +134,32 @@ pub fn diff(
 /// The simplified expression as a string, or an error if parsing/simplification fails
 ///
 /// # Example
-/// ```ignore
-/// let result = simplify("x^2 + 2*x + 1", None, None).unwrap();
-/// println!("Simplified: {}", result);  // (x + 1)^2
+/// ```
+/// use symb_anafis::simplify;
+/// let result = simplify("x + x", None, None).unwrap();
+/// assert_eq!(result, "2*x");
 /// ```
 ///
 /// # Note
 /// For more control (domain_safe, max_depth, etc.), use the `Simplify` builder:
-/// ```ignore
-/// Simplify::new().domain_safe(true).simplify_str("x^2 + 2*x + 1")
+/// ```
+/// use symb_anafis::Simplify;
+/// let result = Simplify::new().domain_safe(true).simplify_str("2*x + 3*x").unwrap();
+/// assert_eq!(result, "5*x");
 /// ```
 pub fn simplify(
     formula: &str,
     fixed_vars: Option<&[&str]>,
     custom_functions: Option<&[&str]>,
 ) -> Result<String, DiffError> {
-    let mut builder = api::Simplify::new();
+    let mut builder = Simplify::new();
 
     if let Some(vars) = fixed_vars {
         builder = builder.fixed_vars_str(vars.iter().copied());
     }
 
     if let Some(funcs) = custom_functions {
-        for f in funcs {
-            builder = builder.custom_fn(*f);
-        }
+        builder = funcs.iter().fold(builder, |b, f| b.custom_fn(*f));
     }
 
     builder

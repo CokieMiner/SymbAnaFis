@@ -1,4 +1,5 @@
 use crate::core::expr::{Expr, ExprKind as AstKind};
+use crate::core::known_symbols::{get_symbol, COS, SIN};
 use crate::simplification::rules::{ExprKind, Rule, RuleCategory, RuleContext};
 
 fn check_sin_triple(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
@@ -9,15 +10,15 @@ fn check_sin_triple(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
             && let AstKind::Number(n) = &factors[0].kind
             && (*n - 3.0).abs() < eps
             && let AstKind::FunctionCall { name, args } = &factors[1].kind
-            && name == "sin"
+            && name.id() == *SIN
             && args.len() == 1
         {
             let x = &args[0];
             if let Some((coeff, _is_neg)) = extract_sin_cubed(v, x, eps)
                 && (coeff - 4.0).abs() < eps
             {
-                return Some(Expr::func(
-                    "sin",
+                return Some(Expr::func_symbol(
+                    get_symbol(&SIN),
                     Expr::product(vec![Expr::number(3.0), (**x).clone()]),
                 ));
             }
@@ -33,7 +34,7 @@ fn check_sin_triple_add(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
         && let AstKind::Number(n) = &factors[0].kind
         && (*n - 3.0).abs() < eps
         && let AstKind::FunctionCall { name, args } = &factors[1].kind
-        && name == "sin"
+        && name.id() == *SIN
         && args.len() == 1
     {
         let x = &args[0];
@@ -41,8 +42,8 @@ fn check_sin_triple_add(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
             && is_neg
             && (coeff - 4.0).abs() < eps
         {
-            return Some(Expr::func(
-                "sin",
+            return Some(Expr::func_symbol(
+                get_symbol(&SIN),
                 Expr::product(vec![Expr::number(3.0), (**x).clone()]),
             ));
         }
@@ -53,7 +54,7 @@ fn check_sin_triple_add(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
         && let AstKind::Number(n) = &factors[0].kind
         && (*n - 3.0).abs() < eps
         && let AstKind::FunctionCall { name, args } = &factors[1].kind
-        && name == "sin"
+        && name.id() == *SIN
         && args.len() == 1
     {
         let x = &args[0];
@@ -61,8 +62,8 @@ fn check_sin_triple_add(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
             && is_neg
             && (coeff - 4.0).abs() < eps
         {
-            return Some(Expr::func(
-                "sin",
+            return Some(Expr::func_symbol(
+                get_symbol(&SIN),
                 Expr::product(vec![Expr::number(3.0), (**x).clone()]),
             ));
         }
@@ -80,15 +81,15 @@ fn check_cos_triple(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
         && let AstKind::Number(e) = &exp.kind
         && *e == 3.0
         && let AstKind::FunctionCall { name, args } = &base.kind
-        && name == "cos"
+        && name.id() == *COS
         && args.len() == 1
     {
         let x = &args[0];
         if let Some((coeff, _is_neg)) = extract_cos(v, x, eps)
             && (coeff - 3.0).abs() < eps
         {
-            return Some(Expr::func(
-                "cos",
+            return Some(Expr::func_symbol(
+                get_symbol(&COS),
                 Expr::product(vec![Expr::number(3.0), (**x).clone()]),
             ));
         }
@@ -106,7 +107,7 @@ fn check_cos_triple_add(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
         && let AstKind::Number(e) = &exp.kind
         && *e == 3.0
         && let AstKind::FunctionCall { name, args } = &base.kind
-        && name == "cos"
+        && name.id() == *COS
         && args.len() == 1
     {
         let x = &args[0];
@@ -114,8 +115,8 @@ fn check_cos_triple_add(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
             && is_neg
             && (coeff - 3.0).abs() < eps
         {
-            return Some(Expr::func(
-                "cos",
+            return Some(Expr::func_symbol(
+                get_symbol(&COS),
                 Expr::product(vec![Expr::number(3.0), (**x).clone()]),
             ));
         }
@@ -129,7 +130,7 @@ fn check_cos_triple_add(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
         && let AstKind::Number(e) = &exp.kind
         && *e == 3.0
         && let AstKind::FunctionCall { name, args } = &base.kind
-        && name == "cos"
+        && name.id() == *COS
         && args.len() == 1
     {
         let x = &args[0];
@@ -137,8 +138,8 @@ fn check_cos_triple_add(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
             && is_neg
             && (coeff - 3.0).abs() < eps
         {
-            return Some(Expr::func(
-                "cos",
+            return Some(Expr::func_symbol(
+                get_symbol(&COS),
                 Expr::product(vec![Expr::number(3.0), (**x).clone()]),
             ));
         }
@@ -155,7 +156,7 @@ fn extract_sin_cubed(expr: &Expr, x: &std::sync::Arc<Expr>, _eps: f64) -> Option
         && let AstKind::Number(e) = &exp.kind
         && *e == 3.0
         && let AstKind::FunctionCall { name, args } = &base.kind
-        && name == "sin"
+        && name.id() == *SIN
         && args.len() == 1
         && &args[0] == x
     {
@@ -170,7 +171,7 @@ fn extract_cos(expr: &Expr, x: &std::sync::Arc<Expr>, _eps: f64) -> Option<(f64,
         && factors.len() == 2
         && let AstKind::Number(n) = &factors[0].kind
         && let AstKind::FunctionCall { name, args } = &factors[1].kind
-        && name == "cos"
+        && name.id() == *COS
         && args.len() == 1
         && &args[0] == x
     {

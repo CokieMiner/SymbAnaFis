@@ -22,17 +22,12 @@ pub(crate) fn insert_implicit_multiplication(
         return tokens;
     }
 
-    let mut result = Vec::new();
+    let mut result = Vec::with_capacity(tokens.len() * 3 / 2);
+    let mut it = tokens.into_iter().peekable();
 
-    for i in 0..tokens.len() {
-        result.push(tokens[i].clone());
-
-        // Check if we need to insert multiplication
-        if i + 1 < tokens.len() {
-            let current = &tokens[i];
-            let next = &tokens[i + 1];
-
-            let needs_mul = match (current, next) {
+    while let Some(current) = it.next() {
+        let needs_mul = if let Some(next) = it.peek() {
+            match (&current, next) {
                 // Number * Identifier
                 (Token::Number(_), Token::Identifier(_)) => true,
 
@@ -51,12 +46,7 @@ pub(crate) fn insert_implicit_multiplication(
                 // Identifier * (
                 (Token::Identifier(name), Token::LeftParen) => {
                     // If it's a custom function, do NOT insert multiplication
-                    if custom_functions.contains(name) {
-                        false
-                    } else {
-                        // Otherwise it's implicit multiplication: a(x) -> a * (x)
-                        true
-                    }
+                    !custom_functions.contains(name)
                 }
 
                 // ) * Identifier
@@ -75,11 +65,14 @@ pub(crate) fn insert_implicit_multiplication(
                 (Token::Operator(op), Token::LeftParen) if op.is_function() => false,
 
                 _ => false,
-            };
-
-            if needs_mul {
-                result.push(Token::Operator(Operator::Mul));
             }
+        } else {
+            false
+        };
+
+        result.push(current);
+        if needs_mul {
+            result.push(Token::Operator(Operator::Mul));
         }
     }
 

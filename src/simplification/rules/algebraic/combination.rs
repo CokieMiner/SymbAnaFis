@@ -208,7 +208,8 @@ fn contains_variable(expr: &Expr) -> bool {
         AstKind::FunctionCall { args, .. } => args.iter().any(|a| contains_variable(a)),
         AstKind::Derivative { inner, .. } => contains_variable(inner),
         AstKind::Poly(poly) => {
-            !poly.terms().is_empty() && poly.terms().iter().any(|t| !t.powers.is_empty())
+            // Check if base contains variables (non-constant polynomial)
+            contains_variable(poly.base())
         }
     }
 }
@@ -396,36 +397,5 @@ rule!(
         } else {
             None
         }
-    }
-);
-
-rule!(
-    DistributeNegationRule,
-    "distribute_negation",
-    50,
-    Algebraic,
-    &[ExprKind::Product],
-    |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Product(factors) = &expr.kind {
-            // Check if first factor is -1
-            if let Some(first) = factors.first()
-                && matches!(&first.kind, AstKind::Number(n) if (*n + 1.0).abs() < 1e-10)
-            {
-                // Get the remaining factors
-                let rest: Vec<_> = factors.iter().skip(1).map(|f| (**f).clone()).collect();
-                if rest.len() == 1 {
-                    let inner = &rest[0];
-                    // -1 * Sum -> negate all terms
-                    if let AstKind::Sum(terms) = &inner.kind {
-                        let negated: Vec<Expr> = terms
-                            .iter()
-                            .map(|t| Expr::product(vec![Expr::number(-1.0), (**t).clone()]))
-                            .collect();
-                        return Some(Expr::sum(negated));
-                    }
-                }
-            }
-        }
-        None
     }
 );

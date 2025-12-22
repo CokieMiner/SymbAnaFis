@@ -88,7 +88,7 @@ impl From<String> for VarInput {
 
 impl From<&crate::Symbol> for VarInput {
     fn from(s: &crate::Symbol) -> Self {
-        VarInput::Name(s.name().unwrap_or("").to_string())
+        VarInput::Name(s.name().unwrap_or_default())
     }
 }
 
@@ -270,50 +270,162 @@ pub fn evaluate_parallel(
                 return vec![];
             }
 
-            // Evaluate at each point in parallel
-            (0..n_points)
-                .into_par_iter()
-                .map(|point_idx| {
-                    let mut var_map: HashMap<&str, f64> = HashMap::new();
-                    let mut expr_subs: Vec<(&str, &Expr)> = Vec::new();
+            // =========================================================
+            // OPTIMIZATION: Attempt to compile for fast evaluation
+            // =========================================================
 
-                    for var_idx in 0..n_vars {
-                        if point_idx < vals[var_idx].len() {
-                            match &vals[var_idx][point_idx] {
-                                Value::Num(n) => {
-                                    var_map.insert(vars[var_idx], *n);
+            let mut evaluator = None;
+            // Only try to compile if we have variables (constant expressions are trivial)
+            if !vars.is_empty() {
+                // We ignore all_values_numeric check here - we'll check per-point
+                // We also ignore all_vars_bound check - compile() handles this validation
+                if let Ok(compiled) =
+                    crate::core::evaluator::CompiledEvaluator::compile(expr, &vars)
+                {
+                    evaluator = Some(compiled);
+                }
+            }
+
+            if let Some(evaluator) = evaluator {
+                // FAST / HYBRID PATH: Use compiled evaluator where possible
+                (0..n_points)
+                    .into_par_iter()
+                    .map(|point_idx| {
+                        // Check if this specific point has all numeric inputs
+                        let mut all_numeric = true;
+                        // fast check
+                        for var_vals in vals.iter().take(n_vars) {
+                            // Bounds check + type check
+                            if point_idx >= var_vals.len() {
+                                // Last value check
+                                if let Some(val) = var_vals.last() {
+                                    if !matches!(val, Value::Num(_)) {
+                                        all_numeric = false;
+                                        break;
+                                    }
+                                } else {
+                                    // No values at all? Should be caught earlier
+                                    all_numeric = false;
+                                    break;
                                 }
-                                Value::Expr(e) => {
-                                    expr_subs.push((vars[var_idx], e));
-                                }
-                                Value::Skip => {
-                                    // Keep symbolic
-                                }
+                            } else if !matches!(&var_vals[point_idx], Value::Num(_)) {
+                                all_numeric = false;
+                                break;
                             }
                         }
-                    }
 
-                    // Apply expression substitutions
-                    let mut result = expr.clone();
-                    for (var, sub_expr) in expr_subs {
-                        result = result.substitute(var, sub_expr);
-                    }
+                        if all_numeric {
+                            // FAST PATH: Run compiled code
+                            let mut params = Vec::with_capacity(n_vars); // Small alloc
+                            for var_vals in vals.iter().take(n_vars) {
+                                let val = if point_idx < var_vals.len() {
+                                    &var_vals[point_idx]
+                                } else {
+                                    var_vals.last().unwrap()
+                                };
 
-                    // Evaluate numerics
-                    let evaluated = result.evaluate(&var_map);
+                                // We know it's Num from check above
+                                if let Value::Num(n) = val {
+                                    params.push(*n);
+                                } else {
+                                    unreachable!("Value must be Num after all_numeric check")
+                                }
+                            }
 
-                    // Convert to appropriate result type
-                    if *was_string {
-                        EvalResult::String(evaluated.to_string())
-                    } else {
-                        EvalResult::Expr(evaluated)
-                    }
-                })
-                .collect()
+                            let result = evaluator.evaluate(&params);
+
+                            if *was_string {
+                                EvalResult::String(format_float(result))
+                            } else {
+                                EvalResult::Expr(crate::Expr::number(result))
+                            }
+                        } else {
+                            // SLOW PATH: Fallback for this point (symbolic inputs/skips)
+                            evaluate_slow_point(expr, &vars, vals, point_idx, *was_string)
+                        }
+                    })
+                    .collect()
+            } else {
+                // SLOW PATH: Compilation failed (unsupported function, etc.)
+                // Evaluate entirely using substitution
+                (0..n_points)
+                    .into_par_iter()
+                    .map(|point_idx| evaluate_slow_point(expr, &vars, vals, point_idx, *was_string))
+                    .collect()
+            }
         })
         .collect();
 
     Ok(results)
+}
+
+/// Helper for slow path evaluation of a single point (extracted to avoid code duplication)
+fn evaluate_slow_point(
+    expr: &Expr,
+    vars: &[&str],
+    vals: &[Vec<Value>],
+    point_idx: usize,
+    was_string: bool,
+) -> EvalResult {
+    let n_vars = vars.len();
+    let mut var_map: HashMap<&str, f64> = HashMap::new();
+    let mut expr_subs: Vec<(&str, &Expr)> = Vec::with_capacity(n_vars);
+
+    for var_idx in 0..n_vars {
+        let val = if point_idx < vals[var_idx].len() {
+            &vals[var_idx][point_idx]
+        } else {
+            match vals[var_idx].last() {
+                Some(v) => v,
+                None => {
+                    return if was_string {
+                        EvalResult::String("NaN".to_string())
+                    } else {
+                        EvalResult::Expr(Expr::number(f64::NAN))
+                    };
+                }
+            }
+        };
+
+        match val {
+            Value::Num(n) => {
+                var_map.insert(vars[var_idx], *n);
+            }
+            Value::Expr(e) => {
+                expr_subs.push((vars[var_idx], e));
+            }
+            Value::Skip => {
+                // Keep symbolic
+            }
+        }
+    }
+
+    // Apply expression substitutions
+    let mut result = expr.clone();
+    for (var, sub_expr) in expr_subs {
+        result = result.substitute(var, sub_expr);
+    }
+
+    // Evaluate numerics
+    let evaluated = result.evaluate(&var_map);
+
+    // Convert to appropriate result type
+    if was_string {
+        EvalResult::String(evaluated.to_string())
+    } else {
+        EvalResult::Expr(evaluated)
+    }
+}
+
+/// Format a float for string output (helper for compiled evaluator results)
+fn format_float(n: f64) -> String {
+    if n.fract() == 0.0 && n.abs() < 1e15 {
+        // Format as integer if it's a whole number
+        format!("{}", n as i64)
+    } else {
+        // Use default float formatting
+        format!("{}", n)
+    }
 }
 
 // ============================================================================

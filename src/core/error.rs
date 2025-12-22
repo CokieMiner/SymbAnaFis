@@ -1,3 +1,9 @@
+//! Error types for parsing and differentiation
+//!
+//! This module provides:
+//! - `DiffError` - The main error enum for all parsing/differentiation failures
+//! - `Span` - Source location tracking for precise error messages
+
 use std::fmt;
 
 /// Source location span for error reporting
@@ -12,11 +18,13 @@ pub struct Span {
 
 impl Span {
     /// Create a new span
+    #[inline]
     pub fn new(start: usize, end: usize) -> Self {
         Span { start, end }
     }
 
     /// Create a span for a single position
+    #[inline]
     pub fn at(pos: usize) -> Self {
         Span {
             start: pos,
@@ -25,6 +33,7 @@ impl Span {
     }
 
     /// Create an empty/unknown span
+    #[inline]
     pub fn empty() -> Self {
         Span { start: 0, end: 0 }
     }

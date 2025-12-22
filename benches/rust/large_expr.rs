@@ -47,8 +47,9 @@ fn generate_mixed_complex(n: usize) -> String {
                 write!(s, "sin({}*x)*cos(x)", i).unwrap();
             }
             2 => {
-                // Exponential/Log: exp(x/i) + ln(x + i)
-                write!(s, "(exp(x/{}) + ln(x + {}))", i, i).unwrap();
+                // Exponential/Log: exp(x/i) + log(x + i)
+                // Note: Using 'log' instead of 'ln' for Symbolica compatibility
+                write!(s, "(exp(x/{}) + log(x + {}))", i, i).unwrap();
             }
             3 => {
                 // Rational: (x^2 + i) / (x + i)
@@ -159,6 +160,36 @@ fn bench_large_expressions(c: &mut Criterion) {
 
     group.bench_function("symb_anafis/eval_simplified_deriv", |b| {
         b.iter(|| black_box(&deriv_simplified).evaluate(black_box(&vars)))
+    });
+
+    // -------------------------------------------------------------------------
+    // Symbolica Evaluation (via ExpressionEvaluator)
+    // -------------------------------------------------------------------------
+
+    // Pre-compute Symbolica derivatives for evaluation comparison
+    let symbolica_deriv = mixed_atom.derivative(x_sym);
+
+    // Create an evaluator and convert coefficients to f64
+    let fn_map = symbolica::evaluate::FunctionMap::new();
+    let params = vec![x_sym.into()];
+    let evaluator = symbolica_deriv
+        .as_view()
+        .evaluator(
+            &fn_map,
+            &params,
+            symbolica::evaluate::OptimizationSettings::default(),
+        )
+        .unwrap();
+
+    // Convert from rational to f64 coefficients
+    let mut e_f64 = evaluator.map_coeff(&|x| x.to_real().unwrap().into());
+
+    group.bench_function("symbolica/eval_deriv", |b| {
+        b.iter(|| {
+            let mut output = [0.0_f64];
+            e_f64.evaluate(&[2.5_f64], &mut output);
+            black_box(output[0])
+        })
     });
 
     group.finish();

@@ -1,4 +1,5 @@
 use crate::core::expr::{Expr, ExprKind as AstKind};
+use crate::core::known_symbols::{get_symbol, COS, COT, CSC, SEC, SIN, SQRT, TAN};
 use crate::simplification::helpers;
 use crate::simplification::rules::{ExprKind, Rule, RuleCategory, RuleContext};
 use std::f64::consts::PI;
@@ -11,7 +12,7 @@ rule!(
     &[ExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::FunctionCall { name, args } = &expr.kind
-            && name == "sin"
+            && name.id() == *SIN
             && args.len() == 1
             && matches!(&args[0].kind, AstKind::Number(n) if *n == 0.0)
         {
@@ -29,7 +30,7 @@ rule!(
     &[ExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::FunctionCall { name, args } = &expr.kind
-            && name == "cos"
+            && name.id() == *COS
             && args.len() == 1
             && matches!(&args[0].kind, AstKind::Number(n) if *n == 0.0)
         {
@@ -47,7 +48,7 @@ rule!(
     &[ExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::FunctionCall { name, args } = &expr.kind
-            && name == "tan"
+            && name.id() == *TAN
             && args.len() == 1
             && matches!(&args[0].kind, AstKind::Number(n) if *n == 0.0)
         {
@@ -65,7 +66,7 @@ rule!(
     &[ExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::FunctionCall { name, args } = &expr.kind
-            && name == "sin"
+            && name.id() == *SIN
             && args.len() == 1
             && helpers::is_pi(&args[0])
         {
@@ -83,7 +84,7 @@ rule!(
     &[ExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::FunctionCall { name, args } = &expr.kind
-            && name == "cos"
+            && name.id() == *COS
             && args.len() == 1
             && helpers::is_pi(&args[0])
         {
@@ -101,7 +102,7 @@ rule!(
     &[ExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::FunctionCall { name, args } = &expr.kind
-            && name == "sin"
+            && name.id() == *SIN
             && args.len() == 1
             && let AstKind::Div(num, den) = &args[0].kind
             && helpers::is_pi(num)
@@ -121,7 +122,7 @@ rule!(
     &[ExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::FunctionCall { name, args } = &expr.kind
-            && name == "cos"
+            && name.id() == *COS
             && args.len() == 1
             && let AstKind::Div(num, den) = &args[0].kind
             && helpers::is_pi(num)
@@ -147,8 +148,8 @@ rule!(
             let arg_val = helpers::get_numeric_value(arg);
             let is_numeric_input = matches!(arg.kind, AstKind::Number(_));
 
-            match name.as_str() {
-                "sin" => {
+            match name {
+                n if n.id() == *SIN => {
                     if helpers::approx_eq(arg_val, PI / 6.0)
                         || (matches!(&arg.kind, AstKind::Div(num, den) if helpers::is_pi(num) && matches!(&den.kind, AstKind::Number(n) if *n == 6.0)))
                     {
@@ -165,13 +166,13 @@ rule!(
                             Some(Expr::number((2.0f64).sqrt() / 2.0))
                         } else {
                             Some(Expr::div_expr(
-                                Expr::func("sqrt", Expr::number(2.0)),
+                                Expr::func_symbol(get_symbol(&SQRT), Expr::number(2.0)),
                                 Expr::number(2.0),
                             ))
                         };
                     }
                 }
-                "cos" => {
+                n if n.id() == *COS => {
                     if helpers::approx_eq(arg_val, PI / 3.0)
                         || (matches!(&arg.kind, AstKind::Div(num, den) if helpers::is_pi(num) && matches!(&den.kind, AstKind::Number(n) if *n == 3.0)))
                     {
@@ -188,13 +189,13 @@ rule!(
                             Some(Expr::number((2.0f64).sqrt() / 2.0))
                         } else {
                             Some(Expr::div_expr(
-                                Expr::func("sqrt", Expr::number(2.0)),
+                                Expr::func_symbol(get_symbol(&SQRT), Expr::number(2.0)),
                                 Expr::number(2.0),
                             ))
                         };
                     }
                 }
-                "tan" => {
+                n if n.id() == *TAN => {
                     if helpers::approx_eq(arg_val, PI / 4.0)
                         || (matches!(&arg.kind, AstKind::Div(num, den) if helpers::is_pi(num) && matches!(&den.kind, AstKind::Number(n) if *n == 4.0)))
                     {
@@ -206,7 +207,7 @@ rule!(
                         return if is_numeric_input {
                             Some(Expr::number((3.0f64).sqrt()))
                         } else {
-                            Some(Expr::func("sqrt", Expr::number(3.0)))
+                            Some(Expr::func_symbol(get_symbol(&SQRT), Expr::number(3.0)))
                         };
                     }
                     if helpers::approx_eq(arg_val, PI / 6.0)
@@ -216,7 +217,7 @@ rule!(
                             Some(Expr::number(1.0 / (3.0f64).sqrt()))
                         } else {
                             Some(Expr::div_expr(
-                                Expr::func("sqrt", Expr::number(3.0)),
+                                Expr::func_symbol(get_symbol(&SQRT), Expr::number(3.0)),
                                 Expr::number(3.0),
                             ))
                         };
@@ -243,19 +244,19 @@ rule!(
         {
             // 1/cos(x) → sec(x)
             if let AstKind::FunctionCall { name, args } = &den.kind
-                && name == "cos"
+                && name.id() == *COS
                 && args.len() == 1
             {
-                return Some(Expr::func("sec", (*args[0]).clone()));
+                return Some(Expr::func_symbol(get_symbol(&SEC), (*args[0]).clone()));
             }
             // 1/cos(x)^n → sec(x)^n
             if let AstKind::Pow(base, exp) = &den.kind
                 && let AstKind::FunctionCall { name, args } = &base.kind
-                && name == "cos"
+                && name.id() == *COS
                 && args.len() == 1
             {
                 return Some(Expr::pow(
-                    Expr::func("sec", (*args[0]).clone()),
+                    Expr::func_symbol(get_symbol(&SEC), (*args[0]).clone()),
                     (**exp).clone(),
                 ));
             }
@@ -277,19 +278,19 @@ rule!(
         {
             // 1/sin(x) → csc(x)
             if let AstKind::FunctionCall { name, args } = &den.kind
-                && name == "sin"
+                && name.id() == *SIN
                 && args.len() == 1
             {
-                return Some(Expr::func("csc", (*args[0]).clone()));
+                return Some(Expr::func_symbol(get_symbol(&CSC), (*args[0]).clone()));
             }
             // 1/sin(x)^n → csc(x)^n
             if let AstKind::Pow(base, exp) = &den.kind
                 && let AstKind::FunctionCall { name, args } = &base.kind
-                && name == "sin"
+                && name.id() == *SIN
                 && args.len() == 1
             {
                 return Some(Expr::pow(
-                    Expr::func("csc", (*args[0]).clone()),
+                    Expr::func_symbol(get_symbol(&CSC), (*args[0]).clone()),
                     (**exp).clone(),
                 ));
             }
@@ -314,13 +315,13 @@ rule!(
                 name: den_name,
                 args: den_args,
             } = &den.kind
-            && num_name == "sin"
-            && den_name == "cos"
+            && num_name.id() == *SIN
+            && den_name.id() == *COS
             && num_args.len() == 1
             && den_args.len() == 1
             && num_args[0] == den_args[0]
         {
-            return Some(Expr::func("tan", (*num_args[0]).clone()));
+            return Some(Expr::func_symbol(get_symbol(&TAN), (*num_args[0]).clone()));
         }
         None
     }
@@ -342,13 +343,13 @@ rule!(
                 name: den_name,
                 args: den_args,
             } = &den.kind
-            && num_name == "cos"
-            && den_name == "sin"
+            && num_name.id() == *COS
+            && den_name.id() == *SIN
             && num_args.len() == 1
             && den_args.len() == 1
             && num_args[0] == den_args[0]
         {
-            return Some(Expr::func("cot", (*num_args[0]).clone()));
+            return Some(Expr::func_symbol(get_symbol(&COT), (*num_args[0]).clone()));
         }
         None
     }

@@ -38,14 +38,22 @@ pub(crate) mod common {
 /// Trigonometric pattern matching utilities
 pub(crate) mod trigonometric {
     use super::*;
+    use crate::core::known_symbols::{COS, COT, CSC, SEC, SIN, TAN};
+    use crate::core::symbol::InternedSymbol;
 
     /// Extract function name and argument if expression is a trig function
-    pub fn get_trig_function(expr: &Expr) -> Option<(&str, Expr)> {
+    pub fn get_trig_function(expr: &Expr) -> Option<(InternedSymbol, Expr)> {
         if let ExprKind::FunctionCall { name, args } = &expr.kind {
             if args.len() == 1 {
-                match name.as_str() {
-                    "sin" | "cos" | "tan" | "cot" | "sec" | "csc" => {
-                        Some((name.as_str(), (*args[0]).clone()))
+                match name {
+                    n if n.id() == *SIN
+                        || n.id() == *COS
+                        || n.id() == *TAN
+                        || n.id() == *COT
+                        || n.id() == *SEC
+                        || n.id() == *CSC =>
+                    {
+                        Some((name.clone(), (*args[0]).clone()))
                     }
                     _ => None,
                 }

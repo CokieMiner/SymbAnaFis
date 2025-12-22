@@ -1,4 +1,5 @@
 use crate::core::expr::{Expr, ExprKind as AstKind};
+use crate::core::known_symbols::{get_symbol, COS, SIN};
 use crate::simplification::helpers;
 use crate::simplification::patterns::common::extract_coefficient;
 use crate::simplification::rules::{ExprKind, Rule, RuleCategory, RuleContext};
@@ -11,7 +12,7 @@ rule!(
     &[ExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::FunctionCall { name, args } = &expr.kind
-            && name == "sin"
+            && name.id() == *SIN
             && args.len() == 1
         {
             let (coeff, rest) = extract_coefficient(&args[0]);
@@ -19,8 +20,8 @@ rule!(
                 // sin(2x) = 2*sin(x)*cos(x)
                 return Some(Expr::product(vec![
                     Expr::number(2.0),
-                    Expr::func("sin", rest.clone()),
-                    Expr::func("cos", rest),
+                    Expr::func_symbol(get_symbol(&SIN), rest.clone()),
+                    Expr::func_symbol(get_symbol(&COS), rest),
                 ]));
             }
         }
@@ -55,28 +56,32 @@ rule!(
             }
 
             // Try t1 = cos^2(x), t2 = -sin^2(x)
-            if let (Some(("cos", arg1)), Some(negated)) =
-                (helpers::get_fn_pow_named(t1, 2.0), extract_negated(t2))
-                && let Some(("sin", arg2)) = helpers::get_fn_pow_named(&negated, 2.0)
+            if let (Some((name1, arg1)), Some(negated)) =
+                (helpers::get_fn_pow_symbol(t1, 2.0), extract_negated(t2))
+                && name1.id() == *COS
+                && let Some((name2, arg2)) = helpers::get_fn_pow_symbol(&negated, 2.0)
+                && name2.id() == *SIN
                 && arg1 == arg2
             {
                 // cos^2(x) - sin^2(x) = cos(2x)
-                return Some(Expr::func(
-                    "cos",
+                return Some(Expr::func_symbol(
+                    get_symbol(&COS),
                     Expr::product(vec![Expr::number(2.0), arg1]),
                 ));
             }
 
             // Try t1 = sin^2(x), t2 = -cos^2(x)
-            if let (Some(("sin", arg1)), Some(negated)) =
-                (helpers::get_fn_pow_named(t1, 2.0), extract_negated(t2))
-                && let Some(("cos", arg2)) = helpers::get_fn_pow_named(&negated, 2.0)
+            if let (Some((name1, arg1)), Some(negated)) =
+                (helpers::get_fn_pow_symbol(t1, 2.0), extract_negated(t2))
+                && name1.id() == *SIN
+                && let Some((name2, arg2)) = helpers::get_fn_pow_symbol(&negated, 2.0)
+                && name2.id() == *COS
                 && arg1 == arg2
             {
                 // sin^2(x) - cos^2(x) = -cos(2x)
                 return Some(Expr::product(vec![
                     Expr::number(-1.0),
-                    Expr::func("cos", Expr::product(vec![Expr::number(2.0), arg1])),
+                    Expr::func_symbol(get_symbol(&COS), Expr::product(vec![Expr::number(2.0), arg1])),
                 ]));
             }
         }
@@ -106,13 +111,13 @@ rule!(
             // Returns Some((a, b))
             let parse_sin_cos = |e: &Expr| -> Option<(Expr, Expr)> {
                 // Helper to get name/arg from FunctionCall OR Pow(FunctionCall, 1)
-                let get_op = |t: &Expr| -> Option<(String, Expr)> {
+                let get_op = |t: &Expr| -> Option<(crate::core::symbol::InternedSymbol, Expr)> {
                     if let AstKind::FunctionCall { name, args } = &t.kind
                         && args.len() == 1
                     {
-                        return Some((name.to_string(), (*args[0]).clone()));
+                        return Some((name.clone(), (*args[0]).clone()));
                     }
-                    helpers::get_fn_pow_named(t, 1.0).map(|(n, e)| (n.to_string(), e))
+                    helpers::get_fn_pow_symbol(t, 1.0)
                 };
 
                 if let AstKind::Product(factors) = &e.kind
@@ -122,10 +127,10 @@ rule!(
                     let f2 = &factors[1];
                     // Try matches
                     if let (Some((n1, a)), Some((n2, b))) = (get_op(f1), get_op(f2)) {
-                        if n1 == "sin" && n2 == "cos" {
+                        if n1.id() == *SIN && n2.id() == *COS {
                             return Some((a, b));
                         }
-                        if n1 == "cos" && n2 == "sin" {
+                        if n1.id() == *COS && n2.id() == *SIN {
                             return Some((b, a));
                         }
                     }
@@ -147,7 +152,7 @@ rule!(
                         // c1 == c2: k * sin(x+y)
                         return Some(Expr::product(vec![
                             Expr::number(c1),
-                            Expr::func("sin", Expr::sum(vec![x1, y1])),
+                            Expr::func_symbol(get_symbol(&SIN), Expr::sum(vec![x1, y1])),
                         ]));
                     } else if (c1 + c2).abs() < 1e-10 {
                         // c1 == -c2: k * sin(x-y)
@@ -155,8 +160,8 @@ rule!(
                         // Result is k*sin(x-y)
                         return Some(Expr::product(vec![
                             Expr::number(c1),
-                            Expr::func(
-                                "sin",
+                            Expr::func_symbol(
+                                get_symbol(&SIN),
                                 Expr::sum(vec![x1, Expr::product(vec![Expr::number(-1.0), y1])]),
                             ),
                         ]));
@@ -201,16 +206,16 @@ fn is_cos_plus_sin(expr: &Expr) -> bool {
 }
 
 fn is_cos(expr: &Expr) -> bool {
-    matches!(&expr.kind, AstKind::FunctionCall { name, args } if name == "cos" && args.len() == 1)
+    matches!(&expr.kind, AstKind::FunctionCall { name, args } if name.id() == *COS && args.len() == 1)
 }
 
 fn is_sin(expr: &Expr) -> bool {
-    matches!(&expr.kind, AstKind::FunctionCall { name, args } if name == "sin" && args.len() == 1)
+    matches!(&expr.kind, AstKind::FunctionCall { name, args } if name.id() == *SIN && args.len() == 1)
 }
 
 fn get_cos_arg(expr: &Expr) -> Option<Expr> {
     if let AstKind::FunctionCall { name, args } = &expr.kind {
-        if name == "cos" && args.len() == 1 {
+        if name.id() == *COS && args.len() == 1 {
             Some((*args[0]).clone())
         } else {
             None
@@ -228,7 +233,7 @@ fn get_cos_arg(expr: &Expr) -> Option<Expr> {
 
 fn get_sin_arg(expr: &Expr) -> Option<Expr> {
     if let AstKind::FunctionCall { name, args } = &expr.kind {
-        if name == "sin" && args.len() == 1 {
+        if name.id() == *SIN && args.len() == 1 {
             Some((*args[0]).clone())
         } else {
             None
@@ -280,8 +285,8 @@ rule!(
                 && get_sin_arg(cos_plus_sin) == Some(arg.clone())
             {
                 // (cos(x) - sin(x))(cos(x) + sin(x)) = cos(2x)
-                return Some(Expr::func(
-                    "cos",
+                return Some(Expr::func_symbol(
+                    get_symbol(&COS),
                     Expr::product(vec![Expr::number(2.0), arg]),
                 ));
             }

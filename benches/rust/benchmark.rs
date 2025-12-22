@@ -1,305 +1,267 @@
-//! Core SymbAnaFis Benchmarks
+//! Comprehensive SymbAnaFis Benchmarks
 //!
-//! Benchmarks for parsing, differentiation, simplification, and combined operations.
+//! Tests the full pipeline: parse → diff → simplify → compile → evaluate
+//! Uses realistic medium-sized expressions from physics and ML.
 
-use criterion::{Criterion, criterion_group, criterion_main};
+mod expressions;
+
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use expressions::ALL_EXPRESSIONS;
 use std::collections::HashSet;
 use std::hint::black_box;
-use symb_anafis::{Diff, diff, parse, simplify};
-
-// =============================================================================
-// Test Expressions
-// =============================================================================
-
-const POLYNOMIAL: &str = "x^3 + 2*x^2 + x + 1";
-const TRIG_SIMPLE: &str = "sin(x) * cos(x)";
-const COMPLEX_EXPR: &str = "x^2 * sin(x) * exp(x)";
-const NESTED_TRIG: &str = "sin(cos(tan(x)))";
-const CHAIN_SIN: &str = "sin(x^2)";
-const EXP_SQUARED: &str = "exp(x^2)";
-const QUOTIENT: &str = "(x^2 + 1) / (x - 1)";
-const POWER_XX: &str = "x^x";
-
-// Simplification expressions
-const PYTHAGOREAN: &str = "sin(x)^2 + cos(x)^2";
-const PERFECT_SQUARE: &str = "x^2 + 2*x + 1";
-const FRACTION_CANCEL: &str = "(x^2 - 1) / (x - 1)";
-const EXP_COMBINE: &str = "exp(x) * exp(y)";
-const LIKE_TERMS: &str = "2*x + 3*x + x";
-const HYPERBOLIC: &str = "(exp(x) - exp(-x)) / 2";
-const FRAC_ADD: &str = "(x^2 + 1) / (x + 1) + (x - 1) / (x + 1)";
-const POWER_COMBINE: &str = "x^2 * x^3";
-
-// Large physics expressions (for Rayon parallelism testing)
-const NORMAL_PDF: &str = "exp(-(x - mu)^2 / (2 * sigma^2)) / sqrt(2 * pi * sigma^2)";
-const WAVE_EQUATION: &str = "A * sin(k*x - omega*t) * exp(-gamma*t)";
-const GAUSSIAN_2D: &str = "exp(-((x - x0)^2 + (y - y0)^2) / (2 * sigma^2)) / (2 * pi * sigma^2)";
-const MAXWELL_BOLTZMANN: &str =
-    "4 * pi * (m / (2 * pi * k * T))^(3/2) * v^2 * exp(-m * v^2 / (2 * k * T))";
-const ORBITAL_ENERGY: &str = "-G * M * m / (2 * a) + L^2 / (2 * m * r^2) - G * M * m / r";
-const SCHRODINGER_1D: &str = "(-hbar^2 / (2 * m)) * d2psi + V * psi";
+use symb_anafis::{CompiledEvaluator, Diff, Simplify, parse, symb};
 
 // =============================================================================
 // Parsing Benchmarks
 // =============================================================================
 
-fn bench_parsing(c: &mut Criterion) {
-    let mut group = c.benchmark_group("parsing");
-    let empty_set = HashSet::new();
+fn bench_parse(c: &mut Criterion) {
+    let mut group = c.benchmark_group("1_parse");
+    let empty = HashSet::new();
 
-    group.bench_function("polynomial", |b| {
-        b.iter(|| parse(black_box(POLYNOMIAL), &empty_set, &empty_set, None))
-    });
-
-    group.bench_function("trig_simple", |b| {
-        b.iter(|| parse(black_box(TRIG_SIMPLE), &empty_set, &empty_set, None))
-    });
-
-    group.bench_function("complex_expr", |b| {
-        b.iter(|| parse(black_box(COMPLEX_EXPR), &empty_set, &empty_set, None))
-    });
-
-    group.bench_function("nested_trig", |b| {
-        b.iter(|| parse(black_box(NESTED_TRIG), &empty_set, &empty_set, None))
-    });
+    for (name, expr, _, _) in ALL_EXPRESSIONS {
+        group.bench_with_input(BenchmarkId::new("symb_anafis", name), expr, |b, expr| {
+            b.iter(|| parse(black_box(expr), &empty, &empty, None))
+        });
+    }
 
     group.finish();
 }
 
 // =============================================================================
-// Differentiation Benchmarks (AST Only - Using Diff builder)
+// Differentiation Benchmarks (Raw - no simplification)
 // =============================================================================
 
-fn bench_diff_ast_only(c: &mut Criterion) {
-    let mut group = c.benchmark_group("diff_ast_only");
-    let empty_set = HashSet::new();
+fn bench_diff_raw(c: &mut Criterion) {
+    let mut group = c.benchmark_group("2_diff_raw");
+    let empty = HashSet::new();
 
-    // Pre-parse expressions for AST-only benchmarking
-    let poly_expr = parse(POLYNOMIAL, &empty_set, &empty_set, None).unwrap();
-    let trig_expr = parse(TRIG_SIMPLE, &empty_set, &empty_set, None).unwrap();
-    let complex_expr = parse(COMPLEX_EXPR, &empty_set, &empty_set, None).unwrap();
-    let nested_expr = parse(NESTED_TRIG, &empty_set, &empty_set, None).unwrap();
+    for (name, expr_str, var, fixed) in ALL_EXPRESSIONS {
+        // Pre-parse the expression
+        let expr = parse(expr_str, &empty, &empty, None).unwrap();
+        let var_sym = symb(var);
 
-    let x = symb_anafis::symb("x");
+        // Build fixed var symbols
+        let fixed_syms: Vec<_> = fixed.iter().map(|s| symb(s)).collect();
+        let fixed_refs: Vec<_> = fixed_syms.iter().collect();
 
-    group.bench_function("polynomial", |b| {
-        b.iter(|| Diff::new().differentiate(black_box(poly_expr.clone()), black_box(&x)))
-    });
+        // Build Diff with fixed vars but skip simplification
+        let diff_builder = Diff::new()
+            .fixed_vars(&fixed_refs)
+            .skip_simplification(true);
 
-    group.bench_function("trig_simple", |b| {
-        b.iter(|| Diff::new().differentiate(black_box(trig_expr.clone()), black_box(&x)))
-    });
-
-    group.bench_function("complex_expr", |b| {
-        b.iter(|| Diff::new().differentiate(black_box(complex_expr.clone()), black_box(&x)))
-    });
-
-    group.bench_function("nested_trig", |b| {
-        b.iter(|| Diff::new().differentiate(black_box(nested_expr.clone()), black_box(&x)))
-    });
+        group.bench_with_input(BenchmarkId::new("symb_anafis", name), &expr, |b, expr| {
+            b.iter(|| diff_builder.differentiate(black_box(expr.clone()), &var_sym))
+        });
+    }
 
     group.finish();
 }
 
 // =============================================================================
-// Differentiation Benchmarks (Full Pipeline)
+// Differentiation + Simplification Benchmarks
 // =============================================================================
 
-fn bench_diff_full(c: &mut Criterion) {
-    let mut group = c.benchmark_group("diff_full");
+fn bench_diff_simplified(c: &mut Criterion) {
+    let mut group = c.benchmark_group("3_diff_simplified");
 
-    group.bench_function("polynomial", |b| {
-        b.iter(|| diff(black_box(POLYNOMIAL), "x", None, None))
-    });
-
-    group.bench_function("trig_simple", |b| {
-        b.iter(|| diff(black_box(TRIG_SIMPLE), "x", None, None))
-    });
-
-    group.bench_function("chain_sin", |b| {
-        b.iter(|| diff(black_box(CHAIN_SIN), "x", None, None))
-    });
-
-    group.bench_function("exp_squared", |b| {
-        b.iter(|| diff(black_box(EXP_SQUARED), "x", None, None))
-    });
-
-    group.bench_function("complex_expr", |b| {
-        b.iter(|| diff(black_box(COMPLEX_EXPR), "x", None, None))
-    });
-
-    group.bench_function("quotient", |b| {
-        b.iter(|| diff(black_box(QUOTIENT), "x", None, None))
-    });
-
-    group.bench_function("nested_trig", |b| {
-        b.iter(|| diff(black_box(NESTED_TRIG), "x", None, None))
-    });
-
-    group.bench_function("power_xx", |b| {
-        b.iter(|| diff(black_box(POWER_XX), "x", None, None))
-    });
+    for (name, expr_str, var, fixed) in ALL_EXPRESSIONS {
+        group.bench_with_input(
+            BenchmarkId::new("symb_anafis", name),
+            expr_str,
+            |b, expr| b.iter(|| symb_anafis::diff(black_box(expr), var, Some(fixed), None)),
+        );
+    }
 
     group.finish();
 }
 
 // =============================================================================
-// Simplification Benchmarks
+// Simplification Only Benchmarks
 // =============================================================================
 
-fn bench_simplification(c: &mut Criterion) {
-    let mut group = c.benchmark_group("simplification");
+fn bench_simplify_only(c: &mut Criterion) {
+    let mut group = c.benchmark_group("4_simplify");
+    let empty = HashSet::new();
 
-    group.bench_function("pythagorean", |b| {
-        b.iter(|| simplify(black_box(PYTHAGOREAN), None, None))
-    });
+    for (name, expr_str, var, fixed) in ALL_EXPRESSIONS {
+        // First differentiate to get a complex expression to simplify
+        let expr = parse(expr_str, &empty, &empty, None).unwrap();
+        let var_sym = symb(var);
 
-    group.bench_function("perfect_square", |b| {
-        b.iter(|| simplify(black_box(PERFECT_SQUARE), None, None))
-    });
+        let fixed_syms: Vec<_> = fixed.iter().map(|s| symb(s)).collect();
+        let fixed_refs: Vec<_> = fixed_syms.iter().collect();
 
-    group.bench_function("fraction_cancel", |b| {
-        b.iter(|| simplify(black_box(FRACTION_CANCEL), None, None))
-    });
+        let diff_builder = Diff::new()
+            .fixed_vars(&fixed_refs)
+            .skip_simplification(true);
+        let diff_result = diff_builder.differentiate(expr, &var_sym).unwrap();
 
-    group.bench_function("exp_combine", |b| {
-        b.iter(|| simplify(black_box(EXP_COMBINE), None, None))
-    });
+        let simplify_builder = Simplify::new().fixed_vars(&fixed_refs);
 
-    group.bench_function("like_terms", |b| {
-        b.iter(|| simplify(black_box(LIKE_TERMS), None, None))
-    });
-
-    group.bench_function("hyperbolic", |b| {
-        b.iter(|| simplify(black_box(HYPERBOLIC), None, None))
-    });
-
-    group.bench_function("frac_add", |b| {
-        b.iter(|| simplify(black_box(FRAC_ADD), None, None))
-    });
-
-    group.bench_function("power_combine", |b| {
-        b.iter(|| simplify(black_box(POWER_COMBINE), None, None))
-    });
+        group.bench_with_input(
+            BenchmarkId::new("symb_anafis", name),
+            &diff_result,
+            |b, expr| b.iter(|| simplify_builder.simplify(black_box(expr.clone()))),
+        );
+    }
 
     group.finish();
 }
 
 // =============================================================================
-// Large Expression Benchmarks (Testing Rayon parallelism benefits)
+// Compilation Benchmarks
 // =============================================================================
 
-fn bench_large_expressions(c: &mut Criterion) {
-    let mut group = c.benchmark_group("large_expr");
+fn bench_compile(c: &mut Criterion) {
+    let mut group = c.benchmark_group("5_compile");
+    let empty = HashSet::new();
 
-    // Normal PDF - ~30 nodes
-    group.bench_function("normal_pdf", |b| {
-        b.iter(|| diff(black_box(NORMAL_PDF), "x", Some(&["mu", "sigma"]), None))
-    });
+    for (name, expr_str, var, fixed) in ALL_EXPRESSIONS {
+        // Raw differentiation result
+        let expr = parse(expr_str, &empty, &empty, None).unwrap();
+        let var_sym = symb(var);
 
-    // Wave equation - ~20 nodes
-    group.bench_function("wave_equation", |b| {
-        b.iter(|| {
-            diff(
-                black_box(WAVE_EQUATION),
-                "x",
-                Some(&["A", "k", "omega", "gamma"]),
-                None,
-            )
-        })
-    });
+        let fixed_syms: Vec<_> = fixed.iter().map(|s| symb(s)).collect();
+        let fixed_refs: Vec<_> = fixed_syms.iter().collect();
 
-    // 2D Gaussian - ~40 nodes
-    group.bench_function("gaussian_2d", |b| {
-        b.iter(|| {
-            diff(
-                black_box(GAUSSIAN_2D),
-                "x",
-                Some(&["x0", "y0", "sigma"]),
-                None,
-            )
-        })
-    });
+        let diff_builder = Diff::new()
+            .fixed_vars(&fixed_refs)
+            .skip_simplification(true);
+        let diff_raw = diff_builder.differentiate(expr.clone(), &var_sym).unwrap();
 
-    // Maxwell-Boltzmann - ~50 nodes
-    group.bench_function("maxwell_boltzmann", |b| {
-        b.iter(|| {
-            diff(
-                black_box(MAXWELL_BOLTZMANN),
-                "v",
-                Some(&["m", "k", "T"]),
-                None,
-            )
-        })
-    });
+        // Simplified result
+        let diff_simplified_str = symb_anafis::diff(expr_str, var, Some(fixed), None).unwrap();
+        let diff_simplified = parse(&diff_simplified_str, &empty, &empty, None).unwrap();
 
-    // Orbital energy - ~35 nodes
-    group.bench_function("orbital_energy", |b| {
-        b.iter(|| {
-            diff(
-                black_box(ORBITAL_ENERGY),
-                "r",
-                Some(&["G", "M", "m", "a", "L"]),
-                None,
-            )
-        })
-    });
+        // Benchmark: compile raw
+        group.bench_with_input(BenchmarkId::new("raw", name), &diff_raw, |b, expr| {
+            b.iter(|| CompiledEvaluator::compile_auto(black_box(expr)))
+        });
 
-    // Schrodinger 1D - ~25 nodes (with second derivative as symbol)
-    group.bench_function("schrodinger_1d", |b| {
-        b.iter(|| {
-            diff(
-                black_box(SCHRODINGER_1D),
-                "x",
-                Some(&["hbar", "m", "V", "psi", "d2psi"]),
-                None,
-            )
-        })
-    });
+        // Benchmark: compile simplified
+        group.bench_with_input(
+            BenchmarkId::new("simplified", name),
+            &diff_simplified,
+            |b, expr| b.iter(|| CompiledEvaluator::compile_auto(black_box(expr))),
+        );
+    }
 
     group.finish();
 }
 
 // =============================================================================
-// Combined Operations (Real-World Scenarios)
+// Evaluation Benchmarks (1000 points)
 // =============================================================================
 
-fn bench_combined(c: &mut Criterion) {
-    let mut group = c.benchmark_group("combined");
+fn bench_eval(c: &mut Criterion) {
+    let mut group = c.benchmark_group("6_eval_1000pts");
+    let empty = HashSet::new();
 
-    // Differentiate and simplify sin^2(x)
-    group.bench_function("diff_sin_squared", |b| {
-        b.iter(|| diff(black_box("sin(x)^2"), "x", None, None))
-    });
+    // Generate 1000 test points
+    let test_points: Vec<f64> = (0..1000).map(|i| 0.1 + i as f64 * 0.01).collect();
 
-    // Differentiate and simplify quotient
-    group.bench_function("diff_quotient", |b| {
-        b.iter(|| diff(black_box(QUOTIENT), "x", None, None))
-    });
+    for (name, expr_str, var, fixed) in ALL_EXPRESSIONS {
+        // Get raw and simplified derivatives
+        let expr = parse(expr_str, &empty, &empty, None).unwrap();
+        let var_sym = symb(var);
 
-    // Physics: RC circuit voltage derivative
-    group.bench_function("physics_rc_circuit", |b| {
-        b.iter(|| {
-            diff(
-                black_box("V0 * exp(-t / (R * C))"),
-                "t",
-                Some(&["V0", "R", "C"]),
-                None,
-            )
-        })
-    });
+        let fixed_syms: Vec<_> = fixed.iter().map(|s| symb(s)).collect();
+        let fixed_refs: Vec<_> = fixed_syms.iter().collect();
 
-    // Statistics: Normal distribution derivative
-    group.bench_function("stats_normal_pdf", |b| {
-        b.iter(|| {
-            diff(
-                black_box("exp(-(x - mu)^2 / (2 * sigma^2)) / sqrt(2 * pi * sigma^2)"),
-                "x",
-                Some(&["mu", "sigma"]),
-                None,
-            )
-        })
-    });
+        let diff_builder = Diff::new()
+            .fixed_vars(&fixed_refs)
+            .skip_simplification(true);
+        let diff_raw = diff_builder.differentiate(expr, &var_sym).unwrap();
+
+        let diff_simplified_str = symb_anafis::diff(expr_str, var, Some(fixed), None).unwrap();
+        let diff_simplified = parse(&diff_simplified_str, &empty, &empty, None).unwrap();
+
+        // Compile both versions
+        let compiled_raw = CompiledEvaluator::compile_auto(&diff_raw);
+        let compiled_simplified = CompiledEvaluator::compile_auto(&diff_simplified);
+
+        // Benchmark: evaluate compiled (raw)
+        if let Ok(ref evaluator) = compiled_raw {
+            let param_count = evaluator.param_count();
+            group.bench_with_input(
+                BenchmarkId::new("compiled_raw", name),
+                &test_points,
+                |b, points| {
+                    b.iter(|| {
+                        let mut sum = 0.0;
+                        for &x in points {
+                            // Build values: x for var, 1.0 for all fixed
+                            let mut values = vec![1.0; param_count];
+                            values[0] = x; // First param is usually the variable
+                            sum += evaluator.evaluate(&values);
+                        }
+                        sum
+                    })
+                },
+            );
+        }
+
+        // Benchmark: evaluate compiled (simplified)
+        if let Ok(ref evaluator) = compiled_simplified {
+            let param_count = evaluator.param_count();
+            group.bench_with_input(
+                BenchmarkId::new("compiled_simplified", name),
+                &test_points,
+                |b, points| {
+                    b.iter(|| {
+                        let mut sum = 0.0;
+                        for &x in points {
+                            let mut values = vec![1.0; param_count];
+                            values[0] = x;
+                            sum += evaluator.evaluate(&values);
+                        }
+                        sum
+                    })
+                },
+            );
+        }
+    }
+
+    group.finish();
+}
+
+// =============================================================================
+// Full Pipeline Benchmark (End-to-End)
+// =============================================================================
+
+fn bench_full_pipeline(c: &mut Criterion) {
+    let mut group = c.benchmark_group("7_full_pipeline");
+
+    // Test: parse → diff → simplify → compile → eval 1000 points
+    let test_points: Vec<f64> = (0..1000).map(|i| 0.1 + i as f64 * 0.01).collect();
+    let empty = HashSet::new();
+
+    for (name, expr_str, var, fixed) in ALL_EXPRESSIONS {
+        group.bench_with_input(
+            BenchmarkId::new("symb_anafis", name),
+            expr_str,
+            |b, expr| {
+                b.iter(|| {
+                    // Full pipeline
+                    let diff_str =
+                        symb_anafis::diff(black_box(expr), var, Some(fixed), None).unwrap();
+                    let diff_expr = parse(&diff_str, &empty, &empty, None).unwrap();
+                    let compiled = CompiledEvaluator::compile_auto(&diff_expr).unwrap();
+
+                    // Evaluate at 1000 points
+                    let param_count = compiled.param_count();
+                    let mut sum = 0.0;
+                    for &x in &test_points {
+                        let mut values = vec![1.0; param_count];
+                        values[0] = x;
+                        sum += compiled.evaluate(&values);
+                    }
+                    sum
+                })
+            },
+        );
+    }
 
     group.finish();
 }
@@ -310,12 +272,13 @@ fn bench_combined(c: &mut Criterion) {
 
 criterion_group!(
     benches,
-    bench_parsing,
-    bench_diff_ast_only,
-    bench_diff_full,
-    bench_simplification,
-    bench_large_expressions,
-    bench_combined,
+    bench_parse,
+    bench_diff_raw,
+    bench_diff_simplified,
+    bench_simplify_only,
+    bench_compile,
+    bench_eval,
+    bench_full_pipeline,
 );
 
 criterion_main!(benches);

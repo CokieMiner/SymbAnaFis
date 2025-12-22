@@ -1,4 +1,5 @@
 use crate::core::expr::{Expr, ExprKind as AstKind};
+use crate::core::known_symbols::{get_symbol, COSH, COTH, CSCH, SECH, SINH, TANH};
 use crate::simplification::rules::{ExprKind, Rule, RuleCategory, RuleContext};
 
 rule!(
@@ -17,13 +18,13 @@ rule!(
                 name: den_name,
                 args: den_args,
             } = &den.kind
-            && num_name == "sinh"
-            && den_name == "cosh"
+            && num_name.id() == *SINH
+            && den_name.id() == *COSH
             && num_args.len() == 1
             && den_args.len() == 1
             && num_args[0] == den_args[0]
         {
-            return Some(Expr::func("tanh", (*num_args[0]).clone()));
+            return Some(Expr::func_symbol(get_symbol(&TANH), (*num_args[0]).clone()));
         }
         None
     }
@@ -45,13 +46,13 @@ rule!(
                 name: den_name,
                 args: den_args,
             } = &den.kind
-            && num_name == "cosh"
-            && den_name == "sinh"
+            && num_name.id() == *COSH
+            && den_name.id() == *SINH
             && num_args.len() == 1
             && den_args.len() == 1
             && num_args[0] == den_args[0]
         {
-            return Some(Expr::func("coth", (*num_args[0]).clone()));
+            return Some(Expr::func_symbol(get_symbol(&COTH), (*num_args[0]).clone()));
         }
         None
     }
@@ -68,10 +69,13 @@ rule!(
             && let AstKind::Number(n) = &num.kind
             && (*n - 1.0).abs() < 1e-10
             && let AstKind::FunctionCall { name, args } = &den.kind
-            && name == "cosh"
+            && name.id() == *COSH
             && args.len() == 1
         {
-            return Some(Expr::func_multi_from_arcs("sech", args.clone()));
+            return Some(Expr::new(AstKind::FunctionCall {
+                name: get_symbol(&SECH),
+                args: args.clone(),
+            }));
         }
         None
     }
@@ -88,10 +92,13 @@ rule!(
             && let AstKind::Number(n) = &num.kind
             && (*n - 1.0).abs() < 1e-10
             && let AstKind::FunctionCall { name, args } = &den.kind
-            && name == "sinh"
+            && name.id() == *SINH
             && args.len() == 1
         {
-            return Some(Expr::func_multi_from_arcs("csch", args.clone()));
+            return Some(Expr::new(AstKind::FunctionCall {
+                name: get_symbol(&CSCH),
+                args: args.clone(),
+            }));
         }
         None
     }
@@ -108,10 +115,13 @@ rule!(
             && let AstKind::Number(n) = &num.kind
             && (*n - 1.0).abs() < 1e-10
             && let AstKind::FunctionCall { name, args } = &den.kind
-            && name == "tanh"
+            && name.id() == *TANH
             && args.len() == 1
         {
-            return Some(Expr::func_multi_from_arcs("coth", args.clone()));
+            return Some(Expr::new(AstKind::FunctionCall {
+                name: get_symbol(&COTH),
+                args: args.clone(),
+            }));
         }
         None
     }

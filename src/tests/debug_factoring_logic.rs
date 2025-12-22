@@ -55,7 +55,7 @@ mod tests {
             println!("Term {}: {:?}", i, term);
 
             // Debug flattening product
-            let factors = helpers::flatten_mul(term);
+            let factors = flatten_mul_debug(term);
             println!("  Factors: {:?}", factors);
 
             // Debug extract coeff
@@ -118,7 +118,10 @@ mod tests {
     }
 
     fn extract_coeff_and_factors_debug(term: &Expr) -> (f64, Vec<Expr>) {
-        let factors = helpers::flatten_mul(term);
+        let factors: Vec<Expr> = match &term.kind {
+            ExprKind::Product(fs) => fs.iter().map(|f| (**f).clone()).collect(),
+            _ => vec![term.clone()],
+        };
         let mut coeff = 1.0;
         let mut non_numeric: Vec<Expr> = Vec::new();
 
@@ -130,5 +133,12 @@ mod tests {
             }
         }
         (coeff, non_numeric)
+    }
+
+    fn flatten_mul_debug(expr: &Expr) -> Vec<Expr> {
+        match &expr.kind {
+            ExprKind::Product(fs) => fs.iter().map(|f| (**f).clone()).collect(),
+            _ => vec![expr.clone()],
+        }
     }
 }

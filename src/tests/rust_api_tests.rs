@@ -31,7 +31,7 @@ fn test_custom_derivatives() {
 
     // Test: my_func(x) -> 3*x^2 * 1 = 3x^2
     let x = symb("x");
-    let expr = Expr::func("my_func", x.into());
+    let expr = Expr::func("my_func", x.to_expr());
     let res = diff.differentiate(expr, &x).unwrap();
     assert_eq!(format!("{}", res), "3*x^2");
 

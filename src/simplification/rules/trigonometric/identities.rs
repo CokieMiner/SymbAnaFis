@@ -1,4 +1,5 @@
 use crate::core::expr::{Expr, ExprKind as AstKind};
+use crate::core::known_symbols::{get_symbol, COS, COT, CSC, SEC, SIN, TAN};
 use crate::simplification::helpers;
 use crate::simplification::rules::{ExprKind, Rule, RuleCategory, RuleContext};
 
@@ -30,8 +31,8 @@ rule!(
                         args: cos_args,
                     },
                 ) = (&sin_base.kind, &cos_base.kind)
-                && sin_name == "sin"
-                && cos_name == "cos"
+                && sin_name.id() == *SIN
+                && cos_name.id() == *COS
                 && sin_args.len() == 1
                 && cos_args.len() == 1
                 && sin_args[0] == cos_args[0]
@@ -54,8 +55,8 @@ rule!(
                         args: sin_args,
                     },
                 ) = (&cos_base.kind, &sin_base.kind)
-                && cos_name == "cos"
-                && sin_name == "sin"
+                && cos_name.id() == *COS
+                && sin_name.id() == *SIN
                 && cos_args.len() == 1
                 && sin_args.len() == 1
                 && cos_args[0] == sin_args[0]
@@ -98,11 +99,21 @@ rule!(
             if matches!(&lhs.kind, AstKind::Number(n) if *n == 1.0)
                 && let Some(negated) = extract_negated(rhs)
             {
-                if let Some(("cos", arg)) = helpers::get_fn_pow_named(&negated, 2.0) {
-                    return Some(Expr::pow(Expr::func("sin", arg), Expr::number(2.0)));
+                if let Some((name, arg)) = helpers::get_fn_pow_symbol(&negated, 2.0)
+                    && name.id() == *COS
+                {
+                    return Some(Expr::pow(
+                        Expr::func_symbol(get_symbol(&SIN), arg),
+                        Expr::number(2.0),
+                    ));
                 }
-                if let Some(("sin", arg)) = helpers::get_fn_pow_named(&negated, 2.0) {
-                    return Some(Expr::pow(Expr::func("cos", arg), Expr::number(2.0)));
+                if let Some((name, arg)) = helpers::get_fn_pow_symbol(&negated, 2.0)
+                    && name.id() == *SIN
+                {
+                    return Some(Expr::pow(
+                        Expr::func_symbol(get_symbol(&COS), arg),
+                        Expr::number(2.0),
+                    ));
                 }
             }
 
@@ -110,11 +121,21 @@ rule!(
             if matches!(&rhs.kind, AstKind::Number(n) if *n == 1.0)
                 && let Some(negated) = extract_negated(lhs)
             {
-                if let Some(("cos", arg)) = helpers::get_fn_pow_named(&negated, 2.0) {
-                    return Some(Expr::pow(Expr::func("sin", arg), Expr::number(2.0)));
+                if let Some((name, arg)) = helpers::get_fn_pow_symbol(&negated, 2.0)
+                    && name.id() == *COS
+                {
+                    return Some(Expr::pow(
+                        Expr::func_symbol(get_symbol(&SIN), arg),
+                        Expr::number(2.0),
+                    ));
                 }
-                if let Some(("sin", arg)) = helpers::get_fn_pow_named(&negated, 2.0) {
-                    return Some(Expr::pow(Expr::func("cos", arg), Expr::number(2.0)));
+                if let Some((name, arg)) = helpers::get_fn_pow_symbol(&negated, 2.0)
+                    && name.id() == *SIN
+                {
+                    return Some(Expr::pow(
+                        Expr::func_symbol(get_symbol(&COS), arg),
+                        Expr::number(2.0),
+                    ));
                 }
             }
         }
@@ -140,31 +161,47 @@ rule!(
             let rhs = &terms[1];
 
             // tan^2(x) + 1 = sec^2(x)
-            if let Some(("tan", arg)) = helpers::get_fn_pow_named(lhs, 2.0)
+            if let Some((name, arg)) = helpers::get_fn_pow_symbol(lhs, 2.0)
+                && name.id() == *TAN
                 && matches!(&rhs.kind, AstKind::Number(n) if *n == 1.0)
             {
-                return Some(Expr::pow(Expr::func("sec", arg), Expr::number(2.0)));
+                return Some(Expr::pow(
+                    Expr::func_symbol(get_symbol(&SEC), arg),
+                    Expr::number(2.0),
+                ));
             }
 
             // 1 + tan^2(x) = sec^2(x)
             if matches!(&lhs.kind, AstKind::Number(n) if *n == 1.0)
-                && let Some(("tan", arg)) = helpers::get_fn_pow_named(rhs, 2.0)
+                && let Some((name, arg)) = helpers::get_fn_pow_symbol(rhs, 2.0)
+                && name.id() == *TAN
             {
-                return Some(Expr::pow(Expr::func("sec", arg), Expr::number(2.0)));
+                return Some(Expr::pow(
+                    Expr::func_symbol(get_symbol(&SEC), arg),
+                    Expr::number(2.0),
+                ));
             }
 
             // cot^2(x) + 1 = csc^2(x)
-            if let Some(("cot", arg)) = helpers::get_fn_pow_named(lhs, 2.0)
+            if let Some((name, arg)) = helpers::get_fn_pow_symbol(lhs, 2.0)
+                && name.id() == *COT
                 && matches!(&rhs.kind, AstKind::Number(n) if *n == 1.0)
             {
-                return Some(Expr::pow(Expr::func("csc", arg), Expr::number(2.0)));
+                return Some(Expr::pow(
+                    Expr::func_symbol(get_symbol(&CSC), arg),
+                    Expr::number(2.0),
+                ));
             }
 
             // 1 + cot^2(x) = csc^2(x)
             if matches!(&lhs.kind, AstKind::Number(n) if *n == 1.0)
-                && let Some(("cot", arg)) = helpers::get_fn_pow_named(rhs, 2.0)
+                && let Some((name, arg)) = helpers::get_fn_pow_symbol(rhs, 2.0)
+                && name.id() == *COT
             {
-                return Some(Expr::pow(Expr::func("csc", arg), Expr::number(2.0)));
+                return Some(Expr::pow(
+                    Expr::func_symbol(get_symbol(&CSC), arg),
+                    Expr::number(2.0),
+                ));
             }
         }
         None

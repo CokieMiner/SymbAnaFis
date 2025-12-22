@@ -17,7 +17,7 @@ mod tests {
         let simplified = simplify_expr(expr, HashSet::new());
         println!("sin(pi - x) -> {}", simplified);
         if let ExprKind::FunctionCall { name, args } = &simplified.kind {
-            assert_eq!(name, "sin");
+            assert_eq!(name.as_str(), "sin");
             assert_eq!(*args[0], Expr::symbol("x"));
         } else {
             panic!("Expected sin(x), got {:?}", simplified);
@@ -32,7 +32,7 @@ mod tests {
             assert!(factors.iter().any(|f| **f == Expr::number(-1.0)));
             let has_cos = factors.iter().any(|f| {
                 if let ExprKind::FunctionCall { name, args } = &f.kind {
-                    name == "cos" && *args[0] == Expr::symbol("x")
+                    name.as_str() == "cos" && *args[0] == Expr::symbol("x")
                 } else {
                     false
                 }
@@ -56,7 +56,7 @@ mod tests {
             assert!(factors.iter().any(|f| **f == Expr::number(-1.0)));
             let has_cos = factors.iter().any(|f| {
                 if let ExprKind::FunctionCall { name, args } = &f.kind {
-                    name == "cos" && *args[0] == Expr::symbol("x")
+                    name.as_str() == "cos" && *args[0] == Expr::symbol("x")
                 } else {
                     false
                 }

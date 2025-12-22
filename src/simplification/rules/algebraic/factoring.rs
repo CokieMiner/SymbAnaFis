@@ -1,4 +1,5 @@
 use crate::core::poly::Polynomial;
+use crate::core::known_symbols::{CBRT, SQRT};
 use crate::simplification::rules::{ExprKind, Rule, RuleCategory, RuleContext};
 use crate::{Expr, ExprKind as AstKind};
 use std::sync::Arc;
@@ -104,9 +105,10 @@ impl Rule for FractionCancellationRule {
                 match &e.kind {
                     AstKind::Pow(b, exp) => (b.as_ref().clone(), exp.as_ref().clone()),
                     AstKind::FunctionCall { name, args } if args.len() == 1 => {
-                        if name == "sqrt" {
+                        // Use ID validation via known_symbols
+                        if name.id() == *SQRT {
                             ((*args[0]).clone(), Expr::number(0.5))
-                        } else if name == "cbrt" {
+                        } else if name.id() == *CBRT {
                             (
                                 (*args[0]).clone(),
                                 Expr::div_expr(Expr::number(1.0), Expr::number(3.0)),
@@ -882,11 +884,6 @@ impl Rule for PolyGcdSimplifyRule {
 
             // Skip if either is constant (simpler rules handle that)
             if num_poly.is_constant() || den_poly.is_constant() {
-                return None;
-            }
-
-            // Skip if not univariate or different variables
-            if !num_poly.is_univariate() || !den_poly.is_univariate() {
                 return None;
             }
 

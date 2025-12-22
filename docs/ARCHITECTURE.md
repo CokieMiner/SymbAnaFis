@@ -39,8 +39,8 @@ flowchart TB
     subgraph "Core AST"
         C1["Expr"]
         C2["ExprKind
-        Number | Symbol | Add | Sub
-        Mul | Div | Pow | FunctionCall
+        Number | Symbol | Sum | Product
+        Div | Pow | FunctionCall | Poly
         Derivative"]
         C3["InternedSymbol
         (Copy, O(1) compare)
@@ -59,7 +59,7 @@ flowchart TB
         S1["Bottom-up traversal"]
         S2["Multi-pass until stable"]
         S3["Priority ordering (Epochs)"]
-        S4["ExprFlags optimization"]
+        S4["Hash-based change detection"]
         subgraph "Rules (120+)"
             R1["Numeric: 0+x→x, constant fold"]
             R2["Algebraic: factor, distribute"]
@@ -136,10 +136,17 @@ flowchart LR
 ```
 src/
 ├── lib.rs                    # Public API: diff(), simplify(), re-exports
-├── ast.rs                    # Expr, ExprKind - core expression types
-├── symbol.rs                 # InternedSymbol, Symbol - Copy symbols
-├── error.rs                  # DiffError, Span - error types
-├── traits.rs                 # Numeric/trig traits
+├── core/                     # Core types and utilities
+│   ├── mod.rs               # Re-exports
+│   ├── expr.rs              # Expr, ExprKind - core expression types
+│   ├── symbol.rs            # InternedSymbol, Symbol - Copy symbols
+│   ├── known_symbols.rs     # Pre-interned symbols for O(1) lookup
+│   ├── evaluator.rs         # CompiledEvaluator bytecode VM
+│   ├── display.rs           # to_string(), to_latex(), to_unicode()
+│   ├── error.rs             # DiffError, Span - error types
+│   ├── traits.rs            # MathScalar trait
+│   ├── poly.rs              # Univariate polynomial type
+│   └── visitor.rs           # AST visitor pattern
 │
 ├── parser/                   # String → Expr
 │   ├── mod.rs               # parse() function
@@ -148,7 +155,14 @@ src/
 │   ├── pratt.rs             # Pratt parsing algorithm
 │   └── implicit_mul.rs      # 2x → 2*x handling
 │
-├── differentiation.rs        # Expr → Expr (symbolic differentiation)
+├── api/                      # Builder layer
+│   ├── mod.rs               # Re-exports
+│   ├── builder.rs           # Diff, Simplify builders (fluent API)
+│   └── helpers.rs           # gradient, hessian, jacobian
+│
+├── diff/                     # Differentiation engine
+│   ├── mod.rs               # Module exports
+│   └── engine.rs            # Core differentiation logic (chain rule, etc.)
 │
 ├── simplification/           # Rule-based simplification
 │   ├── mod.rs               # simplify_expr() entry point
@@ -165,7 +179,7 @@ src/
 │       ├── exponential/     # exp/ln rules
 │       └── root/            # sqrt/cbrt rules
 │
-├── builder.rs                # Diff, Simplify builders (fluent API)
+├── uncertainty.rs            # Uncertainty propagation (GUM formula)
 │
 ├── functions/                # Built-in functions
 │   ├── mod.rs               # Function registry
@@ -173,15 +187,13 @@ src/
 │   └── registry.rs          # Name → Function lookup
 │
 ├── math/                     # Numeric implementations
-│   └── dual.rs              # Dual numbers for auto-diff
+│   ├── mod.rs               # Special function evaluations (gamma, bessel, etc.)
+│   └── dual.rs              # Dual numbers for automatic differentiation
 │
-├── helpers.rs                # Higher-level: gradient, hessian, jacobian
-├── uncertainty.rs            # Uncertainty propagation
-├── display.rs                # to_string(), to_latex(), to_unicode()
-├── visitor.rs                # AST visitor pattern
-│
-├── parallel.rs               # (optional) Parallel batch evaluation
-├── python.rs                 # (optional) PyO3 bindings
+├── bindings/                 # Optional feature-gated bindings
+│   ├── mod.rs               # Feature gates
+│   ├── parallel.rs          # (parallel feature) Rayon batch evaluation
+│   └── python.rs            # (python feature) PyO3 bindings
 │
 └── tests/                    # 49 test files
 ```
@@ -202,21 +214,22 @@ src/
 
 ## Core Components
 
-### 1. Expression AST (`ast.rs`)
+### 1. Expression AST (`core/expr.rs`)
 
 The fundamental data structure is `Expr`, a tree-based AST using `Arc` for shared ownership.
 
 ```rust
 pub struct Expr {
+    pub id: u64,          // Structural hash for equality/caching
+    pub hash: u64,        // Pre-computed hash for HashMap
     pub kind: ExprKind,
-    pub flags: ExprFlags, // Phase-specific simplification tracking
 }
 
 pub enum ExprKind {
     Number(f64),
     Symbol(InternedSymbol),
     
-    // N-ary operations (flat, sorted, canonical)
+    // N-ary operations (flat, auto-sorted)
     Sum(Vec<Arc<Expr>>),      // a + b + c + ...
     Product(Vec<Arc<Expr>>),  // a * b * c * ...
     
@@ -224,8 +237,9 @@ pub enum ExprKind {
     Div(Arc<Expr>, Arc<Expr>),
     Pow(Arc<Expr>, Arc<Expr>),
     
-    FunctionCall { name: InternedSymbol, args: Vec<Expr> },  // Interned for O(1) comparison
+    FunctionCall { name: InternedSymbol, args: Vec<Arc<Expr>> },
     Derivative { inner: Arc<Expr>, var: String, order: u32 },
+    Poly(Poly),               // Optimized polynomial representation
 }
 ```
 
@@ -274,7 +288,7 @@ parser/
 
 **Parsing speed:** ~500-900 ns per expression (1.6-2.3x faster than Symbolica)
 
-### 4. Differentiation (`differentiation.rs`)
+### 4. Differentiation (`diff/engine.rs`)
 
 Implements standard calculus rules:
 
@@ -418,19 +432,6 @@ PyO3 bindings exposing:
 | Bessel | besselj, bessely, besseli, besselk |
 | Error | erf, erfc |
 | Other | zeta, LambertW, abs, sign |
-
----
-
-## Performance Characteristics
-
-| Operation | Time | Notes |
-|-----------|------|-------|
-| Parsing | 0.6-1.5 µs | Pratt parser, interned symbols + function names |
-| Differentiation + Simplify | 15-80 µs | Rule-based, multi-pass (up to 67% faster with interned names) |
-| Pure evaluation | 400-700 ns | Direct computation |
-| Simplification only | 10-50 µs | Depends on expression complexity |
-
-**Current limitation:** Polynomial operations use pattern-matching rules (slower than native polynomial arithmetic). See `ROADMAP_v0.3.1_POLY.md` for planned improvements.
 
 ---
 

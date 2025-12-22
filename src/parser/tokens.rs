@@ -275,7 +275,7 @@ impl Operator {
             "besseli" => Some(Operator::BesselI),
             "besselk" => Some(Operator::BesselK),
             "lambertw" => Some(Operator::LambertW),
-            "ynm" => Some(Operator::Ynm),
+            "ynm" | "spherical_harmonic" => Some(Operator::Ynm),
             "assoc_legendre" => Some(Operator::AssocLegendre),
             "hermite" => Some(Operator::Hermite),
             "elliptic_e" => Some(Operator::EllipticE),

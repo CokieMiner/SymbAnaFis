@@ -405,7 +405,7 @@ fn test_unknown_function_preserved() {
     // The function call should be preserved (args evaluated to numbers, function name kept)
     match &result.kind {
         ExprKind::FunctionCall { name, args } => {
-            assert_eq!(name, "my_custom_func");
+            assert_eq!(name.as_str(), "my_custom_func");
             assert_eq!(args.len(), 2);
         }
         _ => panic!("Expected FunctionCall to be preserved, got {:?}", result),

@@ -54,7 +54,7 @@ mod tests {
             );
 
             if let ExprKind::Symbol(s) = &den.kind {
-                assert_eq!(s, "y");
+                assert_eq!(s.as_str(), "y");
             } else {
                 panic!("Expected denominator y");
             }
@@ -75,7 +75,7 @@ mod tests {
         // Expected: x / (y*z)
         if let ExprKind::Div(num, den) = &simplified.kind {
             if let ExprKind::Symbol(s) = &num.kind {
-                assert_eq!(s, "x");
+                assert_eq!(s.as_str(), "x");
             } else {
                 panic!("Expected numerator to be x");
             }
@@ -128,14 +128,14 @@ mod tests {
         if let ExprKind::Div(num, den) = &simplified.kind {
             assert_eq!(**num, Expr::number(1.0));
             if let ExprKind::Symbol(s) = &den.kind {
-                assert_eq!(s, "R");
+                assert_eq!(s.as_str(), "R");
             } else {
                 panic!("Expected denominator R, got {:?}", den);
             }
         } else if let ExprKind::Pow(base, exp) = &simplified.kind {
             // R^-1
             if let ExprKind::Symbol(s) = &base.kind {
-                assert_eq!(s, "R");
+                assert_eq!(s.as_str(), "R");
                 assert_eq!(**exp, Expr::number(-1.0));
             } else {
                 panic!("Expected R^-1");

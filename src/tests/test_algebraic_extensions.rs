@@ -16,7 +16,7 @@ mod tests {
         if let ExprKind::Product(factors) = &simplified.kind {
             let has_x = factors
                 .iter()
-                .any(|f| matches!(&f.kind, ExprKind::Symbol(s) if s == "x"));
+                .any(|f| matches!(&f.kind, ExprKind::Symbol(s) if s.as_str() == "x"));
             let has_sum = factors.iter().any(|f| matches!(&f.kind, ExprKind::Sum(_)));
             assert!(
                 has_x && has_sum,

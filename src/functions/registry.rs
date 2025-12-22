@@ -23,21 +23,27 @@ pub(crate) struct FunctionDefinition {
 
 impl FunctionDefinition {
     /// Helper to check if argument count is valid
+    #[inline]
     pub(crate) fn validate_arity(&self, args: usize) -> bool {
         self.arity.contains(&args)
     }
 }
 
+use crate::core::symbol::{InternedSymbol, get_or_intern};
+
 /// Static registry storing all function definitions
-static REGISTRY: OnceLock<HashMap<&'static str, FunctionDefinition>> = OnceLock::new();
+/// Maps symbol ID -> FunctionDefinition for fast O(1) lookup
+static REGISTRY: OnceLock<HashMap<u64, FunctionDefinition>> = OnceLock::new();
 
 /// Initialize the registry with all function definitions
-fn init_registry() -> HashMap<&'static str, FunctionDefinition> {
+fn init_registry() -> HashMap<u64, FunctionDefinition> {
     let mut map = HashMap::with_capacity(70);
 
     // Populate from definitions
     for def in crate::functions::definitions::all_definitions() {
-        map.insert(def.name, def);
+        // Intern the name to get its ID
+        let sym = get_or_intern(def.name);
+        map.insert(sym.id(), def);
     }
 
     map
@@ -47,8 +53,8 @@ fn init_registry() -> HashMap<&'static str, FunctionDefinition> {
 pub(crate) struct Registry;
 
 impl Registry {
-    /// Get a function definition by name - O(1) HashMap lookup
-    pub(crate) fn get(name: &str) -> Option<&'static FunctionDefinition> {
-        REGISTRY.get_or_init(init_registry).get(name)
+    /// Get a function definition by symbol - O(1) lookup using ID
+    pub(crate) fn get_by_symbol(sym: &InternedSymbol) -> Option<&'static FunctionDefinition> {
+        REGISTRY.get_or_init(init_registry).get(&sym.id())
     }
 }

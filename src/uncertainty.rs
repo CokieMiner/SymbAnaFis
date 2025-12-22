@@ -11,13 +11,8 @@
 //! JCGM 100:2008 "Evaluation of measurement data — Guide to the expression
 //! of uncertainty in measurement" (GUM), Section 5.1.2
 //! <https://www.bipm.org/documents/20126/2071204/JCGM_100_2008_E.pdf>
-//!
-//! # TODO
-//!
-//! - [ ] Cross-term optimization: compute upper triangle only and double cross-terms
-//!   σ² = Σᵢ (∂f/∂xᵢ)² σᵢ² + 2 Σᵢ<ⱼ (∂f/∂xᵢ)(∂f/∂xⱼ) Cov(xᵢ, xⱼ)
-//! - [ ] Matrix symmetry validation: assert Cov[i][j] = Cov[j][i]
 
+use crate::core::traits::EPSILON;
 use crate::{Diff, DiffError, Expr};
 
 /// Covariance matrix entry - can be numeric or symbolic
@@ -31,6 +26,7 @@ pub enum CovEntry {
 
 impl CovEntry {
     /// Convert the entry to an Expr
+    #[inline]
     pub fn to_expr(&self) -> Expr {
         match self {
             CovEntry::Num(n) => Expr::number(*n),
@@ -39,9 +35,10 @@ impl CovEntry {
     }
 
     /// Check if the entry is zero
+    #[inline]
     pub fn is_zero(&self) -> bool {
         match self {
-            CovEntry::Num(n) => n.abs() < 1e-15,
+            CovEntry::Num(n) => n.abs() < EPSILON,
             CovEntry::Symbolic(_) => false,
         }
     }
@@ -71,8 +68,36 @@ pub struct CovarianceMatrix {
 
 impl CovarianceMatrix {
     /// Create a new covariance matrix from a 2D vector of entries
-    pub fn new(entries: Vec<Vec<CovEntry>>) -> Self {
-        CovarianceMatrix { entries }
+    ///
+    /// # Errors
+    /// Returns an error if the matrix is not square or if it's not symmetric for numeric entries.
+    pub fn new(entries: Vec<Vec<CovEntry>>) -> Result<Self, DiffError> {
+        let n = entries.len();
+        // Validate square matrix
+        for (i, row) in entries.iter().enumerate() {
+            if row.len() != n {
+                return Err(DiffError::UnsupportedOperation(format!(
+                    "Covariance matrix must be square: row {} has {} entries, expected {}",
+                    i,
+                    row.len(),
+                    n
+                )));
+            }
+        }
+        // Validate symmetry for numeric entries
+        for i in 0..n {
+            for j in (i + 1)..n {
+                if let (CovEntry::Num(a), CovEntry::Num(b)) = (&entries[i][j], &entries[j][i])
+                    && (a - b).abs() >= EPSILON
+                {
+                    return Err(DiffError::UnsupportedOperation(format!(
+                        "Covariance matrix must be symmetric: Cov[{}][{}]={} != Cov[{}][{}]={}",
+                        i, j, a, j, i, b
+                    )));
+                }
+            }
+        }
+        Ok(CovarianceMatrix { entries })
     }
 
     /// Create a diagonal covariance matrix (uncorrelated variables)
@@ -83,11 +108,12 @@ impl CovarianceMatrix {
         for (i, var) in variances.into_iter().enumerate() {
             entries[i][i] = var;
         }
+        // Skip validation for diagonal (guaranteed symmetric)
         CovarianceMatrix { entries }
     }
 
     /// Create a diagonal covariance matrix from symbolic variance names
-    /// (e.g., ["sigma_x", "sigma_y"] creates σ_x² and σ_y² on diagonal)
+    /// (e.g., ["x", "y"] creates σ_x² and σ_y² on diagonal)
     pub fn diagonal_symbolic(var_names: &[&str]) -> Self {
         let n = var_names.len();
         let mut entries = vec![vec![CovEntry::Num(0.0); n]; n];
@@ -96,15 +122,18 @@ impl CovarianceMatrix {
             let sigma_sq = Expr::pow(Expr::symbol(format!("sigma_{}", name)), Expr::number(2.0));
             entries[i][i] = CovEntry::Symbolic(sigma_sq);
         }
+        // Skip validation for diagonal (guaranteed symmetric)
         CovarianceMatrix { entries }
     }
 
     /// Get the covariance entry at (i, j)
+    #[inline]
     pub fn get(&self, i: usize, j: usize) -> Option<&CovEntry> {
         self.entries.get(i).and_then(|row| row.get(j))
     }
 
     /// Get the dimension of the matrix
+    #[inline]
     pub fn dim(&self) -> usize {
         self.entries.len()
     }
@@ -123,19 +152,20 @@ impl CovarianceMatrix {
 /// The symbolic expression for σ_f (standard deviation of f)
 ///
 /// # Example
-/// ```ignore
-/// use symb_anafis::{symb, uncertainty_propagation, CovarianceMatrix};
+/// ```
+/// use symb_anafis::{symb, uncertainty_propagation, CovarianceMatrix, CovEntry};
 ///
-/// let x = symb("x");
-/// let y = symb("y");
+/// let x = symb("uncertainty_doc_x");
+/// let y = symb("uncertainty_doc_y");
 /// let expr = &x + &y;  // f = x + y
 ///
-/// // Uncorrelated: σ_f² = σ_x² + σ_y²
-/// let result = uncertainty_propagation(&expr, &["x", "y"], None)?;
+/// // Uncorrelated with symbolic variances: σ_f² = σ_x² + σ_y²
+/// let result = uncertainty_propagation(&expr, &["uncertainty_doc_x", "uncertainty_doc_y"], None).unwrap();
+/// assert!(!format!("{}", result).is_empty());
 ///
-/// // With correlation matrix:
-/// let cov = CovarianceMatrix::diagonal_symbolic(&["x", "y"]);
-/// let result = uncertainty_propagation(&expr, &["x", "y"], Some(&cov))?;
+/// // With numeric variances:
+/// let cov = CovarianceMatrix::diagonal(vec![CovEntry::Num(1.0), CovEntry::Num(4.0)]);
+/// let result = uncertainty_propagation(&expr, &["uncertainty_doc_x", "uncertainty_doc_y"], Some(&cov)).unwrap();
 /// ```
 pub fn uncertainty_propagation(
     expr: &Expr,
@@ -178,11 +208,11 @@ pub fn uncertainty_propagation(
         }
     };
 
-    // Build the uncertainty expression: Σᵢ Σⱼ (∂f/∂xᵢ)(∂f/∂xⱼ) Cov(xᵢ, xⱼ)
+    // Build the uncertainty expression: Σᵢ (∂f/∂xᵢ)² σᵢ² + 2 Σᵢ<ⱼ (∂f/∂xᵢ)(∂f/∂xⱼ) Cov(xᵢ, xⱼ)
     let mut terms: Vec<Expr> = Vec::new();
 
     for i in 0..n {
-        for j in 0..n {
+        for j in i..n {
             let cov_entry = cov.get(i, j).ok_or_else(|| {
                 DiffError::UnsupportedOperation(
                     "Covariance matrix access out of bounds".to_string(),
@@ -195,24 +225,24 @@ pub fn uncertainty_propagation(
             }
 
             // Term: (∂f/∂xᵢ) * (∂f/∂xⱼ) * Cov(xᵢ, xⱼ)
-            let term = Expr::mul_expr(
+            let mut term = Expr::mul_expr(
                 Expr::mul_expr(partials[i].clone(), partials[j].clone()),
                 cov_entry.to_expr(),
             );
+
+            // Double the cross-terms (i < j)
+            if i < j {
+                term = Expr::mul_expr(Expr::number(2.0), term);
+            }
 
             terms.push(term);
         }
     }
 
-    // Sum all terms
-    if terms.is_empty() {
-        return Ok(Expr::number(0.0));
-    }
-
-    let mut variance = terms.remove(0);
-    for term in terms {
-        variance = Expr::add_expr(variance, term);
-    }
+    let variance = terms
+        .into_iter()
+        .reduce(Expr::add_expr)
+        .unwrap_or_else(|| Expr::number(0.0));
 
     // Simplify the variance, then wrap in sqrt for σ_f = sqrt(σ_f²)
     let simplified_variance = variance.simplified()?;
@@ -269,8 +299,8 @@ mod tests {
 
         let result = uncertainty_propagation(&expr, &["x", "y"], None).unwrap();
 
-        // Result should be non-zero
-        assert!(!matches!(result.kind, crate::ExprKind::Number(n) if n == 0.0));
+        // Result should be non-zero (it's a symbolic expression, not just 0.0)
+        assert!(!result.is_zero_num());
     }
 
     #[test]
@@ -289,8 +319,13 @@ mod tests {
         let result = uncertainty_propagation(&expr, &["x", "y"], Some(&cov)).unwrap();
 
         // For x + y: σ_f = sqrt(1 + 4) = sqrt(5) ≈ 2.236
-        if let crate::ExprKind::Number(n) = result.kind {
-            assert!((n - 5.0_f64.sqrt()).abs() < 1e-10);
+        if let Some(n) = result.as_number() {
+            assert!(
+                (n - 5.0_f64.sqrt()).abs() < 1e-10,
+                "Expected {}, got {}",
+                5.0_f64.sqrt(),
+                n
+            );
         }
     }
 

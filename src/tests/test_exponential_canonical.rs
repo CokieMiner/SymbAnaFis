@@ -16,7 +16,7 @@ mod tests {
         if let Ok(ast) = parse(&result, &HashSet::new(), &HashSet::new(), None) {
             match ast.kind {
                 ExprKind::FunctionCall { name, args } => {
-                    assert_eq!(name, "exp");
+                    assert_eq!(name.as_str(), "exp");
                     assert_eq!(args.len(), 1);
                     // Should be exp(2*x) or exp(Product([2, x]))
                     if let ExprKind::Product(factors) = &args[0].kind {

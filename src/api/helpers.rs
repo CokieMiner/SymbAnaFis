@@ -9,6 +9,7 @@ use std::collections::HashSet;
 // ===== Internal Helpers =====
 
 /// Empty context for parsing without custom functions or fixed variables
+#[inline]
 fn empty_context() -> (HashSet<String>, HashSet<String>) {
     (HashSet::new(), HashSet::new())
 }
@@ -58,16 +59,18 @@ fn jacobian_internal(exprs: &[Expr], vars: &[&str]) -> Vec<Vec<Expr>> {
 /// Returns a vector of partial derivatives [∂f/∂x₁, ∂f/∂x₂, ...]
 ///
 /// # Example
-/// ```ignore
-/// let x = symb("x");
-/// let y = symb("y");
+/// ```
+/// use symb_anafis::{symb, gradient};
+/// let x = symb("gradient_x");
+/// let y = symb("gradient_y");
 /// let expr = x.pow(2.0) + y.pow(2.0);
 /// let grad = gradient(&expr, &[&x, &y]);
-/// // grad = [2*x, 2*y]
+/// assert_eq!(grad.len(), 2);
 /// ```
 pub fn gradient(expr: &Expr, vars: &[&Symbol]) -> Vec<Expr> {
-    let var_names: Vec<&str> = vars.iter().filter_map(|s| s.name()).collect();
-    gradient_internal(expr, &var_names)
+    let var_names: Vec<String> = vars.iter().filter_map(|s| s.name()).collect();
+    let var_refs: Vec<&str> = var_names.iter().map(|s| s.as_str()).collect();
+    gradient_internal(expr, &var_refs)
 }
 
 /// Compute the Hessian matrix of an expression
@@ -75,33 +78,39 @@ pub fn gradient(expr: &Expr, vars: &[&Symbol]) -> Vec<Expr> {
 /// H\[i\]\[j\] = ∂²f/∂xᵢ∂xⱼ
 ///
 /// # Example
-/// ```ignore
-/// let x = symb("x");
-/// let y = symb("y");
+/// ```
+/// use symb_anafis::{symb, hessian};
+/// let x = symb("hessian_x");
+/// let y = symb("hessian_y");
 /// let expr = x.pow(2.0) * &y;
 /// let hess = hessian(&expr, &[&x, &y]);
-/// // hess = [[2*y, 2*x], [2*x, 0]]
+/// assert_eq!(hess.len(), 2);
+/// assert_eq!(hess[0].len(), 2);
 /// ```
 pub fn hessian(expr: &Expr, vars: &[&Symbol]) -> Vec<Vec<Expr>> {
-    let var_names: Vec<&str> = vars.iter().filter_map(|s| s.name()).collect();
-    hessian_internal(expr, &var_names)
+    let var_names: Vec<String> = vars.iter().filter_map(|s| s.name()).collect();
+    let var_refs: Vec<&str> = var_names.iter().map(|s| s.as_str()).collect();
+    hessian_internal(expr, &var_refs)
 }
 
 /// Compute the Jacobian matrix of a vector of expressions
 /// Returns a 2D vector where `J[i][j]` = ∂fᵢ/∂xⱼ
 ///
 /// # Example
-/// ```ignore
-/// let x = symb("x");
-/// let y = symb("y");
+/// ```
+/// use symb_anafis::{symb, jacobian};
+/// let x = symb("jacobian_x");
+/// let y = symb("jacobian_y");
 /// let f1 = x.pow(2.0) + &y;
 /// let f2 = &x * &y;
 /// let jac = jacobian(&[f1, f2], &[&x, &y]);
-/// // jac = [[2*x, 1], [y, x]]
+/// assert_eq!(jac.len(), 2);
+/// assert_eq!(jac[0].len(), 2);
 /// ```
 pub fn jacobian(exprs: &[Expr], vars: &[&Symbol]) -> Vec<Vec<Expr>> {
-    let var_names: Vec<&str> = vars.iter().filter_map(|s| s.name()).collect();
-    jacobian_internal(exprs, &var_names)
+    let var_names: Vec<String> = vars.iter().filter_map(|s| s.name()).collect();
+    let var_refs: Vec<&str> = var_names.iter().map(|s| s.as_str()).collect();
+    jacobian_internal(exprs, &var_refs)
 }
 
 // ===== String-based API =====
@@ -109,9 +118,11 @@ pub fn jacobian(exprs: &[Expr], vars: &[&Symbol]) -> Vec<Vec<Expr>> {
 /// Compute gradient from a formula string
 ///
 /// # Example
-/// ```ignore
-/// let grad = gradient_str("x^2 + y^2", &["x", "y"])?;
-/// // grad = ["2x", "2y"]
+/// ```
+/// use symb_anafis::gradient_str;
+/// let grad = gradient_str("x^2 + y^2", &["x", "y"]).unwrap();
+/// assert_eq!(grad.len(), 2);
+/// assert_eq!(grad[0], "2*x");
 /// ```
 pub fn gradient_str(formula: &str, vars: &[&str]) -> Result<Vec<String>, DiffError> {
     let (fixed_vars, custom_fns) = empty_context();
@@ -125,9 +136,11 @@ pub fn gradient_str(formula: &str, vars: &[&str]) -> Result<Vec<String>, DiffErr
 /// Compute Hessian matrix from a formula string
 ///
 /// # Example
-/// ```ignore
-/// let hess = hessian_str("x^2 * y", &["x", "y"])?;
-/// // hess = [["2y", "2x"], ["2x", "0"]]
+/// ```
+/// use symb_anafis::hessian_str;
+/// let hess = hessian_str("x^2 + y^2", &["x", "y"]).unwrap();
+/// assert_eq!(hess.len(), 2);
+/// assert_eq!(hess[0][0], "2");
 /// ```
 pub fn hessian_str(formula: &str, vars: &[&str]) -> Result<Vec<Vec<String>>, DiffError> {
     let (fixed_vars, custom_fns) = empty_context();
@@ -144,9 +157,11 @@ pub fn hessian_str(formula: &str, vars: &[&str]) -> Result<Vec<Vec<String>>, Dif
 /// Compute Jacobian matrix from formula strings
 ///
 /// # Example
-/// ```ignore
-/// let jac = jacobian_str(&["x^2 + y", "x * y"], &["x", "y"])?;
-/// // jac = [["2x", "1"], ["y", "x"]]
+/// ```
+/// use symb_anafis::jacobian_str;
+/// let jac = jacobian_str(&["x^2 + y", "x * y"], &["x", "y"]).unwrap();
+/// assert_eq!(jac.len(), 2);
+/// assert_eq!(jac[0][0], "2*x");
 /// ```
 pub fn jacobian_str(formulas: &[&str], vars: &[&str]) -> Result<Vec<Vec<String>>, DiffError> {
     let (fixed_vars, custom_fns) = empty_context();
@@ -168,12 +183,14 @@ pub fn jacobian_str(formulas: &[&str], vars: &[&str]) -> Result<Vec<Vec<String>>
 /// Performs partial evaluation - returns simplified expression string
 ///
 /// # Example
-/// ```ignore
-/// let result = evaluate_str("x * y + 1", &[("x", 3.0)])?;
-/// // result = "3y + 1"
+/// ```
+/// use symb_anafis::evaluate_str;
+/// let result = evaluate_str("x * y", &[("x", 3.0), ("y", 2.0)]).unwrap();
+/// assert_eq!(result, "6");
 ///
-/// let result = evaluate_str("x * y + 1", &[("x", 3.0), ("y", 2.0)])?;
-/// // result = "7"
+/// // Partial evaluation:
+/// let result = evaluate_str("x * y", &[("x", 3.0)]).unwrap();
+/// assert!(result.contains("3") && result.contains("y"));
 /// ```
 pub fn evaluate_str(formula: &str, vars: &[(&str, f64)]) -> Result<String, DiffError> {
     let (fixed_vars, custom_fns) = empty_context();

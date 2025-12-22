@@ -1,3 +1,4 @@
+use crate::core::known_symbols::{CBRT, SQRT};
 use crate::simplification::rules::{ExprKind, Rule, RuleCategory, RuleContext};
 use crate::{Expr, ExprKind as AstKind};
 
@@ -88,7 +89,7 @@ rule!(
                         }
                     }
                     AstKind::FunctionCall { name, .. } => {
-                        matches!(name.as_str(), "sqrt" | "cbrt") && *n >= 2.0
+                        (name.id() == *SQRT || name.id() == *CBRT) && *n >= 2.0
                     }
                     AstKind::Number(_) => true,
                     _ => false,
@@ -129,13 +130,13 @@ rule!(
                             }
                         }
                         AstKind::FunctionCall { name, .. } => {
-                            matches!(name.as_str(), "sqrt" | "cbrt") && *n >= 2.0
+                            (name.id() == *SQRT || name.id() == *CBRT) && *n >= 2.0
                         }
                         AstKind::Number(_) => true,
                         AstKind::Product(factors) => factors.iter().any(|f| match &f.kind {
                             AstKind::Number(_) => true,
                             AstKind::FunctionCall { name, .. } => {
-                                matches!(name.as_str(), "sqrt" | "cbrt")
+                                name.id() == *SQRT || name.id() == *CBRT
                             }
                             AstKind::Pow(_, inner_exp) => {
                                 if let AstKind::Number(inner_n) = &inner_exp.kind {
@@ -244,10 +245,3 @@ rule!(
         None
     }
 );
-
-// REMOVED: ExpandDifferenceOfSquaresProductRule
-// This rule created a cycle with FactorDifferenceOfSquaresRule:
-//   (x-y)(x+y) -> x^2 - y^2 -> (x-y)(x+y) -> ...
-// We prefer the FACTORED form for canonicalization, so this expansion
-// rule was intentionally removed. If explicit expand() is needed later,
-// this rule can be re-implemented as part of a separate "expand" pass.

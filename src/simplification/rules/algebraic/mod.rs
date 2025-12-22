@@ -69,6 +69,5 @@ pub(crate) fn get_algebraic_rules() -> Vec<Arc<dyn Rule + Send + Sync>> {
         Arc::new(combination::CombineTermsRule),
         Arc::new(combination::CombineFactorsRule),
         Arc::new(combination::CombineLikeTermsInSumRule),
-        Arc::new(combination::DistributeNegationRule),
     ]
 }

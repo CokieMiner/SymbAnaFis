@@ -215,8 +215,8 @@ impl PyExpr {
     fn abs(&self) -> PyExpr {
         PyExpr(self.0.clone().abs())
     }
-    fn sign(&self) -> PyExpr {
-        PyExpr(self.0.clone().sign())
+    fn signum(&self) -> PyExpr {
+        PyExpr(self.0.clone().signum())
     }
     fn sinc(&self) -> PyExpr {
         PyExpr(self.0.clone().sinc())
@@ -235,6 +235,27 @@ impl PyExpr {
     }
     fn trigamma(&self) -> PyExpr {
         PyExpr(self.0.clone().trigamma())
+    }
+    fn tetragamma(&self) -> PyExpr {
+        PyExpr(self.0.clone().tetragamma())
+    }
+    fn floor(&self) -> PyExpr {
+        PyExpr(self.0.clone().floor())
+    }
+    fn ceil(&self) -> PyExpr {
+        PyExpr(self.0.clone().ceil())
+    }
+    fn round(&self) -> PyExpr {
+        PyExpr(self.0.clone().round())
+    }
+    fn elliptic_k(&self) -> PyExpr {
+        PyExpr(self.0.clone().elliptic_k())
+    }
+    fn elliptic_e(&self) -> PyExpr {
+        PyExpr(self.0.clone().elliptic_e())
+    }
+    fn exp_polar(&self) -> PyExpr {
+        PyExpr(self.0.clone().exp_polar())
     }
     fn polygamma(&self, n: f64) -> PyExpr {
         PyExpr(self.0.clone().polygamma(n))
@@ -263,6 +284,69 @@ impl PyExpr {
 
     fn pow(&self, exp: f64) -> PyExpr {
         PyExpr(self.0.clone().pow_of(exp))
+    }
+
+    // Multi-argument functions
+    /// Two-argument arctangent: atan2(y, x) = angle to point (x, y)
+    fn atan2(&self, x: &PyExpr) -> PyExpr {
+        PyExpr(RustExpr::func_multi(
+            "atan2",
+            vec![self.0.clone(), x.0.clone()],
+        ))
+    }
+
+    /// Hermite polynomial H_n(self)
+    fn hermite(&self, n: i32) -> PyExpr {
+        PyExpr(RustExpr::func_multi(
+            "hermite",
+            vec![RustExpr::number(n as f64), self.0.clone()],
+        ))
+    }
+
+    /// Associated Legendre polynomial P_l^m(self)
+    fn assoc_legendre(&self, l: i32, m: i32) -> PyExpr {
+        PyExpr(RustExpr::func_multi(
+            "assoc_legendre",
+            vec![
+                RustExpr::number(l as f64),
+                RustExpr::number(m as f64),
+                self.0.clone(),
+            ],
+        ))
+    }
+
+    /// Spherical harmonic Y_l^m(theta, phi) where self is theta
+    fn spherical_harmonic(&self, l: i32, m: i32, phi: &PyExpr) -> PyExpr {
+        PyExpr(RustExpr::func_multi(
+            "spherical_harmonic",
+            vec![
+                RustExpr::number(l as f64),
+                RustExpr::number(m as f64),
+                self.0.clone(),
+                phi.0.clone(),
+            ],
+        ))
+    }
+
+    /// Alternative spherical harmonic notation Y_l^m(theta, phi)
+    fn ynm(&self, l: i32, m: i32, phi: &PyExpr) -> PyExpr {
+        PyExpr(RustExpr::func_multi(
+            "ynm",
+            vec![
+                RustExpr::number(l as f64),
+                RustExpr::number(m as f64),
+                self.0.clone(),
+                phi.0.clone(),
+            ],
+        ))
+    }
+
+    /// Derivative of Riemann zeta function: zeta^(n)(self)
+    fn zeta_deriv(&self, n: i32) -> PyExpr {
+        PyExpr(RustExpr::func_multi(
+            "zeta_deriv",
+            vec![RustExpr::number(n as f64), self.0.clone()],
+        ))
     }
 
     // Output formats

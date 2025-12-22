@@ -123,6 +123,11 @@ let x2 = ctx2.symb("x");  // id: 5678 (different!)
 // Build expressions using context symbols
 let y = ctx1.symb("y");
 let expr = x1 + y;  // Uses symbols from ctx1
+
+// Use with builders to ensure correct symbol resolution
+let diff = Diff::new()
+    .with_context(&ctx1)
+    .diff_str("x^2 + y", "x")?;
 ```
 
 **SymbolContext API:**
@@ -205,11 +210,30 @@ use symb_anafis::{Diff, sym};
 
 let result = Diff::new()
     .domain_safe(true)       // Preserve mathematical domains
+    .skip_simplification(true) // Return raw derivative (faster, for benchmarks)
     .max_depth(200)          // AST depth limit
     .max_nodes(50000)        // Node count limit
-    .fixed_var(&symb("a"))    // Single constant
+    .with_context(&ctx)      // Use specific symbol context
+    .fixed_var(&symb("a"))   // Single constant
     .custom_fn("f")          // Register function name
     .diff_str("a * f(x)", "x")?;
+```
+
+**`Diff` Builder Methods:**
+
+| Method | Description |
+|--------|-------------|
+| `domain_safe(bool)` | If true, prevents simplifications that change the domain (e.g., `x/x` $\ne$ `1` if x=0). |
+| `skip_simplification(bool)` | If true, returns the raw unsimplified derivative. Useful for benchmarking or inspecting the raw output of derivation rules. |
+| `fixed_var(&Symbol)` | Registers a variable as constant during differentiation. |
+| `fixed_vars(&[&Symbol])` | Registers multiple constants. |
+| `custom_fn(name)` | Registers a custom function name so the parser recognizes it. |
+| `custom_derivative(name, fn)` | Defines a derivative rule for a custom function. |
+| `custom_eval(name, fn)` | Defines a numeric evaluation rule for a custom function. |
+| `custom_fn_multi(name, fn)` | Defines a multi-argument custom function with partial derivatives. |
+| `with_context(&SymbolContext)` | Sets the symbol context for variable resolution. |
+| `max_depth(usize)` | Sets the limit for expression tree depth (prevents stack overflow). |
+| `max_nodes(usize)` | Sets the limit for total nodes (prevents DoS). |
 ```
 
 ### `Simplify` Builder
@@ -219,9 +243,24 @@ use symb_anafis::Simplify;
 
 let result = Simplify::new()
     .domain_safe(true)
-    .simplify_str("sqrt(x^2)")?;
-// With domain_safe: "abs(x)"
-// Without: "x"
+    .fixed_var(&symb("a"))
+    .simplify_str("sqrt(x^2) + a")?;
+// With domain_safe: "abs(x) + a"
+// Without: "x + a"
+```
+
+**`Simplify` Builder Methods:**
+
+| Method | Description |
+|--------|-------------|
+| `domain_safe(bool)` | If true, prevents simplifications that change the domain. |
+| `fixed_var(&Symbol)` | Registers a variable as constant. |
+| `fixed_vars(&[&Symbol])` | Registers multiple constants. |
+| `custom_fn(name)` | Registers a custom function name. |
+| `custom_eval(name, fn)` | Defines a numeric evaluation rule for a custom function. |
+| `with_context(&SymbolContext)` | Sets the symbol context. |
+| `max_depth(usize)` | Sets the limit for expression tree depth. |
+| `max_nodes(usize)` | Sets the limit for total nodes. |
 ```
 
 ### Type-Safe Expressions
@@ -313,7 +352,7 @@ use symb_anafis::{uncertainty_propagation, CovarianceMatrix, CovEntry};
 let cov = CovarianceMatrix::diagonal(vec![
     CovEntry::Num(1.0),  // σ_x² = 1
     CovEntry::Num(4.0),  // σ_y² = 4
-]);
+])?;  // Returns Result
 
 let sigma = uncertainty_propagation(&expr, &["x", "y"], Some(&cov))?;
 // For f = x + y: σ_f = sqrt(1 + 4) = sqrt(5)
@@ -346,14 +385,14 @@ let rho = symb("rho");  // correlation coefficient
 // Build the full 2x2 covariance matrix
 let cov = CovarianceMatrix::new(vec![
     vec![
-        CovEntry::Symbolic(sigma_x.pow(2.0)),          // [0,0]: σ_x²
-        CovEntry::Symbolic(&rho * &sigma_x * &sigma_y),    // [0,1]: ρ·σ_x·σ_y
+        CovEntry::Symbolic(sigma_x.pow(2.0)),              // [0,0]: σ_x²
+        CovEntry::Symbolic(rho * sigma_x * sigma_y),       // [0,1]: ρ·σ_x·σ_y
     ],
     vec![
-        CovEntry::Symbolic(&rho * &sigma_x * &sigma_y),    // [1,0]: ρ·σ_x·σ_y
-        CovEntry::Symbolic(sigma_y.pow(2.0)),          // [1,1]: σ_y²
+        CovEntry::Symbolic(rho * sigma_x * sigma_y),       // [1,0]: ρ·σ_x·σ_y
+        CovEntry::Symbolic(sigma_y.pow(2.0)),              // [1,1]: σ_y²
     ],
-]);
+])?;  // Returns Result - validates matrix dimensions
 
 let sigma = uncertainty_propagation(&expr, &["x", "y"], Some(&cov))?;
 // Result includes cross-terms with ρ
@@ -376,7 +415,7 @@ let cov = CovarianceMatrix::new(vec![
         CovEntry::Num(rho * sigma_x * sigma_y),            // ρ·σ_x·σ_y = 0.01
         CovEntry::Num(sigma_y.powi(2)),                    // σ_y² = 0.04
     ],
-]);
+])?;
 ```
 
 ### Relative Uncertainty
@@ -673,7 +712,7 @@ let result = Diff::new().diff_str("gamma(x)", "x")?;
 // Result: digamma(x) * gamma(x)
 
 let result = Diff::new().diff_str("besselj(0, x)", "x")?;
-// Result: -besselj(1, x)  (Bessel recurrence relation)
+// Result: (besselj(-1, x) - besselj(1, x)) / 2  (Bessel recurrence)
 ```
 
 ---

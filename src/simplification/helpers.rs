@@ -3,17 +3,20 @@
 //! Provides expression manipulation utilities: flattening, normalization,
 //! coefficient extraction, root prettification, and like-term grouping.
 
+use crate::core::known_symbols::{ABS, ABS_CAP, COSH, EXP, PI as PI_SYM, SQRT};
+use crate::core::symbol::InternedSymbol;
 use crate::{Expr, ExprKind};
+use std::collections::HashSet;
 use std::sync::Arc;
 
 // Extracts (name, arg) for pow of function: name(arg)^power
-pub(crate) fn get_fn_pow_named(expr: &Expr, power: f64) -> Option<(&str, Expr)> {
+pub(crate) fn get_fn_pow_symbol(expr: &Expr, power: f64) -> Option<(InternedSymbol, Expr)> {
     if let ExprKind::Pow(base, exp) = &expr.kind
         && matches!(exp.kind, ExprKind::Number(n) if n == power)
         && let ExprKind::FunctionCall { name, args } = &base.kind
         && args.len() == 1
     {
-        return Some((name.as_str(), (*args[0]).clone()));
+        return Some((name.clone(), (*args[0]).clone()));
     }
     None
 }
@@ -48,7 +51,7 @@ pub(crate) fn is_multiple_of_two_pi(expr: &Expr) -> bool {
         for f in factors {
             match &f.kind {
                 ExprKind::Number(n) => num_coeff = Some(num_coeff.unwrap_or(1.0) * n),
-                ExprKind::Symbol(s) if s == "pi" => has_pi = true,
+                ExprKind::Symbol(s) if s.id() == *PI_SYM => has_pi = true,
                 _ => return false,
             }
         }
@@ -75,14 +78,13 @@ pub(crate) fn is_three_pi_over_two(expr: &Expr) -> bool {
 }
 
 /// Flatten nested multiplication into a list of factors
-/// Uses references during traversal, only clones leaf nodes
-pub(crate) fn flatten_mul(expr: &Expr) -> Vec<Expr> {
-    // For n-ary Product, simply return the factors
+/// Returns slice reference to avoid cloning when expr is already a Product
+pub(crate) fn flatten_mul_arcs(expr: &Expr) -> Option<&[Arc<Expr>]> {
     if let ExprKind::Product(factors) = &expr.kind {
-        return factors.iter().map(|f| (**f).clone()).collect();
+        Some(factors.as_slice())
+    } else {
+        None
     }
-    // For non-products, return the expression itself as a single factor
-    vec![expr.clone()]
 }
 
 /// Compare expressions for canonical polynomial ordering
@@ -101,23 +103,23 @@ pub(crate) fn compare_expr(a: &Expr, b: &Expr) -> std::cmp::Ordering {
     use std::cmp::Ordering;
 
     /// Extract (base_name, degree) for polynomial-style ordering.
-    /// Ordering: Numbers first, then by base name (alphabetical), then by degree (low-to-high).
-    fn get_sort_key(e: &Expr) -> (i32, String, f64) {
-        // Returns (type_priority, base_name, degree)
+    /// Returns (type_priority, base_symbol_id, degree) - uses u64 ID to avoid String alloc
+    fn get_sort_key(e: &Expr) -> (i32, u64, f64) {
+        // Returns (type_priority, symbol_id, degree)
         // Lower type_priority = comes first
         // Lower degree = comes first (low-to-high)
         match &e.kind {
-            Number(_) => (0, String::new(), 0.0),  // Numbers first
-            Symbol(s) => (10, s.to_string(), 1.0), // Variables are degree 1
+            Number(_) => (0, 0, 0.0),       // Numbers first
+            Symbol(s) => (10, s.id(), 1.0), // Variables are degree 1, use symbol ID
             Pow(base, exp) => {
                 if let Symbol(s) = &base.kind {
                     if let Number(n) = &exp.kind {
-                        (10, s.to_string(), *n) // Same priority as symbol, degree from exponent
+                        (10, s.id(), *n) // Same priority as symbol, degree from exponent
                     } else {
-                        (10, s.to_string(), 999.0) // Symbolic exponent - treat as very high degree
+                        (10, s.id(), 999.0) // Symbolic exponent - treat as very high degree
                     }
                 } else {
-                    (30, String::new(), 0.0) // Non-symbol base - complex
+                    (30, 0, 0.0) // Non-symbol base - complex
                 }
             }
             Product(factors) => {
@@ -129,13 +131,13 @@ pub(crate) fn compare_expr(a: &Expr, b: &Expr) -> std::cmp::Ordering {
                         return key;
                     }
                 }
-                (20, String::new(), 0.0) // No polynomial term found
+                (20, 0, 0.0) // No polynomial term found
             }
-            FunctionCall { name, .. } => (40, name.to_string(), 0.0),
-            Sum(..) => (50, String::new(), 0.0),
-            Div(..) => (35, String::new(), 0.0),
-            Derivative { var, .. } => (45, var.clone(), 0.0),
-            Poly(_) => (25, String::new(), 0.0), // Poly treated as complex
+            FunctionCall { name, .. } => (40, name.id(), 0.0),
+            Sum(..) => (50, 0, 0.0),
+            Div(..) => (35, 0, 0.0),
+            Derivative { .. } => (45, 0, 0.0),
+            Poly(_) => (25, 0, 0.0), // Poly treated as complex
         }
     }
 
@@ -200,19 +202,6 @@ pub(crate) fn compare_mul_factors(a: &Expr, b: &Expr) -> std::cmp::Ordering {
     }
 }
 
-/// Helper: Rebuild multiplication tree
-pub(crate) fn rebuild_mul(terms: Vec<Expr>) -> Expr {
-    if terms.is_empty() {
-        return Expr::number(1.0);
-    }
-    let mut iter = terms.into_iter();
-    let mut result = iter.next().unwrap();
-    for term in iter {
-        result = Expr::mul_expr(result, term);
-    }
-    result
-}
-
 /// Helper to extract coefficient and base
 /// Returns (coefficient, base_expr)
 /// e.g. 2*x -> (2.0, x)
@@ -254,65 +243,88 @@ pub(crate) fn extract_coeff(expr: &Expr) -> (f64, Expr) {
 /// Convert fractional powers back to roots for display
 /// x^(1/2) -> sqrt(x)
 /// x^(1/3) -> cbrt(x)
+/// Optimized: only allocates when transformation occurs
 pub(crate) fn prettify_roots(expr: Expr) -> Expr {
-    match expr.kind {
+    match &expr.kind {
         ExprKind::Pow(base, exp) => {
-            let base = prettify_roots(base.as_ref().clone());
-            let exp = prettify_roots(exp.as_ref().clone());
+            let base_pretty = prettify_roots((**base).clone());
+            let exp_pretty = prettify_roots((**exp).clone());
 
             // x^(1/2) -> sqrt(x)
-            if let ExprKind::Div(num, den) = &exp.kind
-                && matches!(num.kind, ExprKind::Number(n) if n == 1.0)
-                && matches!(den.kind, ExprKind::Number(n) if n == 2.0)
-            {
-                return Expr::func("sqrt", base);
+            if let ExprKind::Div(num, den) = &exp_pretty.kind {
+                if matches!(num.kind, ExprKind::Number(n) if n == 1.0)
+                    && matches!(den.kind, ExprKind::Number(n) if n == 2.0)
+                {
+                    return Expr::func("sqrt", base_pretty);
+                }
+                // x^(1/3) -> cbrt(x)
+                if matches!(num.kind, ExprKind::Number(n) if n == 1.0)
+                    && matches!(den.kind, ExprKind::Number(n) if n == 3.0)
+                {
+                    return Expr::func("cbrt", base_pretty);
+                }
             }
             // x^0.5 -> sqrt(x)
-            if let ExprKind::Number(n) = &exp.kind
-                && (n - 0.5).abs() < 1e-10
-            {
-                return Expr::func("sqrt", base);
+            if let ExprKind::Number(n) = &exp_pretty.kind
+                && (n - 0.5).abs() < 1e-10 {
+                    return Expr::func("sqrt", base_pretty);
+                }
+
+            // Check if children changed
+            if base_pretty.id == base.id && exp_pretty.id == exp.id {
+                return expr; // No change, return original
             }
-
-            // Note: x^-0.5 is NOT converted to 1/sqrt(x) because that would
-            // interfere with fraction consolidation rules. The NegativeExponentToFractionRule
-            // handles x^(-n) -> 1/x^n, then prettify_roots converts x^(1/2) -> sqrt(x).
-
-            // x^(1/3) -> cbrt(x)
-            if let ExprKind::Div(num, den) = &exp.kind
-                && matches!(num.kind, ExprKind::Number(n) if n == 1.0)
-                && matches!(den.kind, ExprKind::Number(n) if n == 3.0)
-            {
-                return Expr::func("cbrt", base);
-            }
-
-            Expr::pow(base, exp)
+            Expr::pow(base_pretty, exp_pretty)
         }
-        // Recursively prettify subexpressions
-        ExprKind::Sum(terms) => Expr::sum(
-            terms
+        ExprKind::Sum(terms) => {
+            let new_terms: Vec<Expr> = terms
                 .iter()
                 .map(|t| prettify_roots((**t).clone()))
-                .collect(),
-        ),
-        ExprKind::Product(factors) => Expr::product(
-            factors
+                .collect();
+            let changed = new_terms
+                .iter()
+                .zip(terms.iter())
+                .any(|(new, old)| new.id != old.id);
+            if !changed {
+                return expr;
+            }
+            Expr::sum(new_terms)
+        }
+        ExprKind::Product(factors) => {
+            let new_factors: Vec<Expr> = factors
                 .iter()
                 .map(|f| prettify_roots((**f).clone()))
-                .collect(),
-        ),
-        ExprKind::Div(u, v) => Expr::div_expr(
-            prettify_roots(u.as_ref().clone()),
-            prettify_roots(v.as_ref().clone()),
-        ),
-        ExprKind::FunctionCall { name, args } => Expr::new(ExprKind::FunctionCall {
-            name,
-            args: args
-                .into_iter()
-                .map(|a| Arc::new(prettify_roots((*a).clone())))
-                .collect(),
-        }),
-        _ => Expr::new(expr.kind), // Reconstruct
+                .collect();
+            let changed = new_factors
+                .iter()
+                .zip(factors.iter())
+                .any(|(new, old)| new.id != old.id);
+            if !changed {
+                return expr;
+            }
+            Expr::product(new_factors)
+        }
+        ExprKind::Div(u, v) => {
+            let u_pretty = prettify_roots((**u).clone());
+            let v_pretty = prettify_roots((**v).clone());
+            if u_pretty.id == u.id && v_pretty.id == v.id {
+                return expr;
+            }
+            Expr::div_expr(u_pretty, v_pretty)
+        }
+        ExprKind::FunctionCall { name, args } => {
+            let new_args: Vec<Expr> = args.iter().map(|a| prettify_roots((**a).clone())).collect();
+            let changed = new_args
+                .iter()
+                .zip(args.iter())
+                .any(|(new, old)| new.id != old.id);
+            if !changed {
+                return expr;
+            }
+            Expr::func_multi(name, new_args)
+        }
+        // Leaves: Number, Symbol, Poly, Derivative - no transformation needed
+        _ => expr,
     }
 }
 
@@ -335,16 +347,19 @@ pub(crate) fn is_known_non_negative(expr: &Expr) -> bool {
 
         // abs(x) is always non-negative
         ExprKind::FunctionCall { name, args } if args.len() == 1 => {
-            match name.as_str() {
-                "abs" | "Abs" => true,
-                // exp(x) is always positive
-                "exp" => true,
-                // cosh(x) >= 1 for all real x
-                "cosh" => true,
-                // sqrt, cbrt of non-negative is non-negative (but we can't always prove input is non-negative)
-                "sqrt" => is_known_non_negative(&args[0]),
-                _ => false,
+            if name.id() == *ABS || name.id() == *ABS_CAP {
+                return true;
             }
+            if name.id() == *EXP {
+                return true;
+            }
+            if name.id() == *COSH {
+                return true;
+            }
+            if name.id() == *SQRT {
+                return is_known_non_negative(&args[0]);
+            }
+            false
         }
 
         // Product of non-negatives is non-negative
@@ -410,37 +425,38 @@ pub(crate) fn contains_factor(expr: &Expr, factor: &Expr) -> bool {
     }
 }
 
-/// Remove factors from an expression
+/// Remove factors from an expression - O(n+m) using HashSet
+/// Uses zero-copy flatten_mul_arcs where possible
+/// Optimized to reuse Arcs and avoid deep clones
 pub(crate) fn remove_factors(expr: &Expr, factors_to_remove: &Expr) -> Expr {
     match &expr.kind {
-        ExprKind::Product(_) => {
-            let expr_factors = flatten_mul(expr);
-            let remove_factors = flatten_mul(factors_to_remove);
+        ExprKind::Product(expr_factors) => {
+            // Build HashSet of factors to remove - zero-copy storage of references
+            // We use &Expr keys which use structural equality/hashing
+            let remove_set: HashSet<&Expr> =
+                if let Some(factors) = flatten_mul_arcs(factors_to_remove) {
+                    factors.iter().map(|f| f.as_ref()).collect()
+                } else {
+                    std::iter::once(factors_to_remove).collect()
+                };
 
-            let mut remaining_factors = Vec::new();
-            for factor in expr_factors {
-                let mut should_remove = false;
-                for remove_factor in &remove_factors {
-                    if factor == *remove_factor {
-                        should_remove = true;
-                        break;
-                    }
-                }
-                if !should_remove {
-                    remaining_factors.push(factor);
-                }
-            }
+            // Filter factors - keep Arcs to avoid deep clones
+            let remaining_factors: Vec<Arc<Expr>> = expr_factors
+                .iter()
+                .filter(|f| !remove_set.contains(f.as_ref()))
+                .cloned() // Clone the Arc, ensuring shared ownership (O(1))
+                .collect();
 
-            if remaining_factors.is_empty() {
-                Expr::number(1.0)
-            } else if remaining_factors.len() == 1 {
-                remaining_factors.into_iter().next().unwrap()
-            } else {
-                rebuild_mul(remaining_factors)
+            match remaining_factors.len() {
+                0 => Expr::number(1.0),
+                // Must clone content if returning Expr (single item case)
+                1 => (*remaining_factors[0]).clone(),
+                // Zero-copy product creation
+                _ => Expr::product_from_arcs(remaining_factors),
             }
         }
         _ => {
-            // If the expression is not a multiplication, check if it matches the factors to remove
+            // If the expression is not a multiplication, check if it matches
             if expr == factors_to_remove {
                 Expr::number(1.0)
             } else {
@@ -566,17 +582,15 @@ pub(crate) fn get_term_hash(expr: &Expr) -> u64 {
                 hash_term_inner(h, inner)
             }
 
-            // Poly: Hash based on polynomial terms
+            // Poly: Hash based on base and terms
             ExprKind::Poly(poly) => {
                 let h = hash_one_byte(hash, b'Y'); // 'Y' for polY to distinguish
-                // Commutative sum of term hashes
+                // Hash the base expression
+                let h = hash_term_inner(h, poly.base());
+                // Commutative sum of term hashes (power, coeff)
                 let mut acc: u64 = 0;
-                for term in poly.terms() {
-                    let term_h = hash_f64(FNV_OFFSET, term.coeff);
-                    let term_h = term.powers.iter().fold(term_h, |h, (sym, pow)| {
-                        let h = hash_u64(h, sym.id());
-                        hash_u64(h, *pow as u64)
-                    });
+                for &(pow, coeff) in poly.terms() {
+                    let term_h = hash_u64(hash_f64(FNV_OFFSET, coeff), pow as u64);
                     acc = acc.wrapping_add(term_h);
                 }
                 hash_u64(h, acc)

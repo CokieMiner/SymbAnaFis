@@ -1,4 +1,5 @@
 use crate::core::expr::{Expr, ExprKind as AstKind};
+use crate::core::known_symbols::{E, EXP};
 
 // ============================================================================
 // SHARED HELPER FUNCTIONS FOR HYPERBOLIC PATTERN MATCHING
@@ -43,14 +44,14 @@ impl ExpTerm {
         match &expr.kind {
             AstKind::Pow(base, exp) => {
                 if let AstKind::Symbol(b) = &base.kind
-                    && b == "e"
+                    && b.id() == *E
                 {
                     return Some((**exp).clone());
                 }
                 None
             }
             AstKind::FunctionCall { name, args } => {
-                if name == "exp" && args.len() == 1 {
+                if name.id() == *EXP && args.len() == 1 {
                     return Some((*args[0]).clone());
                 }
                 None

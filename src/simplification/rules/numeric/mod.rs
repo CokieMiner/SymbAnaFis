@@ -1,8 +1,8 @@
 use crate::Expr;
 use crate::ExprKind as AstKind;
+use crate::core::known_symbols::{CBRT, SQRT};
 use crate::simplification::rules::{ExprKind, Rule, RuleCategory, RuleContext};
 use std::sync::Arc;
-
 // ===== Identity Rules for Sum (Priority 100) =====
 
 rule!(
@@ -421,6 +421,114 @@ rule_with_helpers!(FractionSimplifyRule, "fraction_simplify", 80, Numeric, &[Exp
     }
 );
 
+rule!(
+    PerfectSquareRule,
+    "perfect_square",
+    95,
+    Numeric,
+    &[ExprKind::Function],
+    |expr: &Expr, _context: &RuleContext| {
+        if let AstKind::FunctionCall { name, args } = &expr.kind
+            && name.id() == *SQRT
+            && args.len() == 1
+            && let AstKind::Number(n) = &args[0].kind
+        {
+            let s = n.sqrt();
+            if (s - s.round()).abs() < 1e-10 {
+                return Some(Expr::number(s.round()));
+            }
+        }
+        None
+    }
+);
+
+rule!(
+    PerfectCubeRule,
+    "perfect_cube",
+    95,
+    Numeric,
+    &[ExprKind::Function],
+    |expr: &Expr, _context: &RuleContext| {
+        if let AstKind::FunctionCall { name, args } = &expr.kind
+            && name.id() == *CBRT
+            && args.len() == 1
+            && let AstKind::Number(n) = &args[0].kind
+        {
+            let c = n.cbrt();
+            if (c - c.round()).abs() < 1e-10 {
+                return Some(Expr::number(c.round()));
+            }
+        }
+        None
+    }
+);
+
+rule!(
+    ProductHalfRule,
+    "product_half",
+    80,
+    Numeric,
+    &[ExprKind::Product],
+    |expr: &Expr, _context: &RuleContext| {
+        if let AstKind::Product(factors) = &expr.kind
+            && factors.len() == 2
+        {
+            if let AstKind::Number(n) = &factors[0].kind
+                && (*n - 0.5).abs() < 1e-10
+            {
+                return Some(Expr::div_expr((*factors[1]).clone(), Expr::number(2.0)));
+            }
+            if let AstKind::Number(n) = &factors[1].kind
+                && (*n - 0.5).abs() < 1e-10
+            {
+                return Some(Expr::div_expr((*factors[0]).clone(), Expr::number(2.0)));
+            }
+        }
+        None
+    }
+);
+
+rule!(
+    EvaluateNumericFunctionRule,
+    "eval_numeric_func",
+    95,
+    Numeric,
+    &[ExprKind::Function],
+    |expr: &Expr, _context: &RuleContext| {
+        if let AstKind::FunctionCall { name, args } = &expr.kind {
+            // Check if all arguments are numbers
+            let mut numeric_args = Vec::with_capacity(args.len());
+            for arg in args {
+                if let AstKind::Number(n) = &arg.kind {
+                    numeric_args.push(*n);
+                } else {
+                    return None;
+                }
+            }
+
+            // Look up function in registry and evaluate
+            // Use ID-based lookup (via InternedSymbol) for speed
+            if let Some(func_def) = crate::functions::registry::Registry::get_by_symbol(name)
+                && let Some(result) = (func_def.eval)(&numeric_args) {
+                    // Check for NaN or Inf
+                    if result.is_nan() || result.is_infinite() {
+                        return None;
+                    }
+
+                    // Only evaluate if result is an integer
+                    // This preserves symbolic forms like sqrt(2), ln(10), etc.
+                    if (result - result.round()).abs() < 1e-10 {
+                        return Some(Expr::number(result.round()));
+                    }
+
+                    // Non-integer result: keep symbolic form
+                    return None;
+                }
+        }
+        None
+    }
+);
+
 /// Get all numeric rules in priority order
 pub(crate) fn get_numeric_rules() -> Vec<Arc<dyn Rule + Send + Sync>> {
     vec![
@@ -433,11 +541,15 @@ pub(crate) fn get_numeric_rules() -> Vec<Arc<dyn Rule + Send + Sync>> {
         Arc::new(PowOneRule),
         Arc::new(ZeroPowRule),
         Arc::new(OnePowRule),
+        Arc::new(EvaluateNumericFunctionRule), // Integrated evaluation
         Arc::new(NormalizeSignDivRule),
         Arc::new(ConstantFoldSumRule),
         Arc::new(ConstantFoldProductRule),
         Arc::new(ConstantFoldDivRule),
         Arc::new(ConstantFoldPowRule),
         Arc::new(FractionSimplifyRule),
+        Arc::new(PerfectSquareRule),
+        Arc::new(PerfectCubeRule),
+        Arc::new(ProductHalfRule),
     ]
 }

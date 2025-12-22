@@ -15,6 +15,7 @@
 //!
 //! The simplification engine then handles any remaining optimization opportunities.
 
+use crate::core::known_symbols::{EXP, LN, get_symbol};
 use crate::{CustomDerivativeFn, Expr, ExprKind};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -40,7 +41,7 @@ impl Expr {
 
             ExprKind::Symbol(name) => {
                 // Standard symbol differentiation
-                if name == var && !fixed_vars.contains(name.as_ref()) {
+                if name.as_str() == var && !fixed_vars.contains(name.as_ref()) {
                     Expr::number(1.0)
                 } else {
                     Expr::number(0.0)
@@ -62,8 +63,19 @@ impl Expr {
                     return custom_rule(inner, var, &inner_prime);
                 }
 
+                // Special handling for exponential function e^x
+                // d/dx(e^x) = e^x * d/dx(x)
+                if name.id() == *EXP && args.len() == 1 {
+                    let inner_deriv =
+                        args[0].derive(var, fixed_vars, custom_derivatives, custom_fns);
+                    return Expr::product(vec![
+                        Expr::func_symbol(get_symbol(&EXP), (*args[0]).clone()),
+                        inner_deriv,
+                    ]);
+                }
+
                 // Check Registry (built-in functions like sin, cos, etc.)
-                if let Some(def) = crate::functions::registry::Registry::get(name.as_str())
+                if let Some(def) = crate::functions::registry::Registry::get_by_symbol(name)
                     && def.validate_arity(args.len())
                 {
                     let arg_primes: Vec<Expr> = args
@@ -97,8 +109,8 @@ impl Expr {
                     // Try to get partial from custom_fn, otherwise create symbolic
                     let partial = if let Some(cf) = custom_fn {
                         if let Some(partial_fn) = cf.partials.get(&i) {
-                            let args_vec = get_args_cloned(&mut args_cloned, args);
-                            partial_fn(&args_vec)
+                            // Pass args directly - they're already &[Arc<Expr>]
+                            partial_fn(args)
                         } else {
                             // No partial registered - symbolic
                             let args_vec = get_args_cloned(&mut args_cloned, args);
@@ -318,23 +330,23 @@ impl Expr {
                         Expr::number(0.0)
                     } else {
                         // Term 1: v' * ln(u)
-                        let ln_u = if matches!(&u.kind, ExprKind::Symbol(name) if name == "e")
+                        let ln_u = if matches!(&u.kind, ExprKind::Symbol(name) if name.id() == *EXP)
                             && !fixed_vars.contains("e")
                         {
                             Expr::number(1.0) // ln(e) = 1
                         } else if u.is_one_num() {
                             Expr::number(0.0) // ln(1) = 0
                         } else {
-                            Expr::func("ln", Expr::unwrap_arc(Arc::clone(u)))
+                            Expr::func_symbol(get_symbol(&LN), Expr::unwrap_arc(Arc::clone(u)))
                         };
                         let term1 = if v_prime.is_zero_num() || ln_u.is_zero_num() {
                             Expr::number(0.0)
                         } else if ln_u.is_one_num() {
-                            v_prime.clone() // Need clone since used again below
+                            v_prime // Move - only used in one branch
                         } else if v_prime.is_one_num() {
                             ln_u
                         } else {
-                            Expr::mul_expr(v_prime.clone(), ln_u) // Need clone
+                            Expr::mul_expr(v_prime, ln_u) // Move - last use
                         };
 
                         // Term 2: v * (u'/u)
@@ -413,17 +425,13 @@ impl Expr {
                 }
             }
 
-            // Polynomial: use fast sparse polynomial derivative!
+            // Polynomial: use fast polynomial derivative with chain rule!
             ExprKind::Poly(poly) => {
-                // Get the variable as InternedSymbol
-                let var_sym = crate::core::symbol::get_or_intern(var);
-                // Fast O(N) derivative on polynomial representation
-                let deriv_poly = poly.derivative(&var_sym);
-                // Convert result back to Expr (stays as Poly if non-trivial)
-                if deriv_poly.terms().is_empty() {
-                    Expr::number(0.0)
+                // Use derivative_expr which handles chain rule for the base
+                if let Some(result) = poly.derivative_expr(var) {
+                    result
                 } else {
-                    Expr::new(ExprKind::Poly(deriv_poly))
+                    Expr::number(0.0)
                 }
             }
         }
@@ -443,29 +451,8 @@ impl Expr {
     /// let derivative = expr.derive_raw("x");
     /// // Returns 2*x^1*1 (unsimplified)
     /// ```
+    #[inline]
     pub fn derive_raw(&self, var: &str) -> Expr {
-        self.derive(var, &HashSet::new(), &HashMap::new(), &HashMap::new())
-    }
-
-    /// Differentiate with memoization cache for repeated subexpressions
-    ///
-    /// This variant caches computed derivatives by expression ID, avoiding
-    /// redundant computation when the same subexpression appears multiple times.
-    /// Useful for complex expressions with shared structure.
-    ///
-    /// # Arguments
-    /// * `var` - Variable to differentiate with respect to
-    /// * `cache` - Mutable reference to cache HashMap
-    ///
-    /// # Example
-    /// ```ignore
-    /// use std::collections::HashMap;
-    /// let expr = parse("sin(x)*sin(x)", ...).unwrap();  // sin(x) appears twice
-    /// let mut cache = HashMap::new();
-    /// let derivative = expr.derive_cached("x", &mut cache);
-    /// // Cache ensures sin(x) is differentiated only once
-    /// ```
-    pub fn derive_cached(&self, var: &str) -> Expr {
         self.derive(var, &HashSet::new(), &HashMap::new(), &HashMap::new())
     }
 }
@@ -480,11 +467,11 @@ mod tests {
         let result = expr.derive("x", &HashSet::new(), &HashMap::new(), &HashMap::new());
         // Result should be cosh(x) * 1 (unoptimized) or cosh(x) (optimized)
         match result.kind {
-            ExprKind::FunctionCall { name, .. } => assert_eq!(name, "cosh"),
+            ExprKind::FunctionCall { name, .. } => assert_eq!(name.as_str(), "cosh"),
             ExprKind::Product(factors) => {
                 // Check that one of the factors is cosh
                 let has_cosh = factors.iter().any(
-                    |f| matches!(&f.kind, ExprKind::FunctionCall { name, .. } if name == "cosh"),
+                    |f| matches!(&f.kind, ExprKind::FunctionCall { name, .. } if name.as_str() == "cosh"),
                 );
                 assert!(has_cosh, "Expected cosh in Product, got {:?}", factors);
             }

@@ -6,21 +6,20 @@
 //! exists exactly once in memory, and all references share the same ID.
 //!
 //! # Example
-//! ```ignore
-//! use symb_anafis::{sym, symb_new, symb_get, clear_symbols};
+//! ```
+//! use symb_anafis::{symb, symb_new, symb_get, clear_symbols};
 //!
-//! // Create a new symbol (errors if name already registered)
-//! let x = symb_new("x").unwrap();
+//! // Create or get a symbol (doesn't error on existing)
+//! let x = symb("doc_example_x");
 //!
-//! // Get existing symbol (errors if not found)
-//! let x2 = symb_get("x").unwrap();
+//! // Get the same symbol again
+//! let x2 = symb("doc_example_x");
 //! assert_eq!(x.id(), x2.id());  // Same symbol!
 //!
 //! // Anonymous symbol (always succeeds)
+//! use symb_anafis::Symbol;
 //! let temp = Symbol::anon();
-//!
-//! // Clear registry for fresh start
-//! clear_symbols();
+//! assert!(temp.name().is_none());
 //! ```
 
 use crate::Expr;
@@ -45,13 +44,14 @@ static NEXT_CONTEXT_ID: AtomicU64 = AtomicU64::new(1);
 /// - Testing with fresh symbol tables
 ///
 /// # Example
-/// ```ignore
+/// ```
 /// use symb_anafis::SymbolContext;
 ///
 /// let ctx = SymbolContext::new();
 /// let x = ctx.symb("x");
 /// let y = ctx.symb("y");
 /// let expr = x + y;  // Uses symbols from this context
+/// assert!(format!("{}", expr).contains("x"));
 /// ```
 #[derive(Debug)]
 pub struct SymbolContext {
@@ -62,7 +62,6 @@ pub struct SymbolContext {
 #[derive(Debug, Default)]
 struct ContextInner {
     symbols: HashMap<String, InternedSymbol>,
-    id_lookup: HashMap<u64, InternedSymbol>,
 }
 
 impl SymbolContext {
@@ -90,15 +89,16 @@ impl SymbolContext {
             return Symbol(existing.id());
         }
 
-        let interned = InternedSymbol::new_named(name);
+        // Create a new symbol with this name but a unique ID (context isolation)
+        let interned = InternedSymbol::new_named_isolated(name);
         let id = interned.id();
-        inner.symbols.insert(name.to_string(), interned.clone());
-        inner.id_lookup.insert(id, interned);
 
-        // Also register in global ID registry for Symbol -> Expr conversion
-        let mut id_guard = get_id_registry_mut();
-        let id_registry = id_guard.get_or_insert_with(HashMap::new);
-        id_registry.insert(id, InternedSymbol::new_named(name));
+        // Register in ID registry so Symbol::name works globally
+        let mut id_registry = get_id_registry_mut();
+        id_registry.insert(id, interned.clone());
+
+        // Save in local context for name lookup
+        inner.symbols.insert(name.to_string(), interned);
 
         Symbol(id)
     }
@@ -132,7 +132,6 @@ impl SymbolContext {
     pub fn clear(&self) {
         let mut inner = self.inner.write().unwrap();
         inner.symbols.clear();
-        inner.id_lookup.clear();
     }
 
     /// List all symbol names in this context
@@ -151,17 +150,14 @@ impl SymbolContext {
             return Err(SymbolError::DuplicateName(name.to_string()));
         }
 
-        let interned = InternedSymbol::new_named(name);
-        let id = interned.id();
+        if symbol_exists(name) {
+            return Err(SymbolError::DuplicateName(name.to_string()));
+        }
+
+        let interned = get_or_intern(name);
         inner.symbols.insert(name.to_string(), interned.clone());
-        inner.id_lookup.insert(id, interned);
 
-        // Also register in global ID registry for Symbol -> Expr conversion
-        let mut id_guard = get_id_registry_mut();
-        let id_registry = id_guard.get_or_insert_with(HashMap::new);
-        id_registry.insert(id, InternedSymbol::new_named(name));
-
-        Ok(Symbol(id))
+        Ok(Symbol(interned.id()))
     }
 
     /// Remove a symbol from this context
@@ -177,18 +173,7 @@ impl SymbolContext {
     /// Anonymous symbols have unique IDs but no name. They cannot be retrieved
     /// by name and are useful for temporary computations.
     pub fn anon(&self) -> Symbol {
-        let interned = InternedSymbol::new_anon();
-        let id = interned.id();
-
-        let mut inner = self.inner.write().unwrap();
-        inner.id_lookup.insert(id, interned.clone());
-
-        // Also register in global ID registry for Symbol -> Expr conversion
-        let mut id_guard = get_id_registry_mut();
-        let id_registry = id_guard.get_or_insert_with(HashMap::new);
-        id_registry.insert(id, interned);
-
-        Symbol(id)
+        Symbol::anon()
     }
 }
 
@@ -228,28 +213,26 @@ pub fn global_context() -> &'static SymbolContext {
 static NEXT_SYMBOL_ID: AtomicU64 = AtomicU64::new(1);
 
 /// Global symbol registry: name -> InternedSymbol
-static SYMBOL_REGISTRY: RwLock<Option<HashMap<String, InternedSymbol>>> = RwLock::new(None);
+static SYMBOL_REGISTRY: std::sync::LazyLock<RwLock<HashMap<String, InternedSymbol>>> =
+    std::sync::LazyLock::new(|| RwLock::new(HashMap::new()));
 
 /// Reverse lookup: ID -> InternedSymbol (for Copy Symbol to find its data)
-static ID_REGISTRY: RwLock<Option<HashMap<u64, InternedSymbol>>> = RwLock::new(None);
+static ID_REGISTRY: std::sync::LazyLock<RwLock<HashMap<u64, InternedSymbol>>> =
+    std::sync::LazyLock::new(|| RwLock::new(HashMap::new()));
 
-fn get_registry_mut()
--> std::sync::RwLockWriteGuard<'static, Option<HashMap<String, InternedSymbol>>> {
+fn get_registry_mut() -> std::sync::RwLockWriteGuard<'static, HashMap<String, InternedSymbol>> {
     SYMBOL_REGISTRY.write().unwrap()
 }
 
-fn get_id_registry_mut()
--> std::sync::RwLockWriteGuard<'static, Option<HashMap<u64, InternedSymbol>>> {
+fn get_id_registry_mut() -> std::sync::RwLockWriteGuard<'static, HashMap<u64, InternedSymbol>> {
     ID_REGISTRY.write().unwrap()
 }
 
-fn get_id_registry_read()
--> std::sync::RwLockReadGuard<'static, Option<HashMap<u64, InternedSymbol>>> {
+fn get_id_registry_read() -> std::sync::RwLockReadGuard<'static, HashMap<u64, InternedSymbol>> {
     ID_REGISTRY.read().unwrap()
 }
 
-fn get_registry_read()
--> std::sync::RwLockReadGuard<'static, Option<HashMap<String, InternedSymbol>>> {
+fn get_registry_read() -> std::sync::RwLockReadGuard<'static, HashMap<String, InternedSymbol>> {
     SYMBOL_REGISTRY.read().unwrap()
 }
 
@@ -257,17 +240,15 @@ fn with_registry_mut<F, R>(f: F) -> R
 where
     F: FnOnce(&mut HashMap<String, InternedSymbol>, &mut HashMap<u64, InternedSymbol>) -> R,
 {
-    let mut guard = get_registry_mut();
-    let mut id_guard = get_id_registry_mut();
-    let registry = guard.get_or_insert_with(HashMap::new);
-    let id_registry = id_guard.get_or_insert_with(HashMap::new);
-    f(registry, id_registry)
+    let mut registry = get_registry_mut();
+    let mut id_registry = get_id_registry_mut();
+    f(&mut registry, &mut id_registry)
 }
 
-/// Look up InternedSymbol by ID (for Symbol -> Expr conversion)
-fn lookup_by_id(id: u64) -> Option<InternedSymbol> {
+/// Look up InternedSymbol by ID (for Symbol -> Expr conversion and known_symbols)
+pub fn lookup_by_id(id: u64) -> Option<InternedSymbol> {
     let guard = get_id_registry_read();
-    guard.as_ref().and_then(|r| r.get(&id).cloned())
+    guard.get(&id).cloned()
 }
 
 // ============================================================================
@@ -336,7 +317,20 @@ impl InternedSymbol {
         }
     }
 
+    /// Create a new named symbol for isolated contexts.
+    ///
+    /// Note: The implementation is identical to `new_named()`, but this is used
+    /// by `SymbolContext::symb()` which only registers in the ID registry (not
+    /// the global name registry), providing true context isolation.
+    fn new_named_isolated(name: &str) -> Self {
+        InternedSymbol {
+            id: NEXT_SYMBOL_ID.fetch_add(1, Ordering::Relaxed),
+            name: Some(Arc::from(name)),
+        }
+    }
+
     /// Get the symbol's unique ID
+    #[inline]
     pub fn id(&self) -> u64 {
         self.id
     }
@@ -361,18 +355,10 @@ impl InternedSymbol {
     }
 }
 
-// O(1) equality comparison using ID
+// O(1) equality comparison using ID only
 impl PartialEq for InternedSymbol {
     fn eq(&self, other: &Self) -> bool {
-        if self.id == other.id {
-            return true;
-        }
-        // Fallback to name comparison for symbols created from different paths
-        // (e.g., parser-created vs API-created before interning was unified)
-        match (&self.name, &other.name) {
-            (Some(a), Some(b)) => a == b,
-            _ => false,
-        }
+        self.id == other.id
     }
 }
 
@@ -381,37 +367,8 @@ impl Eq for InternedSymbol {}
 // Hash by ID for O(1) HashMap operations
 impl std::hash::Hash for InternedSymbol {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        // For consistency with PartialEq, we hash by name if present
-        // This ensures that symbols with same name have same hash
-        match &self.name {
-            Some(n) => n.hash(state),
-            None => self.id.hash(state),
-        }
-    }
-}
-
-// Allow comparison with &str for ergonomic pattern matching
-impl PartialEq<str> for InternedSymbol {
-    fn eq(&self, other: &str) -> bool {
-        self.name.as_deref() == Some(other)
-    }
-}
-
-impl PartialEq<&str> for InternedSymbol {
-    fn eq(&self, other: &&str) -> bool {
-        self.name.as_deref() == Some(*other)
-    }
-}
-
-impl PartialEq<InternedSymbol> for str {
-    fn eq(&self, other: &InternedSymbol) -> bool {
-        other.name.as_deref() == Some(self)
-    }
-}
-
-impl PartialEq<InternedSymbol> for &str {
-    fn eq(&self, other: &InternedSymbol) -> bool {
-        other.name.as_deref() == Some(*self)
+        // Hash by ID for consistency with PartialEq (which now uses ID only)
+        self.id.hash(state);
     }
 }
 
@@ -461,9 +418,11 @@ impl Ord for InternedSymbol {
 /// references share the same ID for O(1) equality comparisons.
 ///
 /// **This type is `Copy`** - you can use it in expressions without `.clone()`:
-/// ```ignore
-/// let a = symb("a");
+/// ```
+/// use symb_anafis::symb;
+/// let a = symb("symbol_doc_a");
 /// let expr = a + a;  // Works! No clone needed.
+/// assert!(format!("{}", expr).contains("symbol_doc_a"));
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Symbol(u64); // Just the ID - lightweight and Copy!
@@ -477,33 +436,32 @@ impl Symbol {
         let interned = InternedSymbol::new_anon();
         let id = interned.id();
         // Register in ID registry for lookup
-        let mut id_guard = get_id_registry_mut();
-        let id_registry = id_guard.get_or_insert_with(HashMap::new);
+        let mut id_registry = get_id_registry_mut();
         id_registry.insert(id, interned);
         Symbol(id)
     }
 
     /// Get the symbol's unique ID
+    #[inline]
     pub fn id(&self) -> u64 {
         self.0
     }
 
     /// Get the name of the symbol (None for anonymous symbols)
-    pub fn name(&self) -> Option<&'static str> {
-        // Look up in registry - we leak the string to get 'static lifetime
-        // This is safe because symbol names live for the program duration
-        lookup_by_id(self.0).and_then(|s| {
-            s.name.as_ref().map(|arc| {
-                // Leak to get 'static - symbols are never deallocated in practice
-                let leaked: &'static str = Box::leak(arc.to_string().into_boxed_str());
-                leaked
-            })
-        })
+    ///
+    /// Note: This clones the name string. For frequent access, consider name_arc().
+    pub fn name(&self) -> Option<String> {
+        self.name_arc().map(|arc| arc.to_string())
     }
 
-    /// Get the name as an owned String (avoids the leak in name())
+    /// Get the name as an Arc<str> (avoiding String allocation)
+    pub fn name_arc(&self) -> Option<Arc<str>> {
+        lookup_by_id(self.0).and_then(|s| s.name)
+    }
+
+    /// Get the name as an owned String
     pub fn name_owned(&self) -> Option<String> {
-        lookup_by_id(self.0).and_then(|s| s.name.as_ref().map(|arc| arc.to_string()))
+        self.name()
     }
 
     /// Convert to an Expr
@@ -557,14 +515,6 @@ impl Symbol {
     }
 }
 
-// Allow Symbol to be used where &str is expected
-// Note: This uses the name() method which handles 'static lifetime via leak
-impl AsRef<str> for Symbol {
-    fn as_ref(&self) -> &str {
-        self.name().unwrap_or("")
-    }
-}
-
 // ============================================================================
 // Public API Functions
 // ============================================================================
@@ -575,10 +525,15 @@ impl AsRef<str> for Symbol {
 /// registered once - attempting to register the same name twice will error.
 ///
 /// # Example
-/// ```ignore
-/// let x = symb_new("x")?;
-/// let y = symb_new("y")?;
-/// let expr = x.pow(2) + y;  // No clone needed!
+/// ```
+/// use symb_anafis::{symb_new, symbol_exists};
+/// // Use unique names to avoid conflicts with other tests
+/// if !symbol_exists("symb_new_doc_x") {
+///     let x = symb_new("symb_new_doc_x").unwrap();
+///     let y = symb_new("symb_new_doc_y").unwrap();
+///     let expr = x.pow(2.0) + y;
+///     assert!(format!("{}", expr).contains("symb_new_doc"));
+/// }
 /// ```
 pub fn symb_new(name: &str) -> Result<Symbol, SymbolError> {
     with_registry_mut(|registry, id_registry| {
@@ -607,7 +562,7 @@ pub fn symb_new(name: &str) -> Result<Symbol, SymbolError> {
 /// ```
 pub fn symb_get(name: &str) -> Result<Symbol, SymbolError> {
     let guard = get_registry_read();
-    match guard.as_ref().and_then(|r| r.get(name)) {
+    match guard.get(name) {
         Some(interned) => Ok(Symbol(interned.id())),
         None => Err(SymbolError::NotFound(name.to_string())),
     }
@@ -616,7 +571,7 @@ pub fn symb_get(name: &str) -> Result<Symbol, SymbolError> {
 /// Check if a symbol name is already registered
 pub fn symbol_exists(name: &str) -> bool {
     let guard = get_registry_read();
-    guard.as_ref().is_some_and(|r| r.contains_key(name))
+    guard.contains_key(name)
 }
 
 /// Get the number of registered symbols in the global registry
@@ -629,7 +584,7 @@ pub fn symbol_exists(name: &str) -> bool {
 /// ```
 pub fn symbol_count() -> usize {
     let guard = get_registry_read();
-    guard.as_ref().map(|r| r.len()).unwrap_or(0)
+    guard.len()
 }
 
 /// List all symbol names in the global registry
@@ -643,10 +598,7 @@ pub fn symbol_count() -> usize {
 /// ```
 pub fn symbol_names() -> Vec<String> {
     let guard = get_registry_read();
-    guard
-        .as_ref()
-        .map(|r| r.keys().cloned().collect())
-        .unwrap_or_default()
+    guard.keys().cloned().collect()
 }
 
 /// Clear all registered symbols from the global registry
@@ -656,12 +608,8 @@ pub fn symbol_names() -> Vec<String> {
 pub fn clear_symbols() {
     let mut guard = get_registry_mut();
     let mut id_guard = get_id_registry_mut();
-    if let Some(registry) = guard.as_mut() {
-        registry.clear();
-    }
-    if let Some(id_registry) = id_guard.as_mut() {
-        id_registry.clear();
-    }
+    guard.clear();
+    id_guard.clear();
 }
 
 /// Remove a specific symbol from the registry
@@ -679,11 +627,7 @@ pub fn clear_symbols() {
 /// ```
 pub fn remove_symbol(name: &str) -> bool {
     let mut guard = get_registry_mut();
-    if let Some(registry) = guard.as_mut() {
-        registry.remove(name).is_some()
-    } else {
-        false
-    }
+    guard.remove(name).is_some()
 }
 
 /// Get or create an interned symbol (internal use for parser)
@@ -768,11 +712,15 @@ macro_rules! math_function_list_ref {
             log10 => "log10", log2 => "log2",
             // Root functions
             sqrt => "sqrt", cbrt => "cbrt",
+            // Rounding functions
+            floor => "floor", ceil => "ceil", round => "round",
             // Special functions (single-argument only)
-            abs => "abs", sign => "sign", sinc => "sinc",
+            abs => "abs", signum => "signum", sinc => "sinc",
             erf => "erf", erfc => "erfc", gamma => "gamma",
-            digamma => "digamma", trigamma => "trigamma",
+            digamma => "digamma", trigamma => "trigamma", tetragamma => "tetragamma",
             zeta => "zeta", lambertw => "lambertw",
+            elliptic_k => "elliptic_k", elliptic_e => "elliptic_e",
+            exp_polar => "exp_polar",
         );
     };
 }
@@ -797,11 +745,15 @@ macro_rules! math_function_list_owned {
             log10 => "log10", log2 => "log2",
             // Root functions
             sqrt => "sqrt", cbrt => "cbrt",
+            // Rounding functions
+            floor => "floor", ceil => "ceil", round => "round",
             // Special functions (single-argument only)
-            abs => "abs", sign => "sign", sinc => "sinc",
+            abs => "abs", signum => "signum", sinc => "sinc",
             erf => "erf", erfc => "erfc", gamma => "gamma",
-            digamma => "digamma", trigamma => "trigamma",
+            digamma => "digamma", trigamma => "trigamma", tetragamma => "tetragamma",
             zeta => "zeta", lambertw => "lambertw",
+            elliptic_k => "elliptic_k", elliptic_e => "elliptic_e",
+            exp_polar => "exp_polar",
         );
     };
 }
@@ -992,7 +944,22 @@ impl Div<&Expr> for f64 {
     }
 }
 
-// Negation
+// =============================================================================
+// Arc<Expr> conversions (for CustomFn partials ergonomics)
+// =============================================================================
+
+impl From<Arc<Expr>> for Expr {
+    fn from(arc: Arc<Expr>) -> Self {
+        Arc::try_unwrap(arc).unwrap_or_else(|arc| (*arc).clone())
+    }
+}
+
+impl From<&Arc<Expr>> for Expr {
+    fn from(arc: &Arc<Expr>) -> Self {
+        (**arc).clone()
+    }
+}
+
 impl Neg for Symbol {
     type Output = Expr;
     fn neg(self) -> Expr {
@@ -1085,7 +1052,7 @@ mod tests {
     #[test]
     fn test_symb_new_creates_new_symbol() {
         let x = symb_new("test_create_x").unwrap();
-        assert_eq!(x.name(), Some("test_create_x"));
+        assert_eq!(x.name(), Some("test_create_x".to_string()));
     }
 
     #[test]

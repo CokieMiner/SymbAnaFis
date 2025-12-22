@@ -3,15 +3,17 @@
 //! Provides a fluent interface for configuring and executing differentiation/simplification.
 //!
 //! # Example
-//! ```ignore
-//! use symb_anafis::{sym, Diff};
+//! ```
+//! use symb_anafis::{symb, Diff};
 //!
-//! let x = symb("x");
-//! let expr = x.pow(2.0) + x.sin();  // No clone needed!
+//! let x = symb("api_builder_x");
+//! let expr = x.pow(2.0) + x.sin();
 //!
 //! let derivative = Diff::new()
 //!     .domain_safe(true)
-//!     .differentiate(expr, &x)?;  // Now uses Symbol!
+//!     .differentiate(expr, &x)
+//!     .unwrap();
+//! assert!(!format!("{}", derivative).is_empty());
 //! ```
 
 use crate::{DiffError, Expr, Symbol, core::symbol::SymbolContext, parser, simplification};
@@ -28,22 +30,24 @@ pub type CustomDerivativeFn = Arc<dyn Fn(&Expr, &str, &Expr) -> Expr + Send + Sy
 pub type CustomEvalFn = Arc<dyn Fn(&[f64]) -> Option<f64> + Send + Sync>;
 
 /// Partial derivative function for multi-arg functions
-/// Takes: slice of argument expressions -> partial derivative expression (∂F/∂arg[i])
-pub type PartialDerivativeFn = Arc<dyn Fn(&[Expr]) -> Expr + Send + Sync>;
+/// Takes: slice of Arc-wrapped argument expressions -> partial derivative expression (∂F/∂arg[i])
+/// Uses Arc<Expr> to allow cheap cloning with Arc::clone() instead of deep cloning.
+pub type PartialDerivativeFn = Arc<dyn Fn(&[Arc<Expr>]) -> Expr + Send + Sync>;
 
 /// Definition for a multi-argument custom function
 ///
 /// # Example
-/// ```ignore
+/// ```
 /// use symb_anafis::{Expr, CustomFn};
+/// use std::sync::Arc;
 ///
 /// // F(x, y) = x * sin(y)
 /// // ∂F/∂x = sin(y)
 /// // ∂F/∂y = x * cos(y)
 /// let my_fn = CustomFn::new(2)
 ///     .eval(|args| Some(args[0] * args[1].sin()))
-///     .partial(0, |args| args[1].sin())      // ∂F/∂arg[0]
-///     .partial(1, |args| args[0].clone() * args[1].cos());  // ∂F/∂arg[1]
+///     .partial(0, |args| Expr::func("sin", &args[1]))      // ∂F/∂arg[0]
+///     .partial(1, |args| Expr::from(&args[0]) * Expr::func("cos", &args[1]));  // ∂F/∂arg[1]
 /// ```
 #[derive(Clone)]
 pub struct CustomFn {
@@ -72,10 +76,12 @@ impl CustomFn {
     }
 
     /// Add a partial derivative for argument at index `i`
-    /// The function receives all argument expressions and returns `∂F/∂arg[i]`
+    ///
+    /// The function receives all argument expressions as `Arc<Expr>` and returns `∂F/∂arg[i]`.
+    /// Use `Expr::from(&args[i])` for clean conversion, or `Expr::func("name", &args[i])` directly.
     pub fn partial<F>(mut self, i: usize, f: F) -> Self
     where
-        F: Fn(&[Expr]) -> Expr + Send + Sync + 'static,
+        F: Fn(&[Arc<Expr>]) -> Expr + Send + Sync + 'static,
     {
         self.partials.insert(i, Arc::new(f));
         self
@@ -104,12 +110,14 @@ impl Diff {
     }
 
     /// Enable or disable domain-safe mode (skips domain-altering rules)
+    #[inline]
     pub fn domain_safe(mut self, safe: bool) -> Self {
         self.domain_safe = safe;
         self
     }
 
     /// Skip simplification and return raw derivative (for benchmarking)
+    #[inline]
     pub fn skip_simplification(mut self, skip: bool) -> Self {
         self.skip_simplification = skip;
         self
@@ -118,10 +126,15 @@ impl Diff {
     /// Add a single fixed variable (treated as constant during differentiation)
     ///
     /// # Example
-    /// ```ignore
-    /// let a = symb("a");
-    /// Diff::new().fixed_var(&a)
     /// ```
+    /// use symb_anafis::{symb, Diff};
+    /// let a = symb("fixed_var_a");
+    /// let x = symb("fixed_var_x");
+    /// let expr = &a * &x;
+    /// let result = Diff::new().fixed_var(&a).differentiate(expr, &x).unwrap();
+    /// assert!(format!("{}", result).contains("fixed_var_a"));
+    /// ```
+    #[inline]
     pub fn fixed_var(mut self, var: &Symbol) -> Self {
         if let Some(name) = var.name() {
             self.fixed_vars.insert(name.to_string());
@@ -132,11 +145,13 @@ impl Diff {
     /// Add multiple fixed variables
     ///
     /// # Example
-    /// ```ignore
-    /// let a = symb("a");
-    /// let b = symb("b");
-    /// Diff::new().fixed_vars(&[&a, &b])
     /// ```
+    /// use symb_anafis::{symb, Diff};
+    /// let a = symb("fixed_vars_a");
+    /// let b = symb("fixed_vars_b");
+    /// let diff = Diff::new().fixed_vars(&[&a, &b]);
+    /// ```
+    #[inline]
     pub fn fixed_vars(mut self, vars: &[&Symbol]) -> Self {
         for v in vars {
             if let Some(name) = v.name() {
@@ -147,12 +162,14 @@ impl Diff {
     }
 
     /// Add a custom function name (for parsing)
+    #[inline]
     pub fn custom_fn(mut self, name: impl Into<String>) -> Self {
         self.custom_functions.insert(name.into());
         self
     }
 
     /// Set the symbol context for parsing and variable creation
+    #[inline]
     pub fn with_context(mut self, context: &SymbolContext) -> Self {
         self.context = Some(context.clone());
         self
@@ -246,12 +263,14 @@ impl Diff {
     }
 
     /// Set maximum AST depth
+    #[inline]
     pub fn max_depth(mut self, depth: usize) -> Self {
         self.max_depth = Some(depth);
         self
     }
 
     /// Set maximum AST node count
+    #[inline]
     pub fn max_nodes(mut self, nodes: usize) -> Self {
         self.max_nodes = Some(nodes);
         self
@@ -260,14 +279,16 @@ impl Diff {
     /// Differentiate an expression with respect to a variable
     ///
     /// # Example
-    /// ```ignore
-    /// let x = symb("x");
+    /// ```
+    /// use symb_anafis::{symb, Diff};
+    /// let x = symb("diff_example_x");
     /// let expr = x.pow(2.0);
-    /// Diff::new().differentiate(expr, &x)
+    /// let result = Diff::new().differentiate(expr, &x).unwrap();
+    /// assert_eq!(format!("{}", result), "2*diff_example_x");
     /// ```
     pub fn differentiate(&self, expr: Expr, var: &Symbol) -> Result<Expr, DiffError> {
-        let var_name = var.name().unwrap_or("");
-        self.differentiate_by_name(expr, var_name)
+        let var_name = var.name().unwrap_or_default();
+        self.differentiate_by_name(expr, &var_name)
     }
 
     /// Differentiate an expression with respect to a variable name (internal API)
@@ -381,6 +402,7 @@ impl Simplify {
     }
 
     /// Enable or disable domain-safe mode
+    #[inline]
     pub fn domain_safe(mut self, safe: bool) -> Self {
         self.domain_safe = safe;
         self
@@ -389,10 +411,12 @@ impl Simplify {
     /// Add a single fixed variable
     ///
     /// # Example
-    /// ```ignore
-    /// let a = symb("a");
-    /// Simplify::new().fixed_var(&a)
     /// ```
+    /// use symb_anafis::{symb, Simplify};
+    /// let a = symb("simplify_fixed_a");
+    /// let simplifier = Simplify::new().fixed_var(&a);
+    /// ```
+    #[inline]
     pub fn fixed_var(mut self, var: &Symbol) -> Self {
         if let Some(name) = var.name() {
             self.fixed_vars.insert(name.to_string());
@@ -403,11 +427,13 @@ impl Simplify {
     /// Add multiple fixed variables
     ///
     /// # Example
-    /// ```ignore
-    /// let a = symb("a");
-    /// let b = symb("b");
-    /// Simplify::new().fixed_vars(&[&a, &b])
     /// ```
+    /// use symb_anafis::{symb, Simplify};
+    /// let a = symb("simplify_fixed_a2");
+    /// let b = symb("simplify_fixed_b2");
+    /// let simplifier = Simplify::new().fixed_vars(&[&a, &b]);
+    /// ```
+    #[inline]
     pub fn fixed_vars(mut self, vars: &[&Symbol]) -> Self {
         for v in vars {
             if let Some(name) = v.name() {
@@ -418,12 +444,14 @@ impl Simplify {
     }
 
     /// Add a custom function name
+    #[inline]
     pub fn custom_fn(mut self, name: impl Into<String>) -> Self {
         self.custom_functions.insert(name.into());
         self
     }
 
     /// Set the symbol context for parsing
+    #[inline]
     pub fn with_context(mut self, context: &SymbolContext) -> Self {
         self.context = Some(context.clone());
         self
@@ -432,10 +460,11 @@ impl Simplify {
     /// Register a custom evaluation function for a user-defined function
     ///
     /// # Example
-    /// ```ignore
+    /// ```
+    /// use symb_anafis::Simplify;
     /// // f(x) = x² + 1
-    /// Simplify::new()
-    ///     .custom_eval("f", |args| Some(args[0].powi(2) + 1.0))
+    /// let simplifier = Simplify::new()
+    ///     .custom_eval("f", |args| Some(args[0].powi(2) + 1.0));
     /// ```
     pub fn custom_eval<F>(mut self, name: impl Into<String>, eval_fn: F) -> Self
     where
@@ -448,12 +477,14 @@ impl Simplify {
     }
 
     /// Set maximum AST depth
+    #[inline]
     pub fn max_depth(mut self, depth: usize) -> Self {
         self.max_depth = Some(depth);
         self
     }
 
     /// Set maximum AST node count
+    #[inline]
     pub fn max_nodes(mut self, nodes: usize) -> Self {
         self.max_nodes = Some(nodes);
         self

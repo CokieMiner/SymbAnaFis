@@ -28,7 +28,7 @@ mod tests {
             HashSet::new(),
         );
         if let ExprKind::FunctionCall { name, args } = &simplified.kind {
-            assert_eq!(name, "sin");
+            assert_eq!(name.as_str(), "sin");
             assert_eq!(args.len(), 1);
             if let ExprKind::Sum(terms) = &args[0].kind {
                 let has_x = terms.iter().any(|t| **t == Expr::symbol("x"));
@@ -128,12 +128,12 @@ mod tests {
             parser::parse("3.000000001 * sin(x) - 4 * sin(x)^3", &fixed, &funcs, None).unwrap();
         let simplified = simplify_expr(ast, HashSet::new());
         // Expect no simplification to triple-angle
-        assert!(!matches!(simplified.kind, ExprKind::FunctionCall { name, .. } if name == "sin"));
+        assert!(!matches!(simplified.kind, ExprKind::FunctionCall { name, .. } if name.as_str() == "sin"));
 
         // Symbolic coefficient should not fold
         let ast = parser::parse("a * sin(x) - 4 * sin(x)^3", &fixed, &funcs, None).unwrap();
         let simplified = simplify_expr(ast, HashSet::new());
-        assert!(!matches!(simplified.kind, ExprKind::FunctionCall { name, .. } if name == "sin"));
+        assert!(!matches!(simplified.kind, ExprKind::FunctionCall { name, .. } if name.as_str() == "sin"));
     }
 
     #[test]

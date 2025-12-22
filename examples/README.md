@@ -9,6 +9,7 @@ This directory contains examples demonstrating SymbAnaFis capabilities.
 | **quickstart** | Minimal 25-line demo | `cargo run --example quickstart` |
 | **api_showcase** | Complete API tour (10 parts) | `cargo run --example api_showcase` |
 | **applications** | Physics & engineering | `cargo run --example applications` |
+| **simplification_comparison** | Compare against Symbolica CAS | `cargo run --example simplification_comparison` |
 
 ## quickstart.rs - Get Started Fast
 
@@ -49,4 +50,16 @@ cargo run --example api_showcase --features parallel  # Include Part 10
 
 ```bash
 cargo run --example applications
+```
+
+## simplification_comparison.rs - Benchmarking Accuracy
+
+Compares SymbAnaFis differentiation quality against the commercial Symbolica engine across complex physics expressions (Maxwell-Boltzmann, Planck Blackbody, etc.).
+
+**Sample Output:**
+```text
+--- Logistic Sigmoid (d/dx) ---
+Input: 1/(1+exp(-k*(x-x0)))
+SymbAnaFis (Simplified): exp(-k*(x - x0))*k/(1 + exp(-k*(x - x0)))^2
+Symbolica:               k*(exp(-k*(x-x0))+1)^-2*exp(-k*(x-x0))
 ```

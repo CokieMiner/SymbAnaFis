@@ -20,10 +20,12 @@ pub struct Dual<T: MathScalar> {
 }
 
 impl<T: MathScalar> Dual<T> {
+    #[inline]
     pub fn new(val: T, eps: T) -> Self {
         Self { val, eps }
     }
 
+    #[inline]
     pub fn constant(val: T) -> Self {
         Self {
             val,

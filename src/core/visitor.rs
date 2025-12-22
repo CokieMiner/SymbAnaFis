@@ -12,18 +12,15 @@ use std::sync::Arc;
 /// Each method returns a boolean indicating whether to continue visiting children.
 ///
 /// # Example
-/// ```ignore
-/// use symb_anafis::{Expr, ExprVisitor};
+/// ```
+/// use symb_anafis::symb;
+/// use symb_anafis::visitor::{ExprVisitor, walk_expr, NodeCounter};
 ///
-/// struct NodeCounter { count: usize }
-///
-/// impl ExprVisitor for NodeCounter {
-///     fn visit_number(&mut self, _n: f64) -> bool { self.count += 1; true }
-///     fn visit_symbol(&mut self, _s: &str) -> bool { self.count += 1; true }
-///     fn visit_function(&mut self, _name: &str, _args: &[Expr]) -> bool { self.count += 1; true }
-///     fn visit_binary(&mut self, _op: &str, _left: &Expr, _right: &Expr) -> bool { self.count += 1; true }
-///     fn visit_derivative(&mut self, _inner: &Expr, _var: &str, _order: u32) -> bool { self.count += 1; true }
-/// }
+/// let x = symb("visitor_example_x");
+/// let expr = x + x.pow(2.0);
+/// let mut counter = NodeCounter::default();
+/// walk_expr(&expr, &mut counter);
+/// assert!(counter.count > 0);
 /// ```
 pub trait ExprVisitor {
     /// Visit a number literal, returns true to continue visiting
@@ -103,11 +100,10 @@ pub fn walk_expr<V: ExprVisitor>(expr: &Expr, visitor: &mut V) {
                 walk_expr(inner, visitor);
             }
         }
-        // Poly: walk each term expression directly (avoid to_expr() recursion)
+        // Poly: walk the base expression directly (avoid to_expr_terms() allocation)
         ExprKind::Poly(poly) => {
-            for term_expr in poly.to_expr_terms() {
-                walk_expr(&term_expr, visitor);
-            }
+            // Walk the base expression which contains all variables
+            walk_expr(poly.base(), visitor);
         }
     }
 }
@@ -183,10 +179,11 @@ mod tests {
     #[test]
     fn test_node_counter() {
         let x = symb("x");
-        let expr = x + x.pow(2.0); // x + x^2 = Poly([x, x^2]) = 4 nodes (2 terms × 2 elements each)
+        let expr = x + x.pow(2.0); // x + x^2 = Poly with base x
         let mut counter = NodeCounter::default();
         walk_expr(&expr, &mut counter);
-        assert_eq!(counter.count, 4); // With Poly: x, x, 2, x^2 walked as term expressions
+        // With optimized Poly: only walks the base expression (x = 1 symbol node)
+        assert_eq!(counter.count, 1);
     }
 
     #[test]

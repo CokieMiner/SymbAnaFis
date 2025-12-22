@@ -6,6 +6,8 @@
 //! - `e^x` is always displayed as `exp(x)` for consistency
 //! - Derivatives use notation like `∂^n_inner/∂_var^n`
 
+use crate::core::known_symbols::E;
+use crate::core::traits::EPSILON;
 use crate::{Expr, ExprKind};
 use std::fmt;
 use std::sync::Arc;
@@ -25,7 +27,7 @@ fn extract_negative(expr: &Expr) -> Option<Expr> {
             {
                 // Negative leading coefficient
                 let abs_coeff = n.abs();
-                if (abs_coeff - 1.0).abs() < 1e-10 {
+                if (abs_coeff - 1.0).abs() < EPSILON {
                     // Exactly -1: just remove it
                     if factors.len() == 2 {
                         return Some((*factors[1]).clone());
@@ -49,15 +51,12 @@ fn extract_negative(expr: &Expr) -> Option<Expr> {
         }
         // Handle Poly with negative first term
         ExprKind::Poly(poly) => {
-            if let Some(first_term) = poly.terms().first() {
-                if first_term.coeff < 0.0 {
-                    // Create a new Poly with negated first term coefficient
-                    let mut negated_poly = poly.clone();
-                    if let Some(first) = negated_poly.terms_mut().first_mut() {
-                        first.coeff = -first.coeff;
-                    }
-                    return Some(Expr::new(ExprKind::Poly(negated_poly)));
-                }
+            if let Some(first_coeff) = poly.first_coeff()
+                && first_coeff < 0.0
+            {
+                // Create a new Poly with negated first term coefficient
+                let negated_poly = poly.with_negated_first();
+                return Some(Expr::new(ExprKind::Poly(negated_poly)));
             }
         }
         _ => {}
@@ -85,6 +84,40 @@ fn format_factor(expr: &Expr) -> String {
     } else {
         format!("{}", expr)
     }
+}
+
+/// Greek letter mappings: (name, latex, unicode)
+static GREEK_LETTERS: &[(&str, &str, &str)] = &[
+    ("pi", r"\pi", "π"),
+    ("alpha", r"\alpha", "α"),
+    ("beta", r"\beta", "β"),
+    ("gamma", r"\gamma", "γ"),
+    ("delta", r"\delta", "δ"),
+    ("epsilon", r"\epsilon", "ε"),
+    ("theta", r"\theta", "θ"),
+    ("lambda", r"\lambda", "λ"),
+    ("mu", r"\mu", "μ"),
+    ("sigma", r"\sigma", "σ"),
+    ("omega", r"\omega", "ω"),
+    ("phi", r"\phi", "φ"),
+    ("psi", r"\psi", "ψ"),
+    ("tau", r"\tau", "τ"),
+];
+
+/// Map symbol name to Greek letter (LaTeX format)
+fn greek_to_latex(name: &str) -> Option<&'static str> {
+    GREEK_LETTERS
+        .iter()
+        .find(|(n, _, _)| *n == name)
+        .map(|(_, latex, _)| *latex)
+}
+
+/// Map symbol name to Unicode Greek letter
+fn greek_to_unicode(name: &str) -> Option<&'static str> {
+    GREEK_LETTERS
+        .iter()
+        .find(|(n, _, _)| *n == name)
+        .map(|(_, _, unicode)| *unicode)
 }
 
 // =============================================================================
@@ -158,7 +191,7 @@ impl fmt::Display for Expr {
                 // Check for leading -1
                 if !factors.is_empty()
                     && let ExprKind::Number(n) = &factors[0].kind
-                    && (*n + 1.0).abs() < 1e-10
+                    && (*n + 1.0).abs() < EPSILON
                 {
                     // Leading -1: display as negation
                     if factors.len() == 1 {
@@ -172,9 +205,16 @@ impl fmt::Display for Expr {
                     }
                 }
 
-                // Display factors with explicit * separator
-                let factor_strs: Vec<String> = factors.iter().map(|f| format_factor(f)).collect();
-                write!(f, "{}", factor_strs.join("*"))
+                // Display factors with explicit * separator - write directly to avoid Vec<String>
+                let mut first = true;
+                for fac in factors {
+                    if !first {
+                        write!(f, "*")?;
+                    }
+                    write!(f, "{}", format_factor(fac))?;
+                    first = false;
+                }
+                Ok(())
             }
 
             ExprKind::Div(u, v) => {
@@ -203,7 +243,7 @@ impl fmt::Display for Expr {
             ExprKind::Pow(u, v) => {
                 // Special case: e^x displays as exp(x)
                 if let ExprKind::Symbol(s) = &u.kind
-                    && s == "e"
+                    && s.id() == *E
                 {
                     return write!(f, "exp({})", v);
                 }
@@ -269,22 +309,10 @@ fn format_latex(expr: &Expr, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 
         ExprKind::Symbol(s) => {
             let name = s.as_ref();
-            match name {
-                "pi" => write!(f, r"\pi"),
-                "alpha" => write!(f, r"\alpha"),
-                "beta" => write!(f, r"\beta"),
-                "gamma" => write!(f, r"\gamma"),
-                "delta" => write!(f, r"\delta"),
-                "epsilon" => write!(f, r"\epsilon"),
-                "theta" => write!(f, r"\theta"),
-                "lambda" => write!(f, r"\lambda"),
-                "mu" => write!(f, r"\mu"),
-                "sigma" => write!(f, r"\sigma"),
-                "omega" => write!(f, r"\omega"),
-                "phi" => write!(f, r"\phi"),
-                "psi" => write!(f, r"\psi"),
-                "tau" => write!(f, r"\tau"),
-                _ => write!(f, "{}", name),
+            if let Some(greek) = greek_to_latex(name) {
+                write!(f, "{}", greek)
+            } else {
+                write!(f, "{}", name)
             }
         }
 
@@ -515,7 +543,7 @@ fn format_latex(expr: &Expr, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             // Check for leading -1
             if !factors.is_empty()
                 && let ExprKind::Number(n) = &factors[0].kind
-                && (*n + 1.0).abs() < 1e-10
+                && (*n + 1.0).abs() < EPSILON
             {
                 if factors.len() == 1 {
                     return write!(f, "-1");
@@ -525,8 +553,16 @@ fn format_latex(expr: &Expr, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 return write!(f, "-{}", latex_factor(&rest));
             }
 
-            let factor_strs: Vec<String> = factors.iter().map(|fac| latex_factor(fac)).collect();
-            write!(f, "{}", factor_strs.join(r" \cdot "))
+            // Write factors with \cdot separator directly
+            let mut first = true;
+            for fac in factors {
+                if !first {
+                    write!(f, r" \cdot ")?;
+                }
+                write!(f, "{}", latex_factor(fac))?;
+                first = false;
+            }
+            Ok(())
         }
 
         ExprKind::Div(u, v) => {
@@ -540,7 +576,7 @@ fn format_latex(expr: &Expr, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 
         ExprKind::Pow(u, v) => {
             if let ExprKind::Symbol(s) = &u.kind
-                && s == "e"
+                && s.id() == *E
             {
                 return write!(f, r"e^{{{}}}", LatexFormatter(v));
             }
@@ -648,22 +684,10 @@ fn format_unicode(expr: &Expr, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 
         ExprKind::Symbol(s) => {
             let name = s.as_ref();
-            match name {
-                "pi" => write!(f, "π"),
-                "alpha" => write!(f, "α"),
-                "beta" => write!(f, "β"),
-                "gamma" => write!(f, "γ"),
-                "delta" => write!(f, "δ"),
-                "epsilon" => write!(f, "ε"),
-                "theta" => write!(f, "θ"),
-                "lambda" => write!(f, "λ"),
-                "mu" => write!(f, "μ"),
-                "sigma" => write!(f, "σ"),
-                "omega" => write!(f, "ω"),
-                "phi" => write!(f, "φ"),
-                "psi" => write!(f, "ψ"),
-                "tau" => write!(f, "τ"),
-                _ => write!(f, "{}", name),
+            if let Some(greek) = greek_to_unicode(name) {
+                write!(f, "{}", greek)
+            } else {
+                write!(f, "{}", name)
             }
         }
 
@@ -707,7 +731,7 @@ fn format_unicode(expr: &Expr, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             }
             if !factors.is_empty()
                 && let ExprKind::Number(n) = &factors[0].kind
-                && (*n + 1.0).abs() < 1e-10
+                && (*n + 1.0).abs() < EPSILON
             {
                 if factors.len() == 1 {
                     return write!(f, "−1");
@@ -716,8 +740,16 @@ fn format_unicode(expr: &Expr, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 let rest = Expr::product_from_arcs(remaining);
                 return write!(f, "−{}", unicode_factor(&rest));
             }
-            let factor_strs: Vec<String> = factors.iter().map(|fac| unicode_factor(fac)).collect();
-            write!(f, "{}", factor_strs.join("·"))
+            // Write factors with · separator directly
+            let mut first = true;
+            for fac in factors {
+                if !first {
+                    write!(f, "·")?;
+                }
+                write!(f, "{}", unicode_factor(fac))?;
+                first = false;
+            }
+            Ok(())
         }
 
         ExprKind::Div(u, v) => {
@@ -738,7 +770,7 @@ fn format_unicode(expr: &Expr, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 
         ExprKind::Pow(u, v) => {
             if let ExprKind::Symbol(s) = &u.kind
-                && s == "e"
+                && s.id() == *E
             {
                 return write!(f, "exp({})", UnicodeFormatter(v));
             }

@@ -37,11 +37,12 @@ fn global_registry() -> &'static RuleRegistry {
 /// Main simplification engine with rule-based architecture
 pub(crate) struct Simplifier {
     /// Per-rule caches - cleared when exceeding capacity to bound memory
-    rule_caches: HashMap<String, HashMap<u64, Option<Arc<Expr>>>>,
+    /// Uses Arc<str> keys to avoid String allocation on each lookup
+    rule_caches: HashMap<Arc<str>, HashMap<u64, Option<Arc<Expr>>>>,
     cache_capacity: usize,
     max_iterations: usize,
     max_depth: usize,
-    timeout: Option<Duration>, // Wall-clock timeout to prevent hangs
+    timeout: Option<Duration>,
     context: RuleContext,
     domain_safe: bool,
 }
@@ -64,14 +65,6 @@ impl Simplifier {
             context: RuleContext::default(),
             domain_safe: false,
         }
-    }
-
-    /// Set the cache capacity per rule (default: 10K entries)
-    /// Cache is cleared when this limit is exceeded.
-    #[allow(dead_code)]
-    pub fn with_cache_capacity(mut self, capacity: usize) -> Self {
-        self.cache_capacity = capacity.max(1);
-        self
     }
 
     pub fn with_max_iterations(mut self, max_iterations: usize) -> Self {
@@ -172,42 +165,49 @@ impl Simplifier {
         match &expr.kind {
             // N-ary Sum - simplify all terms
             AstKind::Sum(terms) => {
-                let simplified_terms: Vec<Arc<Expr>> = terms
-                    .iter()
-                    .map(|t| self.apply_rules_bottom_up(t.clone(), depth + 1))
-                    .collect();
+                let mut simplified_terms: Option<Vec<Arc<Expr>>> = None;
 
-                // Check if any term changed
-                let changed = simplified_terms
-                    .iter()
-                    .zip(terms.iter())
-                    .any(|(new, old)| !Arc::ptr_eq(new, old));
+                for (i, term) in terms.iter().enumerate() {
+                    let simplified = self.apply_rules_bottom_up(term.clone(), depth + 1);
+                    if !Arc::ptr_eq(&simplified, term) && simplified_terms.is_none() {
+                        let mut v = Vec::with_capacity(terms.len());
+                        v.extend(terms[..i].iter().cloned());
+                        simplified_terms = Some(v);
+                    }
+                    if let Some(ref mut v) = simplified_terms {
+                        v.push(simplified);
+                    }
+                }
 
-                if !changed {
-                    self.apply_rules_to_node(expr, depth)
-                } else {
-                    let new_expr = Arc::new(Expr::sum_from_arcs(simplified_terms));
+                if let Some(v) = simplified_terms {
+                    let new_expr = Arc::new(Expr::sum_from_arcs(v));
                     self.apply_rules_to_node(new_expr, depth)
+                } else {
+                    self.apply_rules_to_node(expr, depth)
                 }
             }
 
             // N-ary Product - simplify all factors
             AstKind::Product(factors) => {
-                let simplified_factors: Vec<Arc<Expr>> = factors
-                    .iter()
-                    .map(|f| self.apply_rules_bottom_up(f.clone(), depth + 1))
-                    .collect();
+                let mut simplified_factors: Option<Vec<Arc<Expr>>> = None;
 
-                let changed = simplified_factors
-                    .iter()
-                    .zip(factors.iter())
-                    .any(|(new, old)| !Arc::ptr_eq(new, old));
+                for (i, factor) in factors.iter().enumerate() {
+                    let simplified = self.apply_rules_bottom_up(factor.clone(), depth + 1);
+                    if !Arc::ptr_eq(&simplified, factor) && simplified_factors.is_none() {
+                        let mut v = Vec::with_capacity(factors.len());
+                        v.extend(factors[..i].iter().cloned());
+                        simplified_factors = Some(v);
+                    }
+                    if let Some(ref mut v) = simplified_factors {
+                        v.push(simplified);
+                    }
+                }
 
-                if !changed {
-                    self.apply_rules_to_node(expr, depth)
-                } else {
-                    let new_expr = Arc::new(Expr::product_from_arcs(simplified_factors));
+                if let Some(v) = simplified_factors {
+                    let new_expr = Arc::new(Expr::product_from_arcs(v));
                     self.apply_rules_to_node(new_expr, depth)
+                } else {
+                    self.apply_rules_to_node(expr, depth)
                 }
             }
 
@@ -234,22 +234,25 @@ impl Simplifier {
                 }
             }
             AstKind::FunctionCall { name, args } => {
-                let args_simplified: Vec<Arc<Expr>> = args
-                    .iter()
-                    .map(|arg| self.apply_rules_bottom_up(Arc::clone(arg), depth + 1))
-                    .collect();
+                let mut simplified_args: Option<Vec<Arc<Expr>>> = None;
 
-                // Check if any arg changed using Arc pointer equality
-                let changed = args_simplified
-                    .iter()
-                    .zip(args.iter())
-                    .any(|(new, old)| !Arc::ptr_eq(new, old));
+                for (i, arg) in args.iter().enumerate() {
+                    let simplified = self.apply_rules_bottom_up(arg.clone(), depth + 1);
+                    if !Arc::ptr_eq(&simplified, arg) && simplified_args.is_none() {
+                        let mut v = Vec::with_capacity(args.len());
+                        v.extend(args[..i].iter().cloned());
+                        simplified_args = Some(v);
+                    }
+                    if let Some(ref mut v) = simplified_args {
+                        v.push(simplified);
+                    }
+                }
 
-                if !changed {
-                    self.apply_rules_to_node(expr, depth)
-                } else {
-                    let new_expr = Arc::new(Expr::func_multi_from_arcs(name, args_simplified));
+                if let Some(v) = simplified_args {
+                    let new_expr = Arc::new(Expr::func_multi_from_arcs(name, v));
                     self.apply_rules_to_node(new_expr, depth)
+                } else {
+                    self.apply_rules_to_node(expr, depth)
                 }
             }
             _ => self.apply_rules_to_node(expr, depth),
@@ -275,38 +278,33 @@ impl Simplifier {
             // Check per-rule cache using expression ID as key (fast)
             let cache_key = current.id;
 
-            if let Some(cache) = self.rule_caches.get(rule_name) {
-                if let Some(cached_result) = cache.get(&cache_key) {
+            if let Some(cache) = self.rule_caches.get(rule_name)
+                && let Some(cached_result) = cache.get(&cache_key) {
                     if let Some(new_expr) = cached_result {
                         current = Arc::clone(new_expr); // Cheap Arc clone!
                     }
                     // cached_result is Some or None, either way we skip rule application
                     continue;
                 }
-            }
 
             // Apply rule - pass &Arc<Expr>, get Option<Arc<Expr>>
             let original_id = current.id;
+
+            // Get or create cache for this rule (Arc<str> avoids allocation on hit)
+            let cache = self.rule_caches.entry(Arc::from(rule_name)).or_default();
+
+            // Bound memory: clear if exceeding capacity (simple, fast eviction)
+            if cache.len() >= self.cache_capacity {
+                cache.clear();
+            }
+
             if let Some(new_expr) = rule.apply(&current, &self.context) {
                 if trace_enabled() {
                     eprintln!("[TRACE] {} : {} => {}", rule_name, current, new_expr);
                 }
-
-                // Cache the transformation - Arc clone is cheap!
-                let cache = self.rule_caches.entry(rule_name.to_string()).or_default();
-                // Bound memory: clear if exceeding capacity
-                if cache.len() >= self.cache_capacity {
-                    cache.clear();
-                }
                 cache.insert(original_id, Some(Arc::clone(&new_expr)));
-
                 current = new_expr;
             } else {
-                // Cache as "no change"
-                let cache = self.rule_caches.entry(rule_name.to_string()).or_default();
-                if cache.len() >= self.cache_capacity {
-                    cache.clear();
-                }
                 cache.insert(original_id, None);
             }
         }

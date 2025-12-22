@@ -16,7 +16,7 @@ mod tests {
         // Expected: x^4
         if let ExprKind::Pow(base, exp) = &simplified.kind {
             if let ExprKind::Symbol(s) = &base.kind {
-                assert_eq!(s, "x");
+                assert_eq!(s.as_str(), "x");
             } else {
                 panic!("Expected base x");
             }
@@ -42,7 +42,7 @@ mod tests {
         // Expected: x^(a*b) or x^Product([a, b])
         if let ExprKind::Pow(base, exp) = &simplified.kind {
             if let ExprKind::Symbol(s) = &base.kind {
-                assert_eq!(s, "x");
+                assert_eq!(s.as_str(), "x");
             } else {
                 panic!("Expected base x");
             }
@@ -71,7 +71,7 @@ mod tests {
         // Expected: sigma^4
         if let ExprKind::Pow(base, exp) = &simplified.kind {
             if let ExprKind::Symbol(s) = &base.kind {
-                assert_eq!(s, "sigma");
+                assert_eq!(s.as_str(), "sigma");
             } else {
                 panic!("Expected base sigma");
             }

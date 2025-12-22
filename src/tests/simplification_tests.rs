@@ -148,7 +148,7 @@ mod tests {
             assert!(factors.len() == 2);
             assert!(matches!(&factors[0].kind, ExprKind::Number(n) if *n == -1.0));
             if let ExprKind::FunctionCall { name, args } = &factors[1].kind {
-                assert_eq!(name, "sin");
+                assert_eq!(name.as_str(), "sin");
                 assert_eq!(*args[0], Expr::symbol("x"));
             } else {
                 panic!("Expected function call");
@@ -215,7 +215,7 @@ mod tests {
             // Check if x is one of the factors
             let has_x = factors
                 .iter()
-                .any(|f| matches!(&f.kind, ExprKind::Symbol(s) if s == "x"));
+                .any(|f| matches!(&f.kind, ExprKind::Symbol(s) if s.as_str() == "x"));
             assert!(has_x, "Expected x as a factor, got {:?}", simplified);
 
             // Check if (y + z) is one of the factors
@@ -223,10 +223,10 @@ mod tests {
                 if let ExprKind::Sum(terms) = &f.kind {
                     let has_y = terms
                         .iter()
-                        .any(|t| matches!(&t.kind, ExprKind::Symbol(s) if s == "y"));
+                        .any(|t| matches!(&t.kind, ExprKind::Symbol(s) if s.as_str() == "y"));
                     let has_z = terms
                         .iter()
-                        .any(|t| matches!(&t.kind, ExprKind::Symbol(s) if s == "z"));
+                        .any(|t| matches!(&t.kind, ExprKind::Symbol(s) if s.as_str() == "z"));
                     has_y && has_z
                 } else {
                     false
@@ -302,7 +302,7 @@ mod tests {
         if let ExprKind::Div(num, den) = &simplified.kind {
             // Check denominator is B
             if let ExprKind::Symbol(s) = &den.kind {
-                assert_eq!(s, "B");
+                assert_eq!(s.as_str(), "B");
             } else {
                 panic!("Expected denominator B");
             }

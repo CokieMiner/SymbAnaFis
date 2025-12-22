@@ -14,6 +14,9 @@ use crate::core::symbol::{InternedSymbol, get_or_intern};
 pub(crate) type CustomEvalMap =
     std::collections::HashMap<String, std::sync::Arc<dyn Fn(&[f64]) -> Option<f64> + Send + Sync>>;
 
+// Re-export EPSILON from traits for backward compatibility
+use crate::core::traits::EPSILON;
+
 // =============================================================================
 // EXPRESSION ID COUNTER
 // =============================================================================
@@ -23,6 +26,10 @@ static EXPR_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
 fn next_id() -> u64 {
     EXPR_ID_COUNTER.fetch_add(1, Ordering::Relaxed)
 }
+
+/// Cached Expr for number 1.0 to avoid repeated allocations in comparisons
+static EXPR_ONE_HASH: std::sync::LazyLock<u64> =
+    std::sync::LazyLock::new(|| compute_expr_hash(&ExprKind::Number(1.0)));
 
 // =============================================================================
 // EXPR - The main expression type
@@ -211,19 +218,15 @@ fn compute_expr_hash(kind: &ExprKind) -> u64 {
                 hash_u64(h, inner.hash)
             }
 
-            // Polynomial: hash based on terms (order-independent)
+            // Polynomial: hash based on terms and base
             ExprKind::Poly(poly) => {
                 let h = hash_byte(hash, b'P');
-                // Hash each term: commutative, so sum hashes
+                // Hash base expression
+                let h = hash_u64(h, poly.base().hash);
+                // Hash each term (power, coeff) - commutative, so sum hashes
                 let mut acc: u64 = 0;
-                for term in poly.terms() {
-                    // Hash coefficient
-                    let term_hash = hash_f64(0, term.coeff);
-                    // Hash powers
-                    let term_hash = term.powers.iter().fold(term_hash, |h, (sym, pow)| {
-                        let h = hash_u64(h, sym.id());
-                        hash_u64(h, *pow as u64)
-                    });
+                for &(pow, coeff) in poly.terms() {
+                    let term_hash = hash_u64(hash_f64(0, coeff), pow as u64);
                     acc = acc.wrapping_add(term_hash);
                 }
                 hash_u64(h, acc)
@@ -250,6 +253,7 @@ impl Expr {
     // -------------------------------------------------------------------------
 
     /// Check if expression is a constant number and return its value
+    #[inline]
     pub fn as_number(&self) -> Option<f64> {
         match &self.kind {
             ExprKind::Number(n) => Some(*n),
@@ -294,15 +298,23 @@ impl Expr {
         Expr::new(ExprKind::Symbol(interned))
     }
 
+    /// Create a function call from an already-interned symbol (single argument)
+    pub(crate) fn func_symbol(name: InternedSymbol, arg: Expr) -> Self {
+        Expr::new(ExprKind::FunctionCall {
+            name,
+            args: vec![Arc::new(arg)],
+        })
+    }
+
     /// Create a polynomial expression directly
     pub fn poly(p: super::poly::Polynomial) -> Self {
         // Empty polynomial is 0
         if p.terms().is_empty() {
             return Expr::number(0.0);
         }
-        // Single constant term is just a number
-        if p.terms().len() == 1 && p.terms()[0].powers.is_empty() {
-            return Expr::number(p.terms()[0].coeff);
+        // Single constant term (pow=0) is just a number
+        if p.terms().len() == 1 && p.terms()[0].0 == 0 {
+            return Expr::number(p.terms()[0].1);
         }
         Expr::new(ExprKind::Poly(p))
     }
@@ -318,13 +330,14 @@ fn get_poly_base_hash(expr: &Expr) -> Option<u64> {
     match &expr.kind {
         // Symbol x → hash of x
         ExprKind::Symbol(s) => Some(s.id()),
-        // x^n where n is a positive integer → hash of x
         ExprKind::Pow(base, exp) => {
             if let ExprKind::Number(n) = &exp.kind
-                && *n >= 1.0 && n.fract() == 0.0
-                    && let ExprKind::Symbol(s) = &base.kind {
-                        return Some(s.id());
-                    }
+                && *n >= 1.0
+                && n.fract().abs() < EPSILON
+                && let ExprKind::Symbol(s) = &base.kind
+            {
+                return Some(s.id());
+            }
             None
         }
         // c*x^n → hash of x
@@ -341,14 +354,16 @@ fn get_poly_base_hash(expr: &Expr) -> Option<u64> {
                     }
                     ExprKind::Pow(b, exp) => {
                         if let ExprKind::Number(n) = &exp.kind
-                            && *n >= 1.0 && n.fract() == 0.0
-                                && let ExprKind::Symbol(s) = &b.kind {
-                                    if base_hash.is_some() {
-                                        return None;
-                                    }
-                                    base_hash = Some(s.id());
-                                    continue;
-                                }
+                            && *n >= 1.0
+                            && n.fract().abs() < EPSILON
+                            && let ExprKind::Symbol(s) = &b.kind
+                        {
+                            if base_hash.is_some() {
+                                return None;
+                            }
+                            base_hash = Some(s.id());
+                            continue;
+                        }
                         return None;
                     }
                     _ => return None, // Functions or other complex expressions
@@ -394,15 +409,22 @@ impl Expr {
         }
 
         // Add accumulated numeric constant at the BEGINNING (canonical order: numbers first)
-        if numeric_sum.abs() > 1e-14 {
-            flat.insert(0, Arc::new(Expr::number(numeric_sum)));
-        }
+        // Build new vector with capacity to avoid O(n) insert
+        let flat = if numeric_sum.abs() > EPSILON {
+            let mut with_num = Vec::with_capacity(flat.len() + 1);
+            with_num.push(Arc::new(Expr::number(numeric_sum)));
+            with_num.extend(flat);
+            with_num
+        } else {
+            flat
+        };
 
         if flat.is_empty() {
             return Expr::number(0.0);
         }
         if flat.len() == 1 {
-            return Arc::try_unwrap(flat.pop().unwrap()).unwrap_or_else(|arc| (*arc).clone());
+            return Arc::try_unwrap(flat.into_iter().next().unwrap())
+                .unwrap_or_else(|arc| (*arc).clone());
         }
 
         // Streaming incremental Poly building: if term has same base as last, combine into Poly
@@ -415,55 +437,40 @@ impl Expr {
                 let current_base = get_poly_base_hash(&term);
 
                 if current_base.is_some() && current_base == last_base && !result.is_empty() {
-                    // Same base as last term - merge into Poly
-                    let last = result.pop().unwrap();
-                    let last_expr = Arc::try_unwrap(last).unwrap_or_else(|arc| (*arc).clone());
-                    let term_expr = Arc::try_unwrap(term).unwrap_or_else(|arc| (*arc).clone());
+                    // Same base as last term - try to merge
+                    let last_arc = result.pop().unwrap();
 
-                    // If last was already a Poly, add to it; else create new Poly from both
-                    let merged = if let ExprKind::Poly(poly) = &last_expr.kind {
-                        // Convert Poly back to sum, add new term, reconvert
-                        let mut terms_vec: Vec<Arc<Expr>> =
-                            poly.to_expr_terms().into_iter().map(Arc::new).collect();
-                        terms_vec.push(Arc::new(term_expr.clone()));
-                        let temp_sum = Expr::new(ExprKind::Sum(terms_vec));
-                        if let Some(new_poly) = super::poly::Polynomial::try_from_expr(&temp_sum) {
-                            if new_poly.substitutions_count() == 0 {
-                                Expr::poly(new_poly)
-                            } else {
+                    // Unwrap locally to get ownership (or clone if shared)
+                    let mut last_expr = Arc::try_unwrap(last_arc).unwrap_or_else(|a| (*a).clone());
+
+                    // Try to parse current term as polynomial
+                    // Optimization: if term is simple, this is cheap
+                    if let Some(term_poly) = super::poly::Polynomial::try_from_expr(&term) {
+                        // Case A: Last is already a Poly - try in-place add
+                        if let ExprKind::Poly(ref mut p) = last_expr.kind {
+                            if p.try_add_assign(&term_poly) {
                                 result.push(Arc::new(last_expr));
-                                result.push(Arc::new(term_expr));
-                                last_base = current_base;
                                 continue;
                             }
-                        } else {
-                            result.push(Arc::new(last_expr));
-                            result.push(Arc::new(term_expr));
-                            last_base = current_base;
-                            continue;
                         }
-                    } else {
-                        // Create new Poly from both terms
-                        let temp_sum = Expr::new(ExprKind::Sum(vec![
-                            Arc::new(last_expr),
-                            Arc::new(term_expr),
-                        ]));
-                        if let Some(poly) = super::poly::Polynomial::try_from_expr(&temp_sum) {
-                            if poly.substitutions_count() == 0 {
-                                Expr::poly(poly)
-                            } else {
-                                // Can't convert - keep original
-                                result.push(Arc::new(temp_sum));
-                                last_base = current_base;
+                        // Case B: Last is not a Poly yet, or merge failed (shouldn't if bases match)
+                        // Try to convert last to Poly and then merge
+                        else if let Some(dest_poly) =
+                            super::poly::Polynomial::try_from_expr(&last_expr)
+                        {
+                            // Create new Poly from last
+                            let mut new_poly = dest_poly; // Move
+                            if new_poly.try_add_assign(&term_poly) {
+                                result.push(Arc::new(Expr::poly(new_poly)));
                                 continue;
                             }
-                        } else {
-                            result.push(Arc::new(temp_sum));
-                            last_base = current_base;
-                            continue;
                         }
-                    };
-                    result.push(Arc::new(merged));
+                    }
+
+                    // Fallback: could not merge. Push both separately.
+                    // (Should not happen if get_poly_base_hash is correct)
+                    result.push(Arc::new(last_expr));
+                    result.push(term);
                 } else {
                     // Different base - just add
                     result.push(term);
@@ -503,15 +510,22 @@ impl Expr {
         }
 
         // Add accumulated numeric constant at the BEGINNING (canonical order: numbers first)
-        if numeric_sum.abs() > 1e-14 {
-            flat.insert(0, Arc::new(Expr::number(numeric_sum)));
-        }
+        // Build new vector with capacity to avoid O(n) insert
+        let flat = if numeric_sum.abs() > EPSILON {
+            let mut with_num = Vec::with_capacity(flat.len() + 1);
+            with_num.push(Arc::new(Expr::number(numeric_sum)));
+            with_num.extend(flat);
+            with_num
+        } else {
+            flat
+        };
 
         if flat.is_empty() {
             return Expr::number(0.0);
         }
         if flat.len() == 1 {
-            return Arc::try_unwrap(flat.pop().unwrap()).unwrap_or_else(|arc| (*arc).clone());
+            return Arc::try_unwrap(flat.into_iter().next().unwrap())
+                .unwrap_or_else(|arc| (*arc).clone());
         }
 
         Expr::new(ExprKind::Sum(flat))
@@ -547,16 +561,23 @@ impl Expr {
             }
         }
 
-        // Add numeric coefficient if not 1.0
-        if (numeric_prod - 1.0).abs() > 1e-14 {
-            flat.insert(0, Arc::new(Expr::number(numeric_prod)));
-        }
+        // Add numeric coefficient at the BEGINNING if not 1.0 (canonical order: numbers first)
+        // Build new vector with capacity to avoid O(n) insert
+        let flat = if (numeric_prod - 1.0).abs() > EPSILON {
+            let mut with_coeff = Vec::with_capacity(flat.len() + 1);
+            with_coeff.push(Arc::new(Expr::number(numeric_prod)));
+            with_coeff.extend(flat);
+            with_coeff
+        } else {
+            flat
+        };
 
         if flat.is_empty() {
             return Expr::number(1.0);
         }
         if flat.len() == 1 {
-            return Arc::try_unwrap(flat.pop().unwrap()).unwrap_or_else(|arc| (*arc).clone());
+            return Arc::try_unwrap(flat.into_iter().next().unwrap())
+                .unwrap_or_else(|arc| (*arc).clone());
         }
 
         Expr::new(ExprKind::Product(flat))
@@ -650,10 +671,12 @@ impl Expr {
     }
 
     /// Create a function call expression (single argument)
-    pub fn func(name: impl AsRef<str>, content: Expr) -> Self {
+    ///
+    /// Accepts `Expr`, `Arc<Expr>`, or `&Arc<Expr>` as the content parameter.
+    pub fn func(name: impl AsRef<str>, content: impl Into<Expr>) -> Self {
         Expr::new(ExprKind::FunctionCall {
             name: get_or_intern(name.as_ref()),
-            args: vec![Arc::new(content)],
+            args: vec![Arc::new(content.into())],
         })
     }
 
@@ -671,6 +694,11 @@ impl Expr {
             name: get_or_intern(name.as_ref()),
             args,
         })
+    }
+
+    /// Create a function call from Arc arguments using InternedSymbol (most efficient)
+    pub(crate) fn func_multi_from_arcs_symbol(name: InternedSymbol, args: Vec<Arc<Expr>>) -> Self {
+        Expr::new(ExprKind::FunctionCall { name, args })
     }
 
     /// Create a function call with explicit arguments using array syntax
@@ -733,20 +761,54 @@ impl Expr {
         }
     }
 
-    /// Check if the expression contains a specific variable
-    pub fn contains_var(&self, var: &str) -> bool {
+    /// Check if the expression contains a specific variable (by symbol ID)
+    pub fn contains_var_id(&self, var_id: u64) -> bool {
         match &self.kind {
             ExprKind::Number(_) => false,
-            ExprKind::Symbol(s) => s == var,
-            ExprKind::FunctionCall { args, .. } => args.iter().any(|a| a.contains_var(var)),
-            ExprKind::Sum(terms) => terms.iter().any(|t| t.contains_var(var)),
-            ExprKind::Product(factors) => factors.iter().any(|f| f.contains_var(var)),
-            ExprKind::Div(l, r) | ExprKind::Pow(l, r) => l.contains_var(var) || r.contains_var(var),
-            ExprKind::Derivative { inner, var: v, .. } => v == var || inner.contains_var(var),
-            ExprKind::Poly(poly) => poly
-                .terms()
-                .iter()
-                .any(|t| t.powers.iter().any(|(s, _)| s == var)),
+            ExprKind::Symbol(s) => s.id() == var_id,
+            ExprKind::FunctionCall { args, .. } => args.iter().any(|a| a.contains_var_id(var_id)),
+            ExprKind::Sum(terms) => terms.iter().any(|t| t.contains_var_id(var_id)),
+            ExprKind::Product(factors) => factors.iter().any(|f| f.contains_var_id(var_id)),
+            ExprKind::Div(l, r) | ExprKind::Pow(l, r) => {
+                l.contains_var_id(var_id) || r.contains_var_id(var_id)
+            }
+            ExprKind::Derivative { inner, var: v, .. } => {
+                // Lookup the derivative var symbol by name to get its ID
+                let matches = crate::core::symbol::global_context()
+                    .get(v)
+                    .is_some_and(|s| s.id() == var_id);
+                matches || inner.contains_var_id(var_id)
+            }
+            ExprKind::Poly(poly) => poly.base().contains_var_id(var_id),
+        }
+    }
+
+    /// Check if the expression contains a specific variable (by name)
+    /// Uses ID comparison when possible, falls back to string matching
+    pub fn contains_var(&self, var: &str) -> bool {
+        // Try to look up the symbol ID first for O(1) comparison
+        if let Some(sym) = crate::core::symbol::global_context().get(var) {
+            self.contains_var_id(sym.id())
+        } else {
+            // Symbol not in global context - fall back to string matching
+            self.contains_var_str(var)
+        }
+    }
+
+    /// Check if the expression contains a specific variable (by name string match)
+    /// This is used as a fallback when the symbol isn't in the global registry
+    fn contains_var_str(&self, var: &str) -> bool {
+        match &self.kind {
+            ExprKind::Number(_) => false,
+            ExprKind::Symbol(s) => s.as_str() == var,
+            ExprKind::FunctionCall { args, .. } => args.iter().any(|a| a.contains_var_str(var)),
+            ExprKind::Sum(terms) => terms.iter().any(|t| t.contains_var_str(var)),
+            ExprKind::Product(factors) => factors.iter().any(|f| f.contains_var_str(var)),
+            ExprKind::Div(l, r) | ExprKind::Pow(l, r) => {
+                l.contains_var_str(var) || r.contains_var_str(var)
+            }
+            ExprKind::Derivative { inner, var: v, .. } => v == var || inner.contains_var_str(var),
+            ExprKind::Poly(poly) => poly.base().contains_var_str(var),
         }
     }
 
@@ -766,10 +828,7 @@ impl Expr {
             ExprKind::Derivative { inner, var, .. } => {
                 !excluded.contains(var) || inner.has_free_variables(excluded)
             }
-            ExprKind::Poly(poly) => poly
-                .terms()
-                .iter()
-                .any(|t| t.powers.iter().any(|(s, _)| !excluded.contains(s.as_ref()))),
+            ExprKind::Poly(poly) => poly.base().has_free_variables(excluded),
         }
     }
 
@@ -812,13 +871,8 @@ impl Expr {
             }
             ExprKind::Number(_) => {}
             ExprKind::Poly(poly) => {
-                for term in poly.terms() {
-                    for (sym, _) in &term.powers {
-                        if let Some(name) = sym.name() {
-                            vars.insert(name.to_string());
-                        }
-                    }
-                }
+                // Collect variables from the base expression
+                poly.base().collect_variables(vars);
             }
         }
     }
@@ -870,6 +924,41 @@ impl Expr {
     /// Simplify this expression
     pub fn simplified(&self) -> Result<Expr, crate::DiffError> {
         crate::Simplify::new().simplify(self.clone())
+    }
+
+    /// Compile this expression for fast numerical evaluation
+    ///
+    /// Creates a compiled evaluator that can be reused for many evaluations.
+    /// Much faster than `evaluate()` when evaluating the same expression
+    /// at multiple points.
+    ///
+    /// # Example
+    /// ```
+    /// use symb_anafis::{Expr, parse};
+    /// use std::collections::HashSet;
+    /// let expr = parse("x^2 + 2*x", &HashSet::new(), &HashSet::new(), None).unwrap();
+    /// let evaluator = expr.compile().unwrap();
+    ///
+    /// // Fast evaluation at multiple points
+    /// let result_at_3 = evaluator.evaluate(&[3.0]); // 3^2 + 2*3 = 15
+    /// assert!((result_at_3 - 15.0).abs() < 1e-10);
+    /// ```
+    pub fn compile(
+        &self,
+    ) -> Result<crate::core::evaluator::CompiledEvaluator, crate::core::evaluator::CompileError>
+    {
+        crate::core::evaluator::CompiledEvaluator::compile_auto(self)
+    }
+
+    /// Compile this expression with explicit parameter ordering
+    ///
+    /// Use when you need control over the parameter order in `evaluate()`.
+    pub fn compile_with_params(
+        &self,
+        param_order: &[&str],
+    ) -> Result<crate::core::evaluator::CompiledEvaluator, crate::core::evaluator::CompileError>
+    {
+        crate::core::evaluator::CompiledEvaluator::compile(self, param_order)
     }
 
     /// Fold over the expression tree (pre-order)
@@ -932,7 +1021,7 @@ impl Expr {
     pub fn substitute(&self, var: &str, replacement: &Expr) -> Expr {
         self.map(|node| {
             if let ExprKind::Symbol(s) = &node.kind
-                && s == var
+                && s.as_str() == var
             {
                 return replacement.clone();
             }
@@ -954,10 +1043,19 @@ impl Expr {
         match &self.kind {
             ExprKind::Number(n) => Expr::number(*n),
             ExprKind::Symbol(s) => {
+                // First check if it's a user-provided variable value
                 if let Some(name) = s.name()
                     && let Some(&val) = vars.get(name)
                 {
                     return Expr::number(val);
+                }
+                // Check for mathematical constants: pi and e
+                if let Some(name) = s.name() {
+                    match name {
+                        "pi" | "PI" | "Pi" => return Expr::number(std::f64::consts::PI),
+                        "e" | "E" => return Expr::number(std::f64::consts::E),
+                        _ => {}
+                    }
                 }
                 self.clone()
             }
@@ -976,7 +1074,8 @@ impl Expr {
                     {
                         return Expr::number(result);
                     }
-                    if let Some(func_def) = crate::functions::registry::Registry::get(name.as_str())
+                    if let Some(func_def) =
+                        crate::functions::registry::Registry::get_by_symbol(name)
                         && let Some(result) = (func_def.eval)(&args_vec)
                     {
                         return Expr::number(result);
@@ -1063,32 +1162,17 @@ impl Expr {
                 *order,
             ),
             ExprKind::Poly(poly) => {
-                // Direct polynomial evaluation: Σ (coeff × ∏ var^pow)
-                let mut total = 0.0;
-                let mut all_numeric = true;
-
-                'outer: for term in poly.terms() {
-                    let mut term_val = term.coeff;
-                    for (sym, pow) in &term.powers {
-                        if let Some(name) = sym.name() {
-                            if let Some(&val) = vars.get(name) {
-                                term_val *= val.powi(*pow as i32);
-                            } else {
-                                all_numeric = false;
-                                break 'outer;
-                            }
-                        } else {
-                            all_numeric = false;
-                            break 'outer;
-                        }
+                // Polynomial evaluation: evaluate P(base) where base is evaluated first
+                let base_result = poly.base().evaluate_with_custom(vars, custom_evals);
+                // If base evaluates to a number, compute the polynomial value
+                if let ExprKind::Number(base_val) = &base_result.kind {
+                    let mut total = 0.0;
+                    for &(pow, coeff) in poly.terms() {
+                        total += coeff * base_val.powi(pow as i32);
                     }
-                    total += term_val;
-                }
-
-                if all_numeric {
                     Expr::number(total)
                 } else {
-                    // Partial evaluation not possible, return Poly as-is
+                    // Can't fully evaluate, return as-is
                     self.clone()
                 }
             }
@@ -1159,6 +1243,12 @@ fn expr_cmp(a: &Expr, b: &Expr) -> CmpOrdering {
 
     // If one has explicit exponent and one implied 1:
     // x (1) vs x^2 (2) -> 1 < 2 -> Less
+    // Use cached hash for 1.0 to avoid repeated Expr allocations
+    let one_expr = Expr {
+        id: 0, // ID doesn't matter for comparison
+        hash: *EXPR_ONE_HASH,
+        kind: ExprKind::Number(1.0),
+    };
     match (exp_a, exp_b) {
         (Some(e_a), Some(e_b)) => {
             let exp_cmp = expr_cmp(e_a, e_b);
@@ -1167,19 +1257,15 @@ fn expr_cmp(a: &Expr, b: &Expr) -> CmpOrdering {
             }
         }
         (Some(e_a), None) => {
-            // Compare expr e_a vs 1.0
-            // Usually e_a > 1 (like 2, 3), but could be 0.5
-            // Safer to compare full expr
-            let one = Expr::number(1.0);
-            let exp_cmp = expr_cmp(e_a, &one);
+            // Compare expr e_a vs 1.0 (using cached one_expr)
+            let exp_cmp = expr_cmp(e_a, &one_expr);
             if exp_cmp != CmpOrdering::Equal {
                 return exp_cmp;
             }
         }
         (None, Some(e_b)) => {
-            // Compare 1.0 vs e_b
-            let one = Expr::number(1.0);
-            let exp_cmp = expr_cmp(&one, e_b);
+            // Compare 1.0 vs e_b (using cached one_expr)
+            let exp_cmp = expr_cmp(&one_expr, e_b);
             if exp_cmp != CmpOrdering::Equal {
                 return exp_cmp;
             }
@@ -1303,15 +1389,12 @@ impl std::hash::Hash for ExprKind {
                 order.hash(state);
             }
             ExprKind::Poly(poly) => {
-                // Hash polynomial terms
+                // Hash polynomial: base hash + terms
+                poly.base().hash.hash(state);
                 poly.terms().len().hash(state);
-                for term in poly.terms() {
-                    term.coeff.to_bits().hash(state);
-                    term.powers.len().hash(state);
-                    for (sym, pow) in &term.powers {
-                        sym.hash(state);
-                        pow.hash(state);
-                    }
+                for &(pow, coeff) in poly.terms() {
+                    coeff.to_bits().hash(state);
+                    pow.hash(state);
                 }
             }
         }
