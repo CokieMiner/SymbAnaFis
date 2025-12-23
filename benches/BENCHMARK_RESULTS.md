@@ -23,15 +23,15 @@
 
 | Expression | SymbAnaFis (SA) | Symbolica (SY) | Speedup (SA vs SY) |
 |------------|-----------------|----------------|--------------------| 
-| Normal PDF | 2.63 µs | 4.49 µs | **1.71x** |
-| Gaussian 2D | 3.57 µs | 6.29 µs | **1.76x** |
-| Maxwell-Boltzmann | 4.09 µs | 6.10 µs | **1.49x** |
-| Lorentz Factor | 1.33 µs | 2.32 µs | **1.74x** |
+| Normal PDF | 2.61 µs | 4.45 µs | **1.70x** |
+| Gaussian 2D | 3.58 µs | 6.28 µs | **1.75x** |
+| Maxwell-Boltzmann | 4.10 µs | 6.02 µs | **1.47x** |
+| Lorentz Factor | 1.38 µs | 2.33 µs | **1.69x** |
 | Lennard-Jones | 1.97 µs | 3.57 µs | **1.81x** |
-| Logistic Sigmoid | 1.67 µs | 2.20 µs | **1.32x** |
-| Damped Oscillator | 2.06 µs | 2.52 µs | **1.22x** |
-| Planck Blackbody | 2.78 µs | 4.06 µs | **1.46x** |
-| Bessel Wave | 1.83 µs | 2.27 µs | **1.24x** |
+| Logistic Sigmoid | 1.79 µs | 2.13 µs | **1.19x** |
+| Damped Oscillator | 2.01 µs | 2.47 µs | **1.23x** |
+| Planck Blackbody | 2.76 µs | 3.99 µs | **1.45x** |
+| Bessel Wave | 1.80 µs | 2.23 µs | **1.24x** |
 
 > **Result:** SymbAnaFis parses **1.2x - 1.8x** faster than Symbolica.
 
@@ -41,15 +41,15 @@
 
 | Expression | SymbAnaFis (SA) | Symbolica (SY) | Speedup (SA vs SY) |
 |------------|-----------------|----------------|--------------------| 
-| Normal PDF | 1.26 µs | 1.59 µs | **1.26x** |
-| Gaussian 2D | 1.21 µs | 2.15 µs | **1.78x** |
-| Maxwell-Boltzmann | 1.62 µs | 3.18 µs | **1.96x** |
-| Lorentz Factor | 1.11 µs | 1.78 µs | **1.60x** |
-| Lennard-Jones | 1.14 µs | 1.86 µs | **1.63x** |
-| Logistic Sigmoid | 0.60 µs | 1.11 µs | **1.85x** |
-| Damped Oscillator | 1.01 µs | 1.59 µs | **1.57x** |
-| Planck Blackbody | 1.57 µs | 2.98 µs | **1.90x** |
-| Bessel Wave | 1.43 µs | 1.63 µs | **1.14x** |
+| Normal PDF | 1.23 µs | 1.57 µs | **1.28x** |
+| Gaussian 2D | 1.20 µs | 2.13 µs | **1.78x** |
+| Maxwell-Boltzmann | 1.61 µs | 3.14 µs | **1.95x** |
+| Lorentz Factor | 1.11 µs | 1.77 µs | **1.59x** |
+| Lennard-Jones | 1.15 µs | 1.83 µs | **1.59x** |
+| Logistic Sigmoid | 0.60 µs | 1.09 µs | **1.82x** |
+| Damped Oscillator | 1.01 µs | 1.60 µs | **1.58x** |
+| Planck Blackbody | 1.58 µs | 2.98 µs | **1.89x** |
+| Bessel Wave | 1.55 µs | 1.61 µs | **1.04x** |
 
 > **Result:** SymbAnaFis raw differentiation is **1.1x - 2.0x** faster.
 
@@ -61,28 +61,28 @@
 
 | Expression | SA (diff_only) | Symbolica (diff) | SA Speedup |
 |------------|----------------|------------------|------------|
-| Normal PDF | 1.23 µs | 1.59 µs | **1.29x** |
-| Gaussian 2D | 1.22 µs | 2.14 µs | **1.75x** |
+| Normal PDF | 1.23 µs | 1.58 µs | **1.28x** |
+| Gaussian 2D | 1.19 µs | 2.12 µs | **1.78x** |
 | Maxwell-Boltzmann | 1.61 µs | 3.15 µs | **1.96x** |
-| Lorentz Factor | 1.10 µs | 1.79 µs | **1.63x** |
-| Lennard-Jones | 1.17 µs | 1.85 µs | **1.58x** |
-| Logistic Sigmoid | 0.61 µs | 1.11 µs | **1.82x** |
-| Damped Oscillator | 1.01 µs | 1.60 µs | **1.58x** |
-| Planck Blackbody | 1.58 µs | 2.97 µs | **1.88x** |
-| Bessel Wave | 1.42 µs | 1.62 µs | **1.14x** |
+| Lorentz Factor | 1.12 µs | 1.77 µs | **1.58x** |
+| Lennard-Jones | 1.17 µs | 1.83 µs | **1.56x** |
+| Logistic Sigmoid | 0.61 µs | 1.09 µs | **1.79x** |
+| Damped Oscillator | 1.03 µs | 1.59 µs | **1.54x** |
+| Planck Blackbody | 1.59 µs | 2.96 µs | **1.86x** |
+| Bessel Wave | 1.42 µs | 1.61 µs | **1.13x** |
 
 ### SymbAnaFis Full Simplification Cost
 
 | Expression | SA diff_only | SA diff+simplify | Simplify Overhead |
 |------------|--------------|------------------|-------------------|
-| Normal PDF | 1.23 µs | 164 µs | **133x** |
-| Gaussian 2D | 1.22 µs | 115 µs | **94x** |
-| Maxwell-Boltzmann | 1.61 µs | 203 µs | **126x** |
-| Lorentz Factor | 1.10 µs | 185 µs | **168x** |
+| Normal PDF | 1.23 µs | 163 µs | **133x** |
+| Gaussian 2D | 1.19 µs | 115 µs | **97x** |
+| Maxwell-Boltzmann | 1.61 µs | 202 µs | **125x** |
+| Lorentz Factor | 1.12 µs | 187 µs | **167x** |
 | Lennard-Jones | 1.17 µs | 112 µs | **96x** |
 | Logistic Sigmoid | 0.61 µs | 56 µs | **92x** |
-| Damped Oscillator | 1.01 µs | 81 µs | **80x** |
-| Planck Blackbody | 1.58 µs | 254 µs | **161x** |
+| Damped Oscillator | 1.03 µs | 82 µs | **80x** |
+| Planck Blackbody | 1.59 µs | 257 µs | **162x** |
 | Bessel Wave | 1.42 µs | 82 µs | **58x** |
 
 > **Note:** SymbAnaFis full simplification performs deep AST restructuring (trig identities, algebraic transformations). Symbolica only performs light term collection.
@@ -94,14 +94,14 @@
 | Expression | Time |
 |------------|------|
 | Normal PDF | 163 µs |
-| Gaussian 2D | 113 µs |
+| Gaussian 2D | 114 µs |
 | Maxwell-Boltzmann | 200 µs |
-| Lorentz Factor | 184 µs |
+| Lorentz Factor | 186 µs |
 | Lennard-Jones | 111 µs |
-| Logistic Sigmoid | 55 µs |
-| Damped Oscillator | 80 µs |
-| Planck Blackbody | 252 µs |
-| Bessel Wave | 80 µs |
+| Logistic Sigmoid | 56 µs |
+| Damped Oscillator | 81 µs |
+| Planck Blackbody | 254 µs |
+| Bessel Wave | 81 µs |
 
 ---
 
@@ -111,14 +111,14 @@
 
 | Expression | SymbAnaFis (SA) | Symbolica (SY) | Speedup (SA vs SY) |
 |------------|-----------------|----------------|--------------------| 
-| Normal PDF | 0.56 µs | 8.75 µs | **15.6x** |
-| Gaussian 2D | 0.74 µs | 16.0 µs | **21.6x** |
-| Maxwell-Boltzmann | 0.84 µs | 8.31 µs | **9.9x** |
-| Lorentz Factor | 0.48 µs | 4.72 µs | **9.8x** |
-| Lennard-Jones | 0.50 µs | 12.7 µs | **25.4x** |
-| Logistic Sigmoid | 0.50 µs | 4.89 µs | **9.8x** |
-| Damped Oscillator | 0.78 µs | 7.42 µs | **9.5x** |
-| Planck Blackbody | 1.39 µs | 4.99 µs | **3.6x** |
+| Normal PDF | 0.54 µs | 8.78 µs | **16.3x** |
+| Gaussian 2D | 0.78 µs | 16.3 µs | **20.9x** |
+| Maxwell-Boltzmann | 0.84 µs | 8.39 µs | **10.0x** |
+| Lorentz Factor | 0.47 µs | 4.77 µs | **10.1x** |
+| Lennard-Jones | 0.49 µs | 12.8 µs | **26.1x** |
+| Logistic Sigmoid | 0.48 µs | 4.89 µs | **10.2x** |
+| Damped Oscillator | 0.77 µs | 7.44 µs | **9.7x** |
+| Planck Blackbody | 1.34 µs | 4.99 µs | **3.7x** |
 
 > **Result:** SymbAnaFis compilation is **3.6x - 25x** faster than Symbolica's evaluator creation.
 
@@ -129,14 +129,14 @@
 | Expression | SymbAnaFis (Simpl) | Symbolica (SY) | Speedup (SY vs SA) |
 |------------|--------------------|----------------|--------------------| 
 | Normal PDF | 81 µs | 33 µs | **2.5x** |
-| Gaussian 2D | 80 µs | 35 µs | **2.3x** |
-| Maxwell-Boltzmann | 91 µs | 47 µs | **1.9x** |
+| Gaussian 2D | 76 µs | 34 µs | **2.2x** |
+| Maxwell-Boltzmann | 94 µs | 42 µs | **2.2x** |
 | Lorentz Factor | 44 µs | 32 µs | **1.4x** |
-| Lennard-Jones | 54 µs | 34 µs | **1.6x** |
-| Logistic Sigmoid | 65 µs | 30 µs | **2.2x** |
-| Damped Oscillator | 55 µs | 33 µs | **1.7x** |
-| Planck Blackbody | 144 µs | 32 µs | **4.5x** |
-| Bessel Wave | 69 µs | *(skipped)* | — |
+| Lennard-Jones | 54 µs | 35 µs | **1.5x** |
+| Logistic Sigmoid | 64 µs | 30 µs | **2.1x** |
+| Damped Oscillator | 54 µs | 33 µs | **1.6x** |
+| Planck Blackbody | 148 µs | 32 µs | **4.6x** |
+| Bessel Wave | 74 µs | *(skipped)* | — |
 
 > **Result:** Symbolica's evaluator is **1.4x - 4.5x** faster at runtime execution.
 
@@ -148,13 +148,13 @@
 |------------|-----------------|----------------|--------------------| 
 | Normal PDF | 256 µs | 53 µs | **4.8x** |
 | Gaussian 2D | 207 µs | 70 µs | **3.0x** |
-| Maxwell-Boltzmann | 312 µs | 113 µs | **2.8x** |
-| Lorentz Factor | 240 µs | 58 µs | **4.1x** |
-| Lennard-Jones | 176 µs | 61 µs | **2.9x** |
+| Maxwell-Boltzmann | 314 µs | 113 µs | **2.8x** |
+| Lorentz Factor | 239 µs | 57 µs | **4.2x** |
+| Lennard-Jones | 177 µs | 61 µs | **2.9x** |
 | Logistic Sigmoid | 128 µs | 48 µs | **2.7x** |
-| Damped Oscillator | 148 µs | 80 µs | **1.9x** |
-| Planck Blackbody | 431 µs | 96 µs | **4.5x** |
-| Bessel Wave | 163 µs | *(skipped)* | — |
+| Damped Oscillator | 149 µs | 80 µs | **1.9x** |
+| Planck Blackbody | 431 µs | 95 µs | **4.5x** |
+| Bessel Wave | 164 µs | *(skipped)* | — |
 
 > **Result:** Symbolica is **1.9x - 4.8x** faster in the full pipeline, mainly due to:
 > 1. Lighter simplification (only term collection vs full restructuring)
@@ -170,21 +170,21 @@
 
 | Operation | SymbAnaFis | Symbolica | Speedup |
 |-----------|------------|-----------|---------|
-| Parse | 75 µs | 107 µs | **SA 1.4x** |
-| Diff (no simplify) | 45 µs | 111 µs | **SA 2.5x** |
-| Compile (simplified) | 1.0 µs | 1,009 µs | **SA 1000x** |
-| Eval 1000pts (simplified) | 257 µs | 1,487 µs | **SA 5.8x** |
+| Parse | 74 µs | 105 µs | **SA 1.4x** |
+| Diff (no simplify) | 44 µs | 110 µs | **SA 2.5x** |
+| Compile (simplified) | 11.6 µs | 996 µs | **SA 86x** |
+| Eval 1000pts (simplified) | 2,178 µs | 1,455 µs | **SY 1.5x** |
 
 ### 300 Terms
 
 | Operation | SymbAnaFis | Symbolica | Speedup |
 |-----------|------------|-----------|---------|
-| Parse | 230 µs | 347 µs | **SA 1.5x** |
-| Diff (no simplify) | 135 µs | 333 µs | **SA 2.5x** |
-| Compile (simplified) | 1.0 µs | 12,924 µs | **SA 12,500x** |
-| Eval 1000pts (simplified) | 261 µs | 4,150 µs | **SA 16x** |
+| Parse | 228 µs | 336 µs | **SA 1.5x** |
+| Diff (no simplify) | 133 µs | 331 µs | **SA 2.5x** |
+| Compile (simplified) | 35.8 µs | 11,134 µs | **SA 311x** |
+| Eval 1000pts (simplified) | 6,863 µs | 4,112 µs | **SY 1.7x** |
 
-> **Key Insight:** After SymbAnaFis's full simplification, the expression becomes much simpler, leading to dramatically faster compilation (1000x-12,500x) and evaluation (6x-16x) compared to Symbolica's unsimplified derivative.
+> **Key Insight:** After SymbAnaFis's full simplification, compilation is dramatically faster (86x-311x). However, Symbolica's evaluator is faster for large simplified expressions (1.5x-1.7x).
 
 ---
 
@@ -194,15 +194,15 @@
 
 | Expression | Tree-Walk (1000 pts) | Compiled (1000 pts) | Speedup |
 |------------|----------------------|---------------------|---------|
-| Normal PDF | 509 µs | 79 µs | **6.4x** |
-| Gaussian 2D | 1,008 µs | 80 µs | **12.6x** |
-| Maxwell-Boltzmann | 608 µs | 92 µs | **6.6x** |
-| Lorentz Factor | 394 µs | 42 µs | **9.4x** |
-| Lennard-Jones | 318 µs | 62 µs | **5.1x** |
-| Logistic Sigmoid | 388 µs | 73 µs | **5.3x** |
-| Damped Oscillator | 467 µs | 51 µs | **9.2x** |
-| Planck Blackbody | 942 µs | 152 µs | **6.2x** |
-| Bessel Wave | 582 µs | 72 µs | **8.1x** |
+| Normal PDF | 502 µs | 78 µs | **6.4x** |
+| Gaussian 2D | 1,002 µs | 79 µs | **12.7x** |
+| Maxwell-Boltzmann | 603 µs | 90 µs | **6.7x** |
+| Lorentz Factor | 384 µs | 42 µs | **9.1x** |
+| Lennard-Jones | 316 µs | 61 µs | **5.2x** |
+| Logistic Sigmoid | 384 µs | 73 µs | **5.3x** |
+| Damped Oscillator | 461 µs | 51 µs | **9.0x** |
+| Planck Blackbody | 945 µs | 148 µs | **6.4x** |
+| Bessel Wave | 574 µs | 72 µs | **8.0x** |
 
 > **Result:** Compiled evaluation is **5x - 13x faster** than tree-walk evaluation. Use `CompiledEvaluator` for repeated evaluation of the same expression.
 
@@ -214,12 +214,12 @@
 
 | Points | loop_evaluate | eval_batch | Speedup |
 |--------|---------------|------------|---------|
-| 100 | 3.77 µs | 3.27 µs | **13%** |
-| 1,000 | 37.6 µs | 32.7 µs | **13%** |
-| 10,000 | 375 µs | 326 µs | **13%** |
-| 100,000 | 3.74 ms | 3.26 ms | **13%** |
+| 100 | 3.73 µs | 3.71 µs | **0.5%** |
+| 1,000 | 37.2 µs | 31.4 µs | **16%** |
+| 10,000 | 372 µs | 314 µs | **16%** |
+| 100,000 | 3.73 ms | 3.15 ms | **16%** |
 
-> **Result:** `eval_batch` provides a consistent **~13% speedup** by moving the evaluation loop inside the VM, reducing function call overhead.
+> **Result:** `eval_batch` provides a consistent **~16% speedup** for larger batches by moving the evaluation loop inside the VM, reducing function call overhead.
 
 ---
 
@@ -229,11 +229,11 @@
 
 | Method | Time | vs Sequential |
 |--------|------|---------------|
-| **eval_batch_per_expr** | **51.5 µs** | **21% faster** |
-| eval_f64_per_expr | 52.3 µs | 20% faster |
-| sequential_loops | 65.5 µs | baseline |
+| **eval_batch_per_expr** | **49.2 µs** | **23% faster** |
+| eval_f64_per_expr | 50.0 µs | 22% faster |
+| sequential_loops | 64.2 µs | baseline |
 
-> **Result:** `eval_batch` is **~21% faster** than sequential evaluation loops when processing multiple expressions.
+> **Result:** `eval_batch` is **~23% faster** than sequential evaluation loops when processing multiple expressions.
 
 ---
 
@@ -245,10 +245,10 @@
 
 | API | Time | Notes |
 |-----|------|-------|
-| `eval_f64` | **63 µs** | **3.7x Faster**. Data fits in L2/L3 cache (packed f64). |
-| `evaluate_parallel` | 233 µs | Slower due to `Value` enum overhead (3x memory usage) and cache misses. |
+| `eval_f64` | **57 µs** | **4.0x Faster**. Data fits in L2/L3 cache (packed f64). |
+| `evaluate_parallel` | 228 µs | Slower due to `Value` enum overhead (3x memory usage) and cache misses. |
 
-**Result:** `eval_f64` scales significantly better. For 10,000 points, it is **~3.7x faster** than the general API.
+**Result:** `eval_f64` scales significantly better. For 10,000 points, it is **~4.0x faster** than the general API.
 - `eval_f64` uses `&[f64]` (8 bytes/item) -> Cache friendly.
 - `evaluate_parallel` uses `Vec<Value>` (24 bytes/item) -> Memory bound.
 - Zero-allocation optimization on `evaluate_parallel` showed no gain, confirming the bottleneck is data layout, not allocator contention.
@@ -261,11 +261,11 @@
 |-----------|--------|---------|
 | **Parsing** | SymbAnaFis | **1.2x - 1.8x** faster |
 | **Differentiation** | SymbAnaFis | **1.1x - 2.5x** faster |
-| **Compilation** | SymbAnaFis | **3.6x - 12,500x** faster |
+| **Compilation** | SymbAnaFis | **3.7x - 311x** faster |
 | **Tree-Walk → Compiled** | Compiled | **5x - 13x** faster |
-| **eval_batch vs loop** | eval_batch | **~13%** faster |
+| **eval_batch vs loop** | eval_batch | **~16%** faster |
 | **Evaluation** (small expr) | Symbolica | **1.4x - 4.5x** faster |
-| **Evaluation** (large expr, simplified) | SymbAnaFis | **6x - 16x** faster |
+| **Evaluation** (large expr, simplified) | Symbolica | **1.5x - 1.7x** faster |
 | **Full Pipeline** (small) | Symbolica | **1.9x - 4.8x** faster |
 
 ### Key Insights
@@ -278,7 +278,7 @@
    - **Symbolica:** Light term collection (`3x + 2x → 5x`), faster simplification, optimized evaluator
    - **SymbAnaFis:** Deep AST restructuring (trig identities, algebraic normalization), massive compilation speedup
 
-4. **Batch evaluation helps:** Using `eval_batch` provides ~13% speedup over calling `evaluate()` in a loop.
+4. **Batch evaluation helps:** Using `eval_batch` provides ~16% speedup over calling `evaluate()` in a loop.
 
 5. **When to use which:**
    - **Small expressions, one-shot evaluation:** Symbolica's faster evaluation wins
