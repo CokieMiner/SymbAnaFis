@@ -68,6 +68,8 @@ pub use uncertainty::{CovEntry, CovarianceMatrix, relative_uncertainty, uncertai
 
 // Conditional re-exports
 #[cfg(feature = "parallel")]
+pub use bindings::eval_f64::eval_f64;
+#[cfg(feature = "parallel")]
 pub use bindings::parallel;
 
 /// Default maximum AST depth

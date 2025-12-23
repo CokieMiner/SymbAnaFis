@@ -64,12 +64,35 @@ fn bench_diff_raw(c: &mut Criterion) {
 
 fn bench_diff_simplified(c: &mut Criterion) {
     let mut group = c.benchmark_group("3_diff_simplified");
+    let empty = HashSet::new();
 
     for (name, expr_str, var, fixed) in ALL_EXPRESSIONS {
+        // Pre-parse the expression
+        let expr = parse(expr_str, &empty, &empty, None).unwrap();
+        let var_sym = symb(var);
+
+        // Build fixed var symbols
+        let fixed_syms: Vec<_> = fixed.iter().map(|s| symb(s)).collect();
+        let fixed_refs: Vec<_> = fixed_syms.iter().collect();
+
+        // SymbAnaFis: diff only (skip full simplification, similar to Symbolica)
+        let diff_light = Diff::new()
+            .fixed_vars(&fixed_refs)
+            .skip_simplification(true);
+
         group.bench_with_input(
-            BenchmarkId::new("symb_anafis", name),
-            expr_str,
-            |b, expr| b.iter(|| symb_anafis::diff(black_box(expr), var, Some(fixed), None)),
+            BenchmarkId::new("symb_anafis_diff_only", name),
+            &expr,
+            |b, expr| b.iter(|| diff_light.differentiate(black_box(expr.clone()), &var_sym)),
+        );
+
+        // SymbAnaFis: diff + full simplification
+        let diff_full = Diff::new().fixed_vars(&fixed_refs);
+
+        group.bench_with_input(
+            BenchmarkId::new("symb_anafis_diff+simplify", name),
+            &expr,
+            |b, expr| b.iter(|| diff_full.differentiate(black_box(expr.clone()), &var_sym)),
         );
     }
 

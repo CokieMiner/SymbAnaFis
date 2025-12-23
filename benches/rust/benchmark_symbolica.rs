@@ -78,25 +78,15 @@ fn bench_diff_simplified(c: &mut Criterion) {
     let mut group = c.benchmark_group("3_diff_simplified");
 
     for (name, expr_str, var, _) in ALL_EXPRESSIONS {
-        group.bench_with_input(
-            BenchmarkId::new("symbolica", name),
-            expr_str,
-            |b, expr_str| {
-                b.iter(|| {
-                    // Parse
-                    let expr =
-                        Atom::parse(wrap_input!(expr_str), ParseSettings::default()).unwrap();
-                    let var_atom = Atom::parse(wrap_input!(var), ParseSettings::default()).unwrap();
-                    let var_indet: Indeterminate = var_atom.try_into().unwrap();
+        // Pre-parse for fair comparison
+        let expr = Atom::parse(wrap_input!(expr_str), ParseSettings::default()).unwrap();
+        let var_atom = Atom::parse(wrap_input!(var), ParseSettings::default()).unwrap();
+        let var_indet: Indeterminate = var_atom.try_into().unwrap();
 
-                    // Diff
-                    let diff = expr.derivative(var_indet);
-
-                    // ToString (to compare with string API of SymbAnaFis)
-                    diff.to_string()
-                })
-            },
-        );
+        // Symbolica: diff only (auto light-simplifies)
+        group.bench_with_input(BenchmarkId::new("symbolica", name), &expr, |b, expr| {
+            b.iter(|| black_box(expr.derivative(var_indet.clone())))
+        });
     }
 
     group.finish();

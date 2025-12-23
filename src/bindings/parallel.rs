@@ -68,27 +68,66 @@ impl From<String> for ExprInput {
     }
 }
 
-/// Variable input - can be a Symbol or string name
+/// Variable input - stores symbol ID for O(1) comparison
+///
+/// Accepts `&str`, `String`, or `&Symbol` via `From` implementations.
+/// Internally stores the interned symbol ID for efficient lookup.
 #[derive(Debug, Clone)]
-pub enum VarInput {
-    Name(String),
+pub struct VarInput {
+    id: u64,
+    name: std::sync::Arc<str>,
+}
+
+impl VarInput {
+    /// Get the symbol ID for O(1) comparison
+    #[inline]
+    pub fn id(&self) -> u64 {
+        self.id
+    }
+
+    /// Get the variable name as &str
+    #[inline]
+    pub fn as_str(&self) -> &str {
+        &self.name
+    }
 }
 
 impl From<&str> for VarInput {
     fn from(s: &str) -> Self {
-        VarInput::Name(s.to_string())
+        // Intern the symbol to get a stable ID
+        let sym = crate::symb(s);
+        VarInput {
+            id: sym.id(),
+            name: std::sync::Arc::from(s),
+        }
     }
 }
 
 impl From<String> for VarInput {
     fn from(s: String) -> Self {
-        VarInput::Name(s)
+        let sym = crate::symb(&s);
+        VarInput {
+            id: sym.id(),
+            name: std::sync::Arc::from(s.as_str()),
+        }
     }
 }
 
 impl From<&crate::Symbol> for VarInput {
     fn from(s: &crate::Symbol) -> Self {
-        VarInput::Name(s.name().unwrap_or_default())
+        VarInput {
+            id: s.id(),
+            name: std::sync::Arc::from(s.name().unwrap_or_default().as_str()),
+        }
+    }
+}
+
+impl From<crate::Symbol> for VarInput {
+    fn from(s: crate::Symbol) -> Self {
+        VarInput {
+            id: s.id(),
+            name: std::sync::Arc::from(s.name().unwrap_or_default().as_str()),
+        }
     }
 }
 
@@ -241,12 +280,7 @@ pub fn evaluate_parallel(
         .into_par_iter()
         .map(|expr_idx| {
             let (expr, was_string) = &parsed[expr_idx];
-            let vars: Vec<&str> = var_names[expr_idx]
-                .iter()
-                .map(|v| match v {
-                    VarInput::Name(s) => s.as_str(),
-                })
-                .collect();
+            let vars: Vec<&str> = var_names[expr_idx].iter().map(|v| v.as_str()).collect();
             let vals = &values[expr_idx];
 
             // Validate dimensions
@@ -287,63 +321,116 @@ pub fn evaluate_parallel(
             }
 
             if let Some(evaluator) = evaluator {
+                // OPTIMIZATION: Pre-check if ALL values across ALL columns are numeric
+                let globally_numeric = vals
+                    .iter()
+                    .all(|col| col.iter().all(|v| matches!(v, Value::Num(_))));
+
+                if globally_numeric {
+                    // ULTRA-FAST PATH: Skip per-point type checks entirely
+                    return (0..n_points)
+                        .into_par_iter()
+                        .map_init(
+                            || {
+                                (
+                                    Vec::with_capacity(n_vars),
+                                    Vec::with_capacity(evaluator.stack_size()),
+                                )
+                            },
+                            |(params, stack), point_idx| {
+                                params.clear();
+                                for var_vals in vals.iter().take(n_vars) {
+                                    let val = if point_idx < var_vals.len() {
+                                        &var_vals[point_idx]
+                                    } else {
+                                        var_vals.last().unwrap()
+                                    };
+                                    if let Value::Num(n) = val {
+                                        params.push(*n);
+                                    }
+                                }
+
+                                let result = evaluator.evaluate_with_stack(params, stack);
+
+                                if *was_string {
+                                    EvalResult::String(format_float(result))
+                                } else {
+                                    EvalResult::Expr(crate::Expr::number(result))
+                                }
+                            },
+                        )
+                        .collect();
+                }
+
                 // FAST / HYBRID PATH: Use compiled evaluator where possible
+                // Use map_init to allocate buffers once per thread/chunk
                 (0..n_points)
                     .into_par_iter()
-                    .map(|point_idx| {
-                        // Check if this specific point has all numeric inputs
-                        let mut all_numeric = true;
-                        // fast check
-                        for var_vals in vals.iter().take(n_vars) {
-                            // Bounds check + type check
-                            if point_idx >= var_vals.len() {
-                                // Last value check
-                                if let Some(val) = var_vals.last() {
-                                    if !matches!(val, Value::Num(_)) {
+                    .map_init(
+                        || {
+                            (
+                                Vec::with_capacity(n_vars),
+                                Vec::with_capacity(evaluator.stack_size()),
+                            )
+                        },
+                        |buffers, point_idx| {
+                            let (params, stack) = buffers;
+
+                            // Check if this specific point has all numeric inputs
+                            let mut all_numeric = true;
+                            // fast check
+                            for var_vals in vals.iter().take(n_vars) {
+                                // Bounds check + type check
+                                if point_idx >= var_vals.len() {
+                                    // Last value check
+                                    if let Some(val) = var_vals.last() {
+                                        if !matches!(val, Value::Num(_)) {
+                                            all_numeric = false;
+                                            break;
+                                        }
+                                    } else {
+                                        // No values at all? Should be caught earlier
                                         all_numeric = false;
                                         break;
                                     }
-                                } else {
-                                    // No values at all? Should be caught earlier
+                                } else if !matches!(&var_vals[point_idx], Value::Num(_)) {
                                     all_numeric = false;
                                     break;
                                 }
-                            } else if !matches!(&var_vals[point_idx], Value::Num(_)) {
-                                all_numeric = false;
-                                break;
                             }
-                        }
 
-                        if all_numeric {
-                            // FAST PATH: Run compiled code
-                            let mut params = Vec::with_capacity(n_vars); // Small alloc
-                            for var_vals in vals.iter().take(n_vars) {
-                                let val = if point_idx < var_vals.len() {
-                                    &var_vals[point_idx]
-                                } else {
-                                    var_vals.last().unwrap()
-                                };
+                            if all_numeric {
+                                // FAST PATH: Run compiled code
+                                params.clear();
+                                for var_vals in vals.iter().take(n_vars) {
+                                    let val = if point_idx < var_vals.len() {
+                                        &var_vals[point_idx]
+                                    } else {
+                                        var_vals.last().unwrap()
+                                    };
 
-                                // We know it's Num from check above
-                                if let Value::Num(n) = val {
-                                    params.push(*n);
-                                } else {
-                                    unreachable!("Value must be Num after all_numeric check")
+                                    // We know it's Num from check above
+                                    if let Value::Num(n) = val {
+                                        params.push(*n);
+                                    } else {
+                                        unreachable!("Value must be Num after all_numeric check")
+                                    }
                                 }
-                            }
 
-                            let result = evaluator.evaluate(&params);
+                                // Reuse stack buffer
+                                let result = evaluator.evaluate_with_stack(params, stack);
 
-                            if *was_string {
-                                EvalResult::String(format_float(result))
+                                if *was_string {
+                                    EvalResult::String(format_float(result))
+                                } else {
+                                    EvalResult::Expr(crate::Expr::number(result))
+                                }
                             } else {
-                                EvalResult::Expr(crate::Expr::number(result))
+                                // SLOW PATH: Fallback for this point (symbolic inputs/skips)
+                                evaluate_slow_point(expr, &vars, vals, point_idx, *was_string)
                             }
-                        } else {
-                            // SLOW PATH: Fallback for this point (symbolic inputs/skips)
-                            evaluate_slow_point(expr, &vars, vals, point_idx, *was_string)
-                        }
-                    })
+                        },
+                    )
                     .collect()
             } else {
                 // SLOW PATH: Compilation failed (unsupported function, etc.)

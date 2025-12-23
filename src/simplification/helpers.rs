@@ -266,9 +266,10 @@ pub(crate) fn prettify_roots(expr: Expr) -> Expr {
             }
             // x^0.5 -> sqrt(x)
             if let ExprKind::Number(n) = &exp_pretty.kind
-                && (n - 0.5).abs() < 1e-10 {
-                    return Expr::func("sqrt", base_pretty);
-                }
+                && (n - 0.5).abs() < 1e-10
+            {
+                return Expr::func("sqrt", base_pretty);
+            }
 
             // Check if children changed
             if base_pretty.id == base.id && exp_pretty.id == exp.id {
@@ -500,8 +501,8 @@ pub(crate) fn get_term_hash(expr: &Expr) -> u64 {
 
     fn hash_term_inner(hash: u64, expr: &Expr) -> u64 {
         match &expr.kind {
-            // Numbers are "like terms" with other numbers
-            ExprKind::Number(_) => hash_one_byte(hash, b'N'),
+            // Numbers: Hash the actual value to distinguish different numbers
+            ExprKind::Number(n) => hash_f64(hash_one_byte(hash, b'N'), *n),
 
             // Symbols: Hash their unique InternedSymbol ID (O(1))
             ExprKind::Symbol(s) => {

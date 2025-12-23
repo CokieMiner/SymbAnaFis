@@ -102,6 +102,8 @@ impl Simplifier {
         // Use expression id (structural hash) for cheap cycle detection
         // This avoids storing full expression clones and expensive normalization
         let mut seen_hashes: HashSet<u64> = HashSet::new();
+        // Keep history for cycle breaker - return shortest expression when cycle detected
+        let mut history: Vec<Arc<Expr>> = Vec::new();
         let start_time = Instant::now();
 
         loop {
@@ -140,14 +142,23 @@ impl Simplifier {
             // The id field is a structural hash - cycle means we've seen exact same structure
             let fingerprint = current.id;
             if seen_hashes.contains(&fingerprint) {
-                // We're in a cycle - stop here with the current result
+                // Cycle detected! Return the SHORTEST expression seen in history.
+                // This ensures we return "x" instead of "exp(ln(x))" when they cycle.
                 if trace_enabled() {
-                    eprintln!("[DEBUG] Cycle detected, stopping");
+                    eprintln!("[DEBUG] Cycle detected, returning shortest form");
+                }
+                if let Some(shortest) = history
+                    .iter()
+                    .chain(std::iter::once(&current))
+                    .min_by_key(|e| e.to_string().len())
+                {
+                    return Arc::try_unwrap(shortest.clone()).unwrap_or_else(|rc| (*rc).clone());
                 }
                 break;
             }
             // Add AFTER checking, so first iteration's result doesn't trigger false positive
             seen_hashes.insert(fingerprint);
+            history.push(current.clone());
 
             iterations += 1;
         }
@@ -279,13 +290,14 @@ impl Simplifier {
             let cache_key = current.id;
 
             if let Some(cache) = self.rule_caches.get(rule_name)
-                && let Some(cached_result) = cache.get(&cache_key) {
-                    if let Some(new_expr) = cached_result {
-                        current = Arc::clone(new_expr); // Cheap Arc clone!
-                    }
-                    // cached_result is Some or None, either way we skip rule application
-                    continue;
+                && let Some(cached_result) = cache.get(&cache_key)
+            {
+                if let Some(new_expr) = cached_result {
+                    current = Arc::clone(new_expr); // Cheap Arc clone!
                 }
+                // cached_result is Some or None, either way we skip rule application
+                continue;
+            }
 
             // Apply rule - pass &Arc<Expr>, get Option<Arc<Expr>>
             let original_id = current.id;

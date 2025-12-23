@@ -66,15 +66,16 @@ fn extract_negative(expr: &Expr) -> Option<Expr> {
 
 /// Check if expression needs parentheses when displayed in a product
 fn needs_parens_in_product(expr: &Expr) -> bool {
-    matches!(expr.kind, ExprKind::Sum(_))
+    matches!(expr.kind, ExprKind::Sum(_) | ExprKind::Poly(_))
 }
 
 /// Check if expression needs parentheses when displayed as a power base
 fn needs_parens_as_base(expr: &Expr) -> bool {
-    matches!(
-        expr.kind,
-        ExprKind::Sum(_) | ExprKind::Product(_) | ExprKind::Div(_, _)
-    )
+    match &expr.kind {
+        ExprKind::Sum(_) | ExprKind::Product(_) | ExprKind::Div(_, _) | ExprKind::Poly(_) => true,
+        ExprKind::Number(n) => *n < 0.0, // Negative numbers need parens: (-1)^x not -1^x
+        _ => false,
+    }
 }
 
 /// Format a single factor for display in a product chain

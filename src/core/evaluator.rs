@@ -138,6 +138,389 @@ pub(crate) enum Instruction {
     SphericalHarmonic,
 }
 
+/// Macro to process a single instruction
+/// $instr: The instruction to process
+/// $stack: The stack to operate on (Vec<f64>)
+/// $load_param: Closure/Expression to load a parameter by index: |idx| -> f64
+macro_rules! process_instruction {
+    ($instr:expr, $stack:ident, $load_param:expr) => {
+        match *$instr {
+            Instruction::LoadConst(c) => $stack.push(c),
+            Instruction::LoadParam(i) => $stack.push($load_param(i)),
+
+            // Binary operations
+            Instruction::Add => {
+                let b = $stack.pop().unwrap();
+                *$stack.last_mut().unwrap() += b;
+            }
+            Instruction::Mul => {
+                let b = $stack.pop().unwrap();
+                *$stack.last_mut().unwrap() *= b;
+            }
+            Instruction::Div => {
+                let b = $stack.pop().unwrap();
+                *$stack.last_mut().unwrap() /= b;
+            }
+            Instruction::Pow => {
+                let exp = $stack.pop().unwrap();
+                let base = $stack.last_mut().unwrap();
+                *base = base.powf(exp);
+            }
+
+            // Unary operations
+            Instruction::Neg => {
+                let top = $stack.last_mut().unwrap();
+                *top = -*top;
+            }
+
+            // Trigonometric
+            Instruction::Sin => {
+                let top = $stack.last_mut().unwrap();
+                *top = top.sin();
+            }
+            Instruction::Cos => {
+                let top = $stack.last_mut().unwrap();
+                *top = top.cos();
+            }
+            Instruction::Tan => {
+                let top = $stack.last_mut().unwrap();
+                *top = top.tan();
+            }
+            Instruction::Asin => {
+                let top = $stack.last_mut().unwrap();
+                *top = top.asin();
+            }
+            Instruction::Acos => {
+                let top = $stack.last_mut().unwrap();
+                *top = top.acos();
+            }
+            Instruction::Atan => {
+                let top = $stack.last_mut().unwrap();
+                *top = top.atan();
+            }
+            Instruction::Cot => {
+                let top = $stack.last_mut().unwrap();
+                *top = 1.0 / top.tan();
+            }
+            Instruction::Sec => {
+                let top = $stack.last_mut().unwrap();
+                *top = 1.0 / top.cos();
+            }
+            Instruction::Csc => {
+                let top = $stack.last_mut().unwrap();
+                *top = 1.0 / top.sin();
+            }
+            Instruction::Acot => {
+                let top = $stack.last_mut().unwrap();
+                let x = *top;
+                *top = if x.abs() < EPSILON {
+                    std::f64::consts::PI / 2.0
+                } else if x > 0.0 {
+                    (1.0 / x).atan()
+                } else {
+                    (1.0 / x).atan() + std::f64::consts::PI
+                };
+            }
+            Instruction::Asec => {
+                let top = $stack.last_mut().unwrap();
+                *top = (1.0 / *top).acos();
+            }
+            Instruction::Acsc => {
+                let top = $stack.last_mut().unwrap();
+                *top = (1.0 / *top).asin();
+            }
+
+            // Hyperbolic
+            Instruction::Sinh => {
+                let top = $stack.last_mut().unwrap();
+                *top = top.sinh();
+            }
+            Instruction::Cosh => {
+                let top = $stack.last_mut().unwrap();
+                *top = top.cosh();
+            }
+            Instruction::Tanh => {
+                let top = $stack.last_mut().unwrap();
+                *top = top.tanh();
+            }
+            Instruction::Asinh => {
+                let top = $stack.last_mut().unwrap();
+                *top = top.asinh();
+            }
+            Instruction::Acosh => {
+                let top = $stack.last_mut().unwrap();
+                *top = top.acosh();
+            }
+            Instruction::Atanh => {
+                let top = $stack.last_mut().unwrap();
+                *top = top.atanh();
+            }
+            Instruction::Coth => {
+                let top = $stack.last_mut().unwrap();
+                *top = 1.0 / top.tanh();
+            }
+            Instruction::Sech => {
+                let top = $stack.last_mut().unwrap();
+                *top = 1.0 / top.cosh();
+            }
+            Instruction::Csch => {
+                let top = $stack.last_mut().unwrap();
+                *top = 1.0 / top.sinh();
+            }
+            Instruction::Acoth => {
+                let top = $stack.last_mut().unwrap();
+                let x = *top;
+                *top = 0.5 * ((x + 1.0) / (x - 1.0)).ln();
+            }
+            Instruction::Asech => {
+                let top = $stack.last_mut().unwrap();
+                *top = (1.0 / *top).acosh();
+            }
+            Instruction::Acsch => {
+                let top = $stack.last_mut().unwrap();
+                *top = (1.0 / *top).asinh();
+            }
+
+            // Exponential/Logarithmic
+            Instruction::Exp => {
+                let top = $stack.last_mut().unwrap();
+                *top = top.exp();
+            }
+            Instruction::Ln => {
+                let top = $stack.last_mut().unwrap();
+                *top = top.ln();
+            }
+            Instruction::Log10 => {
+                let top = $stack.last_mut().unwrap();
+                *top = top.log10();
+            }
+            Instruction::Log2 => {
+                let top = $stack.last_mut().unwrap();
+                *top = top.log2();
+            }
+            Instruction::Sqrt => {
+                let top = $stack.last_mut().unwrap();
+                *top = top.sqrt();
+            }
+            Instruction::Cbrt => {
+                let top = $stack.last_mut().unwrap();
+                *top = top.cbrt();
+            }
+
+            // Special functions (unary)
+            Instruction::Abs => {
+                let top = $stack.last_mut().unwrap();
+                *top = top.abs();
+            }
+            Instruction::Signum => {
+                let top = $stack.last_mut().unwrap();
+                *top = top.signum();
+            }
+            Instruction::Floor => {
+                let top = $stack.last_mut().unwrap();
+                *top = top.floor();
+            }
+            Instruction::Ceil => {
+                let top = $stack.last_mut().unwrap();
+                *top = top.ceil();
+            }
+            Instruction::Round => {
+                let top = $stack.last_mut().unwrap();
+                *top = top.round();
+            }
+
+            Instruction::Erf => {
+                *$stack.last_mut().unwrap() = crate::math::eval_erf(*$stack.last().unwrap())
+            }
+            Instruction::Erfc => {
+                *$stack.last_mut().unwrap() = 1.0 - crate::math::eval_erf(*$stack.last().unwrap())
+            }
+            Instruction::Gamma => {
+                *$stack.last_mut().unwrap() =
+                    crate::math::eval_gamma(*$stack.last().unwrap()).unwrap_or(f64::NAN)
+            }
+            Instruction::Digamma => {
+                *$stack.last_mut().unwrap() =
+                    crate::math::eval_digamma(*$stack.last().unwrap()).unwrap_or(f64::NAN)
+            }
+            Instruction::Trigamma => {
+                *$stack.last_mut().unwrap() =
+                    crate::math::eval_trigamma(*$stack.last().unwrap()).unwrap_or(f64::NAN)
+            }
+            Instruction::Tetragamma => {
+                *$stack.last_mut().unwrap() =
+                    crate::math::eval_polygamma(3, *$stack.last().unwrap()).unwrap_or(f64::NAN)
+            }
+            Instruction::Sinc => {
+                let x = *$stack.last().unwrap();
+                *$stack.last_mut().unwrap() = if x.abs() < EPSILON { 1.0 } else { x.sin() / x };
+            }
+            Instruction::LambertW => {
+                *$stack.last_mut().unwrap() =
+                    crate::math::eval_lambert_w(*$stack.last().unwrap()).unwrap_or(f64::NAN)
+            }
+            Instruction::EllipticK => {
+                *$stack.last_mut().unwrap() =
+                    crate::math::eval_elliptic_k(*$stack.last().unwrap()).unwrap_or(f64::NAN)
+            }
+            Instruction::EllipticE => {
+                *$stack.last_mut().unwrap() =
+                    crate::math::eval_elliptic_e(*$stack.last().unwrap()).unwrap_or(f64::NAN)
+            }
+            Instruction::Zeta => {
+                *$stack.last_mut().unwrap() =
+                    crate::math::eval_zeta(*$stack.last().unwrap()).unwrap_or(f64::NAN)
+            }
+            Instruction::ExpPolar => {
+                *$stack.last_mut().unwrap() = crate::math::eval_exp_polar(*$stack.last().unwrap())
+            }
+
+            // Two-argument functions
+            Instruction::Atan2 => {
+                let x = $stack.pop().unwrap();
+                let y = $stack.last_mut().unwrap();
+                *y = y.atan2(x);
+            }
+            Instruction::BesselJ => {
+                let x = $stack.pop().unwrap();
+                let n = $stack.last_mut().unwrap();
+                *n = crate::math::bessel_j((*n).round() as i32, x).unwrap_or(f64::NAN);
+            }
+            Instruction::BesselY => {
+                let x = $stack.pop().unwrap();
+                let n = $stack.last_mut().unwrap();
+                *n = crate::math::bessel_y((*n).round() as i32, x).unwrap_or(f64::NAN);
+            }
+            Instruction::BesselI => {
+                let x = $stack.pop().unwrap();
+                let n = $stack.last_mut().unwrap();
+                *n = crate::math::bessel_i((*n).round() as i32, x).unwrap_or(f64::NAN);
+            }
+            Instruction::BesselK => {
+                let x = $stack.pop().unwrap();
+                let n = $stack.last_mut().unwrap();
+                *n = crate::math::bessel_k((*n).round() as i32, x).unwrap_or(f64::NAN);
+            }
+            Instruction::Polygamma => {
+                let x = $stack.pop().unwrap();
+                let n = $stack.last_mut().unwrap();
+                *n = crate::math::eval_polygamma((*n).round() as i32, x).unwrap_or(f64::NAN);
+            }
+            Instruction::Beta => {
+                let b = $stack.pop().unwrap();
+                let a = $stack.last_mut().unwrap();
+                let ga = crate::math::eval_gamma(*a);
+                let gb = crate::math::eval_gamma(b);
+                let gab = crate::math::eval_gamma(*a + b);
+                *a = match (ga, gb, gab) {
+                    (Some(ga), Some(gb), Some(gab)) => ga * gb / gab,
+                    _ => f64::NAN,
+                };
+            }
+            Instruction::ZetaDeriv => {
+                let s = $stack.pop().unwrap();
+                let n = $stack.last_mut().unwrap();
+                *n = crate::math::eval_zeta_deriv((*n).round() as i32, s).unwrap_or(f64::NAN);
+            }
+            Instruction::Hermite => {
+                let x = $stack.pop().unwrap();
+                let n = $stack.last_mut().unwrap();
+                *n = crate::math::eval_hermite((*n).round() as i32, x).unwrap_or(f64::NAN);
+            }
+
+            // Three-argument functions
+            Instruction::AssocLegendre => {
+                let x = $stack.pop().unwrap();
+                let m = $stack.pop().unwrap();
+                let l = $stack.last_mut().unwrap();
+                *l = crate::math::eval_assoc_legendre((*l).round() as i32, m.round() as i32, x)
+                    .unwrap_or(f64::NAN);
+            }
+
+            // Four-argument functions
+            Instruction::SphericalHarmonic => {
+                let phi = $stack.pop().unwrap();
+                let theta = $stack.pop().unwrap();
+                let m = $stack.pop().unwrap();
+                let l = $stack.last_mut().unwrap();
+                *l = crate::math::eval_spherical_harmonic(
+                    (*l).round() as i32,
+                    m.round() as i32,
+                    theta,
+                    phi,
+                )
+                .unwrap_or(f64::NAN);
+            }
+        }
+    };
+}
+
+/// Macro for fast-path batch instruction dispatch
+/// Used by eval_batch and eval_batch_range to avoid code duplication
+/// $instr: The instruction to process
+/// $stack: The stack Vec<f64>
+/// $columns: The columnar data &[&[f64]]
+/// $point_idx: The current point index
+/// $self: Reference to CompiledEvaluator (for slow path fallback)
+macro_rules! batch_fast_path {
+    ($instr:expr, $stack:ident, $columns:expr, $point_idx:expr, $self_ref:expr) => {
+        match *$instr {
+            Instruction::LoadConst(c) => $stack.push(c),
+            Instruction::LoadParam(p) => $stack.push($columns[p][$point_idx]),
+            Instruction::Add => {
+                let b = $stack.pop().unwrap();
+                *$stack.last_mut().unwrap() += b;
+            }
+            Instruction::Mul => {
+                let b = $stack.pop().unwrap();
+                *$stack.last_mut().unwrap() *= b;
+            }
+            Instruction::Div => {
+                let b = $stack.pop().unwrap();
+                *$stack.last_mut().unwrap() /= b;
+            }
+            Instruction::Pow => {
+                let exp = $stack.pop().unwrap();
+                let base = $stack.last_mut().unwrap();
+                *base = base.powf(exp);
+            }
+            Instruction::Neg => {
+                let top = $stack.last_mut().unwrap();
+                *top = -*top;
+            }
+            Instruction::Sin => {
+                let top = $stack.last_mut().unwrap();
+                *top = top.sin();
+            }
+            Instruction::Cos => {
+                let top = $stack.last_mut().unwrap();
+                *top = top.cos();
+            }
+            Instruction::Sqrt => {
+                let top = $stack.last_mut().unwrap();
+                *top = top.sqrt();
+            }
+            Instruction::Exp => {
+                let top = $stack.last_mut().unwrap();
+                *top = top.exp();
+            }
+            Instruction::Ln => {
+                let top = $stack.last_mut().unwrap();
+                *top = top.ln();
+            }
+            Instruction::Tan => {
+                let top = $stack.last_mut().unwrap();
+                *top = top.tan();
+            }
+            Instruction::Abs => {
+                let top = $stack.last_mut().unwrap();
+                *top = top.abs();
+            }
+            _ => $self_ref.exec_slow_instruction($instr, &mut $stack),
+        }
+    };
+}
+
 /// Compiled expression evaluator - thread-safe, reusable
 ///
 /// The evaluator holds immutable bytecode that can be shared across threads.
@@ -181,6 +564,11 @@ impl CompiledEvaluator {
         Self::compile(expr, &param_refs)
     }
 
+    /// Get the required stack size for this expression
+    pub fn stack_size(&self) -> usize {
+        self.stack_size
+    }
+
     /// Fast evaluation - no allocations in hot path, no tree traversal
     ///
     /// # Parameters
@@ -192,235 +580,17 @@ impl CompiledEvaluator {
     pub fn evaluate(&self, params: &[f64]) -> f64 {
         // Use a small inline buffer for common cases, heap for large expressions
         let mut stack: Vec<f64> = Vec::with_capacity(self.stack_size);
+        self.evaluate_with_stack(params, &mut stack)
+    }
+
+    /// Evaluate using an existing stack buffer (avoids allocation)
+    #[inline]
+    pub fn evaluate_with_stack(&self, params: &[f64], stack: &mut Vec<f64>) -> f64 {
+        stack.clear();
 
         for instr in self.instructions.iter() {
-            match *instr {
-                Instruction::LoadConst(c) => stack.push(c),
-                Instruction::LoadParam(i) => stack.push(params[i]),
-
-                // Binary operations
-                Instruction::Add => {
-                    let b = stack.pop().unwrap();
-                    *stack.last_mut().unwrap() += b;
-                }
-                Instruction::Mul => {
-                    let b = stack.pop().unwrap();
-                    *stack.last_mut().unwrap() *= b;
-                }
-                Instruction::Div => {
-                    let b = stack.pop().unwrap();
-                    *stack.last_mut().unwrap() /= b;
-                }
-                Instruction::Pow => {
-                    let exp = stack.pop().unwrap();
-                    let base = stack.last_mut().unwrap();
-                    *base = base.powf(exp);
-                }
-
-                // Unary operations
-                Instruction::Neg => {
-                    let top = stack.last_mut().unwrap();
-                    *top = -*top;
-                }
-
-                // Trigonometric
-                Instruction::Sin => *stack.last_mut().unwrap() = stack.last().unwrap().sin(),
-                Instruction::Cos => *stack.last_mut().unwrap() = stack.last().unwrap().cos(),
-                Instruction::Tan => *stack.last_mut().unwrap() = stack.last().unwrap().tan(),
-                Instruction::Asin => *stack.last_mut().unwrap() = stack.last().unwrap().asin(),
-                Instruction::Acos => *stack.last_mut().unwrap() = stack.last().unwrap().acos(),
-                Instruction::Atan => *stack.last_mut().unwrap() = stack.last().unwrap().atan(),
-                Instruction::Cot => *stack.last_mut().unwrap() = 1.0 / stack.last().unwrap().tan(),
-                Instruction::Sec => *stack.last_mut().unwrap() = 1.0 / stack.last().unwrap().cos(),
-                Instruction::Csc => *stack.last_mut().unwrap() = 1.0 / stack.last().unwrap().sin(),
-                Instruction::Acot => {
-                    let x = *stack.last().unwrap();
-                    *stack.last_mut().unwrap() = if x.abs() < EPSILON {
-                        std::f64::consts::PI / 2.0
-                    } else if x > 0.0 {
-                        (1.0 / x).atan()
-                    } else {
-                        (1.0 / x).atan() + std::f64::consts::PI
-                    };
-                }
-                Instruction::Asec => {
-                    let x = *stack.last().unwrap();
-                    *stack.last_mut().unwrap() = (1.0 / x).acos();
-                }
-                Instruction::Acsc => {
-                    let x = *stack.last().unwrap();
-                    *stack.last_mut().unwrap() = (1.0 / x).asin();
-                }
-
-                // Hyperbolic
-                Instruction::Sinh => *stack.last_mut().unwrap() = stack.last().unwrap().sinh(),
-                Instruction::Cosh => *stack.last_mut().unwrap() = stack.last().unwrap().cosh(),
-                Instruction::Tanh => *stack.last_mut().unwrap() = stack.last().unwrap().tanh(),
-                Instruction::Asinh => *stack.last_mut().unwrap() = stack.last().unwrap().asinh(),
-                Instruction::Acosh => *stack.last_mut().unwrap() = stack.last().unwrap().acosh(),
-                Instruction::Atanh => *stack.last_mut().unwrap() = stack.last().unwrap().atanh(),
-                Instruction::Coth => {
-                    *stack.last_mut().unwrap() = 1.0 / stack.last().unwrap().tanh()
-                }
-                Instruction::Sech => {
-                    *stack.last_mut().unwrap() = 1.0 / stack.last().unwrap().cosh()
-                }
-                Instruction::Csch => {
-                    *stack.last_mut().unwrap() = 1.0 / stack.last().unwrap().sinh()
-                }
-                Instruction::Acoth => {
-                    let x = *stack.last().unwrap();
-                    *stack.last_mut().unwrap() = 0.5 * ((x + 1.0) / (x - 1.0)).ln();
-                }
-                Instruction::Asech => {
-                    let x = *stack.last().unwrap();
-                    *stack.last_mut().unwrap() = (1.0 / x).acosh();
-                }
-                Instruction::Acsch => {
-                    let x = *stack.last().unwrap();
-                    *stack.last_mut().unwrap() = (1.0 / x).asinh();
-                }
-
-                // Exponential/Logarithmic
-                Instruction::Exp => *stack.last_mut().unwrap() = stack.last().unwrap().exp(),
-                Instruction::Ln => *stack.last_mut().unwrap() = stack.last().unwrap().ln(),
-                Instruction::Log10 => *stack.last_mut().unwrap() = stack.last().unwrap().log10(),
-                Instruction::Log2 => *stack.last_mut().unwrap() = stack.last().unwrap().log2(),
-                Instruction::Sqrt => *stack.last_mut().unwrap() = stack.last().unwrap().sqrt(),
-                Instruction::Cbrt => *stack.last_mut().unwrap() = stack.last().unwrap().cbrt(),
-
-                // Special functions (unary)
-                Instruction::Abs => *stack.last_mut().unwrap() = stack.last().unwrap().abs(),
-                Instruction::Signum => *stack.last_mut().unwrap() = stack.last().unwrap().signum(),
-                Instruction::Floor => *stack.last_mut().unwrap() = stack.last().unwrap().floor(),
-                Instruction::Ceil => *stack.last_mut().unwrap() = stack.last().unwrap().ceil(),
-                Instruction::Round => *stack.last_mut().unwrap() = stack.last().unwrap().round(),
-
-                Instruction::Erf => {
-                    *stack.last_mut().unwrap() = crate::math::eval_erf(*stack.last().unwrap())
-                }
-                Instruction::Erfc => {
-                    *stack.last_mut().unwrap() = 1.0 - crate::math::eval_erf(*stack.last().unwrap())
-                }
-                Instruction::Gamma => {
-                    *stack.last_mut().unwrap() =
-                        crate::math::eval_gamma(*stack.last().unwrap()).unwrap_or(f64::NAN)
-                }
-                Instruction::Digamma => {
-                    *stack.last_mut().unwrap() =
-                        crate::math::eval_digamma(*stack.last().unwrap()).unwrap_or(f64::NAN)
-                }
-                Instruction::Trigamma => {
-                    *stack.last_mut().unwrap() =
-                        crate::math::eval_trigamma(*stack.last().unwrap()).unwrap_or(f64::NAN)
-                }
-                Instruction::Tetragamma => {
-                    *stack.last_mut().unwrap() =
-                        crate::math::eval_polygamma(3, *stack.last().unwrap()).unwrap_or(f64::NAN)
-                }
-                Instruction::Sinc => {
-                    let x = *stack.last().unwrap();
-                    *stack.last_mut().unwrap() = if x.abs() < EPSILON { 1.0 } else { x.sin() / x };
-                }
-                Instruction::LambertW => {
-                    *stack.last_mut().unwrap() =
-                        crate::math::eval_lambert_w(*stack.last().unwrap()).unwrap_or(f64::NAN)
-                }
-                Instruction::EllipticK => {
-                    *stack.last_mut().unwrap() =
-                        crate::math::eval_elliptic_k(*stack.last().unwrap()).unwrap_or(f64::NAN)
-                }
-                Instruction::EllipticE => {
-                    *stack.last_mut().unwrap() =
-                        crate::math::eval_elliptic_e(*stack.last().unwrap()).unwrap_or(f64::NAN)
-                }
-                Instruction::Zeta => {
-                    *stack.last_mut().unwrap() =
-                        crate::math::eval_zeta_deriv(0, *stack.last().unwrap()).unwrap_or(f64::NAN)
-                }
-                Instruction::ExpPolar => {
-                    *stack.last_mut().unwrap() = crate::math::eval_exp_polar(*stack.last().unwrap())
-                }
-
-                // Two-argument functions
-                Instruction::Atan2 => {
-                    let x = stack.pop().unwrap();
-                    let y = stack.last_mut().unwrap();
-                    *y = y.atan2(x);
-                }
-                Instruction::BesselJ => {
-                    let x = stack.pop().unwrap();
-                    let n = stack.last_mut().unwrap();
-                    *n = crate::math::bessel_j((*n).round() as i32, x).unwrap_or(f64::NAN);
-                }
-                Instruction::BesselY => {
-                    let x = stack.pop().unwrap();
-                    let n = stack.last_mut().unwrap();
-                    *n = crate::math::bessel_y((*n).round() as i32, x).unwrap_or(f64::NAN);
-                }
-                Instruction::BesselI => {
-                    let x = stack.pop().unwrap();
-                    let n = stack.last_mut().unwrap();
-                    *n = crate::math::bessel_i((*n).round() as i32, x).unwrap_or(f64::NAN);
-                }
-                Instruction::BesselK => {
-                    let x = stack.pop().unwrap();
-                    let n = stack.last_mut().unwrap();
-                    *n = crate::math::bessel_k((*n).round() as i32, x).unwrap_or(f64::NAN);
-                }
-                Instruction::Polygamma => {
-                    let x = stack.pop().unwrap();
-                    let n = stack.last_mut().unwrap();
-                    *n = crate::math::eval_polygamma((*n).round() as i32, x).unwrap_or(f64::NAN);
-                }
-                Instruction::Beta => {
-                    let b = stack.pop().unwrap();
-                    let a = stack.last_mut().unwrap();
-                    let ga = crate::math::eval_gamma(*a);
-                    let gb = crate::math::eval_gamma(b);
-                    let gab = crate::math::eval_gamma(*a + b);
-                    *a = match (ga, gb, gab) {
-                        (Some(ga), Some(gb), Some(gab)) => ga * gb / gab,
-                        _ => f64::NAN,
-                    };
-                }
-                Instruction::ZetaDeriv => {
-                    let s = stack.pop().unwrap();
-                    let n = stack.last_mut().unwrap();
-                    *n = crate::math::eval_zeta_deriv((*n).round() as i32, s).unwrap_or(f64::NAN);
-                }
-                Instruction::Hermite => {
-                    let x = stack.pop().unwrap();
-                    let n = stack.last_mut().unwrap();
-                    *n = crate::math::eval_hermite((*n).round() as i32, x).unwrap_or(f64::NAN);
-                }
-
-                // Three-argument functions
-                Instruction::AssocLegendre => {
-                    let x = stack.pop().unwrap();
-                    let m = stack.pop().unwrap();
-                    let l = stack.last_mut().unwrap();
-                    *l = crate::math::eval_assoc_legendre((*l).round() as i32, m.round() as i32, x)
-                        .unwrap_or(f64::NAN);
-                }
-
-                // Four-argument functions
-                Instruction::SphericalHarmonic => {
-                    let phi = stack.pop().unwrap();
-                    let theta = stack.pop().unwrap();
-                    let m = stack.pop().unwrap();
-                    let l = stack.last_mut().unwrap();
-                    *l = crate::math::eval_spherical_harmonic(
-                        (*l).round() as i32,
-                        m.round() as i32,
-                        theta,
-                        phi,
-                    )
-                    .unwrap_or(f64::NAN);
-                }
-            }
+            process_instruction!(instr, stack, |i| params[i]);
         }
-
         stack.pop().unwrap_or(f64::NAN)
     }
 
@@ -440,6 +610,165 @@ impl CompiledEvaluator {
     #[inline]
     pub fn instruction_count(&self) -> usize {
         self.instructions.len()
+    }
+
+    /// Batch evaluation - evaluate expression at multiple data points
+    ///
+    /// This method processes all data points in a single call, moving the evaluation
+    /// loop inside the VM for better cache locality. Data is expected in columnar format:
+    /// each slice in `columns` corresponds to one parameter (in `param_names()` order),
+    /// and each element within a column is a data point.
+    ///
+    /// # Parameters
+    /// - `columns`: Columnar data, where `columns[param_idx][point_idx]` gives the value
+    ///   of parameter `param_idx` at data point `point_idx`
+    /// - `output`: Mutable slice to write results, must have length >= number of data points
+    ///
+    /// # Panics
+    /// - If `columns.len()` != `param_count()`
+    /// - If column lengths don't all match
+    /// - If `output.len()` < number of data points
+    #[inline]
+    pub fn eval_batch(&self, columns: &[&[f64]], output: &mut [f64]) {
+        debug_assert_eq!(
+            columns.len(),
+            self.param_names.len(),
+            "Column count must match parameter count"
+        );
+
+        let n_points = if columns.is_empty() {
+            1
+        } else {
+            columns[0].len()
+        };
+
+        debug_assert!(
+            columns.iter().all(|c| c.len() == n_points),
+            "All columns must have the same length"
+        );
+        debug_assert!(
+            output.len() >= n_points,
+            "Output buffer must be large enough for all data points"
+        );
+
+        // Pre-allocate stack once
+        let mut stack: Vec<f64> = Vec::with_capacity(self.stack_size);
+
+        for (i, out) in output.iter_mut().take(n_points).enumerate() {
+            stack.clear();
+
+            for instr in self.instructions.iter() {
+                batch_fast_path!(instr, stack, columns, i, self);
+            }
+
+            *out = stack.pop().unwrap_or(f64::NAN);
+        }
+    }
+
+    /// Evaluate a range of data points from columnar input
+    ///
+    /// This is a lower-level helper for parallel evaluation. It processes `count` points
+    /// starting at `start_idx`, writing results to `output`.
+    ///
+    /// # Performance
+    /// - Reuses a single stack allocation for all points in the range
+    /// - No heap allocations per point
+    ///
+    /// # Safety
+    /// Panics if indices are out of bounds or dimensions mismatch.
+    pub fn eval_batch_range(
+        &self,
+        columns: &[&[f64]],
+        output: &mut [f64],
+        start_idx: usize,
+        count: usize,
+    ) {
+        debug_assert_eq!(output.len(), count, "Output length must match count");
+
+        // Pre-allocate stack once for this chunk
+        let mut stack: Vec<f64> = Vec::with_capacity(self.stack_size);
+
+        for (i, out) in output.iter_mut().enumerate() {
+            let point_idx = start_idx + i;
+            stack.clear();
+
+            for instr in self.instructions.iter() {
+                batch_fast_path!(instr, stack, columns, point_idx, self);
+            }
+            *out = stack.pop().unwrap_or(f64::NAN);
+        }
+    }
+
+    #[inline(never)]
+    fn exec_slow_instruction(&self, instr: &Instruction, stack: &mut Vec<f64>) {
+        process_instruction!(instr, stack, |_| unreachable!(
+            "LoadParam should be handled in fast path"
+        ));
+    }
+
+    /// Parallel batch evaluation - evaluate expression at multiple data points in parallel
+    ///
+    /// Similar to `eval_batch`, but processes data points in parallel using Rayon.
+    /// Best for large datasets (>256 points) where parallel overhead is justified.
+    ///
+    /// # Parameters
+    /// - `columns`: Columnar data, where `columns[param_idx][point_idx]` gives the value
+    ///   of parameter `param_idx` at data point `point_idx`
+    ///
+    /// # Returns
+    /// Vec of evaluation results for each data point
+    ///
+    /// # Panics
+    /// - If `columns.len()` != `param_count()`
+    #[cfg(feature = "parallel")]
+    pub fn eval_batch_parallel(&self, columns: &[&[f64]]) -> Vec<f64> {
+        use rayon::prelude::*;
+
+        debug_assert_eq!(
+            columns.len(),
+            self.param_names.len(),
+            "Column count must match parameter count"
+        );
+
+        let n_points = if columns.is_empty() {
+            1
+        } else {
+            columns[0].len()
+        };
+
+        debug_assert!(
+            columns.iter().all(|c| c.len() == n_points),
+            "All columns must have the same length"
+        );
+
+        // For small point counts, fall back to sequential to avoid overhead
+        const MIN_PARALLEL_SIZE: usize = 256;
+        if n_points < MIN_PARALLEL_SIZE {
+            let mut output = vec![0.0; n_points];
+            self.eval_batch(columns, &mut output);
+            return output;
+        }
+
+        // Process points in parallel chunks
+        // Each chunk gets its own stack to avoid contention
+        let n_threads = rayon::current_num_threads();
+        let chunk_size = (n_points / n_threads).max(MIN_PARALLEL_SIZE);
+
+        let n_params = self.param_names.len();
+        let stack_size = self.stack_size;
+
+        (0..n_points)
+            .into_par_iter()
+            .with_min_len(chunk_size)
+            .map_init(
+                || (Vec::with_capacity(n_params), Vec::with_capacity(stack_size)),
+                |(params, stack), i| {
+                    params.clear();
+                    params.extend(columns.iter().map(|col| col[i]));
+                    self.evaluate_with_stack(params, stack)
+                },
+            )
+            .collect()
     }
 }
 
@@ -754,13 +1083,29 @@ impl<'a> Compiler<'a> {
                     None => {
                         // Slow path: expand the polynomial explicitly
                         // Evaluate as sum of coeff * base^power
+                        // OPTIMIZATION: Cache base instructions instead of recompiling for each term
                         let base = poly.base();
+
+                        // Compile base once and cache the instructions
+                        let base_start = self.instructions.len();
+                        self.compile_expr(base)?;
+                        let base_end = self.instructions.len();
+                        let base_instrs: Vec<Instruction> =
+                            self.instructions[base_start..base_end].to_vec();
+                        // Remove the cached instructions (we'll replay them explicitly)
+                        self.instructions.truncate(base_start);
+                        // Also undo the stack tracking from compile_expr
+                        self.current_stack = self.current_stack.saturating_sub(1);
 
                         // First term
                         let (first_pow, first_coeff) = sorted_terms[0];
                         self.emit(Instruction::LoadConst(first_coeff));
                         self.push();
-                        self.compile_expr(base)?;
+                        // Replay cached base instructions
+                        for instr in &base_instrs {
+                            self.emit(*instr);
+                        }
+                        self.push();
                         self.emit(Instruction::LoadConst(first_pow as f64));
                         self.push();
                         self.emit(Instruction::Pow);
@@ -772,7 +1117,11 @@ impl<'a> Compiler<'a> {
                         for &(pow, coeff) in &sorted_terms[1..] {
                             self.emit(Instruction::LoadConst(coeff));
                             self.push();
-                            self.compile_expr(base)?;
+                            // Replay cached base instructions
+                            for instr in &base_instrs {
+                                self.emit(*instr);
+                            }
+                            self.push();
                             self.emit(Instruction::LoadConst(pow as f64));
                             self.push();
                             self.emit(Instruction::Pow);

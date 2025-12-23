@@ -170,10 +170,17 @@ rule!(
     Numeric,
     &[ExprKind::Pow],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Pow(u, _v) = &expr.kind
+        if let AstKind::Pow(u, v) = &expr.kind
             && matches!(&u.kind, AstKind::Number(n) if *n == 0.0)
         {
-            return Some(Expr::number(0.0));
+            // Only simplify 0^x when x is a positive number
+            // 0^0 is conventionally 1, 0^negative is undefined
+            if let AstKind::Number(exp) = &v.kind {
+                if *exp > 0.0 {
+                    return Some(Expr::number(0.0));
+                }
+            }
+            // For symbolic exponents, don't simplify (could be 0 or negative)
         }
         None
     }
@@ -404,6 +411,14 @@ rule_with_helpers!(FractionSimplifyRule, "fraction_simplify", 80, Numeric, &[Exp
                 if a % b == 0.0 {
                     return Some(Expr::number(a / b));
                 } else {
+                    // Check bounds before casting to i64 to prevent overflow
+                    const MAX_SAFE: f64 = i64::MAX as f64;
+                    const MIN_SAFE: f64 = i64::MIN as f64;
+                    if a.abs() > MAX_SAFE || b.abs() > MAX_SAFE
+                        || *a < MIN_SAFE || *b < MIN_SAFE {
+                        return None;  // Too large for integer GCD
+                    }
+
                     let a_int = *a as i64;
                     let b_int = *b as i64;
                     let common = gcd(a_int.abs(), b_int.abs());
@@ -509,21 +524,22 @@ rule!(
             // Look up function in registry and evaluate
             // Use ID-based lookup (via InternedSymbol) for speed
             if let Some(func_def) = crate::functions::registry::Registry::get_by_symbol(name)
-                && let Some(result) = (func_def.eval)(&numeric_args) {
-                    // Check for NaN or Inf
-                    if result.is_nan() || result.is_infinite() {
-                        return None;
-                    }
-
-                    // Only evaluate if result is an integer
-                    // This preserves symbolic forms like sqrt(2), ln(10), etc.
-                    if (result - result.round()).abs() < 1e-10 {
-                        return Some(Expr::number(result.round()));
-                    }
-
-                    // Non-integer result: keep symbolic form
+                && let Some(result) = (func_def.eval)(&numeric_args)
+            {
+                // Check for NaN or Inf
+                if result.is_nan() || result.is_infinite() {
                     return None;
                 }
+
+                // Only evaluate if result is an integer
+                // This preserves symbolic forms like sqrt(2), ln(10), etc.
+                if (result - result.round()).abs() < 1e-10 {
+                    return Some(Expr::number(result.round()));
+                }
+
+                // Non-integer result: keep symbolic form
+                return None;
+            }
         }
         None
     }

@@ -628,12 +628,16 @@ impl Expr {
 
     /// Create multiplication: a * b → Product([a, b])
     ///
-    /// Optimization: If both operands are Poly, use fast O(N*M) polynomial multiplication
+    /// Optimization: If both operands are Poly with same base, use fast O(N*M) polynomial multiplication
     pub fn mul_expr(left: Expr, right: Expr) -> Self {
-        // Fast path: Poly * Poly uses polynomial multiplication
+        // Fast path: Poly * Poly with same base uses polynomial multiplication
         if let (ExprKind::Poly(p1), ExprKind::Poly(p2)) = (&left.kind, &right.kind) {
-            let result = p1.mul(p2);
-            return Expr::poly(result);
+            // Only use polynomial mul if bases match
+            if p1.base() == p2.base() {
+                let result = p1.mul(p2);
+                return Expr::poly(result);
+            }
+            // Different bases: fall through to Product
         }
 
         Expr::product(vec![left, right])
@@ -1088,34 +1092,39 @@ impl Expr {
                 })
             }
             ExprKind::Sum(terms) => {
-                // Optimized: single-pass accumulation
+                // Optimized: single-pass accumulation with lazy Vec allocation
                 let mut num_sum: f64 = 0.0;
-                let mut others: Vec<Expr> = Vec::new();
+                // Only allocate when we encounter first non-numeric term
+                let mut others: Option<Vec<Expr>> = None;
 
                 for t in terms {
                     let eval_t = t.evaluate_with_custom(vars, custom_evals);
                     if let ExprKind::Number(n) = eval_t.kind {
                         num_sum += n;
                     } else {
-                        others.push(eval_t);
+                        others.get_or_insert_with(Vec::new).push(eval_t);
                     }
                 }
 
-                if others.is_empty() {
-                    Expr::number(num_sum)
-                } else if num_sum != 0.0 {
-                    others.push(Expr::number(num_sum));
-                    Expr::sum(others)
-                } else if others.len() == 1 {
-                    others.pop().unwrap()
-                } else {
-                    Expr::sum(others)
+                match others {
+                    None => Expr::number(num_sum),
+                    Some(mut v) => {
+                        if num_sum != 0.0 {
+                            v.push(Expr::number(num_sum));
+                        }
+                        if v.len() == 1 {
+                            v.pop().unwrap()
+                        } else {
+                            Expr::sum(v)
+                        }
+                    }
                 }
             }
             ExprKind::Product(factors) => {
-                // Optimized: single-pass accumulation with early zero exit
+                // Optimized: single-pass accumulation with early zero exit and lazy Vec
                 let mut num_prod: f64 = 1.0;
-                let mut others: Vec<Expr> = Vec::new();
+                // Only allocate when we encounter first non-numeric factor
+                let mut others: Option<Vec<Expr>> = None;
 
                 for f in factors {
                     let eval_f = f.evaluate_with_custom(vars, custom_evals);
@@ -1125,19 +1134,22 @@ impl Expr {
                         }
                         num_prod *= n;
                     } else {
-                        others.push(eval_f);
+                        others.get_or_insert_with(Vec::new).push(eval_f);
                     }
                 }
 
-                if others.is_empty() {
-                    Expr::number(num_prod)
-                } else if num_prod != 1.0 {
-                    others.insert(0, Expr::number(num_prod));
-                    Expr::product(others)
-                } else if others.len() == 1 {
-                    others.pop().unwrap()
-                } else {
-                    Expr::product(others)
+                match others {
+                    None => Expr::number(num_prod),
+                    Some(mut v) => {
+                        if num_prod != 1.0 {
+                            v.insert(0, Expr::number(num_prod));
+                        }
+                        if v.len() == 1 {
+                            v.pop().unwrap()
+                        } else {
+                            Expr::product(v)
+                        }
+                    }
                 }
             }
             ExprKind::Div(a, b) => {

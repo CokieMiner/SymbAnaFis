@@ -1,5 +1,5 @@
-use crate::core::poly::Polynomial;
 use crate::core::known_symbols::{CBRT, SQRT};
+use crate::core::poly::Polynomial;
 use crate::simplification::rules::{ExprKind, Rule, RuleCategory, RuleContext};
 use crate::{Expr, ExprKind as AstKind};
 use std::sync::Arc;
@@ -631,6 +631,16 @@ rule!(
 
             if common_factors.is_empty() {
                 return None;
+            }
+
+            // Don't factor out just -1 alone - it doesn't simplify the expression
+            // and creates less canonical form like -(a+b) instead of -a-b
+            if common_factors.len() == 1 {
+                if let AstKind::Number(n) = &common_factors[0].kind {
+                    if (*n + 1.0).abs() < 1e-10 {
+                        return None;
+                    }
+                }
             }
 
             // Factor out common factors

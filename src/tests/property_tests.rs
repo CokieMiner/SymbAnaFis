@@ -569,3 +569,232 @@ mod algebraic_property_tests {
             .quickcheck(prop_mul_comm as fn(f64, f64) -> TestResult);
     }
 }
+
+// ============================================================
+// PART 4: ORACLE FUZZ TEST (SIMPLIFICATION CORRECTNESS)
+// ============================================================
+
+#[cfg(test)]
+mod simplification_oracle_tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    /// The "Oracle" test: verify simplification preserves numerical evaluation
+    /// This catches bugs where simplification changes the mathematical meaning
+    #[test]
+    fn test_simplification_correctness_oracle() {
+        fn prop_simplify_preserves_value() -> TestResult {
+            // 1. Generate a random expression
+            let mut g = Gen::new(10);
+            let expr_str = gen_expr_string_recursive(&mut g, 3); // Use depth 3 for faster tests
+
+            // 2. Parse
+            let fixed = HashSet::new();
+            let custom = HashSet::new();
+            let Ok(original) = parser::parse(&expr_str, &fixed, &custom, None) else {
+                return TestResult::discard();
+            };
+
+            // 3. Simplify (with timeout protection via engine limits)
+            let simplified_str = match simplify(&expr_str, None, None) {
+                Ok(s) => s,
+                Err(_) => return TestResult::discard(), // Simplification can fail on edge cases
+            };
+            let Ok(simplified) = parser::parse(&simplified_str, &fixed, &custom, None) else {
+                return TestResult::discard();
+            };
+
+            // 4. THE ORACLE: Evaluate both at specific test points
+            // Use non-integer, non-zero values to avoid singularities
+            let mut vars = HashMap::new();
+            vars.insert("x", 0.351);
+            vars.insert("y", 0.762);
+            vars.insert("z", 1.234);
+
+            let res_orig = original.evaluate(&vars);
+            let res_simp = simplified.evaluate(&vars);
+
+            match (&res_orig.kind, &res_simp.kind) {
+                (ExprKind::Number(n1), ExprKind::Number(n2)) => {
+                    // Ignore NaNs/Infinities (singularities are hard to test generically)
+                    if n1.is_finite() && n2.is_finite() {
+                        let tolerance = 1e-5 * n1.abs().max(n2.abs()).max(1.0);
+                        if (n1 - n2).abs() > tolerance {
+                            eprintln!(
+                                "ORACLE FAILURE:\n  Original:   {}\n  Simplified: {}\n  Val Orig:   {}\n  Val Simp:   {}",
+                                expr_str, simplified_str, n1, n2
+                            );
+                            return TestResult::failed();
+                        }
+                    }
+                }
+                _ => {} // Symbolic result (can't compare numerically)
+            }
+
+            TestResult::passed()
+        }
+
+        QuickCheck::new()
+            .tests(100000) // Run 1000 random expressions
+            .max_tests(2000)
+            .quickcheck(prop_simplify_preserves_value as fn() -> TestResult);
+    }
+
+    /// Test that simplification is idempotent (simplify(simplify(x)) == simplify(x))
+    #[test]
+    fn test_simplification_idempotent() {
+        fn prop_simplify_idempotent() -> TestResult {
+            let mut g = Gen::new(8);
+            let expr_str = gen_expr_string_recursive(&mut g, 3);
+
+            let fixed = HashSet::new();
+            let custom = HashSet::new();
+
+            // First simplification
+            let Ok(first) = simplify(&expr_str, None, None) else {
+                return TestResult::discard();
+            };
+
+            // Second simplification
+            let Ok(second) = simplify(&first, None, None) else {
+                return TestResult::discard();
+            };
+
+            // Parse both for comparison
+            let Ok(first_expr) = parser::parse(&first, &fixed, &custom, None) else {
+                return TestResult::discard();
+            };
+            let Ok(second_expr) = parser::parse(&second, &fixed, &custom, None) else {
+                return TestResult::discard();
+            };
+
+            // Numerical comparison at test point
+            let mut vars = HashMap::new();
+            vars.insert("x", 0.5);
+            vars.insert("y", 0.7);
+            vars.insert("z", 1.1);
+
+            let res1 = first_expr.evaluate(&vars);
+            let res2 = second_expr.evaluate(&vars);
+
+            match (&res1.kind, &res2.kind) {
+                (ExprKind::Number(n1), ExprKind::Number(n2)) => {
+                    if n1.is_finite() && n2.is_finite() {
+                        let tolerance = 1e-10 * n1.abs().max(n2.abs()).max(1.0);
+                        if (n1 - n2).abs() > tolerance {
+                            eprintln!(
+                                "IDEMPOTENT FAILURE:\n  First:  {}\n  Second: {}\n  Val1:   {}\n  Val2:   {}",
+                                first, second, n1, n2
+                            );
+                            return TestResult::failed();
+                        }
+                    }
+                }
+                _ => {}
+            }
+
+            TestResult::passed()
+        }
+
+        QuickCheck::new()
+            .tests(500)
+            .quickcheck(prop_simplify_idempotent as fn() -> TestResult);
+    }
+}
+
+// ============================================================
+// PART 5: RULE CONFLICT DETECTOR (DEVELOPMENT TOOL)
+// ============================================================
+
+#[cfg(test)]
+mod rule_conflict_tests {
+    use super::*;
+
+    /// Test known expressions that could cause rule conflicts
+    /// These are patterns where two rules might fight each other
+    #[test]
+    fn test_potential_rule_conflicts() {
+        let dangerous_exprs = vec![
+            ("x / y", "division vs negative power"),
+            ("exp(ln(x))", "inverse function identity"),
+            ("ln(exp(x))", "inverse function identity"),
+            ("sin(x)/cos(x)", "tan vs sin/cos ratio"),
+            ("x + x", "term collection vs expansion"),
+            ("x * x", "power combination vs factoring"),
+            ("(x + y) * (x - y)", "difference of squares"),
+            ("x^2 - 1", "factoring vs expanded form"),
+            ("1 / (1/x)", "double inverse"),
+            ("-(-(x))", "double negation"),
+            ("x^1", "power of one identity"),
+            ("x^0", "power of zero identity"),
+            ("0^x", "zero base power"),
+            ("1^x", "one base power"),
+            ("x * 1", "multiplicative identity"),
+            ("x + 0", "additive identity"),
+            ("x - x", "self subtraction"),
+            ("x / x", "self division"),
+            ("sqrt(x^2)", "sqrt of square"),
+            ("(sqrt(x))^2", "square of sqrt"),
+        ];
+
+        for (expr_str, description) in dangerous_exprs {
+            // These should not panic or hang
+            let result = simplify(expr_str, None, None);
+            assert!(
+                result.is_ok(),
+                "Rule conflict in '{}' ({}): {:?}",
+                expr_str,
+                description,
+                result.err()
+            );
+
+            // Additionally, verify the result is mathematically valid
+            // by checking it parses back successfully
+            if let Ok(simplified) = &result {
+                let fixed = HashSet::new();
+                let custom = HashSet::new();
+                assert!(
+                    parser::parse(simplified, &fixed, &custom, None).is_ok(),
+                    "Simplified result '{}' doesn't parse for '{}'",
+                    simplified,
+                    expr_str
+                );
+            }
+        }
+    }
+
+    /// Test expressions that previously caused infinite loops or cycles
+    #[test]
+    fn test_known_cycle_cases() {
+        let cycle_prone = vec![
+            "x / (y / z)",
+            "(a * b) / (c * d)",
+            "sin(x) * cos(x)",
+            "(x + y)^2",
+            "exp(-x^2)",
+        ];
+
+        for expr_str in cycle_prone {
+            // Use standard simplify - engine has built-in iteration limits
+            let result = simplify(expr_str, None, None);
+            assert!(
+                result.is_ok(),
+                "Cycle/error in '{}': {:?}",
+                expr_str,
+                result.err()
+            );
+
+            // Also verify result parses
+            if let Ok(simplified) = &result {
+                let fixed = HashSet::new();
+                let custom = HashSet::new();
+                assert!(
+                    parser::parse(simplified, &fixed, &custom, None).is_ok(),
+                    "Simplified '{}' doesn't parse for '{}'",
+                    simplified,
+                    expr_str
+                );
+            }
+        }
+    }
+}

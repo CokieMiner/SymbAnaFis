@@ -49,3 +49,9 @@ path = "benches/rust/benchmark_symbolica.rs"
 name = "large_expr"
 harness = false
 path = "benches/rust/large_expr.rs"
+
+[[bench]]
+name = "benchmark_parallel"
+harness = false
+path = "benches/rust/benchmark_parallel.rs"
+required-features = ["parallel"]

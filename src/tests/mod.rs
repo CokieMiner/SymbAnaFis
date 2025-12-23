@@ -50,3 +50,4 @@ mod tier1_tests;
 mod tier2_tests;
 mod trace_trig;
 mod trig_simplification_tests;
+mod power_debug;
