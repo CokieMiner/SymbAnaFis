@@ -198,6 +198,16 @@ impl<'a> Parser<'a> {
                         });
                     }
 
+                    // Validate minimum number of arguments
+                    let min_args = op.min_arity();
+                    if args.len() < min_args {
+                        return Err(DiffError::InvalidFunctionCall {
+                            name: op.to_name().to_string(),
+                            expected: min_args,
+                            got: args.len(),
+                        });
+                    }
+
                     // Use the canonical name from Operator::to_name()
                     let func_name = op.to_name();
 

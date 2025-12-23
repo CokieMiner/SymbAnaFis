@@ -14,9 +14,10 @@ A comprehensive guide to the symb_anafis symbolic mathematics library.
 8. [Evaluation](#evaluation)
 9. [Vector Calculus](#vector-calculus)
 10. [Parallel Evaluation](#parallel-evaluation)
-11. [Built-in Functions](#built-in-functions)
-12. [Expression Syntax](#expression-syntax)
-13. [Error Handling](#error-handling)
+11. [Compilation & Performance](#compilation--performance)
+12. [Built-in Functions](#built-in-functions)
+13. [Expression Syntax](#expression-syntax)
+14. [Error Handling](#error-handling)
 
 ---
 
@@ -206,7 +207,7 @@ For fine-grained control, use `Diff` and `Simplify` builders.
 ### `Diff` Builder
 
 ```rust
-use symb_anafis::{Diff, sym};
+use symb_anafis::{Diff, symb};
 
 let result = Diff::new()
     .domain_safe(true)       // Preserve mathematical domains
@@ -277,6 +278,25 @@ let expr = x.pow(2.0) + x.sin();  // x² + sin(x)
 let expr2 = x + x;  // Works! Symbol is Copy.
 
 let derivative = Diff::new().differentiate(expr, &x)?;
+```
+
+### Expression Inspection
+
+Since `Expr` internals are private to enforce invariants, use accessors to inspect properties:
+
+```rust
+let expr = symb("x") + symb("y");
+
+// Unique ID for debugging/caching
+let id = expr.id();
+
+// Structural hash for fast equality checks
+let hash = expr.hash();
+
+// Access the internal structure (consumes the Expr)
+if let ExprKind::Sum(terms) = expr.into_kind() {
+    println!("Sum of {} terms", terms.len());
+}
 ```
 
 ---
@@ -479,6 +499,9 @@ let my_fn = CustomFn::new(2)  // 2-arity
 
 let diff = Diff::new().custom_fn_multi("F", my_fn);
 diff.diff_str("F(t, t^2)", "t")?;  // Chain rule applied automatically
+
+// Inspect arity
+assert_eq!(my_fn.arity(), 2);
 ```
 
 ### Nested Custom Functions
@@ -665,6 +688,70 @@ let results = evaluate_parallel(
     &[VarInput::Slice(&["x"])],
     &[&[&[Value::Num(1.0), Value::Num(2.0)]]]
 );
+```
+
+---
+
+## Compilation & Performance
+
+For tight loops or massive repeated evaluation, use the `CompiledEvaluator`. It compiles the expression tree into a flat bytecode that interpreted efficiently, avoiding tree traversal overhead and enabling SIMD optimizations.
+
+### `CompiledEvaluator`
+
+```rust
+use symb_anafis::Expr;
+// Create an expression
+let expr = symb("x").sin() * symb("x").pow(2.0);
+
+// Compile it (requires list of parameter names in order)
+let compiled = expr.compile(&["x"])?;
+
+// Evaluate repeatedly (much faster than expr.evaluate)
+let result = compiled.evaluate(&[0.5]); // Result at x=0.5
+```
+
+**Methods:**
+
+| Method | Description |
+|--------|-------------|
+| `compile(expr, params)` | Compile an expression for given parameters. |
+| `compile_with_context(expr, params, ctx)` | Compile with a custom function context. |
+| `evaluate(args)` | Evaluate at a single point. |
+| `eval_batch(cols, out)` | Evaluate multiple points (SIMD logic). |
+
+### `FunctionContext` (Custom Functions in Compiler)
+
+To use custom functions within compiled expressions, register them in a `FunctionContext`.
+
+```rust
+use symb_anafis::{FunctionContext, FunctionDefinition};
+
+// 1. Create a context
+let ctx = FunctionContext::new();
+
+// 2. Register a function
+ctx.register("my_sq", FunctionDefinition {
+    name: "my_sq",
+    arity: 1..=1,
+    // Numeric evaluation logic
+    eval: |args| Some(args[0] * args[0]),
+    // Derivative logic (required by struct, though mostly used by Diff)
+    derivative: |args, _| crate::Expr::number(0.0), // Simplified for example
+})?;
+
+// 3. Compile with context
+// Note: Requires manual parsing or construction if using custom fns not in default parser
+// (Parser needs custom_functions context too)
+// For manual construction:
+let expr = Expr::func("my_sq", symb("x"));
+
+let compiled = CompiledEvaluator::compile_with_context(
+    &expr, 
+    &["x"], 
+    Some(&ctx)
+)?;
+
+let result = compiled.evaluate(&[3.0]); // 9.0
 ```
 
 ---

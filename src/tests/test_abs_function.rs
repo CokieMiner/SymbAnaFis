@@ -1,4 +1,5 @@
-use crate::{parse, simplify};
+use crate::parser::parse;
+use crate::simplify;
 use std::collections::HashSet;
 
 #[test]

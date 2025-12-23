@@ -7,13 +7,35 @@ mod tokens;
 use crate::{DiffError, Expr};
 use std::collections::HashSet;
 
-/// Parse a formula string into an AST
+/// Parse a formula string into an expression AST
+///
+/// This function converts a mathematical expression string into a structured
+/// `Expr` AST that can be differentiated, simplified, or evaluated.
 ///
 /// # Arguments
-/// * `input` - The formula string to parse
-/// * `fixed_vars` - Set of variable names that are constants
-/// * `custom_functions` - Set of custom function names
+/// * `input` - The formula string to parse (e.g., "x^2 + sin(x)")
+/// * `fixed_vars` - Set of variable names that should be treated as constants
+/// * `custom_functions` - Set of custom function names the parser should recognize
 /// * `context` - Optional symbol context. If provided, symbols are created/looked up there.
+///
+/// # Returns
+/// An `Expr` AST on success, or a `DiffError` on parsing failure.
+///
+/// # Example
+/// ```
+/// use symb_anafis::parse;
+/// use std::collections::HashSet;
+///
+/// let fixed_vars = HashSet::new();
+/// let custom_fns = HashSet::new();
+///
+/// let expr = parse("x^2 + sin(x)", &fixed_vars, &custom_fns, None).unwrap();
+/// println!("Parsed: {}", expr);
+/// ```
+///
+/// # Note
+/// For most use cases, prefer the higher-level `diff()` or `simplify()` functions,
+/// or the `Diff`/`Simplify` builders which handle parsing automatically.
 pub fn parse(
     input: &str,
     fixed_vars: &HashSet<String>,

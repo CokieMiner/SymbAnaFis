@@ -35,14 +35,27 @@ static EXPR_ONE_HASH: std::sync::LazyLock<u64> =
 // EXPR - The main expression type
 // =============================================================================
 
+/// A symbolic mathematical expression.
+///
+/// This is the core type representing mathematical expressions in AST form.
+/// Expressions can be constants, variables, function calls, arithmetic operations,
+/// or derivatives. They support operator overloading for convenient construction.
+///
+/// # Example
+/// ```
+/// use symb_anafis::{symb, Expr};
+///
+/// let x = symb("x");
+/// let expr = x.pow(2.0) + x.sin();  // x² + sin(x)
+/// ```
 #[derive(Debug, Clone)]
 pub struct Expr {
     /// Unique ID for debugging and caching (not used in equality comparisons)
-    pub id: u64,
+    pub(crate) id: u64,
     /// Structural hash for O(1) equality rejection (Phase 7b optimization)
-    pub hash: u64,
+    pub(crate) hash: u64,
     /// The kind of expression (structure)
-    pub kind: ExprKind,
+    pub(crate) kind: ExprKind,
 }
 
 impl Deref for Expr {
@@ -79,7 +92,12 @@ impl std::hash::Hash for Expr {
 // EXPRKIND - N-ary Sum/Product architecture
 // =============================================================================
 
+/// The kind (structure) of an expression node.
+///
+/// This enum defines all possible expression types in the AST.
+/// Most variants use `Arc<Expr>` for efficient sharing and cloning.
 #[derive(Debug, Clone, PartialEq)]
+#[allow(private_interfaces)] // InternedSymbol is pub(crate) but exposed here for pattern matching
 pub enum ExprKind {
     /// Constant number (e.g., 3.14, 1e10)
     Number(f64),
@@ -88,11 +106,12 @@ pub enum ExprKind {
     /// Uses InternedSymbol for O(1) equality comparisons
     Symbol(InternedSymbol),
 
-    /// Function call (built-in or custom)
-    /// Uses InternedSymbol for O(1) name comparisons
-    /// Args use Arc<Expr> for consistency with Sum/Product
+    /// Function call (built-in or custom).
+    /// Args use `Arc<Expr>` for consistency with Sum/Product.
     FunctionCall {
+        /// The function name as an interned symbol.
         name: InternedSymbol,
+        /// The function arguments.
         args: Vec<Arc<Expr>>,
     },
 
@@ -113,8 +132,11 @@ pub enum ExprKind {
 
     /// Partial derivative notation: ∂^order/∂var^order of inner expression
     Derivative {
+        /// The expression being differentiated.
         inner: Arc<Expr>,
+        /// The variable to differentiate with respect to.
         var: String,
+        /// The order of differentiation (1 = first derivative, 2 = second, etc.)
         order: u32,
     },
 
@@ -246,6 +268,24 @@ impl Expr {
             hash,
             kind,
         }
+    }
+
+    /// Get the unique ID of the expression
+    #[inline]
+    pub fn id(&self) -> u64 {
+        self.id
+    }
+
+    /// Get the structural hash of the expression
+    #[inline]
+    pub fn hash(&self) -> u64 {
+        self.hash
+    }
+
+    /// Consume the expression and return its kind
+    #[inline]
+    pub fn into_kind(self) -> ExprKind {
+        self.kind
     }
 
     // -------------------------------------------------------------------------
@@ -648,7 +688,7 @@ impl Expr {
         Expr::product_from_arcs(factors)
     }
 
-    /// Unwrap an Arc<Expr> without cloning if refcount is 1
+    /// Unwrap an `Arc<Expr>` without cloning if refcount is 1
     #[inline]
     pub fn unwrap_arc(arc: Arc<Expr>) -> Expr {
         Arc::try_unwrap(arc).unwrap_or_else(|a| (*a).clone())

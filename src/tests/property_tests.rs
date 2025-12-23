@@ -614,21 +614,18 @@ mod simplification_oracle_tests {
             let res_orig = original.evaluate(&vars);
             let res_simp = simplified.evaluate(&vars);
 
-            match (&res_orig.kind, &res_simp.kind) {
-                (ExprKind::Number(n1), ExprKind::Number(n2)) => {
-                    // Ignore NaNs/Infinities (singularities are hard to test generically)
-                    if n1.is_finite() && n2.is_finite() {
-                        let tolerance = 1e-5 * n1.abs().max(n2.abs()).max(1.0);
-                        if (n1 - n2).abs() > tolerance {
-                            eprintln!(
-                                "ORACLE FAILURE:\n  Original:   {}\n  Simplified: {}\n  Val Orig:   {}\n  Val Simp:   {}",
-                                expr_str, simplified_str, n1, n2
-                            );
-                            return TestResult::failed();
-                        }
+            if let (ExprKind::Number(n1), ExprKind::Number(n2)) = (&res_orig.kind, &res_simp.kind) {
+                // Ignore NaNs/Infinities (singularities are hard to test generically)
+                if n1.is_finite() && n2.is_finite() {
+                    let tolerance = 1e-5 * n1.abs().max(n2.abs()).max(1.0);
+                    if (n1 - n2).abs() > tolerance {
+                        eprintln!(
+                            "ORACLE FAILURE:\n  Original:   {}\n  Simplified: {}\n  Val Orig:   {}\n  Val Simp:   {}",
+                            expr_str, simplified_str, n1, n2
+                        );
+                        return TestResult::failed();
                     }
                 }
-                _ => {} // Symbolic result (can't compare numerically)
             }
 
             TestResult::passed()
@@ -677,20 +674,18 @@ mod simplification_oracle_tests {
             let res1 = first_expr.evaluate(&vars);
             let res2 = second_expr.evaluate(&vars);
 
-            match (&res1.kind, &res2.kind) {
-                (ExprKind::Number(n1), ExprKind::Number(n2)) => {
-                    if n1.is_finite() && n2.is_finite() {
-                        let tolerance = 1e-10 * n1.abs().max(n2.abs()).max(1.0);
-                        if (n1 - n2).abs() > tolerance {
-                            eprintln!(
-                                "IDEMPOTENT FAILURE:\n  First:  {}\n  Second: {}\n  Val1:   {}\n  Val2:   {}",
-                                first, second, n1, n2
-                            );
-                            return TestResult::failed();
-                        }
-                    }
+            if let (ExprKind::Number(n1), ExprKind::Number(n2)) = (&res1.kind, &res2.kind)
+                && n1.is_finite()
+                && n2.is_finite()
+            {
+                let tolerance = 1e-10 * n1.abs().max(n2.abs()).max(1.0);
+                if (n1 - n2).abs() > tolerance {
+                    eprintln!(
+                        "IDEMPOTENT FAILURE:\n  First:  {}\n  Second: {}\n  Val1:   {}\n  Val2:   {}",
+                        first, second, n1, n2
+                    );
+                    return TestResult::failed();
                 }
-                _ => {}
             }
 
             TestResult::passed()

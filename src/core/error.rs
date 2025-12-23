@@ -11,16 +11,23 @@ use std::fmt;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Span {
     /// Start position (0-indexed byte offset)
-    pub start: usize,
+    start: usize,
     /// End position (exclusive, 0-indexed byte offset)
-    pub end: usize,
+    end: usize,
 }
 
 impl Span {
-    /// Create a new span
+    /// Create a new span. If end < start, they will be swapped.
     #[inline]
     pub fn new(start: usize, end: usize) -> Self {
-        Span { start, end }
+        if end < start {
+            Span {
+                start: end,
+                end: start,
+            }
+        } else {
+            Span { start, end }
+        }
     }
 
     /// Create a span for a single position
@@ -36,6 +43,18 @@ impl Span {
     #[inline]
     pub fn empty() -> Self {
         Span { start: 0, end: 0 }
+    }
+
+    /// Get the start position
+    #[inline]
+    pub fn start(&self) -> usize {
+        self.start
+    }
+
+    /// Get the end position
+    #[inline]
+    pub fn end(&self) -> usize {
+        self.end
     }
 
     /// Check if this span has valid location info
@@ -63,44 +82,79 @@ impl Span {
 #[non_exhaustive]
 pub enum DiffError {
     // Input validation errors
+    /// The input formula was empty or contained only whitespace.
     EmptyFormula,
+    /// The input has invalid syntax.
     InvalidSyntax {
+        /// Description of the syntax error.
         msg: String,
+        /// Location of the error in the source.
         span: Option<Span>,
     },
 
     // Parsing errors
+    /// A numeric literal could not be parsed.
     InvalidNumber {
+        /// The invalid number string.
         value: String,
+        /// Location of the error in the source.
         span: Option<Span>,
     },
+    /// An unrecognized token was encountered.
     InvalidToken {
+        /// The invalid token.
         token: String,
+        /// Location of the error in the source.
         span: Option<Span>,
     },
+    /// A different token was expected at this position.
     UnexpectedToken {
+        /// What was expected.
         expected: String,
+        /// What was found.
         got: String,
+        /// Location of the error in the source.
         span: Option<Span>,
     },
+    /// The input ended unexpectedly while parsing.
     UnexpectedEndOfInput,
+    /// A function was called with the wrong number of arguments.
+    InvalidFunctionCall {
+        /// The function name.
+        name: String,
+        /// Minimum number of arguments expected.
+        expected: usize,
+        /// Number of arguments provided.
+        got: usize,
+    },
 
     // Semantic errors
+    /// A variable appears in both fixed variables and as differentiation target.
     VariableInBothFixedAndDiff {
+        /// The conflicting variable name.
         var: String,
     },
+    /// A name is used for both a variable and a function.
     NameCollision {
+        /// The conflicting name.
         name: String,
     },
+    /// An operation is not supported (e.g., unsupported function).
     UnsupportedOperation(String),
+    /// An ambiguous token sequence was found.
     AmbiguousSequence {
+        /// The ambiguous sequence.
         sequence: String,
+        /// Suggested resolution.
         suggestion: String,
+        /// Location of the error in the source.
         span: Option<Span>,
     },
 
     // Safety limits
+    /// The expression exceeded the maximum allowed AST depth.
     MaxDepthExceeded,
+    /// The expression exceeded the maximum allowed node count.
     MaxNodesExceeded,
 }
 
@@ -182,6 +236,17 @@ impl fmt::Display for DiffError {
                 )
             }
             DiffError::UnexpectedEndOfInput => write!(f, "Unexpected end of input"),
+            DiffError::InvalidFunctionCall {
+                name,
+                expected,
+                got,
+            } => {
+                write!(
+                    f,
+                    "Function '{}' requires at least {} argument(s), but got {}",
+                    name, expected, got
+                )
+            }
             DiffError::VariableInBothFixedAndDiff { var } => {
                 write!(
                     f,

@@ -1,5 +1,10 @@
 //! Compiled expression evaluator for fast numerical evaluation
 //!
+//! # Safety
+//! This module uses unsafe code in performance-critical stack operations.
+//! Safety is guaranteed by the Compiler which validates stack depth at compile time.
+#![allow(unsafe_code)]
+//!
 //! Converts an expression tree to flat bytecode that can be evaluated
 //! efficiently without tree traversal. Thread-safe for parallel evaluation.
 //!
@@ -17,9 +22,11 @@
 //! ```
 
 use crate::core::traits::EPSILON;
+use crate::functions::FunctionContext;
 use crate::{Expr, ExprKind};
 use std::collections::HashMap;
 use std::sync::Arc;
+use wide::f64x4;
 
 /// Error during expression compilation
 #[derive(Debug, Clone)]
@@ -136,8 +143,67 @@ pub(crate) enum Instruction {
 
     // Four-argument functions
     SphericalHarmonic,
+
+    // Fused operations (performance optimizations)
+    /// x^2 - faster than Pow with exponent 2
+    Square,
+    /// x^3 - faster than Pow with exponent 3
+    Cube,
+    /// 1/x - faster than LoadConst(1) + Div
+    Recip,
+
+    /// Call an external function defined in the FunctionContext
+    /// id: Symbol ID of the function
+    /// arity: Number of arguments to pop from stack
+    CallExternal {
+        id: u64,
+        arity: usize,
+    },
 }
 
+// =============================================================================
+// Unsafe Stack Helpers (zero-cost in release builds)
+// =============================================================================
+// These macros provide fast stack operations by using unsafe get_unchecked.
+// Safety is guaranteed by the Compiler which tracks max_stack at compile time.
+// Stack underflow is impossible in correctly compiled bytecode.
+
+/// Get mutable reference to the top of stack (unsafe, but validated by debug_assert)
+macro_rules! stack_top_mut {
+    ($stack:expr) => {{
+        debug_assert!(!$stack.is_empty(), "Stack empty - compiler bug");
+        let len = $stack.len();
+        unsafe { $stack.get_unchecked_mut(len - 1) }
+    }};
+}
+
+/// Binary operation: pop B, apply op to top (A op= B)
+/// This handles the borrow correctly by doing everything in one unsafe block
+macro_rules! stack_binop {
+    ($stack:expr, $op:tt) => {{
+        debug_assert!($stack.len() >= 2, "Stack underflow - compiler bug");
+        unsafe {
+            let len = $stack.len();
+            let b = *$stack.get_unchecked(len - 1);
+            *$stack.get_unchecked_mut(len - 2) $op b;
+            $stack.set_len(len - 1);
+        }
+    }};
+}
+
+/// Binary operation with custom expression: pop B, apply f(A, B) to A
+macro_rules! stack_binop_fn {
+    ($stack:expr, $f:expr) => {{
+        debug_assert!($stack.len() >= 2, "Stack underflow - compiler bug");
+        unsafe {
+            let len = $stack.len();
+            let b = *$stack.get_unchecked(len - 1);
+            let a = $stack.get_unchecked_mut(len - 2);
+            *a = $f(*a, b);
+            $stack.set_len(len - 1);
+        }
+    }};
+}
 /// Macro to process a single instruction
 /// $instr: The instruction to process
 /// $stack: The stack to operate on (Vec<f64>)
@@ -148,70 +214,74 @@ macro_rules! process_instruction {
             Instruction::LoadConst(c) => $stack.push(c),
             Instruction::LoadParam(i) => $stack.push($load_param(i)),
 
-            // Binary operations
-            Instruction::Add => {
-                let b = $stack.pop().unwrap();
-                *$stack.last_mut().unwrap() += b;
+            // Binary operations (using unsafe for performance)
+            Instruction::Add => stack_binop!($stack, +=),
+            Instruction::Mul => stack_binop!($stack, *=),
+            Instruction::Div => stack_binop!($stack, /=),
+            Instruction::Pow => stack_binop_fn!($stack, |a: f64, b: f64| a.powf(b)),
+
+            // Fused operations (performance optimizations)
+            Instruction::Square => {
+                let top = stack_top_mut!($stack);
+                *top = *top * *top;
             }
-            Instruction::Mul => {
-                let b = $stack.pop().unwrap();
-                *$stack.last_mut().unwrap() *= b;
+            // Cannot handle CallExternal in process_instruction as it lacks context
+            Instruction::CallExternal { .. } => panic!("CallExternal not supported in process_instruction macro"),
+            Instruction::Cube => {
+                let top = stack_top_mut!($stack);
+                let x = *top;
+                *top = x * x * x;
             }
-            Instruction::Div => {
-                let b = $stack.pop().unwrap();
-                *$stack.last_mut().unwrap() /= b;
-            }
-            Instruction::Pow => {
-                let exp = $stack.pop().unwrap();
-                let base = $stack.last_mut().unwrap();
-                *base = base.powf(exp);
+            Instruction::Recip => {
+                let top = stack_top_mut!($stack);
+                *top = 1.0 / *top;
             }
 
-            // Unary operations
+            // Unary operations (using unsafe for performance)
             Instruction::Neg => {
-                let top = $stack.last_mut().unwrap();
+                let top = stack_top_mut!($stack);
                 *top = -*top;
             }
 
             // Trigonometric
             Instruction::Sin => {
-                let top = $stack.last_mut().unwrap();
+                let top = stack_top_mut!($stack);
                 *top = top.sin();
             }
             Instruction::Cos => {
-                let top = $stack.last_mut().unwrap();
+                let top = stack_top_mut!($stack);
                 *top = top.cos();
             }
             Instruction::Tan => {
-                let top = $stack.last_mut().unwrap();
+                let top = stack_top_mut!($stack);
                 *top = top.tan();
             }
             Instruction::Asin => {
-                let top = $stack.last_mut().unwrap();
+                let top = stack_top_mut!($stack);
                 *top = top.asin();
             }
             Instruction::Acos => {
-                let top = $stack.last_mut().unwrap();
+                let top = stack_top_mut!($stack);
                 *top = top.acos();
             }
             Instruction::Atan => {
-                let top = $stack.last_mut().unwrap();
+                let top = stack_top_mut!($stack);
                 *top = top.atan();
             }
             Instruction::Cot => {
-                let top = $stack.last_mut().unwrap();
+                let top = stack_top_mut!($stack);
                 *top = 1.0 / top.tan();
             }
             Instruction::Sec => {
-                let top = $stack.last_mut().unwrap();
+                let top = stack_top_mut!($stack);
                 *top = 1.0 / top.cos();
             }
             Instruction::Csc => {
-                let top = $stack.last_mut().unwrap();
+                let top = stack_top_mut!($stack);
                 *top = 1.0 / top.sin();
             }
             Instruction::Acot => {
-                let top = $stack.last_mut().unwrap();
+                let top = stack_top_mut!($stack);
                 let x = *top;
                 *top = if x.abs() < EPSILON {
                     std::f64::consts::PI / 2.0
@@ -222,110 +292,110 @@ macro_rules! process_instruction {
                 };
             }
             Instruction::Asec => {
-                let top = $stack.last_mut().unwrap();
+                let top = stack_top_mut!($stack);
                 *top = (1.0 / *top).acos();
             }
             Instruction::Acsc => {
-                let top = $stack.last_mut().unwrap();
+                let top = stack_top_mut!($stack);
                 *top = (1.0 / *top).asin();
             }
 
             // Hyperbolic
             Instruction::Sinh => {
-                let top = $stack.last_mut().unwrap();
+                let top = stack_top_mut!($stack);
                 *top = top.sinh();
             }
             Instruction::Cosh => {
-                let top = $stack.last_mut().unwrap();
+                let top = stack_top_mut!($stack);
                 *top = top.cosh();
             }
             Instruction::Tanh => {
-                let top = $stack.last_mut().unwrap();
+                let top = stack_top_mut!($stack);
                 *top = top.tanh();
             }
             Instruction::Asinh => {
-                let top = $stack.last_mut().unwrap();
+                let top = stack_top_mut!($stack);
                 *top = top.asinh();
             }
             Instruction::Acosh => {
-                let top = $stack.last_mut().unwrap();
+                let top = stack_top_mut!($stack);
                 *top = top.acosh();
             }
             Instruction::Atanh => {
-                let top = $stack.last_mut().unwrap();
+                let top = stack_top_mut!($stack);
                 *top = top.atanh();
             }
             Instruction::Coth => {
-                let top = $stack.last_mut().unwrap();
+                let top = stack_top_mut!($stack);
                 *top = 1.0 / top.tanh();
             }
             Instruction::Sech => {
-                let top = $stack.last_mut().unwrap();
+                let top = stack_top_mut!($stack);
                 *top = 1.0 / top.cosh();
             }
             Instruction::Csch => {
-                let top = $stack.last_mut().unwrap();
+                let top = stack_top_mut!($stack);
                 *top = 1.0 / top.sinh();
             }
             Instruction::Acoth => {
-                let top = $stack.last_mut().unwrap();
+                let top = stack_top_mut!($stack);
                 let x = *top;
                 *top = 0.5 * ((x + 1.0) / (x - 1.0)).ln();
             }
             Instruction::Asech => {
-                let top = $stack.last_mut().unwrap();
+                let top = stack_top_mut!($stack);
                 *top = (1.0 / *top).acosh();
             }
             Instruction::Acsch => {
-                let top = $stack.last_mut().unwrap();
+                let top = stack_top_mut!($stack);
                 *top = (1.0 / *top).asinh();
             }
 
             // Exponential/Logarithmic
             Instruction::Exp => {
-                let top = $stack.last_mut().unwrap();
+                let top = stack_top_mut!($stack);
                 *top = top.exp();
             }
             Instruction::Ln => {
-                let top = $stack.last_mut().unwrap();
+                let top = stack_top_mut!($stack);
                 *top = top.ln();
             }
             Instruction::Log10 => {
-                let top = $stack.last_mut().unwrap();
+                let top = stack_top_mut!($stack);
                 *top = top.log10();
             }
             Instruction::Log2 => {
-                let top = $stack.last_mut().unwrap();
+                let top = stack_top_mut!($stack);
                 *top = top.log2();
             }
             Instruction::Sqrt => {
-                let top = $stack.last_mut().unwrap();
+                let top = stack_top_mut!($stack);
                 *top = top.sqrt();
             }
             Instruction::Cbrt => {
-                let top = $stack.last_mut().unwrap();
+                let top = stack_top_mut!($stack);
                 *top = top.cbrt();
             }
 
             // Special functions (unary)
             Instruction::Abs => {
-                let top = $stack.last_mut().unwrap();
+                let top = stack_top_mut!($stack);
                 *top = top.abs();
             }
             Instruction::Signum => {
-                let top = $stack.last_mut().unwrap();
+                let top = stack_top_mut!($stack);
                 *top = top.signum();
             }
             Instruction::Floor => {
-                let top = $stack.last_mut().unwrap();
+                let top = stack_top_mut!($stack);
                 *top = top.floor();
             }
             Instruction::Ceil => {
-                let top = $stack.last_mut().unwrap();
+                let top = stack_top_mut!($stack);
                 *top = top.ceil();
             }
             Instruction::Round => {
-                let top = $stack.last_mut().unwrap();
+                let top = stack_top_mut!($stack);
                 *top = top.round();
             }
 
@@ -514,13 +584,15 @@ macro_rules! single_fast_path {
                 let top = $stack.last_mut().unwrap();
                 *top = top.abs();
             }
+            Instruction::CallExternal { .. } => {
+                $self_ref.exec_slow_instruction_single($instr, &mut *$stack, $params)
+            }
             _ => $self_ref.exec_slow_instruction_single($instr, &mut *$stack, $params),
         }
     };
 }
 
-/// Macro for fast-path batch instruction dispatch
-/// Used by eval_batch and eval_batch_range to avoid code duplication
+/// Macro for fast-path batch instruction dispatch (scalar, used for remainder)
 /// $instr: The instruction to process
 /// $stack: The stack Vec<f64>
 /// $columns: The columnar data &[&[f64]]
@@ -580,7 +652,112 @@ macro_rules! batch_fast_path {
                 let top = $stack.last_mut().unwrap();
                 *top = top.abs();
             }
+            // Fused operations
+            Instruction::Square => {
+                let top = $stack.last_mut().unwrap();
+                *top = *top * *top;
+            }
+            Instruction::Cube => {
+                let top = $stack.last_mut().unwrap();
+                let x = *top;
+                *top = x * x * x;
+            }
+            Instruction::Recip => {
+                let top = $stack.last_mut().unwrap();
+                *top = 1.0 / *top;
+            }
+            Instruction::CallExternal { .. } => {
+                $self_ref.exec_slow_instruction($instr, &mut $stack)
+            }
             _ => $self_ref.exec_slow_instruction($instr, &mut $stack),
+        }
+    };
+}
+
+/// SIMD macro for fast-path batch instruction dispatch using f64x4
+/// Processes 4 f64 values simultaneously for ~2x speedup
+/// $instr: The instruction to process
+/// $stack: The stack Vec<f64x4>
+/// $columns: The columnar data &[&[f64]]
+/// $base: Base index for the 4-point chunk
+/// $self: Reference to CompiledEvaluator (for slow path fallback)
+macro_rules! simd_batch_fast_path {
+    ($instr:expr, $stack:ident, $columns:expr, $base:expr, $self_ref:expr) => {
+        match *$instr {
+            Instruction::LoadConst(c) => $stack.push(f64x4::splat(c)),
+            Instruction::LoadParam(p) => {
+                let col = $columns[p];
+                $stack.push(f64x4::new([
+                    col[$base],
+                    col[$base + 1],
+                    col[$base + 2],
+                    col[$base + 3],
+                ]));
+            }
+            Instruction::Add => {
+                let b = $stack.pop().unwrap();
+                *$stack.last_mut().unwrap() += b;
+            }
+            Instruction::Mul => {
+                let b = $stack.pop().unwrap();
+                *$stack.last_mut().unwrap() *= b;
+            }
+            Instruction::Div => {
+                let b = $stack.pop().unwrap();
+                *$stack.last_mut().unwrap() /= b;
+            }
+            Instruction::Pow => {
+                let exp = $stack.pop().unwrap();
+                let base = $stack.last_mut().unwrap();
+                *base = base.pow_f64x4(exp);
+            }
+            Instruction::Neg => {
+                let top = $stack.last_mut().unwrap();
+                *top = -*top;
+            }
+            Instruction::Sin => {
+                let top = $stack.last_mut().unwrap();
+                *top = top.sin();
+            }
+            Instruction::Cos => {
+                let top = $stack.last_mut().unwrap();
+                *top = top.cos();
+            }
+            Instruction::Sqrt => {
+                let top = $stack.last_mut().unwrap();
+                *top = top.sqrt();
+            }
+            Instruction::Exp => {
+                let top = $stack.last_mut().unwrap();
+                *top = top.exp();
+            }
+            Instruction::Ln => {
+                let top = $stack.last_mut().unwrap();
+                *top = top.ln();
+            }
+            Instruction::Tan => {
+                let top = $stack.last_mut().unwrap();
+                *top = top.tan();
+            }
+            Instruction::Abs => {
+                let top = $stack.last_mut().unwrap();
+                *top = top.abs();
+            }
+            // Fused operations (SIMD)
+            Instruction::Square => {
+                let top = $stack.last_mut().unwrap();
+                *top = *top * *top;
+            }
+            Instruction::Cube => {
+                let top = $stack.last_mut().unwrap();
+                let x = *top;
+                *top = x * x * x;
+            }
+            Instruction::Recip => {
+                let top = $stack.last_mut().unwrap();
+                *top = f64x4::splat(1.0) / *top;
+            }
+            _ => $self_ref.exec_simd_slow_instruction($instr, &mut $stack),
         }
     };
 }
@@ -597,6 +774,8 @@ pub struct CompiledEvaluator {
     stack_size: usize,
     /// Parameter names in order (for mapping HashMap -> array)
     param_names: Arc<[String]>,
+    /// Function context for external calls
+    function_context: Option<FunctionContext>,
 }
 
 impl CompiledEvaluator {
@@ -605,18 +784,36 @@ impl CompiledEvaluator {
     /// The `param_order` specifies the order of parameters in the evaluation array.
     /// All variables in the expression must be in this list.
     pub fn compile(expr: &Expr, param_order: &[&str]) -> Result<Self, CompileError> {
-        let mut compiler = Compiler::new(param_order);
+        Self::compile_with_context(expr, param_order, None)
+    }
+
+    /// Compile an expression with a custom function context
+    pub fn compile_with_context(
+        expr: &Expr,
+        param_order: &[&str],
+        context: Option<&FunctionContext>,
+    ) -> Result<Self, CompileError> {
+        let mut compiler = Compiler::new(param_order, context);
         compiler.compile_expr(expr)?;
 
         Ok(Self {
             instructions: compiler.instructions.into(),
             stack_size: compiler.max_stack,
             param_names: param_order.iter().map(|s| s.to_string()).collect(),
+            function_context: context.cloned(),
         })
     }
 
     /// Compile an expression, automatically determining parameter order from variables
     pub fn compile_auto(expr: &Expr) -> Result<Self, CompileError> {
+        Self::compile_auto_with_context(expr, None)
+    }
+
+    /// Compile auto with context
+    pub fn compile_auto_with_context(
+        expr: &Expr,
+        context: Option<&FunctionContext>,
+    ) -> Result<Self, CompileError> {
         let vars = expr.variables();
         let mut param_order: Vec<String> = vars
             .into_iter()
@@ -625,7 +822,7 @@ impl CompiledEvaluator {
         param_order.sort(); // Consistent ordering
 
         let param_refs: Vec<&str> = param_order.iter().map(|s| s.as_str()).collect();
-        Self::compile(expr, &param_refs)
+        Self::compile_with_context(expr, &param_refs, context)
     }
 
     /// Get the required stack size for this expression
@@ -715,60 +912,64 @@ impl CompiledEvaluator {
             "Output buffer must be large enough for all data points"
         );
 
-        // Pre-allocate stack once
-        let mut stack: Vec<f64> = Vec::with_capacity(self.stack_size);
+        // Process in chunks of 4 using SIMD
+        let full_chunks = n_points / 4;
+        let mut simd_stack: Vec<f64x4> = Vec::with_capacity(self.stack_size);
 
-        for (i, out) in output.iter_mut().take(n_points).enumerate() {
-            stack.clear();
+        for chunk in 0..full_chunks {
+            let base = chunk * 4;
+            simd_stack.clear();
 
             for instr in self.instructions.iter() {
-                batch_fast_path!(instr, stack, columns, i, self);
+                simd_batch_fast_path!(instr, simd_stack, columns, base, self);
             }
 
-            *out = stack.pop().unwrap_or(f64::NAN);
+            let result = simd_stack.pop().unwrap_or(f64x4::splat(f64::NAN));
+            let arr = result.to_array();
+            output[base] = arr[0];
+            output[base + 1] = arr[1];
+            output[base + 2] = arr[2];
+            output[base + 3] = arr[3];
         }
-    }
 
-    /// Evaluate a range of data points from columnar input
-    ///
-    /// This is a lower-level helper for parallel evaluation. It processes `count` points
-    /// starting at `start_idx`, writing results to `output`.
-    ///
-    /// # Performance
-    /// - Reuses a single stack allocation for all points in the range
-    /// - No heap allocations per point
-    ///
-    /// # Safety
-    /// Panics if indices are out of bounds or dimensions mismatch.
-    pub fn eval_batch_range(
-        &self,
-        columns: &[&[f64]],
-        output: &mut [f64],
-        start_idx: usize,
-        count: usize,
-    ) {
-        debug_assert_eq!(output.len(), count, "Output length must match count");
-
-        // Pre-allocate stack once for this chunk
-        let mut stack: Vec<f64> = Vec::with_capacity(self.stack_size);
-
-        for (i, out) in output.iter_mut().enumerate() {
-            let point_idx = start_idx + i;
-            stack.clear();
-
-            for instr in self.instructions.iter() {
-                batch_fast_path!(instr, stack, columns, point_idx, self);
+        // Handle remainder with scalar path
+        let remainder_start = full_chunks * 4;
+        if remainder_start < n_points {
+            let mut scalar_stack: Vec<f64> = Vec::with_capacity(self.stack_size);
+            for (i, out) in output[remainder_start..n_points].iter_mut().enumerate() {
+                let point_idx = remainder_start + i;
+                scalar_stack.clear();
+                for instr in self.instructions.iter() {
+                    batch_fast_path!(instr, scalar_stack, columns, point_idx, self);
+                }
+                *out = scalar_stack.pop().unwrap_or(f64::NAN);
             }
-            *out = stack.pop().unwrap_or(f64::NAN);
         }
     }
 
     #[inline(never)]
     #[cold]
     fn exec_slow_instruction(&self, instr: &Instruction, stack: &mut Vec<f64>) {
-        process_instruction!(instr, stack, |_| unreachable!(
-            "LoadParam should be handled in fast path"
-        ));
+        if let Instruction::CallExternal { id, arity } = *instr {
+            let args_start = stack.len() - arity;
+            let args = &stack[args_start..];
+
+            if let Some(ctx) = &self.function_context
+                && let Some(def) = ctx.get(id)
+                && let Some(result) = (def.eval)(args)
+            {
+                stack.truncate(args_start);
+                stack.push(result);
+                return;
+            }
+            // Fallback (should not happen if compiled correctly)
+            stack.truncate(args_start);
+            stack.push(f64::NAN);
+        } else {
+            process_instruction!(instr, stack, |_| unreachable!(
+                "LoadParam should be handled in fast path"
+            ));
+        }
     }
 
     #[inline(never)]
@@ -779,7 +980,576 @@ impl CompiledEvaluator {
         stack: &mut Vec<f64>,
         params: &[f64],
     ) {
-        process_instruction!(instr, stack, |i| params[i]);
+        if let Instruction::CallExternal { id, arity } = *instr {
+            let args_start = stack.len() - arity;
+            let args = &stack[args_start..];
+
+            if let Some(ctx) = &self.function_context
+                && let Some(def) = ctx.get(id)
+                && let Some(result) = (def.eval)(args)
+            {
+                stack.truncate(args_start);
+                stack.push(result);
+                return;
+            }
+            stack.truncate(args_start);
+            stack.push(f64::NAN);
+        } else {
+            process_instruction!(instr, stack, |i| params[i]);
+        }
+    }
+
+    /// SIMD slow path for handling less common instructions
+    /// Falls back to scalar computation for each of the 4 lanes
+    #[inline(never)]
+    #[cold]
+    #[allow(clippy::ptr_arg)] // Vec is needed for potential push/pop in slow path
+    fn exec_simd_slow_instruction(&self, instr: &Instruction, stack: &mut Vec<f64x4>) {
+        // Safety: stack operations are validated at compile time by the Compiler
+        debug_assert!(
+            !stack.is_empty(),
+            "Stack empty in SIMD slow path - compiler bug"
+        );
+        match *instr {
+            // Inverse trig (compute per-lane)
+            Instruction::Asin => {
+                let top = stack.last_mut().unwrap();
+                let arr = top.to_array();
+                *top = f64x4::new([arr[0].asin(), arr[1].asin(), arr[2].asin(), arr[3].asin()]);
+            }
+            Instruction::Acos => {
+                let top = stack.last_mut().unwrap();
+                let arr = top.to_array();
+                *top = f64x4::new([arr[0].acos(), arr[1].acos(), arr[2].acos(), arr[3].acos()]);
+            }
+            Instruction::Atan => {
+                let top = stack.last_mut().unwrap();
+                let arr = top.to_array();
+                *top = f64x4::new([arr[0].atan(), arr[1].atan(), arr[2].atan(), arr[3].atan()]);
+            }
+            Instruction::Acot => {
+                let top = stack.last_mut().unwrap();
+                let arr = top.to_array();
+                let acot = |x: f64| -> f64 {
+                    if x == 0.0 {
+                        std::f64::consts::PI / 2.0
+                    } else if x > 0.0 {
+                        (1.0 / x).atan()
+                    } else {
+                        (1.0 / x).atan() + std::f64::consts::PI
+                    }
+                };
+                *top = f64x4::new([acot(arr[0]), acot(arr[1]), acot(arr[2]), acot(arr[3])]);
+            }
+            Instruction::Asec => {
+                let top = stack.last_mut().unwrap();
+                let arr = top.to_array();
+                *top = f64x4::new([
+                    (1.0 / arr[0]).acos(),
+                    (1.0 / arr[1]).acos(),
+                    (1.0 / arr[2]).acos(),
+                    (1.0 / arr[3]).acos(),
+                ]);
+            }
+            Instruction::Acsc => {
+                let top = stack.last_mut().unwrap();
+                let arr = top.to_array();
+                *top = f64x4::new([
+                    (1.0 / arr[0]).asin(),
+                    (1.0 / arr[1]).asin(),
+                    (1.0 / arr[2]).asin(),
+                    (1.0 / arr[3]).asin(),
+                ]);
+            }
+            Instruction::Cot => {
+                let top = stack.last_mut().unwrap();
+                *top = f64x4::ONE / top.tan();
+            }
+            Instruction::Sec => {
+                let top = stack.last_mut().unwrap();
+                *top = f64x4::ONE / top.cos();
+            }
+            Instruction::Csc => {
+                let top = stack.last_mut().unwrap();
+                *top = f64x4::ONE / top.sin();
+            }
+            // Hyperbolic (compute per-lane)
+            Instruction::Sinh => {
+                let top = stack.last_mut().unwrap();
+                let arr = top.to_array();
+                *top = f64x4::new([arr[0].sinh(), arr[1].sinh(), arr[2].sinh(), arr[3].sinh()]);
+            }
+            Instruction::Cosh => {
+                let top = stack.last_mut().unwrap();
+                let arr = top.to_array();
+                *top = f64x4::new([arr[0].cosh(), arr[1].cosh(), arr[2].cosh(), arr[3].cosh()]);
+            }
+            Instruction::Tanh => {
+                let top = stack.last_mut().unwrap();
+                let arr = top.to_array();
+                *top = f64x4::new([arr[0].tanh(), arr[1].tanh(), arr[2].tanh(), arr[3].tanh()]);
+            }
+            Instruction::Asinh => {
+                let top = stack.last_mut().unwrap();
+                let arr = top.to_array();
+                *top = f64x4::new([
+                    arr[0].asinh(),
+                    arr[1].asinh(),
+                    arr[2].asinh(),
+                    arr[3].asinh(),
+                ]);
+            }
+            Instruction::Acosh => {
+                let top = stack.last_mut().unwrap();
+                let arr = top.to_array();
+                *top = f64x4::new([
+                    arr[0].acosh(),
+                    arr[1].acosh(),
+                    arr[2].acosh(),
+                    arr[3].acosh(),
+                ]);
+            }
+            Instruction::Atanh => {
+                let top = stack.last_mut().unwrap();
+                let arr = top.to_array();
+                *top = f64x4::new([
+                    arr[0].atanh(),
+                    arr[1].atanh(),
+                    arr[2].atanh(),
+                    arr[3].atanh(),
+                ]);
+            }
+            Instruction::Coth => {
+                let top = stack.last_mut().unwrap();
+                let arr = top.to_array();
+                *top = f64x4::new([
+                    1.0 / arr[0].tanh(),
+                    1.0 / arr[1].tanh(),
+                    1.0 / arr[2].tanh(),
+                    1.0 / arr[3].tanh(),
+                ]);
+            }
+            Instruction::Sech => {
+                let top = stack.last_mut().unwrap();
+                let arr = top.to_array();
+                *top = f64x4::new([
+                    1.0 / arr[0].cosh(),
+                    1.0 / arr[1].cosh(),
+                    1.0 / arr[2].cosh(),
+                    1.0 / arr[3].cosh(),
+                ]);
+            }
+            Instruction::Csch => {
+                let top = stack.last_mut().unwrap();
+                let arr = top.to_array();
+                *top = f64x4::new([
+                    1.0 / arr[0].sinh(),
+                    1.0 / arr[1].sinh(),
+                    1.0 / arr[2].sinh(),
+                    1.0 / arr[3].sinh(),
+                ]);
+            }
+            Instruction::Acoth => {
+                let top = stack.last_mut().unwrap();
+                let arr = top.to_array();
+                let acoth = |x: f64| 0.5 * ((x + 1.0) / (x - 1.0)).ln();
+                *top = f64x4::new([acoth(arr[0]), acoth(arr[1]), acoth(arr[2]), acoth(arr[3])]);
+            }
+            Instruction::Asech => {
+                let top = stack.last_mut().unwrap();
+                let arr = top.to_array();
+                *top = f64x4::new([
+                    (1.0 / arr[0]).acosh(),
+                    (1.0 / arr[1]).acosh(),
+                    (1.0 / arr[2]).acosh(),
+                    (1.0 / arr[3]).acosh(),
+                ]);
+            }
+            Instruction::Acsch => {
+                let top = stack.last_mut().unwrap();
+                let arr = top.to_array();
+                *top = f64x4::new([
+                    (1.0 / arr[0]).asinh(),
+                    (1.0 / arr[1]).asinh(),
+                    (1.0 / arr[2]).asinh(),
+                    (1.0 / arr[3]).asinh(),
+                ]);
+            }
+            // Log functions
+            Instruction::Log10 => {
+                let top = stack.last_mut().unwrap();
+                *top = top.log10();
+            }
+            Instruction::Log2 => {
+                let top = stack.last_mut().unwrap();
+                *top = top.log2();
+            }
+            Instruction::Cbrt => {
+                let top = stack.last_mut().unwrap();
+                *top = top.pow_f64x4(f64x4::splat(1.0 / 3.0));
+            }
+            // Rounding
+            Instruction::Floor => {
+                let top = stack.last_mut().unwrap();
+                *top = top.floor();
+            }
+            Instruction::Ceil => {
+                let top = stack.last_mut().unwrap();
+                *top = top.ceil();
+            }
+            Instruction::Round => {
+                let top = stack.last_mut().unwrap();
+                *top = top.round();
+            }
+            Instruction::Signum => {
+                let top = stack.last_mut().unwrap();
+                let arr = top.to_array();
+                *top = f64x4::new([
+                    arr[0].signum(),
+                    arr[1].signum(),
+                    arr[2].signum(),
+                    arr[3].signum(),
+                ]);
+            }
+            // Special functions (unary) - compute per-lane using scalar implementations
+            Instruction::Erf => {
+                let top = stack.last_mut().unwrap();
+                let arr = top.to_array();
+                *top = f64x4::new([
+                    crate::math::eval_erf(arr[0]),
+                    crate::math::eval_erf(arr[1]),
+                    crate::math::eval_erf(arr[2]),
+                    crate::math::eval_erf(arr[3]),
+                ]);
+            }
+            Instruction::Erfc => {
+                let top = stack.last_mut().unwrap();
+                let arr = top.to_array();
+                *top = f64x4::new([
+                    1.0 - crate::math::eval_erf(arr[0]),
+                    1.0 - crate::math::eval_erf(arr[1]),
+                    1.0 - crate::math::eval_erf(arr[2]),
+                    1.0 - crate::math::eval_erf(arr[3]),
+                ]);
+            }
+            Instruction::Gamma => {
+                let top = stack.last_mut().unwrap();
+                let arr = top.to_array();
+                *top = f64x4::new([
+                    crate::math::eval_gamma(arr[0]).unwrap_or(f64::NAN),
+                    crate::math::eval_gamma(arr[1]).unwrap_or(f64::NAN),
+                    crate::math::eval_gamma(arr[2]).unwrap_or(f64::NAN),
+                    crate::math::eval_gamma(arr[3]).unwrap_or(f64::NAN),
+                ]);
+            }
+            Instruction::Digamma => {
+                let top = stack.last_mut().unwrap();
+                let arr = top.to_array();
+                *top = f64x4::new([
+                    crate::math::eval_digamma(arr[0]).unwrap_or(f64::NAN),
+                    crate::math::eval_digamma(arr[1]).unwrap_or(f64::NAN),
+                    crate::math::eval_digamma(arr[2]).unwrap_or(f64::NAN),
+                    crate::math::eval_digamma(arr[3]).unwrap_or(f64::NAN),
+                ]);
+            }
+            Instruction::Trigamma => {
+                let top = stack.last_mut().unwrap();
+                let arr = top.to_array();
+                *top = f64x4::new([
+                    crate::math::eval_trigamma(arr[0]).unwrap_or(f64::NAN),
+                    crate::math::eval_trigamma(arr[1]).unwrap_or(f64::NAN),
+                    crate::math::eval_trigamma(arr[2]).unwrap_or(f64::NAN),
+                    crate::math::eval_trigamma(arr[3]).unwrap_or(f64::NAN),
+                ]);
+            }
+            Instruction::Tetragamma => {
+                let top = stack.last_mut().unwrap();
+                let arr = top.to_array();
+                *top = f64x4::new([
+                    crate::math::eval_polygamma(3, arr[0]).unwrap_or(f64::NAN),
+                    crate::math::eval_polygamma(3, arr[1]).unwrap_or(f64::NAN),
+                    crate::math::eval_polygamma(3, arr[2]).unwrap_or(f64::NAN),
+                    crate::math::eval_polygamma(3, arr[3]).unwrap_or(f64::NAN),
+                ]);
+            }
+            Instruction::Sinc => {
+                let top = stack.last_mut().unwrap();
+                let arr = top.to_array();
+                let sinc = |x: f64| if x.abs() < EPSILON { 1.0 } else { x.sin() / x };
+                *top = f64x4::new([sinc(arr[0]), sinc(arr[1]), sinc(arr[2]), sinc(arr[3])]);
+            }
+            Instruction::LambertW => {
+                let top = stack.last_mut().unwrap();
+                let arr = top.to_array();
+                *top = f64x4::new([
+                    crate::math::eval_lambert_w(arr[0]).unwrap_or(f64::NAN),
+                    crate::math::eval_lambert_w(arr[1]).unwrap_or(f64::NAN),
+                    crate::math::eval_lambert_w(arr[2]).unwrap_or(f64::NAN),
+                    crate::math::eval_lambert_w(arr[3]).unwrap_or(f64::NAN),
+                ]);
+            }
+            Instruction::EllipticK => {
+                let top = stack.last_mut().unwrap();
+                let arr = top.to_array();
+                *top = f64x4::new([
+                    crate::math::eval_elliptic_k(arr[0]).unwrap_or(f64::NAN),
+                    crate::math::eval_elliptic_k(arr[1]).unwrap_or(f64::NAN),
+                    crate::math::eval_elliptic_k(arr[2]).unwrap_or(f64::NAN),
+                    crate::math::eval_elliptic_k(arr[3]).unwrap_or(f64::NAN),
+                ]);
+            }
+            Instruction::EllipticE => {
+                let top = stack.last_mut().unwrap();
+                let arr = top.to_array();
+                *top = f64x4::new([
+                    crate::math::eval_elliptic_e(arr[0]).unwrap_or(f64::NAN),
+                    crate::math::eval_elliptic_e(arr[1]).unwrap_or(f64::NAN),
+                    crate::math::eval_elliptic_e(arr[2]).unwrap_or(f64::NAN),
+                    crate::math::eval_elliptic_e(arr[3]).unwrap_or(f64::NAN),
+                ]);
+            }
+            Instruction::Zeta => {
+                let top = stack.last_mut().unwrap();
+                let arr = top.to_array();
+                *top = f64x4::new([
+                    crate::math::eval_zeta(arr[0]).unwrap_or(f64::NAN),
+                    crate::math::eval_zeta(arr[1]).unwrap_or(f64::NAN),
+                    crate::math::eval_zeta(arr[2]).unwrap_or(f64::NAN),
+                    crate::math::eval_zeta(arr[3]).unwrap_or(f64::NAN),
+                ]);
+            }
+            Instruction::ExpPolar => {
+                let top = stack.last_mut().unwrap();
+                let arr = top.to_array();
+                *top = f64x4::new([
+                    crate::math::eval_exp_polar(arr[0]),
+                    crate::math::eval_exp_polar(arr[1]),
+                    crate::math::eval_exp_polar(arr[2]),
+                    crate::math::eval_exp_polar(arr[3]),
+                ]);
+            }
+            // Two-argument functions (pop second operand, compute per-lane)
+            Instruction::Atan2 => {
+                let x = stack.pop().unwrap();
+                let y = stack.last_mut().unwrap();
+                let x_arr = x.to_array();
+                let y_arr = y.to_array();
+                *y = f64x4::new([
+                    y_arr[0].atan2(x_arr[0]),
+                    y_arr[1].atan2(x_arr[1]),
+                    y_arr[2].atan2(x_arr[2]),
+                    y_arr[3].atan2(x_arr[3]),
+                ]);
+            }
+            Instruction::BesselJ => {
+                let x = stack.pop().unwrap();
+                let n = stack.last_mut().unwrap();
+                let x_arr = x.to_array();
+                let n_arr = n.to_array();
+                *n = f64x4::new([
+                    crate::math::bessel_j(n_arr[0].round() as i32, x_arr[0]).unwrap_or(f64::NAN),
+                    crate::math::bessel_j(n_arr[1].round() as i32, x_arr[1]).unwrap_or(f64::NAN),
+                    crate::math::bessel_j(n_arr[2].round() as i32, x_arr[2]).unwrap_or(f64::NAN),
+                    crate::math::bessel_j(n_arr[3].round() as i32, x_arr[3]).unwrap_or(f64::NAN),
+                ]);
+            }
+            Instruction::BesselY => {
+                let x = stack.pop().unwrap();
+                let n = stack.last_mut().unwrap();
+                let x_arr = x.to_array();
+                let n_arr = n.to_array();
+                *n = f64x4::new([
+                    crate::math::bessel_y(n_arr[0].round() as i32, x_arr[0]).unwrap_or(f64::NAN),
+                    crate::math::bessel_y(n_arr[1].round() as i32, x_arr[1]).unwrap_or(f64::NAN),
+                    crate::math::bessel_y(n_arr[2].round() as i32, x_arr[2]).unwrap_or(f64::NAN),
+                    crate::math::bessel_y(n_arr[3].round() as i32, x_arr[3]).unwrap_or(f64::NAN),
+                ]);
+            }
+            Instruction::BesselI => {
+                let x = stack.pop().unwrap();
+                let n = stack.last_mut().unwrap();
+                let x_arr = x.to_array();
+                let n_arr = n.to_array();
+                *n = f64x4::new([
+                    crate::math::bessel_i(n_arr[0].round() as i32, x_arr[0]).unwrap_or(f64::NAN),
+                    crate::math::bessel_i(n_arr[1].round() as i32, x_arr[1]).unwrap_or(f64::NAN),
+                    crate::math::bessel_i(n_arr[2].round() as i32, x_arr[2]).unwrap_or(f64::NAN),
+                    crate::math::bessel_i(n_arr[3].round() as i32, x_arr[3]).unwrap_or(f64::NAN),
+                ]);
+            }
+            Instruction::BesselK => {
+                let x = stack.pop().unwrap();
+                let n = stack.last_mut().unwrap();
+                let x_arr = x.to_array();
+                let n_arr = n.to_array();
+                *n = f64x4::new([
+                    crate::math::bessel_k(n_arr[0].round() as i32, x_arr[0]).unwrap_or(f64::NAN),
+                    crate::math::bessel_k(n_arr[1].round() as i32, x_arr[1]).unwrap_or(f64::NAN),
+                    crate::math::bessel_k(n_arr[2].round() as i32, x_arr[2]).unwrap_or(f64::NAN),
+                    crate::math::bessel_k(n_arr[3].round() as i32, x_arr[3]).unwrap_or(f64::NAN),
+                ]);
+            }
+            Instruction::Polygamma => {
+                let x = stack.pop().unwrap();
+                let n = stack.last_mut().unwrap();
+                let x_arr = x.to_array();
+                let n_arr = n.to_array();
+                *n = f64x4::new([
+                    crate::math::eval_polygamma(n_arr[0].round() as i32, x_arr[0])
+                        .unwrap_or(f64::NAN),
+                    crate::math::eval_polygamma(n_arr[1].round() as i32, x_arr[1])
+                        .unwrap_or(f64::NAN),
+                    crate::math::eval_polygamma(n_arr[2].round() as i32, x_arr[2])
+                        .unwrap_or(f64::NAN),
+                    crate::math::eval_polygamma(n_arr[3].round() as i32, x_arr[3])
+                        .unwrap_or(f64::NAN),
+                ]);
+            }
+            Instruction::Beta => {
+                let b = stack.pop().unwrap();
+                let a = stack.last_mut().unwrap();
+                let a_arr = a.to_array();
+                let b_arr = b.to_array();
+                let beta = |a: f64, b: f64| -> f64 {
+                    match (
+                        crate::math::eval_gamma(a),
+                        crate::math::eval_gamma(b),
+                        crate::math::eval_gamma(a + b),
+                    ) {
+                        (Some(ga), Some(gb), Some(gab)) => ga * gb / gab,
+                        _ => f64::NAN,
+                    }
+                };
+                *a = f64x4::new([
+                    beta(a_arr[0], b_arr[0]),
+                    beta(a_arr[1], b_arr[1]),
+                    beta(a_arr[2], b_arr[2]),
+                    beta(a_arr[3], b_arr[3]),
+                ]);
+            }
+            Instruction::ZetaDeriv => {
+                let s = stack.pop().unwrap();
+                let n = stack.last_mut().unwrap();
+                let s_arr = s.to_array();
+                let n_arr = n.to_array();
+                *n = f64x4::new([
+                    crate::math::eval_zeta_deriv(n_arr[0].round() as i32, s_arr[0])
+                        .unwrap_or(f64::NAN),
+                    crate::math::eval_zeta_deriv(n_arr[1].round() as i32, s_arr[1])
+                        .unwrap_or(f64::NAN),
+                    crate::math::eval_zeta_deriv(n_arr[2].round() as i32, s_arr[2])
+                        .unwrap_or(f64::NAN),
+                    crate::math::eval_zeta_deriv(n_arr[3].round() as i32, s_arr[3])
+                        .unwrap_or(f64::NAN),
+                ]);
+            }
+            Instruction::Hermite => {
+                let x = stack.pop().unwrap();
+                let n = stack.last_mut().unwrap();
+                let x_arr = x.to_array();
+                let n_arr = n.to_array();
+                *n = f64x4::new([
+                    crate::math::eval_hermite(n_arr[0].round() as i32, x_arr[0])
+                        .unwrap_or(f64::NAN),
+                    crate::math::eval_hermite(n_arr[1].round() as i32, x_arr[1])
+                        .unwrap_or(f64::NAN),
+                    crate::math::eval_hermite(n_arr[2].round() as i32, x_arr[2])
+                        .unwrap_or(f64::NAN),
+                    crate::math::eval_hermite(n_arr[3].round() as i32, x_arr[3])
+                        .unwrap_or(f64::NAN),
+                ]);
+            }
+            // Three-argument functions
+            Instruction::AssocLegendre => {
+                let x = stack.pop().unwrap();
+                let m = stack.pop().unwrap();
+                let l = stack.last_mut().unwrap();
+                let x_arr = x.to_array();
+                let m_arr = m.to_array();
+                let l_arr = l.to_array();
+                *l = f64x4::new([
+                    crate::math::eval_assoc_legendre(
+                        l_arr[0].round() as i32,
+                        m_arr[0].round() as i32,
+                        x_arr[0],
+                    )
+                    .unwrap_or(f64::NAN),
+                    crate::math::eval_assoc_legendre(
+                        l_arr[1].round() as i32,
+                        m_arr[1].round() as i32,
+                        x_arr[1],
+                    )
+                    .unwrap_or(f64::NAN),
+                    crate::math::eval_assoc_legendre(
+                        l_arr[2].round() as i32,
+                        m_arr[2].round() as i32,
+                        x_arr[2],
+                    )
+                    .unwrap_or(f64::NAN),
+                    crate::math::eval_assoc_legendre(
+                        l_arr[3].round() as i32,
+                        m_arr[3].round() as i32,
+                        x_arr[3],
+                    )
+                    .unwrap_or(f64::NAN),
+                ]);
+            }
+            // Four-argument functions
+            Instruction::SphericalHarmonic => {
+                let phi = stack.pop().unwrap();
+                let theta = stack.pop().unwrap();
+                let m = stack.pop().unwrap();
+                let l = stack.last_mut().unwrap();
+                let phi_arr = phi.to_array();
+                let theta_arr = theta.to_array();
+                let m_arr = m.to_array();
+                let l_arr = l.to_array();
+                *l = f64x4::new([
+                    crate::math::eval_spherical_harmonic(
+                        l_arr[0].round() as i32,
+                        m_arr[0].round() as i32,
+                        theta_arr[0],
+                        phi_arr[0],
+                    )
+                    .unwrap_or(f64::NAN),
+                    crate::math::eval_spherical_harmonic(
+                        l_arr[1].round() as i32,
+                        m_arr[1].round() as i32,
+                        theta_arr[1],
+                        phi_arr[1],
+                    )
+                    .unwrap_or(f64::NAN),
+                    crate::math::eval_spherical_harmonic(
+                        l_arr[2].round() as i32,
+                        m_arr[2].round() as i32,
+                        theta_arr[2],
+                        phi_arr[2],
+                    )
+                    .unwrap_or(f64::NAN),
+                    crate::math::eval_spherical_harmonic(
+                        l_arr[3].round() as i32,
+                        m_arr[3].round() as i32,
+                        theta_arr[3],
+                        phi_arr[3],
+                    )
+                    .unwrap_or(f64::NAN),
+                ]);
+            }
+            // Remaining cases that should be in fast path but might slip through
+            _ => {
+                // This should only be reached for LoadConst, LoadParam, Add, Mul, Div, Pow,
+                // Neg, Sin, Cos, Tan, Sqrt, Exp, Ln, Abs, Square, Cube, Recip
+                // which are all handled in simd_batch_fast_path macro.
+                // If we get here, it's a bug - log a warning in debug builds
+                #[cfg(debug_assertions)]
+                eprintln!(
+                    "Warning: Unhandled SIMD instruction {:?}, returning NaN",
+                    instr
+                );
+                let top = stack.last_mut().unwrap();
+                *top = f64x4::new([f64::NAN, f64::NAN, f64::NAN, f64::NAN]);
+            }
+        }
     }
 
     /// Parallel batch evaluation - evaluate expression at multiple data points in parallel
@@ -825,26 +1595,20 @@ impl CompiledEvaluator {
             return output;
         }
 
-        // Process points in parallel chunks
-        // Each chunk gets its own stack to avoid contention
-        let n_threads = rayon::current_num_threads();
-        let chunk_size = (n_points / n_threads).max(MIN_PARALLEL_SIZE);
-
-        let n_params = self.param_names.len();
-        let stack_size = self.stack_size;
-
-        (0..n_points)
-            .into_par_iter()
-            .with_min_len(chunk_size)
-            .map_init(
-                || (Vec::with_capacity(n_params), Vec::with_capacity(stack_size)),
-                |(params, stack), i| {
-                    params.clear();
-                    params.extend(columns.iter().map(|col| col[i]));
-                    self.evaluate_with_stack(params, stack)
-                },
-            )
-            .collect()
+        // Parallel chunked evaluation using SIMD-enabled eval_batch
+        // Each chunk slices the columns and calls eval_batch (uses f64x4 SIMD)
+        let mut output = vec![0.0; n_points];
+        output
+            .par_chunks_mut(MIN_PARALLEL_SIZE)
+            .enumerate()
+            .for_each(|(chunk_idx, chunk)| {
+                let start = chunk_idx * MIN_PARALLEL_SIZE;
+                let end = start + chunk.len();
+                // Slice columns for this chunk
+                let col_slices: Vec<&[f64]> = columns.iter().map(|col| &col[start..end]).collect();
+                self.eval_batch(&col_slices, chunk);
+            });
+        output
     }
 }
 
@@ -854,10 +1618,11 @@ struct Compiler<'a> {
     param_map: HashMap<&'a str, usize>,
     current_stack: usize,
     max_stack: usize,
+    function_context: Option<&'a FunctionContext>,
 }
 
 impl<'a> Compiler<'a> {
-    fn new(param_order: &[&'a str]) -> Self {
+    fn new(param_order: &[&'a str], context: Option<&'a FunctionContext>) -> Self {
         let param_map: HashMap<&str, usize> = param_order
             .iter()
             .enumerate()
@@ -869,6 +1634,7 @@ impl<'a> Compiler<'a> {
             param_map,
             current_stack: 0,
             max_stack: 0,
+            function_context: context,
         }
     }
 
@@ -885,7 +1651,75 @@ impl<'a> Compiler<'a> {
         self.instructions.push(instr);
     }
 
+    /// Try to evaluate a constant expression at compile time
+    /// Returns None if the expression contains variables or unsupported functions
+    fn try_eval_const(expr: &Expr) -> Option<f64> {
+        match &expr.kind {
+            ExprKind::Number(n) => Some(*n),
+            ExprKind::Symbol(s) => match s.as_str() {
+                "pi" | "PI" | "Pi" => Some(std::f64::consts::PI),
+                "e" | "E" => Some(std::f64::consts::E),
+                _ => None,
+            },
+            ExprKind::Sum(terms) => {
+                let mut sum = 0.0;
+                for term in terms {
+                    sum += Self::try_eval_const(term)?;
+                }
+                Some(sum)
+            }
+            ExprKind::Product(factors) => {
+                let mut product = 1.0;
+                for factor in factors {
+                    product *= Self::try_eval_const(factor)?;
+                }
+                Some(product)
+            }
+            ExprKind::Div(num, den) => {
+                let n = Self::try_eval_const(num)?;
+                let d = Self::try_eval_const(den)?;
+                Some(n / d)
+            }
+            ExprKind::Pow(base, exp) => {
+                let b = Self::try_eval_const(base)?;
+                let e = Self::try_eval_const(exp)?;
+                Some(b.powf(e))
+            }
+            ExprKind::FunctionCall { name, args } => {
+                let arg_vals: Vec<f64> = args
+                    .iter()
+                    .filter_map(|a| Self::try_eval_const(a))
+                    .collect();
+                if arg_vals.len() != args.len() {
+                    return None;
+                }
+                match (name.as_str(), arg_vals.as_slice()) {
+                    ("sin", [x]) => Some(x.sin()),
+                    ("cos", [x]) => Some(x.cos()),
+                    ("tan", [x]) => Some(x.tan()),
+                    ("exp", [x]) => Some(x.exp()),
+                    ("ln", [x]) => Some(x.ln()),
+                    ("log", [x]) => Some(x.ln()),
+                    ("sqrt", [x]) => Some(x.sqrt()),
+                    ("abs", [x]) => Some(x.abs()),
+                    ("floor", [x]) => Some(x.floor()),
+                    ("ceil", [x]) => Some(x.ceil()),
+                    ("round", [x]) => Some(x.round()),
+                    _ => None, // Unsupported function for constant folding
+                }
+            }
+            _ => None,
+        }
+    }
+
     fn compile_expr(&mut self, expr: &Expr) -> Result<(), CompileError> {
+        // Try constant folding first - evaluate constant expressions at compile time
+        if let Some(value) = Self::try_eval_const(expr) {
+            self.emit(Instruction::LoadConst(value));
+            self.push();
+            return Ok(());
+        }
+
         match &expr.kind {
             ExprKind::Number(n) => {
                 self.emit(Instruction::LoadConst(*n));
@@ -966,6 +1800,26 @@ impl<'a> Compiler<'a> {
             }
 
             ExprKind::Pow(base, exp) => {
+                // Check for fused instruction patterns
+                if let ExprKind::Number(n) = &exp.kind {
+                    if (*n - 2.0).abs() < 1e-10 {
+                        // x^2 -> Square (faster than powf(2))
+                        self.compile_expr(base)?;
+                        self.emit(Instruction::Square);
+                        return Ok(());
+                    } else if (*n - 3.0).abs() < 1e-10 {
+                        // x^3 -> Cube (faster than powf(3))
+                        self.compile_expr(base)?;
+                        self.emit(Instruction::Cube);
+                        return Ok(());
+                    } else if (*n + 1.0).abs() < 1e-10 {
+                        // x^-1 -> Recip (faster than powf(-1))
+                        self.compile_expr(base)?;
+                        self.emit(Instruction::Recip);
+                        return Ok(());
+                    }
+                }
+                // General case
                 self.compile_expr(base)?;
                 self.compile_expr(exp)?;
                 self.emit(Instruction::Pow);
@@ -996,7 +1850,6 @@ impl<'a> Compiler<'a> {
                     ("asec", 1) => Instruction::Asec,
                     ("acsc", 1) => Instruction::Acsc,
 
-                    // Hyperbolic (unary)
                     ("sinh", 1) => Instruction::Sinh,
                     ("cosh", 1) => Instruction::Cosh,
                     ("tanh", 1) => Instruction::Tanh,
@@ -1091,7 +1944,33 @@ impl<'a> Compiler<'a> {
                     }
 
                     _ => {
-                        return Err(CompileError::UnsupportedFunction(func_name.to_string()));
+                        // Check if function exists in the context
+                        if let Some(ctx) = self.function_context {
+                            let sym = crate::core::symbol::symb(func_name);
+                            let id = sym.id();
+
+                            if let Some(def) = ctx.get(id) {
+                                if def.validate_arity(args.len()) {
+                                    Instruction::CallExternal {
+                                        id,
+                                        arity: args.len(),
+                                    }
+                                } else {
+                                    return Err(CompileError::UnsupportedFunction(format!(
+                                        "{}: invalid arity (expected {:?}, got {})",
+                                        func_name,
+                                        def.arity,
+                                        args.len()
+                                    )));
+                                }
+                            } else {
+                                return Err(CompileError::UnsupportedFunction(
+                                    func_name.to_string(),
+                                ));
+                            }
+                        } else {
+                            return Err(CompileError::UnsupportedFunction(func_name.to_string()));
+                        }
                     }
                 };
 
@@ -1162,26 +2041,42 @@ impl<'a> Compiler<'a> {
                         // OPTIMIZATION: Cache base instructions instead of recompiling for each term
                         let base = poly.base();
 
-                        // Compile base once and cache the instructions
-                        let base_start = self.instructions.len();
-                        self.compile_expr(base)?;
-                        let base_end = self.instructions.len();
-                        let base_instrs: Vec<Instruction> =
-                            self.instructions[base_start..base_end].to_vec();
-                        // Remove the cached instructions (we'll replay them explicitly)
-                        self.instructions.truncate(base_start);
-                        // Also undo the stack tracking from compile_expr
-                        self.current_stack = self.current_stack.saturating_sub(1);
+                        // 1. Compile base once to learn instructions and stack usage
+                        let base_start_stack = self.current_stack;
+                        let base_start_instruction = self.instructions.len();
 
+                        self.compile_expr(base)?;
+
+                        let base_end_instruction = self.instructions.len();
+                        // Calculate how much stack the base expression needs relative to its start
+                        // max_stack tracks the global high-water mark, so (max_stack - start) covers
+                        // the deepest excursion during base compilation.
+                        let base_headroom = self.max_stack.saturating_sub(base_start_stack);
+
+                        let base_instrs: Vec<Instruction> = self.instructions
+                            [base_start_instruction..base_end_instruction]
+                            .to_vec();
+
+                        // 2. Reset state to before base compilation (truncate instructions)
+                        self.instructions.truncate(base_start_instruction);
+                        self.current_stack = base_start_stack;
+
+                        // 3. Emit polynomial expansion using the cached instructions
                         // First term
                         let (first_pow, first_coeff) = sorted_terms[0];
                         self.emit(Instruction::LoadConst(first_coeff));
                         self.push();
-                        // Replay cached base instructions
+
+                        // Replaying base: ensure we have enough stack space!
+                        // We are at `current_stack`, and base needs `base_headroom` above that.
+                        self.max_stack = self.max_stack.max(self.current_stack + base_headroom);
+
                         for instr in &base_instrs {
                             self.emit(*instr);
                         }
+                        // Manually track the stack effect of the base expression (it pushes 1 value)
                         self.push();
+
                         self.emit(Instruction::LoadConst(first_pow as f64));
                         self.push();
                         self.emit(Instruction::Pow);
@@ -1193,11 +2088,14 @@ impl<'a> Compiler<'a> {
                         for &(pow, coeff) in &sorted_terms[1..] {
                             self.emit(Instruction::LoadConst(coeff));
                             self.push();
-                            // Replay cached base instructions
+
+                            // Replay base again
+                            self.max_stack = self.max_stack.max(self.current_stack + base_headroom);
                             for instr in &base_instrs {
                                 self.emit(*instr);
                             }
                             self.push();
+
                             self.emit(Instruction::LoadConst(pow as f64));
                             self.push();
                             self.emit(Instruction::Pow);

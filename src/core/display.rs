@@ -54,8 +54,11 @@ fn extract_negative(expr: &Expr) -> Option<Expr> {
             if let Some(first_coeff) = poly.first_coeff()
                 && first_coeff < 0.0
             {
-                // Create a new Poly with negated first term coefficient
-                let negated_poly = poly.with_negated_first();
+                // Create a new Poly with ALL terms negated
+                // -P = -(P_negated)
+                // e.g. -x + x^2  -> negating all terms gives x - x^2
+                // displayed as -(x - x^2) which is correct (-x + x^2)
+                let negated_poly = poly.negate();
                 return Some(Expr::new(ExprKind::Poly(negated_poly)));
             }
         }
@@ -812,10 +815,16 @@ fn unicode_factor(expr: &Expr) -> String {
 // =============================================================================
 
 impl Expr {
+    /// Convert the expression to LaTeX format.
+    ///
+    /// Returns a string suitable for rendering in LaTeX math environments.
     pub fn to_latex(&self) -> String {
         format!("{}", LatexFormatter(self))
     }
 
+    /// Convert the expression to Unicode format.
+    ///
+    /// Returns a string with Unicode superscripts and Greek letters for display.
     pub fn to_unicode(&self) -> String {
         format!("{}", UnicodeFormatter(self))
     }

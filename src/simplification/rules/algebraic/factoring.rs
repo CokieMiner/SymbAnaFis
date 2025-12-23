@@ -635,12 +635,11 @@ rule!(
 
             // Don't factor out just -1 alone - it doesn't simplify the expression
             // and creates less canonical form like -(a+b) instead of -a-b
-            if common_factors.len() == 1 {
-                if let AstKind::Number(n) = &common_factors[0].kind {
-                    if (*n + 1.0).abs() < 1e-10 {
-                        return None;
-                    }
-                }
+            if common_factors.len() == 1
+                && let AstKind::Number(n) = &common_factors[0].kind
+                && (*n + 1.0).abs() < 1e-10
+            {
+                return None;
             }
 
             // Factor out common factors

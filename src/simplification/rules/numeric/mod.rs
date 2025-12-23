@@ -172,15 +172,10 @@ rule!(
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::Pow(u, v) = &expr.kind
             && matches!(&u.kind, AstKind::Number(n) if *n == 0.0)
+            && let AstKind::Number(exp) = &v.kind
+            && *exp > 0.0
         {
-            // Only simplify 0^x when x is a positive number
-            // 0^0 is conventionally 1, 0^negative is undefined
-            if let AstKind::Number(exp) = &v.kind {
-                if *exp > 0.0 {
-                    return Some(Expr::number(0.0));
-                }
-            }
-            // For symbolic exponents, don't simplify (could be 0 or negative)
+            return Some(Expr::number(0.0));
         }
         None
     }

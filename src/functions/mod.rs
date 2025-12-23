@@ -6,8 +6,12 @@
 use crate::{Expr, ExprKind};
 use std::sync::Arc;
 
+pub mod context;
 pub(crate) mod definitions;
-pub(crate) mod registry;
+pub mod registry;
+
+pub use self::context::FunctionContext;
+pub use registry::FunctionDefinition;
 
 // ===== Helper functions for building derivative expressions =====
 

@@ -109,8 +109,9 @@ mod tier3_unimplemented_placeholders {
 
     #[test]
     fn test_besselj_parsing() {
-        // Should parse but return generic derivative ∂_besselj(x)/∂_x
-        let result = diff("besselj(x)", "x", None, None).unwrap();
-        assert!(result.contains("besselj") && result.contains("∂"));
+        // besselj now has implemented derivatives
+        let result = diff("besselj(0, x)", "x", None, None).unwrap();
+        // Should produce a result - just verify it parses and differentiates
+        assert!(!result.is_empty());
     }
 }

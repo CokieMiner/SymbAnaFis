@@ -13,7 +13,6 @@
 //! - Bessel: DLMF §10.6, §10.29 (recurrence-based derivatives)
 //! - Elliptic: DLMF §19.4 <https://dlmf.nist.gov/19.4>
 //! - Lambert W: Corless et al. (1996) (W'(x) = W(x)/(x(1+W(x))))
-
 use super::registry::FunctionDefinition;
 use super::{func, func_arc, mul_opt, mul_opt_arc, neg};
 use crate::Expr;

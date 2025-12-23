@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod tests {
+    use crate::parser::parse;
     use crate::simplify;
 
     #[test]
@@ -28,7 +29,6 @@ mod tests {
 
     #[test]
     fn debug_cubic_expansion() {
-        use crate::parse;
         use crate::simplification::simplify_expr;
         use std::collections::HashSet;
 

@@ -108,9 +108,10 @@ pub fn walk_expr<V: ExprVisitor>(expr: &Expr, visitor: &mut V) {
     }
 }
 
-/// A simple visitor that counts nodes
+/// A simple visitor that counts nodes in an expression.
 #[derive(Default)]
 pub struct NodeCounter {
+    /// The number of nodes visited so far.
     pub count: usize,
 }
 
@@ -141,9 +142,10 @@ impl ExprVisitor for NodeCounter {
     }
 }
 
-/// A visitor that collects all unique variable names
+/// A visitor that collects all unique variable names in an expression.
 #[derive(Default)]
 pub struct VariableCollector {
+    /// Set of all variable names found in the expression.
     pub variables: std::collections::HashSet<String>,
 }
 

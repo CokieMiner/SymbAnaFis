@@ -3,8 +3,9 @@
 //! These tests try to break the evaluator, differentiator, simplifier,
 //! and custom function handling with extreme edge cases.
 
-use crate::simplify_expr;
-use crate::{Diff, Expr, ExprKind, diff, parse, simplify};
+use crate::parser::parse;
+use crate::simplification::simplify_expr;
+use crate::{Diff, Expr, ExprKind, diff, simplify};
 use std::collections::{HashMap, HashSet};
 use std::f64::consts::PI;
 use std::sync::Arc;

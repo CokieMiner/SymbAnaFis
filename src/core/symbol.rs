@@ -295,7 +295,7 @@ impl std::error::Error for SymbolError {}
 ///
 /// This is Clone-cheap because it only contains a u64 and an Arc.
 #[derive(Debug, Clone)]
-pub struct InternedSymbol {
+pub(crate) struct InternedSymbol {
     id: u64,
     name: Option<Arc<str>>,
 }
@@ -338,14 +338,6 @@ impl InternedSymbol {
     /// Get the symbol's name (None for anonymous symbols)
     pub fn name(&self) -> Option<&str> {
         self.name.as_deref()
-    }
-
-    /// Get the symbol's name or a generated name for anonymous symbols
-    pub fn display_name(&self) -> String {
-        match &self.name {
-            Some(n) => n.to_string(),
-            None => format!("${}", self.id),
-        }
     }
 
     /// Get the name as &str (empty for anonymous symbols)
@@ -454,7 +446,7 @@ impl Symbol {
         self.name_arc().map(|arc| arc.to_string())
     }
 
-    /// Get the name as an Arc<str> (avoiding String allocation)
+    /// Get the name as an `Arc<str>` (avoiding String allocation)
     pub fn name_arc(&self) -> Option<Arc<str>> {
         lookup_by_id(self.0).and_then(|s| s.name)
     }
@@ -554,10 +546,10 @@ pub fn symb_new(name: &str) -> Result<Symbol, SymbolError> {
 /// The returned symbol shares the same ID as the original.
 ///
 /// # Example
-/// ```ignore
-/// let x = symb_new("x")?;
-/// // ... later ...
-/// let x2 = symb_get("x")?;
+/// ```
+/// use symb_anafis::{symb, symb_get};
+/// let x = symb("symb_get_doc_x");
+/// let x2 = symb_get("symb_get_doc_x").unwrap();
 /// assert_eq!(x.id(), x2.id());  // Same symbol!
 /// ```
 pub fn symb_get(name: &str) -> Result<Symbol, SymbolError> {
@@ -577,10 +569,11 @@ pub fn symbol_exists(name: &str) -> bool {
 /// Get the number of registered symbols in the global registry
 ///
 /// # Example
-/// ```ignore
-/// symb("x");
-/// symb("y");
-/// assert_eq!(symbol_count(), 2);
+/// ```
+/// use symb_anafis::{symb, symbol_count};
+/// symb("symbol_count_doc_x");
+/// symb("symbol_count_doc_y");
+/// assert!(symbol_count() >= 2);
 /// ```
 pub fn symbol_count() -> usize {
     let guard = get_registry_read();
@@ -590,11 +583,11 @@ pub fn symbol_count() -> usize {
 /// List all symbol names in the global registry
 ///
 /// # Example
-/// ```ignore
-/// symb("x");
-/// symb("y");
+/// ```
+/// use symb_anafis::{symb, symbol_names};
+/// symb("symbol_names_doc_x");
 /// let names = symbol_names();
-/// assert!(names.contains(&"x".to_string()));
+/// assert!(names.contains(&"symbol_names_doc_x".to_string()));
 /// ```
 pub fn symbol_names() -> Vec<String> {
     let guard = get_registry_read();
@@ -619,11 +612,12 @@ pub fn clear_symbols() {
 /// still work but won't match newly created ones.
 ///
 /// # Example
-/// ```ignore
-/// let x = symb("x");
-/// assert!(symbol_exists("x"));
-/// remove_symbol("x");
-/// assert!(!symbol_exists("x"));
+/// ```
+/// use symb_anafis::{symb, symbol_exists, remove_symbol};
+/// symb("remove_symbol_doc_x");
+/// assert!(symbol_exists("remove_symbol_doc_x"));
+/// remove_symbol("remove_symbol_doc_x");
+/// assert!(!symbol_exists("remove_symbol_doc_x"));
 /// ```
 pub fn remove_symbol(name: &str) -> bool {
     let mut guard = get_registry_mut();
@@ -670,6 +664,7 @@ macro_rules! impl_math_functions_ref {
     ($type:ty, $converter:expr, $($fn_name:ident => $func_str:literal),* $(,)?) => {
         impl $type {
             $(
+                #[doc = concat!("Apply the `", $func_str, "` function to this expression.")]
                 pub fn $fn_name(&self) -> Expr {
                     Expr::func($func_str, $converter(self))
                 }
@@ -683,6 +678,7 @@ macro_rules! impl_math_functions_owned {
     ($type:ty, $converter:expr, $($fn_name:ident => $func_str:literal),* $(,)?) => {
         impl $type {
             $(
+                #[doc = concat!("Apply the `", $func_str, "` function to this expression.")]
                 pub fn $fn_name(self) -> Expr {
                     Expr::func($func_str, $converter(self))
                 }

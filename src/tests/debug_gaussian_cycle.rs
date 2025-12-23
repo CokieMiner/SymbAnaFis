@@ -1,4 +1,5 @@
-use crate::{Diff, Simplify, diff, parse, symb};
+use crate::parser::parse;
+use crate::{Diff, Simplify, diff, symb};
 use std::collections::HashSet;
 
 #[test]

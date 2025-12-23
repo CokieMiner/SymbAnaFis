@@ -10,7 +10,7 @@ use std::collections::HashSet;
 
 /// Simplify an expression with user-specified fixed variables
 /// Fixed variables are treated as constants (e.g., "e" as a variable, not Euler's constant)
-pub fn simplify_expr(expr: Expr, fixed_vars: HashSet<String>) -> Expr {
+pub(crate) fn simplify_expr(expr: Expr, fixed_vars: HashSet<String>) -> Expr {
     let mut current = expr;
 
     // Use the new rule-based simplification engine with fixed vars

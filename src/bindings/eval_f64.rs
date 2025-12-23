@@ -5,7 +5,7 @@
 //!
 //! # Performance
 //! - **Chunked Parallelism**: Splits work into chunks (default 256 points)
-//! - **Zero Per-Point Allocation**: Uses `eval_batch_range` which allocates stack once per chunk
+//! - **SIMD + Parallel**: Uses `eval_batch` with f64x4 SIMD (processes 4 values at a time)
 //! - **Cache Locality**: Processing points in chunks improves L1 cache usage
 //!
 //! # Feature Gate
@@ -85,16 +85,18 @@ fn eval_single_expr_chunked<V: AsRef<str>>(
     if n_points < CHUNK_SIZE {
         evaluator.eval_batch(columns, &mut output);
     } else {
-        // Parallel chunked evaluation using eval_batch_range
+        // Parallel chunked evaluation using sliced eval_batch (SIMD-enabled)
         // 1. Splits output into mutable chunks
-        // 2. Each chunk processes independently
-        // 3. eval_batch_range reuses a single stack allocation per chunk
+        // 2. Each chunk slices columns and calls eval_batch (uses SIMD f64x4)
         output
             .par_chunks_mut(CHUNK_SIZE)
             .enumerate()
             .for_each(|(chunk_idx, chunk)| {
                 let start = chunk_idx * CHUNK_SIZE;
-                evaluator.eval_batch_range(columns, chunk, start, chunk.len());
+                let end = start + chunk.len();
+                // Slice columns for this chunk
+                let col_slices: Vec<&[f64]> = columns.iter().map(|col| &col[start..end]).collect();
+                evaluator.eval_batch(&col_slices, chunk);
             });
     }
 
@@ -107,7 +109,7 @@ mod tests {
     use std::collections::HashSet;
 
     fn parse_expr(s: &str) -> Expr {
-        crate::parse(s, &HashSet::new(), &HashSet::new(), None).unwrap()
+        crate::parser::parse(s, &HashSet::new(), &HashSet::new(), None).unwrap()
     }
 
     #[test]

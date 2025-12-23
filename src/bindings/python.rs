@@ -596,7 +596,7 @@ fn parse(
         .map(|v| v.into_iter().collect())
         .unwrap_or_default();
 
-    crate::parse(formula, &fixed, &custom, None)
+    crate::parser::parse(formula, &fixed, &custom, None)
         .map(|expr| expr.to_string())
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e)))
 }

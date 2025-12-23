@@ -377,13 +377,21 @@ rule!(
                 let denominator = Expr::pow((**base).clone(), positive_exp);
                 return Some(Expr::div_expr(Expr::number(1.0), denominator));
             }
-            // Handle Product([-1, exp]): x^(-1 * a) -> 1/x^a
+            // Handle Product with leading -1: x^(-1 * a * b * ...) -> 1/x^(a*b*...)
+            // This handles products with any number of factors, not just 2
             if let AstKind::Product(factors) = &exp.kind
-                && factors.len() == 2
+                && !factors.is_empty()
                 && let AstKind::Number(n) = &factors[0].kind
                 && *n == -1.0
             {
-                let denominator = Expr::pow((**base).clone(), (*factors[1]).clone());
+                // Create a new exponent with the remaining factors (excluding -1)
+                let remaining_factors: Vec<Arc<Expr>> = factors[1..].to_vec();
+                let positive_exp = if remaining_factors.len() == 1 {
+                    (*remaining_factors[0]).clone()
+                } else {
+                    Expr::product_from_arcs(remaining_factors)
+                };
+                let denominator = Expr::pow((**base).clone(), positive_exp);
                 return Some(Expr::div_expr(Expr::number(1.0), denominator));
             }
         }

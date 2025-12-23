@@ -10,6 +10,18 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
+/// Macro for warning messages that respects library usage.
+/// Silent by default - only outputs when SYMB_TRACE env var is enabled.
+/// This prevents polluting stderr when used as a library.
+macro_rules! warn_once {
+    ($($arg:tt)*) => {
+        // Silent by default in library mode - use SYMB_TRACE for debug output
+        if trace_enabled() {
+            eprintln!($($arg)*);
+        }
+    };
+}
+
 /// Default cache capacity per rule before clearing (10K entries)
 const DEFAULT_CACHE_CAPACITY: usize = 10_000;
 
@@ -37,8 +49,8 @@ fn global_registry() -> &'static RuleRegistry {
 /// Main simplification engine with rule-based architecture
 pub(crate) struct Simplifier {
     /// Per-rule caches - cleared when exceeding capacity to bound memory
-    /// Uses Arc<str> keys to avoid String allocation on each lookup
-    rule_caches: HashMap<Arc<str>, HashMap<u64, Option<Arc<Expr>>>>,
+    /// Uses &'static str keys since rule names are guaranteed to be static
+    rule_caches: HashMap<&'static str, HashMap<u64, Option<Arc<Expr>>>>,
     cache_capacity: usize,
     max_iterations: usize,
     max_depth: usize,
@@ -111,12 +123,12 @@ impl Simplifier {
             if let Some(timeout) = self.timeout
                 && start_time.elapsed() > timeout
             {
-                eprintln!("Warning: Simplification timed out after {:?}", timeout);
+                warn_once!("Warning: Simplification timed out after {:?}", timeout);
                 break;
             }
 
             if iterations >= self.max_iterations {
-                eprintln!(
+                warn_once!(
                     "Warning: Simplification exceeded maximum iterations ({})",
                     self.max_iterations
                 );
@@ -138,23 +150,17 @@ impl Simplifier {
                 break; // No changes
             }
 
-            // After a full pass of all rules, check if we've seen this hash before
-            // The id field is a structural hash - cycle means we've seen exact same structure
-            let fingerprint = current.id;
+            // After a full pass of all rules, check if we've seen this structural hash before
+            // The hash field is a structural hash - same hash means structurally identical expression
+            let fingerprint = current.hash;
             if seen_hashes.contains(&fingerprint) {
-                // Cycle detected! Return the SHORTEST expression seen in history.
-                // This ensures we return "x" instead of "exp(ln(x))" when they cycle.
+                // Cycle detected! Return the CURRENT (last) expression as it's the most canonicalized.
+                // Canonicalization rules run last (low priority), so the latest iteration
+                // has the most canonical form (e.g., sorted products).
                 if trace_enabled() {
-                    eprintln!("[DEBUG] Cycle detected, returning shortest form");
+                    eprintln!("[DEBUG] Cycle detected, returning last (most canonical) form");
                 }
-                if let Some(shortest) = history
-                    .iter()
-                    .chain(std::iter::once(&current))
-                    .min_by_key(|e| e.to_string().len())
-                {
-                    return Arc::try_unwrap(shortest.clone()).unwrap_or_else(|rc| (*rc).clone());
-                }
-                break;
+                return Arc::try_unwrap(current).unwrap_or_else(|rc| (*rc).clone());
             }
             // Add AFTER checking, so first iteration's result doesn't trigger false positive
             seen_hashes.insert(fingerprint);
@@ -302,8 +308,8 @@ impl Simplifier {
             // Apply rule - pass &Arc<Expr>, get Option<Arc<Expr>>
             let original_id = current.id;
 
-            // Get or create cache for this rule (Arc<str> avoids allocation on hit)
-            let cache = self.rule_caches.entry(Arc::from(rule_name)).or_default();
+            // Get or create cache for this rule (uses &'static str since rule names are static)
+            let cache = self.rule_caches.entry(rule_name).or_default();
 
             // Bound memory: clear if exceeding capacity (simple, fast eviction)
             if cache.len() >= self.cache_capacity {

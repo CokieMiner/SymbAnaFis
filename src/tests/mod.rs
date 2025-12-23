@@ -3,6 +3,7 @@ mod advanced_simplification_tests;
 mod advanced_tests;
 mod closure_check;
 mod comprehensive_api_tests;
+mod custom_functions;
 mod debug_applications;
 mod debug_div_hang;
 mod debug_division_structure;
@@ -23,6 +24,7 @@ mod hyperbolic_conversion_tests;
 mod integration_tests;
 mod log_power_tests;
 mod numerical_accuracy_tests;
+mod power_debug;
 mod power_root_tests;
 mod power_simplification_tests;
 mod property_tests;
@@ -50,4 +52,8 @@ mod tier1_tests;
 mod tier2_tests;
 mod trace_trig;
 mod trig_simplification_tests;
-mod power_debug;
+
+// Validation test suite
+mod api_contract_tests;
+mod derivative_oracle_tests;
+mod eval_consistency_tests;

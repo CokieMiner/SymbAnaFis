@@ -11,13 +11,16 @@ use std::sync::Arc;
 /// Macro to define a simplification rule with minimal boilerplate
 ///
 /// Basic usage:
-/// ```ignore
-/// rule!(RuleName, "rule_name", priority, Category, &[ExprKind::Type], |expr, context| { logic })
+/// ```no_run
+/// # use symb_anafis::rule;
+/// # use symb_anafis::Expr;
+/// // rule!(RuleName, "rule_name", priority, Category, &[ExprKind::Type], |expr, context| { logic })
 /// ```
 ///
 /// With alters_domain:
-/// ```ignore
-/// rule!(RuleName, "rule_name", priority, Category, &[ExprKind::Type], alters_domain: true, |expr, context| { logic })
+/// ```no_run
+/// # use symb_anafis::rule;
+/// // rule!(RuleName, "rule_name", priority, Category, &[ExprKind::Type], alters_domain: true, |expr, context| { logic })
 /// ```
 ///
 /// With helper functions (use rule_with_helpers! instead for complex cases)
@@ -100,13 +103,14 @@ macro_rules! rule {
 /// The helpers block is inserted at the start of apply()
 ///
 /// Usage:
-/// ```ignore
-/// rule_with_helpers!(RuleName, "rule_name", priority, Category, &[ExprKind::Type],
-///     helpers: {
-///         fn my_helper(x: &Expr) -> bool { ... }
-///     },
-///     |expr, context| { logic using my_helper }
-/// )
+/// ```no_run
+/// # use symb_anafis::rule_with_helpers;
+/// // rule_with_helpers!(RuleName, "rule_name", priority, Category, &[ExprKind::Type],
+/// //     helpers: {
+/// //         fn my_helper(x: &Expr) -> bool { ... }
+/// //     },
+/// //     |expr, context| { logic using my_helper }
+/// // )
 /// ```
 #[macro_export]
 macro_rules! rule_with_helpers {

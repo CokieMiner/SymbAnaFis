@@ -202,7 +202,7 @@ fn part3_numerical_evaluation() {
 
     let result = expr.evaluate(&vars);
     println!("      x² + y² at (x=3, y=4)");
-    if let ExprKind::Number(n) = result.kind {
+    if let ExprKind::Number(n) = result.into_kind() {
         println!("      Result: {} (expected: 25)\n", n);
     }
 

@@ -309,15 +309,11 @@ pub fn evaluate_parallel(
             // =========================================================
 
             let mut evaluator = None;
-            // Only try to compile if we have variables (constant expressions are trivial)
-            if !vars.is_empty() {
-                // We ignore all_values_numeric check here - we'll check per-point
-                // We also ignore all_vars_bound check - compile() handles this validation
-                if let Ok(compiled) =
-                    crate::core::evaluator::CompiledEvaluator::compile(expr, &vars)
-                {
-                    evaluator = Some(compiled);
-                }
+
+            // We ignore all_values_numeric check here - we'll check per-point
+            // We also rely on compile() to check that all variables are bound
+            if let Ok(compiled) = crate::core::evaluator::CompiledEvaluator::compile(expr, &vars) {
+                evaluator = Some(compiled);
             }
 
             if let Some(evaluator) = evaluator {
@@ -327,39 +323,78 @@ pub fn evaluate_parallel(
                     .all(|col| col.iter().all(|v| matches!(v, Value::Num(_))));
 
                 if globally_numeric {
-                    // ULTRA-FAST PATH: Skip per-point type checks entirely
-                    return (0..n_points)
-                        .into_par_iter()
-                        .map_init(
-                            || {
-                                (
-                                    Vec::with_capacity(n_vars),
-                                    Vec::with_capacity(evaluator.stack_size()),
-                                )
-                            },
-                            |(params, stack), point_idx| {
-                                params.clear();
-                                for var_vals in vals.iter().take(n_vars) {
-                                    let val = if point_idx < var_vals.len() {
-                                        &var_vals[point_idx]
+                    // ULTRA-FAST PATH: Chunked SIMD evaluation
+                    // We split into chunks of CHUNK_SIZE
+                    // Unpack Value::Num -> f64 columns
+                    // Run eval_batch (SIMD)
+                    const CHUNK_SIZE: usize = 256;
+
+                    // We need to initialize the vector with placeholders to allow parallel random access writing
+                    // But since we are returning a Vec from map, we can just use par_chunks on indices
+                    // to generate sub-vectors and flatten them.
+
+                    // Actually, simpler approach: use par_iter on chunks of indices/range
+                    // But rayon doesn't have a direct par_chunks for Range.
+
+                    // Let's use split logic similar to eval_f64 but adapted for Map-Reduce style here
+                    // Since we are inside a map(), we are already in a parallel task.
+                    // IMPORTANT: We are already inside a `map` of a `par_iter` (parallel across expressions).
+                    // If we use `par_iter` again here, rayon handles it fine (work stealing).
+
+                    let chunks: Vec<Vec<EvalResult>> = (0..n_points)
+                        .step_by(CHUNK_SIZE)
+                        .par_bridge() // Enable parallelism for chunks
+                        .map(|start| {
+                            let end = (start + CHUNK_SIZE).min(n_points);
+                            let len = end - start;
+
+                            // 1. Unpack columns for this chunk
+                            let mut chunk_cols: Vec<Vec<f64>> = Vec::with_capacity(n_vars);
+                            for var_vals in vals.iter().take(n_vars) {
+                                let mut col = Vec::with_capacity(len);
+                                // We know it's globally numeric
+                                for i in start..end {
+                                    // Handle scalar broadcasting if column is shorter?
+                                    // The current logic assumes loose check, but typically columns are same length.
+                                    // Let's mimic original logic: if index out of bounds, use last.
+                                    let val = if i < var_vals.len() {
+                                        &var_vals[i]
                                     } else {
                                         var_vals.last().unwrap()
                                     };
+
                                     if let Value::Num(n) = val {
-                                        params.push(*n);
+                                        col.push(*n);
+                                    } else {
+                                        // Should be unreachable due to globally_numeric check
+                                        col.push(f64::NAN);
                                     }
                                 }
+                                chunk_cols.push(col);
+                            }
 
-                                let result = evaluator.evaluate_with_stack(params, stack);
+                            let col_refs: Vec<&[f64]> =
+                                chunk_cols.iter().map(|c| c.as_slice()).collect();
+                            let mut chunk_out = vec![0.0; len];
 
-                                if *was_string {
-                                    EvalResult::String(format_float(result))
-                                } else {
-                                    EvalResult::Expr(crate::Expr::number(result))
-                                }
-                            },
-                        )
+                            // 2. SIMD Batch Eval
+                            evaluator.eval_batch(&col_refs, &mut chunk_out);
+
+                            // 3. Convert back to EvalResult
+                            chunk_out
+                                .into_iter()
+                                .map(|n| {
+                                    if *was_string {
+                                        EvalResult::String(format_float(n))
+                                    } else {
+                                        EvalResult::Expr(crate::Expr::number(n))
+                                    }
+                                })
+                                .collect()
+                        })
                         .collect();
+
+                    return chunks.into_iter().flatten().collect();
                 }
 
                 // FAST / HYBRID PATH: Use compiled evaluator where possible

@@ -1,4 +1,4 @@
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 //! Symbolic Differentiation Library
 //!
 //! A fast, focused Rust library for symbolic differentiation.
@@ -53,17 +53,17 @@ pub use core::{CompileError, CompiledEvaluator};
 pub use core::{DiffError, Span};
 pub use core::{Expr, ExprKind};
 pub use core::{
-    InternedSymbol, Symbol, SymbolContext, SymbolError, clear_symbols, global_context,
-    remove_symbol, symb, symb_get, symb_new, symbol_count, symbol_exists, symbol_names,
+    Symbol, SymbolContext, SymbolError, clear_symbols, global_context, remove_symbol, symb,
+    symb_get, symb_new, symbol_count, symbol_exists, symbol_names,
 };
 
 // Re-export API types
 pub use api::{CustomDerivativeFn, CustomFn, Diff, Simplify};
 pub use api::{evaluate_str, gradient, gradient_str, hessian, hessian_str, jacobian, jacobian_str};
+pub use functions::{FunctionContext, FunctionDefinition};
 
 // Re-export other public APIs
 pub use parser::parse;
-pub use simplification::simplify_expr;
 pub use uncertainty::{CovEntry, CovarianceMatrix, relative_uncertainty, uncertainty_propagation};
 
 // Conditional re-exports

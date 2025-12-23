@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::core::expr::ExprKind;
-    use crate::parse;
+    use crate::parser::parse;
     use crate::simplification::simplify_expr;
     use std::collections::HashSet;
 

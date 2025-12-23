@@ -579,15 +579,6 @@ impl Polynomial {
         }
     }
 
-    /// Get main variable (the base)
-    pub fn main_variable(&self) -> Option<crate::core::symbol::InternedSymbol> {
-        if let ExprKind::Symbol(s) = &self.base.kind {
-            Some(s.clone())
-        } else {
-            None
-        }
-    }
-
     /// Differentiate with respect to a variable (chain rule)
     pub fn derivative_expr(&self, diff_var: &str) -> Option<Expr> {
         // Get polynomial derivative

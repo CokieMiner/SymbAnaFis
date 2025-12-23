@@ -446,10 +446,12 @@ impl Expr {
     /// * `var` - Variable to differentiate with respect to
     ///
     /// # Example
-    /// ```ignore
-    /// let expr = parse("x^2", &HashSet::new(), &HashSet::new()).unwrap();
-    /// let derivative = expr.derive_raw("x");
-    /// // Returns 2*x^1*1 (unsimplified)
+    /// ```
+    /// use symb_anafis::{symb, Expr};
+    /// let x = symb("derive_raw_doc_x");
+    /// let expr = x.pow(2.0);
+    /// let derivative = expr.derive_raw("derive_raw_doc_x");
+    /// // Returns unsimplified derivative
     /// ```
     #[inline]
     pub fn derive_raw(&self, var: &str) -> Expr {

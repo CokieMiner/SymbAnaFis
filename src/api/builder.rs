@@ -51,12 +51,17 @@ pub type PartialDerivativeFn = Arc<dyn Fn(&[Arc<Expr>]) -> Expr + Send + Sync>;
 /// ```
 #[derive(Clone)]
 pub struct CustomFn {
-    pub arity: usize,
-    pub eval_fn: Option<CustomEvalFn>,
-    pub partials: HashMap<usize, PartialDerivativeFn>,
+    pub(crate) arity: usize,
+    pub(crate) eval_fn: Option<CustomEvalFn>,
+    pub(crate) partials: HashMap<usize, PartialDerivativeFn>,
 }
 
 impl CustomFn {
+    /// Get the arity (number of arguments) of this function
+    pub fn arity(&self) -> usize {
+        self.arity
+    }
+
     /// Create a new custom function with given arity
     pub fn new(arity: usize) -> Self {
         Self {
@@ -184,12 +189,15 @@ impl Diff {
     ///   - Returns: The derivative expression
     ///
     /// # Example
-    /// ```ignore
+    /// ```
+    /// use symb_anafis::{Diff, Expr};
     /// let diff = Diff::new()
-    ///     .custom_derivative("tan", |inner, _var, inner_prime| {
+    ///     .custom_derivative("my_tan", |inner, _var, inner_prime| {
     ///         // d/dx[tan(u)] = sec²(u) * u'
-    ///         Expr::pow(Expr::func("sec", inner.clone()), Expr::number(2.0))
-    ///             * inner_prime.clone()
+    ///         Expr::mul_expr(
+    ///             Expr::pow(Expr::func("sec", inner.clone()), Expr::number(2.0)),
+    ///             inner_prime.clone()
+    ///         )
     ///     });
     /// ```
     pub fn custom_derivative<F>(mut self, name: impl Into<String>, derivative_fn: F) -> Self
@@ -212,13 +220,11 @@ impl Diff {
     /// * `eval_fn` - Function that takes numeric arguments and returns the computed value
     ///
     /// # Example
-    /// ```ignore
+    /// ```
+    /// use symb_anafis::Diff;
     /// // f(x) = x² + 1
-    /// Diff::new()
-    ///     .custom_eval("f", |args| Some(args[0].powi(2) + 1.0))
-    ///     .custom_derivative("f", |inner, _var, inner_prime| {
-    ///         2.0 * inner.clone() * inner_prime.clone()
-    ///     })
+    /// let diff = Diff::new()
+    ///     .custom_eval("my_f", |args| Some(args[0].powi(2) + 1.0));
     /// ```
     pub fn custom_eval<F>(mut self, name: impl Into<String>, eval_fn: F) -> Self
     where
@@ -236,20 +242,18 @@ impl Diff {
     /// The chain rule is automatically applied: `dF/dx = Σ (∂F/∂arg[i]) * (darg[i]/dx)`
     ///
     /// # Example
-    /// ```ignore
+    /// ```
     /// use symb_anafis::{Diff, CustomFn, Expr};
     ///
-    /// // F(x, y) = x * sin(y)
-    /// // ∂F/∂x = sin(y)       (where y = args[1])
-    /// // ∂F/∂y = x * cos(y)   (where x = args[0], y = args[1])
+    /// // MyF(x, y) = x * sin(y)
+    /// // ∂MyF/∂x = sin(y)       (where y = args[1])
+    /// // ∂MyF/∂y = x * cos(y)   (where x = args[0], y = args[1])
     /// let diff = Diff::new()
-    ///     .custom_fn_multi("F", CustomFn::new(2)
+    ///     .custom_fn_multi("MyF", CustomFn::new(2)
     ///         .eval(|args| Some(args[0] * args[1].sin()))
-    ///         .partial(0, |args| args[1].sin())
-    ///         .partial(1, |args| args[0].clone() * args[1].cos())
+    ///         .partial(0, |args| Expr::func("sin", Expr::from(&args[1])))
+    ///         .partial(1, |args| Expr::mul_expr(Expr::from(&args[0]), Expr::func("cos", Expr::from(&args[1]))))
     ///     );
-    ///
-    /// // Now d/dx[F(x, y)] will use the chain rule with partials
     /// ```
     pub fn custom_fn_multi(mut self, name: impl Into<String>, def: CustomFn) -> Self {
         let name = name.into();

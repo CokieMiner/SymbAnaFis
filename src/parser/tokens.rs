@@ -63,6 +63,7 @@ pub(crate) enum Operator {
     Asin,
     Acos,
     Atan,
+    Atan2,
     Acot,
     Asec,
     Acsc,
@@ -162,6 +163,7 @@ impl Operator {
             Operator::Asin => "asin",
             Operator::Acos => "acos",
             Operator::Atan => "atan",
+            Operator::Atan2 => "atan2",
             Operator::Acot => "acot",
             Operator::Asec => "asec",
             Operator::Acsc => "acsc",
@@ -231,6 +233,7 @@ impl Operator {
             "asin" => Some(Operator::Asin),
             "acos" => Some(Operator::Acos),
             "atan" => Some(Operator::Atan),
+            "atan2" => Some(Operator::Atan2),
             "acot" => Some(Operator::Acot),
             "asec" => Some(Operator::Asec),
             "acsc" => Some(Operator::Acsc),
@@ -312,6 +315,7 @@ impl Operator {
             | Operator::Asin
             | Operator::Acos
             | Operator::Atan
+            | Operator::Atan2
             | Operator::Acot
             | Operator::Asec
             | Operator::Acsc
@@ -364,6 +368,37 @@ impl Operator {
             Operator::Pow => 30,
             Operator::Mul | Operator::Div => 20,
             Operator::Add | Operator::Sub => 10,
+        }
+    }
+
+    /// Get the minimum number of arguments required for this function operator
+    ///
+    /// Returns 0 for arithmetic operators (not applicable).
+    /// Returns the minimum arity for functions - some functions accept additional args.
+    pub fn min_arity(&self) -> usize {
+        match self {
+            // Binary functions (require exactly 2 args)
+            Operator::Atan2
+            | Operator::Polygamma
+            | Operator::Beta
+            | Operator::ZetaDeriv
+            | Operator::BesselJ
+            | Operator::BesselY
+            | Operator::BesselI
+            | Operator::BesselK
+            | Operator::Hermite => 2,
+
+            // Ternary functions (require exactly 3 args)
+            Operator::AssocLegendre => 3,
+
+            // Quaternary functions (require exactly 4 args)
+            Operator::Ynm => 4,
+
+            // All other functions require 1 argument
+            _ if self.is_function() => 1,
+
+            // Arithmetic operators - not applicable
+            _ => 0,
         }
     }
 }

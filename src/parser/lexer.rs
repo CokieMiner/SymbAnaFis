@@ -91,6 +91,7 @@ const BUILTINS: &[&str] = &[
     "elliptic_e",
     "elliptic_k",
     "zeta_deriv",
+    "atan2",
     "spherical_harmonic",
 ];
 
