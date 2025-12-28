@@ -446,8 +446,15 @@ class Expr:
         """Substitute a variable with another expression."""
         ...
 
-    def evaluate(self, vars: Dict[str, float], funcs: Dict[str, Any]) -> "Expr":
-        """Evaluate the expression with given variable values."""
+    def evaluate(self, vars: Dict[str, float]) -> "Expr":
+        """Evaluate the expression with given variable values.
+        
+        Args:
+            vars: Dictionary mapping variable names to float values
+            
+        Returns:
+            Evaluated expression (may be numeric or symbolic if variables remain)
+        """
         ...
 
     def diff(self, var: str) -> "Expr":
@@ -490,6 +497,10 @@ class Diff:
         """Set the context for symbol resolution."""
         ...
 
+    def fixed_var(self, var: str) -> "Diff":
+        """Mark a variable as fixed (constant) during differentiation."""
+        ...
+
     def user_fn(
         self,
         name: str,
@@ -516,12 +527,12 @@ class Diff:
         """
         ...
 
-    def diff_str(self, formula: str, var: str, known_symbols: List[str]) -> str:
+    def diff_str(self, formula: str, var: str) -> str:
         """Differentiate a string formula."""
         ...
 
-    def differentiate(self, expr: Expr, var: Symbol) -> Expr:
-        """Differentiate an Expr object."""
+    def differentiate(self, expr: Expr, var: str) -> Expr:
+        """Differentiate an Expr object with respect to a variable name."""
         ...
 
 # =============================================================================
@@ -534,7 +545,7 @@ class Simplify:
 
     Example:
         >>> s = Simplify().domain_safe(True)
-        >>> s.simplify_str("x + x + x", [])
+        >>> s.simplify_str("x + x + x")
         '3*x'
     """
 
@@ -556,11 +567,15 @@ class Simplify:
         """Set the context for symbol resolution."""
         ...
 
+    def fixed_var(self, var: str) -> "Simplify":
+        """Mark a variable as a known symbol during simplification."""
+        ...
+
     def simplify(self, expr: Expr) -> Expr:
         """Simplify an Expr object."""
         ...
 
-    def simplify_str(self, formula: str, known_symbols: List[str]) -> str:
+    def simplify_str(self, formula: str) -> str:
         """Simplify a string formula."""
         ...
 
@@ -681,22 +696,6 @@ class CompiledEvaluator:
     def param_count(self) -> int: ...
     def instruction_count(self) -> int: ...
     def stack_size(self) -> int: ...
-
-# =============================================================================
-# FunctionContext Class (legacy)
-# =============================================================================
-
-class FunctionContext:
-    """Custom function context for tracking custom function names (legacy)."""
-
-    def __init__(self) -> None: ...
-
-    def register(self, name: str) -> None: ...
-    def contains(self, name: str) -> bool: ...
-    def names(self) -> List[str]: ...
-    def __len__(self) -> int: ...
-    def is_empty(self) -> bool: ...
-    def clear(self) -> None: ...
 
 # =============================================================================
 # Dual Class

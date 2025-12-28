@@ -28,7 +28,7 @@ fn bench_eval_methods(c: &mut Criterion) {
 
     for (name, expr_str, var, fixed) in ALL_EXPRESSIONS {
         // Get simplified derivative
-        let diff_str = symb_anafis::diff(expr_str, var, *fixed, None).unwrap();
+        let diff_str = symb_anafis::diff(expr_str, var, fixed, None).unwrap();
         let diff_expr = parse(&diff_str, &empty, &empty, None).unwrap();
 
         // Use compile_auto to include all variables

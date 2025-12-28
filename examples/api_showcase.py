@@ -21,12 +21,12 @@ from symb_anafis import (
     Expr, Diff, Simplify,
     diff, simplify, parse,
     gradient, hessian, jacobian, evaluate,
-    uncertainty_propagation_py, relative_uncertainty_py,
+    uncertainty_propagation, relative_uncertainty,
 )
 
 # Try to import parallel evaluation (only available with parallel feature)
 try:
-    from symb_anafis import evaluate_parallel_py
+    from symb_anafis import evaluate_parallel
     HAS_PARALLEL = True
 except ImportError:
     HAS_PARALLEL = False
@@ -368,26 +368,26 @@ def part9_uncertainty_propagation():
 
     # 9.1 Basic uncertainty (symbolic variances)
     print("  9.1 Basic Uncertainty: σ_f = √(Σ(∂f/∂xᵢ)²σᵢ²)")
-    result = uncertainty_propagation_py("x + y", ["x", "y"])
+    result = uncertainty_propagation("x + y", ["x", "y"])
     print("      f = x + y")
     print(f"      σ_f = {result}\n")
 
     # 9.2 Product formula
     print("  9.2 Product Formula Uncertainty")
-    result = uncertainty_propagation_py("x * y", ["x", "y"])
+    result = uncertainty_propagation("x * y", ["x", "y"])
     print("      f = x * y")
     print(f"      σ_f = {result}\n")
 
     # 9.3 Numeric covariance
     print("  9.3 Numeric Uncertainty Values")
     # σ_x = 0.1 (so σ_x² = 0.01), σ_y = 0.2 (so σ_y² = 0.04)
-    result = uncertainty_propagation_py("x * y", ["x", "y"], [0.01, 0.04])
+    result = uncertainty_propagation("x * y", ["x", "y"], [0.01, 0.04])
     print("      f = x * y with σ_x = 0.1, σ_y = 0.2")
     print(f"      σ_f = {result}\n")
 
     # 9.4 Relative uncertainty
     print("  9.4 Relative Uncertainty: σ_f / |f|")
-    result = relative_uncertainty_py("x^2", ["x"])
+    result = relative_uncertainty("x^2", ["x"])
     print("      f = x²")
     print(f"      σ_f/|f| = {result}\n")
 
@@ -405,7 +405,7 @@ def part10_parallel_evaluation():
     print("  10.1 Basic Parallel Evaluation")
     print("      Evaluate x² at x = 1, 2, 3, 4, 5")
     
-    results = evaluate_parallel_py(
+    results = evaluate_parallel(
         ["x^2"],
         [["x"]],
         [[[1.0, 2.0, 3.0, 4.0, 5.0]]]
@@ -414,7 +414,7 @@ def part10_parallel_evaluation():
 
     # 10.2 Multiple expressions
     print("  10.2 Multiple Expressions in Parallel")
-    results = evaluate_parallel_py(
+    results = evaluate_parallel(
         ["x^2", "x^3"],
         [["x"], ["x"]],
         [
@@ -428,7 +428,7 @@ def part10_parallel_evaluation():
     # 10.3 Two variables
     print("  10.3 Two Variables")
     print("      Evaluate x + y at (x=1,y=10), (x=2,y=20), (x=3,y=30)")
-    results = evaluate_parallel_py(
+    results = evaluate_parallel(
         ["x + y"],
         [["x", "y"]],
         [[[1.0, 2.0, 3.0], [10.0, 20.0, 30.0]]]
@@ -438,7 +438,7 @@ def part10_parallel_evaluation():
     # 10.4 SKIP for partial evaluation
     print("  10.4 SKIP for Partial Symbolic Evaluation")
     print("      Evaluate x*y with x=2,SKIP,4 and y=3,5,6")
-    results = evaluate_parallel_py(
+    results = evaluate_parallel(
         ["x * y"],
         [["x", "y"]],
         [[[2.0, None, 4.0], [3.0, 5.0, 6.0]]]  # None = SKIP

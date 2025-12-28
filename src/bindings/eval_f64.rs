@@ -117,8 +117,8 @@ mod tests {
     #[test]
     fn test_eval_f64_simple() {
         let expr = parse_expr("x^2 + y");
-        let x_data = vec![1.0, 2.0, 3.0];
-        let y_data = vec![0.5, 0.5, 0.5];
+        let x_data = [1.0, 2.0, 3.0];
+        let y_data = [0.5, 0.5, 0.5];
         let result = eval_f64(&[&expr], &[&["x", "y"]], &[&[&x_data[..], &y_data[..]]]).unwrap();
         assert_eq!(result.len(), 1);
         assert!((result[0][0] - 1.5).abs() < 1e-10);
@@ -141,8 +141,8 @@ mod tests {
     fn test_eval_f64_multiple_exprs() {
         let expr1 = parse_expr("x + 1");
         let expr2 = parse_expr("y * 2");
-        let x_data = vec![1.0, 2.0, 3.0];
-        let y_data = vec![10.0, 20.0, 30.0];
+        let x_data = [1.0, 2.0, 3.0];
+        let y_data = [10.0, 20.0, 30.0];
         let result = eval_f64(
             &[&expr1, &expr2],
             &[&["x"], &["y"]],
