@@ -848,11 +848,17 @@ mod function_accuracy_tests {
     #[test]
     fn test_zeta() {
         // ζ(2) = π²/6
-        assert!(approx_eq(
-            eval("zeta(2)").unwrap(),
-            PI * PI / 6.0,
-            LOOSE_EPSILON
-        ));
+        let result = eval("zeta(2)").unwrap();
+        let expected = PI * PI / 6.0;
+        println!("zeta(2) result: {:.15}", result);
+        println!("zeta(2) expected: {:.15}", expected);
+        println!("zeta(2) error: {:.2e}", (result - expected).abs());
+        assert!(
+            approx_eq(result, expected, LOOSE_EPSILON),
+            "zeta(2) = {}, expected {}",
+            result,
+            expected
+        );
         // ζ(4) = π⁴/90
         assert!(approx_eq(
             eval("zeta(4)").unwrap(),
@@ -905,6 +911,31 @@ mod function_accuracy_tests {
             eval_zeta_deriv(1, 1.0_f64).is_none(),
             "Derivative should be None at pole s=1"
         );
+    }
+
+    #[test]
+    fn test_zeta_deriv_negative_s() {
+        use crate::math::eval_zeta_deriv;
+
+        // Test s = -2.0 (Reflection formula active)
+        // ζ'(-2) = -ζ(3)/(4π²) ≈ -0.0304482576
+        let z_prime_minus2 = eval_zeta_deriv(1, -2.0_f64).unwrap();
+        let expected = -1.202056903159594 / (4.0 * PI * PI);
+        assert!(
+            approx_eq(z_prime_minus2, expected, LOOSE_EPSILON),
+            "ζ'(-2) = {}, expected {}",
+            z_prime_minus2,
+            expected
+        );
+
+        // Test 3rd derivative (Triggers fixed 3-point stencil)
+        // Just verify it returns a valid finite number
+        let z_prime3 = eval_zeta_deriv(3, -2.0_f64).unwrap();
+        assert!(z_prime3.is_finite());
+
+        // Test 5th derivative (Triggers simplified recursion)
+        let z_prime5 = eval_zeta_deriv(5, -2.0_f64).unwrap();
+        assert!(z_prime5.is_finite());
     }
 
     // === Floor, Ceil, Round ===
