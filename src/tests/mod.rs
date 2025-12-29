@@ -51,6 +51,7 @@ mod test_power_of_product;
 mod test_sign_normalization;
 mod test_simplification_gaps;
 mod test_simplification_repro;
+mod test_spherical_harmonics;
 mod test_term_ordering;
 mod tier1_tests;
 mod tier2_tests;

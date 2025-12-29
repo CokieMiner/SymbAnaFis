@@ -204,7 +204,29 @@ impl Expr {
             }
 
             // Quotient rule: (u/v)' = (u'v - uv') / v²
+            // Fast-paths to avoid unnecessary derivative computations
             ExprKind::Div(u, v) => {
+                // Fast-path 1: Constant numerator (n/f) → -n*f'/f²
+                // Skip computing u' since we know it's 0
+                if let ExprKind::Number(n) = &u.kind {
+                    let v_prime = v.derive(var, Some(ctx));
+                    if v_prime.is_zero_num() {
+                        return Expr::number(0.0);
+                    }
+                    // -n * f' / f²
+                    let neg_n_fprime = Expr::product(vec![Expr::number(-n), v_prime]);
+                    let f_squared = Expr::pow_from_arcs(Arc::clone(v), Arc::new(Expr::number(2.0)));
+                    return Expr::div_expr(neg_n_fprime, f_squared);
+                }
+
+                // Fast-path 2: Constant denominator (u/n) → u'/n
+                // Skip computing v' since we know it's 0
+                if let ExprKind::Number(_) = &v.kind {
+                    let u_prime = u.derive(var, Some(ctx));
+                    return Expr::div_from_arcs(Arc::new(u_prime), Arc::clone(v));
+                }
+
+                // General case: compute both derivatives
                 let u_prime = u.derive(var, Some(ctx));
                 let v_prime = v.derive(var, Some(ctx));
 

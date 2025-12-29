@@ -34,6 +34,7 @@ define_symbol_ids! {
     // Exponential / Log
     EXP => "exp",
     LN => "ln",
+    LOG => "log",
     LOG10 => "log10",
     LOG2 => "log2",
 

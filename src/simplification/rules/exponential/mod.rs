@@ -1,5 +1,5 @@
 use crate::core::expr::{Expr, ExprKind as AstKind};
-use crate::core::known_symbols::{CBRT, COSH, E, EXP, LN, LOG2, LOG10, SQRT, get_symbol};
+use crate::core::known_symbols::{CBRT, COSH, E, EXP, LN, LOG, LOG2, LOG10, SQRT, get_symbol};
 use crate::simplification::rules::{ExprKind, Rule, RuleCategory, RuleContext};
 use std::sync::Arc;
 
@@ -122,7 +122,7 @@ rule!(
     targets: &["ln", "log10", "log2", "log"],
     |expr: &Expr, context: &RuleContext| {
         if let AstKind::FunctionCall { name, args } = &expr.kind
-            && (name.id() == *LN || name.id() == *LOG10 || name.id() == *LOG2 || name.as_str() == "log")
+            && (name.id() == *LN || name.id() == *LOG10 || name.id() == *LOG2 || name.id() == *LOG)
         {
             let content = if args.len() == 1 {
                 &args[0]
@@ -249,7 +249,7 @@ rule!(
                     return Some(Expr::number(1.0));
                 }
             }
-        } else if args.len() == 2 && name.as_str() == "log" {
+        } else if args.len() == 2 && name.id() == *LOG {
             // log(base, 1) = 0
             if matches!(&args[1].kind, AstKind::Number(n) if *n == 1.0) {
                  return Some(Expr::number(0.0));
