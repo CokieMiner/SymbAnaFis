@@ -2,6 +2,32 @@
 
 All notable changes to SymbAnaFis will be documented in this file.
 
+## [0.4.1] - 2025-12-29
+
+### Changed
+- **License**: Changed from MIT to Apache 2.0
+- **`log` function signature**: Changed from `log(x)` to `log(base, x)` for arbitrary base logarithms
+  - Use `ln(x)` for natural logarithm (unchanged)
+  - Use `log(20, x)` for base-20, `log(4, x)` for base-4, etc.
+  - For base 2 and 10 you can still use `log2(x)` and `log10(x)`
+  
+### Added
+- **Spherical Harmonics Tests**: Comprehensive test suite for spherical harmonics and associated Legendre polynomials
+- **`log(b, x)` Simplification Rules**: New rules for simplifying logarithms with specific bases and powers
+- **Enhanced Math Functions**: Improved accuracy for `zeta`, `gamma`, and `erf` implementations
+
+### Performance
+- **Fast-path quotient rule**: 9-18% faster raw differentiation for patterns like `1/f(x)` and `u/n`
+  - Constant numerator: `n/f` → `-n*f'/f²` (skips computing u')
+  - Constant denominator: `u/n` → `u'/n` (skips computing v')
+- **Simplification engine refactoring**: Reduced deep clones with more Arc usage
+
+### Fixed
+- Removed deprecated validation test module
+- Cleaned up outdated comments in rules engine
+
+[0.4.1]: https://github.com/CokieMiner/SymbAnaFis/compare/v0.4.0...v0.4.1
+
 ## [0.4.0] - 2025-12-28
 
 ### Added

@@ -168,6 +168,11 @@ impl Expr {
                 let mut terms = Vec::new();
 
                 for i in 0..factors.len() {
+                    // Fast-path: skip Number factors - their derivative is always 0
+                    if matches!(factors[i].kind, ExprKind::Number(_)) {
+                        continue;
+                    }
+
                     let factor_prime = factors[i].derive(var, Some(ctx));
 
                     // Skip zero terms

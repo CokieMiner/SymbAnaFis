@@ -98,7 +98,7 @@ fn test_assoc_legendre_p10() {
 fn test_assoc_legendre_p11() {
     // P_1^1(x) = -sqrt(1 - x^2)
     for x in [-0.8, -0.5, 0.0, 0.5, 0.8] {
-        let expected = -((1.0_f64 - x * x) as f64).sqrt();
+        let expected = -(1.0_f64 - x * x).sqrt();
         let result = eval_at_vars(&format!("assoc_legendre(1, 1, {})", x), &[]);
         assert!(
             (result - expected).abs() < 1e-10,
@@ -130,7 +130,7 @@ fn test_assoc_legendre_p20() {
 fn test_assoc_legendre_p21() {
     // P_2^1(x) = -3x * sqrt(1 - x^2)
     for x in [-0.8, -0.5, 0.0, 0.5, 0.8] {
-        let expected = -3.0 * x * ((1.0_f64 - x * x) as f64).sqrt();
+        let expected = -3.0 * x * (1.0_f64 - x * x).sqrt();
         let result = eval_at_vars(&format!("assoc_legendre(2, 1, {})", x), &[]);
         assert!(
             (result - expected).abs() < 1e-10,

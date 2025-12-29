@@ -187,7 +187,7 @@ fn precision_tanh() {
 fn precision_inverse_hyperbolic() {
     // asinh(x) = ln(x + √(x²+1))
     check_rel_error(eval("asinh(0)"), 0.0, REL_TOL, "asinh(0)");
-    check_rel_error(eval("asinh(1)"), 0.8813735870195430, REL_TOL, "asinh(1)");
+    check_rel_error(eval("asinh(1)"), 0.881_373_587_019_543, REL_TOL, "asinh(1)");
 
     // acosh(x) = ln(x + √(x²-1))
     check_rel_error(eval("acosh(1)"), 0.0, REL_TOL, "acosh(1)");

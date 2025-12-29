@@ -2,7 +2,7 @@
 
 [![Crates.io](https://img.shields.io/crates/v/symb_anafis.svg)](https://crates.io/crates/symb_anafis)
 [![PyPI](https://img.shields.io/pypi/v/symb-anafis.svg)](https://pypi.org/project/symb-anafis/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 **High-performance symbolic mathematics** library written in Rust with Python bindings.
 
@@ -135,7 +135,21 @@ SymbAnaFis supports over 50 built-in mathematical functions:
 
 ## License
 
-MIT License - see [LICENSE](LICENSE)
+Apache License 2.0 - see [LICENSE](LICENSE)
+
+## Citation
+
+If you use SymbAnaFis in academic work, please cite:
+
+```bibtex
+@software{symbanafis,
+  author       = {Martins, Pedro},
+  title        = {SymbAnaFis: High-Performance Symbolic Mathematics Library},
+  year         = {2025},
+  url          = {https://github.com/CokieMiner/SymbAnaFis},
+  version      = {0.4.1}
+}
+```
 
 ---
 
