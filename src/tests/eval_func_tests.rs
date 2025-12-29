@@ -197,6 +197,222 @@ fn test_eval_exp_log() {
     assert!(ln_neg.is_nan());
 }
 
+// ===== Two-argument log function =====
+#[test]
+fn test_eval_log_two_arg_parsing() {
+    // log(base, x) parsing via string
+    // log(2, 8) = 3 (log base 2 of 8)
+    assert!(approx_eq(eval_expr("log(2, 8)", &[]).unwrap(), 3.0));
+
+    // log(10, 1000) = 3 (log base 10 of 1000)
+    assert!(approx_eq(eval_expr("log(10, 1000)", &[]).unwrap(), 3.0));
+
+    // log(e, e) = 1 where e ≈ 2.718...
+    // Use numeric value for e
+    let e = std::f64::consts::E;
+    let expr_str = format!("log({}, {})", e, e);
+    assert!(approx_eq(eval_expr(&expr_str, &[]).unwrap(), 1.0));
+}
+
+#[test]
+fn test_eval_log_two_arg_type_safe_api() {
+    use crate::Expr;
+    use std::collections::HashMap;
+
+    // Build log(2, 8) using type-safe API
+    let log_expr = Expr::func_multi("log", vec![Expr::number(2.0), Expr::number(8.0)]);
+    let result = log_expr.evaluate(&HashMap::new(), &HashMap::new());
+    if let ExprKind::Number(n) = result.kind {
+        assert!(approx_eq(n, 3.0), "log(2, 8) should be 3.0, got {}", n);
+    } else {
+        panic!("Expected Number, got {:?}", result);
+    }
+
+    // Build log(10, 100) using type-safe API
+    let log_expr = Expr::func_multi("log", vec![Expr::number(10.0), Expr::number(100.0)]);
+    let result = log_expr.evaluate(&HashMap::new(), &HashMap::new());
+    if let ExprKind::Number(n) = result.kind {
+        assert!(approx_eq(n, 2.0), "log(10, 100) should be 2.0, got {}", n);
+    } else {
+        panic!("Expected Number, got {:?}", result);
+    }
+}
+
+#[test]
+fn test_eval_log_various_bases() {
+    // log(3, 27) = 3 (3^3 = 27)
+    assert!(approx_eq(eval_expr("log(3, 27)", &[]).unwrap(), 3.0));
+
+    // log(5, 125) = 3 (5^3 = 125)
+    assert!(approx_eq(eval_expr("log(5, 125)", &[]).unwrap(), 3.0));
+
+    // log(2, 16) = 4 (2^4 = 16)
+    assert!(approx_eq(eval_expr("log(2, 16)", &[]).unwrap(), 4.0));
+
+    // log(10, 10) = 1
+    assert!(approx_eq(eval_expr("log(10, 10)", &[]).unwrap(), 1.0));
+
+    // log(b, 1) = 0 for any valid base b
+    assert!(approx_eq(eval_expr("log(2, 1)", &[]).unwrap(), 0.0));
+    assert!(approx_eq(eval_expr("log(10, 1)", &[]).unwrap(), 0.0));
+    assert!(approx_eq(eval_expr("log(100, 1)", &[]).unwrap(), 0.0));
+}
+
+#[test]
+fn test_eval_log_domain_errors() {
+    // log with base <= 0 should return None (evaluated as NaN or no value)
+    let log_neg_base = eval_expr("log(-2, 8)", &[]);
+    assert!(log_neg_base.is_none() || log_neg_base.unwrap().is_nan());
+
+    // log with base = 1 should return None (division by zero in ln(1) = 0)
+    let log_base_one = eval_expr("log(1, 8)", &[]);
+    assert!(
+        log_base_one.is_none()
+            || log_base_one.unwrap().is_nan()
+            || log_base_one.unwrap().is_infinite()
+    );
+
+    // log with x <= 0 should return None/NaN
+    let log_neg_x = eval_expr("log(2, -8)", &[]);
+    assert!(log_neg_x.is_none() || log_neg_x.unwrap().is_nan());
+
+    // log(2, 0) should return -Inf or None
+    let log_zero = eval_expr("log(2, 0)", &[]);
+    assert!(log_zero.is_none() || log_zero.unwrap().is_infinite());
+}
+
+#[test]
+fn test_eval_log_with_variables() {
+    // log(2, x) with x = 8
+    let result = eval_expr("log(2, x)", &[("x", 8.0)]).unwrap();
+    assert!(approx_eq(result, 3.0));
+
+    // log(b, 16) with b = 2
+    let result = eval_expr("log(b, 16)", &[("b", 2.0)]).unwrap();
+    assert!(approx_eq(result, 4.0));
+
+    // log(b, x) with b = 3, x = 81
+    let result = eval_expr("log(b, x)", &[("b", 3.0), ("x", 81.0)]).unwrap();
+    assert!(approx_eq(result, 4.0));
+}
+
+#[test]
+fn test_log_consistency_with_ln() {
+    // log(e, x) should equal ln(x)
+    let e = std::f64::consts::E;
+
+    for x in [0.5, 1.0, 2.0, 10.0, 100.0] {
+        let log_e_x = eval_expr(&format!("log({}, {})", e, x), &[]).unwrap();
+        let ln_x = eval_expr(&format!("ln({})", x), &[]).unwrap();
+        assert!(
+            approx_eq(log_e_x, ln_x),
+            "log(e, {}) = {} should equal ln({}) = {}",
+            x,
+            log_e_x,
+            x,
+            ln_x
+        );
+    }
+}
+
+#[test]
+fn test_log10_log2_consistency() {
+    // log(10, x) should equal log10(x)
+    for x in [1.0, 10.0, 100.0, 1000.0] {
+        let log_10_x = eval_expr(&format!("log(10, {})", x), &[]).unwrap();
+        let log10_x = eval_expr(&format!("log10({})", x), &[]).unwrap();
+        assert!(
+            approx_eq(log_10_x, log10_x),
+            "log(10, {}) = {} should equal log10({}) = {}",
+            x,
+            log_10_x,
+            x,
+            log10_x
+        );
+    }
+
+    // log(2, x) should equal log2(x)
+    for x in [1.0, 2.0, 4.0, 8.0, 16.0] {
+        let log_2_x = eval_expr(&format!("log(2, {})", x), &[]).unwrap();
+        let log2_x = eval_expr(&format!("log2({})", x), &[]).unwrap();
+        assert!(
+            approx_eq(log_2_x, log2_x),
+            "log(2, {}) = {} should equal log2({}) = {}",
+            x,
+            log_2_x,
+            x,
+            log2_x
+        );
+    }
+}
+
+// ===== Compiled evaluation of log =====
+#[test]
+fn test_eval_log_compiled() {
+    use crate::CompiledEvaluator;
+
+    // Test compiled evaluation of log(2, x)
+    let log_expr = crate::Expr::func_multi(
+        "log",
+        vec![crate::Expr::number(2.0), crate::Expr::symbol("x")],
+    );
+
+    let evaluator = CompiledEvaluator::compile(&log_expr, &["x"]).unwrap();
+
+    // log(2, 8) = 3
+    let result = evaluator.evaluate(&[8.0]);
+    assert!(
+        approx_eq(result, 3.0),
+        "Compiled log(2, 8) = {}, expected 3.0",
+        result
+    );
+
+    // log(2, 16) = 4
+    let result = evaluator.evaluate(&[16.0]);
+    assert!(
+        approx_eq(result, 4.0),
+        "Compiled log(2, 16) = {}, expected 4.0",
+        result
+    );
+
+    // log(2, 1) = 0
+    let result = evaluator.evaluate(&[1.0]);
+    assert!(
+        approx_eq(result, 0.0),
+        "Compiled log(2, 1) = {}, expected 0.0",
+        result
+    );
+}
+
+#[test]
+fn test_eval_log_compiled_variable_base() {
+    use crate::CompiledEvaluator;
+
+    // Test compiled evaluation of log(b, x) with variable base
+    let log_expr = crate::Expr::func_multi(
+        "log",
+        vec![crate::Expr::symbol("b"), crate::Expr::symbol("x")],
+    );
+
+    let evaluator = CompiledEvaluator::compile(&log_expr, &["b", "x"]).unwrap();
+
+    // log(10, 1000) = 3
+    let result = evaluator.evaluate(&[10.0, 1000.0]);
+    assert!(
+        approx_eq(result, 3.0),
+        "Compiled log(10, 1000) = {}, expected 3.0",
+        result
+    );
+
+    // log(3, 81) = 4
+    let result = evaluator.evaluate(&[3.0, 81.0]);
+    assert!(
+        approx_eq(result, 4.0),
+        "Compiled log(3, 81) = {}, expected 4.0",
+        result
+    );
+}
+
 // ===== Roots =====
 #[test]
 fn test_eval_roots() {

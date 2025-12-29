@@ -261,8 +261,10 @@ impl PyExpr {
     fn ln(&self) -> PyExpr {
         PyExpr(self.0.clone().ln())
     }
-    fn log(&self) -> PyExpr {
-        PyExpr(self.0.clone().log())
+    /// Logarithm with the specified base: log(self, base) → log(base, self)
+    /// For natural logarithm, use ln() instead
+    fn log(&self, base: f64) -> PyExpr {
+        PyExpr(self.0.clone().log(base))
     }
     fn log10(&self) -> PyExpr {
         PyExpr(self.0.clone().log10())

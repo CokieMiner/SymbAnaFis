@@ -512,6 +512,16 @@ fn format_latex(expr: &Expr, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                     );
                 }
 
+                // === LOG WITH BASE ===
+                "log" if args.len() == 2 => {
+                    return write!(
+                        f,
+                        r"\log_{{{}}}\\left({}\\right)",
+                        LatexFormatter(&args[0]),
+                        LatexFormatter(&args[1])
+                    );
+                }
+
                 _ => {}
             }
 

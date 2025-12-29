@@ -45,8 +45,8 @@ fn generate_mixed_complex(n: usize) -> String {
                 write!(s, "sin({}*x)*cos(x)", i).unwrap();
             }
             2 => {
-                // Exponential/Log: exp(x/i) + log(x + i)
-                write!(s, "(exp(x/{}) + log(x + {}))", i, i).unwrap();
+                // Exponential/Sqrt: exp(x/i) + sqrt(x + i)
+                write!(s, "(exp(x/{}) + sqrt(x + {}))", i, i).unwrap();
             }
             3 => {
                 // Rational: (x^2 + i) / (x + i)

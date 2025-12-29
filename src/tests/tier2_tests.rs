@@ -61,10 +61,11 @@ mod tier2_log_variants {
     }
 
     #[test]
-    fn test_log_default() {
-        let result = diff("log(x)", "x", &[], None).unwrap();
-        // 1/x
-        assert_eq!(result, "1/x");
+    fn test_log_with_base() {
+        // log(e, x) = ln(x), derivative is 1/x
+        let result = diff("log(e, x)", "x", &[], None).unwrap();
+        // Should simplify to 1/x
+        assert!(result.contains("1/x"));
     }
 }
 

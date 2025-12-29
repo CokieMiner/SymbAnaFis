@@ -333,6 +333,19 @@ impl Symbol {
     pub fn besselk(&self, n: impl Into<Expr>) -> Expr {
         Expr::func_multi("besselk", vec![n.into(), self.to_expr()])
     }
+
+    /// Logarithm with arbitrary base: `x.log(base)` → `log(base, x)`
+    ///
+    /// # Example
+    /// ```
+    /// use symb_anafis::symb;
+    /// let x = symb("log_example_x");
+    /// let log_base_2 = x.log(2.0);  // log(2, x)
+    /// assert_eq!(format!("{}", log_base_2), "log(2, log_example_x)");
+    /// ```
+    pub fn log(&self, base: impl Into<Expr>) -> Expr {
+        Expr::func_multi("log", vec![base.into(), self.to_expr()])
+    }
 }
 
 // ============================================================================
@@ -541,7 +554,7 @@ macro_rules! math_function_list_ref {
             asinh => "asinh", acosh => "acosh", atanh => "atanh",
             acoth => "acoth", asech => "asech", acsch => "acsch",
             // Exponential and logarithmic functions
-            exp => "exp", ln => "ln", log => "log",
+            exp => "exp", ln => "ln",
             log10 => "log10", log2 => "log2",
             // Root functions
             sqrt => "sqrt", cbrt => "cbrt",
@@ -574,7 +587,7 @@ macro_rules! math_function_list_owned {
             asinh => "asinh", acosh => "acosh", atanh => "atanh",
             acoth => "acoth", asech => "asech", acsch => "acsch",
             // Exponential and logarithmic functions
-            exp => "exp", ln => "ln", log => "log",
+            exp => "exp", ln => "ln",
             log10 => "log10", log2 => "log2",
             // Root functions
             sqrt => "sqrt", cbrt => "cbrt",
@@ -875,7 +888,8 @@ pub trait ArcExprExt {
     // Exponential/logarithmic
     fn exp(&self) -> Expr;
     fn ln(&self) -> Expr;
-    fn log(&self) -> Expr;
+    /// Logarithm with arbitrary base: `x.log(base)` → `log(base, x)`
+    fn log(&self, base: impl Into<Expr>) -> Expr;
     fn log10(&self) -> Expr;
     fn log2(&self) -> Expr;
     fn sqrt(&self) -> Expr;
@@ -995,8 +1009,8 @@ impl ArcExprExt for Arc<Expr> {
     fn ln(&self) -> Expr {
         Expr::func("ln", Expr::from(self))
     }
-    fn log(&self) -> Expr {
-        Expr::func("log", Expr::from(self))
+    fn log(&self, base: impl Into<Expr>) -> Expr {
+        Expr::func_multi("log", vec![base.into(), Expr::from(self)])
     }
     fn log10(&self) -> Expr {
         Expr::func("log10", Expr::from(self))
@@ -1204,6 +1218,20 @@ impl Expr {
     /// Modified Bessel function of the second kind: K_n(x)
     pub fn besselk(self, n: impl Into<Expr>) -> Expr {
         Expr::func_multi("besselk", vec![n.into(), self])
+    }
+
+    /// Logarithm with arbitrary base: `x.log(base)` → `log(base, x)`
+    ///
+    /// # Example
+    /// ```
+    /// use symb_anafis::{symb, Expr};
+    /// let x = symb("log_expr_example");
+    /// let expr = x.sin() + Expr::number(1.0);
+    /// let log_base_10 = expr.log(10.0);  // log(10, sin(x) + 1)
+    /// assert!(format!("{}", log_base_10).contains("log"));
+    /// ```
+    pub fn log(self, base: impl Into<Expr>) -> Expr {
+        Expr::func_multi("log", vec![base.into(), self])
     }
 }
 

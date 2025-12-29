@@ -101,6 +101,7 @@ pub(crate) enum Instruction {
 
     // Two-argument functions
     Atan2,
+    Log, // log(base, x)
     BesselJ,
     BesselY,
     BesselI,
@@ -412,6 +413,16 @@ macro_rules! process_instruction {
             }
 
             // Two-argument functions
+            Instruction::Log => {
+                // log(base, x) = ln(x) / ln(base)
+                let x = $stack.pop().unwrap();
+                let base = $stack.last_mut().unwrap();
+                *base = if *base <= 0.0 || *base == 1.0 || x <= 0.0 {
+                    f64::NAN
+                } else {
+                    x.ln() / base.ln()
+                };
+            }
             Instruction::Atan2 => {
                 let x = $stack.pop().unwrap();
                 let y = $stack.last_mut().unwrap();
@@ -1462,6 +1473,26 @@ impl CompiledEvaluator {
                 ]);
             }
             // Two-argument functions (pop second operand, compute per-lane)
+            Instruction::Log => {
+                // log(base, x) = ln(x) / ln(base)
+                let x = stack.pop().unwrap();
+                let base = stack.last_mut().unwrap();
+                let x_arr = x.to_array();
+                let base_arr = base.to_array();
+                let log_fn = |b: f64, v: f64| -> f64 {
+                    if b <= 0.0 || b == 1.0 || v <= 0.0 {
+                        f64::NAN
+                    } else {
+                        v.ln() / b.ln()
+                    }
+                };
+                *base = f64x4::new([
+                    log_fn(base_arr[0], x_arr[0]),
+                    log_fn(base_arr[1], x_arr[1]),
+                    log_fn(base_arr[2], x_arr[2]),
+                    log_fn(base_arr[3], x_arr[3]),
+                ]);
+            }
             Instruction::Atan2 => {
                 let x = stack.pop().unwrap();
                 let y = stack.last_mut().unwrap();
@@ -1998,7 +2029,7 @@ impl<'a> Compiler<'a> {
 
                     // Exponential/Logarithmic (unary)
                     ("exp", 1) => Instruction::Exp,
-                    ("ln", 1) | ("log", 1) => Instruction::Ln,
+                    ("ln", 1) => Instruction::Ln,
                     ("log10", 1) => Instruction::Log10,
                     ("log2", 1) => Instruction::Log2,
                     ("sqrt", 1) => Instruction::Sqrt,
@@ -2024,6 +2055,10 @@ impl<'a> Compiler<'a> {
                     ("exp_polar", 1) => Instruction::ExpPolar,
 
                     // Two-argument functions
+                    ("log", 2) => {
+                        self.pop(); // Two args -> one result
+                        Instruction::Log
+                    }
                     ("atan2", 2) => {
                         self.pop(); // Two args -> one result
                         Instruction::Atan2

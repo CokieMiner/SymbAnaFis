@@ -566,16 +566,42 @@ pub(crate) fn all_definitions() -> Vec<FunctionDefinition> {
         },
         FunctionDefinition {
             name: "log",
-            arity: 1..=1,
-            eval: |args| Some(args[0].ln()),
+            arity: 2..=2,
+            eval: |args| {
+                // log(base, x) = ln(x) / ln(base)
+                let base = args[0];
+                let x = args[1];
+                if base <= 0.0 || base == 1.0 || x <= 0.0 {
+                    None
+                } else {
+                    Some(x.ln() / base.ln())
+                }
+            },
             derivative: |args, arg_primes| {
-                // d/dx log(u) = ln(u), so same as ln
-                let u = Arc::clone(&args[0]);
-                let u_prime = arg_primes[0].clone();
-                Expr::mul_expr(
-                    Expr::pow_from_arcs(u.clone(), Arc::new(Expr::number(-1.0))),
-                    u_prime,
-                )
+                // log_b(x) = ln(x) / ln(b)
+                // d/dt log_b(x) = (1/(x*ln(b))) * x' - (ln(x)/(b*ln(b)^2)) * b'
+                //               = x'/(x*ln(b)) - b'*ln(x)/(b*ln(b)^2)
+                let b = args[0].clone();
+                let x = args[1].clone();
+                let b_prime = arg_primes[0].clone();
+                let x_prime = arg_primes[1].clone();
+
+                // Term 1: x' / (x * ln(b))
+                let ln_b = Expr::func_multi_from_arcs("ln", vec![b.clone()]);
+                let term1 = Expr::div_expr(
+                    x_prime,
+                    Expr::mul_from_arcs(vec![x.clone(), Arc::new(ln_b.clone())]),
+                );
+
+                // Term 2: -b' * ln(x) / (b * ln(b)^2)
+                let ln_x = Expr::func_multi_from_arcs("ln", vec![x.clone()]);
+                let ln_b_sq = Expr::pow(ln_b, Expr::number(2.0));
+                let term2 = Expr::negate(Expr::div_expr(
+                    Expr::mul_expr(b_prime, ln_x),
+                    Expr::mul_from_arcs(vec![b.clone(), Arc::new(ln_b_sq)]),
+                ));
+
+                Expr::add_expr(term1, term2)
             },
         },
         FunctionDefinition {
