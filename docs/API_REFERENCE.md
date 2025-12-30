@@ -919,7 +919,7 @@ let result = compiled.evaluate(&[3.0]); // 9.0
 | Category | Functions |
 |----------|-----------|
 | **Trig** | `sin`, `cos`, `tan`, `cot`, `sec`, `csc` |
-| **Inverse Trig** | `asin`, `acos`, `atan`, `acot`, `asec`, `acsc` |
+| **Inverse Trig** | `asin`, `acos`, `atan`, `atan2`, `acot`, `asec`, `acsc` |
 | **Hyperbolic** | `sinh`, `cosh`, `tanh`, `coth`, `sech`, `csch` |
 | **Inverse Hyperbolic** | `asinh`, `acosh`, `atanh`, `acoth`, `asech`, `acsch` |
 | **Exp/Log** | `exp`, `ln`, `log(b, x)`, `log10`, `log2`, `exp_polar` |
@@ -931,7 +931,7 @@ let result = compiled.evaluate(&[3.0]); // 9.0
 | **Elliptic Integrals** | `elliptic_k`, `elliptic_e` |
 | **Orthogonal Polynomials** | `hermite(n, x)`, `assoc_legendre(l, m, x)` |
 | **Spherical Harmonics** | `spherical_harmonic(l, m, θ, φ)`, `ynm(l, m, θ, φ)` |
-| **Other** | `abs`, `sign`, `signum`, `sinc`, `LambertW`, `lambertw`, `floor`, `ceil`, `round` |
+| **Other** | `abs`, `signum`, `sinc`, `lambertw`, `floor`, `ceil`, `round` |
 
 > **Note:** All functions have both **numeric evaluation** and **symbolic differentiation** rules. Multi-argument functions like `besselj(n, x)` differentiate with respect to `x` (treating `n` as constant).
 

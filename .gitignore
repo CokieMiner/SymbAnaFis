@@ -6,3 +6,4 @@ python/symb_anafis/__pycache__/__init__.cpython-314.pyc
 python/symb_anafis/symb_anafis.cpython-314-x86_64-linux-gnu.so
 *.pyc
 CLAUDE.md
+.vscode
