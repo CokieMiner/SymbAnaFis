@@ -5,7 +5,7 @@ fn test_builder_configuration() {
     // Test defaults - use a variable symbol for differentiation
     let x = symb("x");
     let diff = Diff::new();
-    let res = diff.differentiate(x.clone().pow(2.0), &x).unwrap();
+    let res = diff.differentiate(&x.pow(2.0), &x).unwrap();
     assert_eq!(format!("{}", res), "2*x");
 
     // Test domain_safe
@@ -34,12 +34,12 @@ fn test_custom_derivatives() {
     // Test: my_func(x) -> 3*x^2 * 1 = 3x^2
     let x = symb("x");
     let expr = Expr::func("my_func", x.to_expr());
-    let res = diff.differentiate(expr, &x).unwrap();
+    let res = diff.differentiate(&expr, &x).unwrap();
     assert_eq!(format!("{}", res), "3*x^2");
 
     // Test chain rule: my_func(x^2) -> 3*(x^2)^2 * (2x) = 6x^5
     let expr2 = Expr::func("my_func", x.clone().pow(2.0));
-    let res2 = diff.differentiate(expr2, &x).unwrap();
+    let res2 = diff.differentiate(&expr2, &x).unwrap();
 
     assert_eq!(format!("{}", res2), "6*x^5");
 }
@@ -56,12 +56,12 @@ fn test_recursion_limits() {
     // Should pass with default/high limits
     let diff = Diff::new();
     let _ = diff
-        .differentiate(deeply_nested.clone(), &x)
+        .differentiate(&deeply_nested, &x)
         .expect("Should pass within default limits");
 
     // Should fail with strict limits
     let diff_strict = Diff::new().max_depth(5);
-    let res = diff_strict.differentiate(deeply_nested, &x);
+    let res = diff_strict.differentiate(&deeply_nested, &x);
 
     assert!(matches!(res, Err(DiffError::MaxDepthExceeded)));
 }
@@ -78,7 +78,7 @@ fn test_node_limits() {
     let broad = Expr::sum(terms);
 
     let diff_strict = Diff::new().max_nodes(50);
-    let res = diff_strict.differentiate(broad, &x);
+    let res = diff_strict.differentiate(&broad, &x);
 
     assert!(matches!(res, Err(DiffError::MaxNodesExceeded)));
 }
@@ -96,7 +96,7 @@ fn test_symbol_method_chaining() {
     assert!(display == "cos(x)^2 + sin(x)^2" || display == "sin(x)^2 + cos(x)^2");
 
     let diff = Diff::new();
-    let res = diff.differentiate(expr, &x).unwrap();
+    let res = diff.differentiate(&expr, &x).unwrap();
 
     // limit of differentiation: 2sin(x)cos(x) - 2cos(x)sin(x) = 0
     assert_eq!(format!("{}", res), "0");
@@ -109,7 +109,7 @@ fn test_advanced_functions() {
     // gamma(x) calls Symbol::gamma -> Expr
     let expr = x.clone().gamma();
     let diff = Diff::new();
-    let res = diff.differentiate(expr, &x).unwrap();
+    let res = diff.differentiate(&expr, &x).unwrap();
 
     // Ensure it runs without error
     assert!(!format!("{}", res).is_empty());

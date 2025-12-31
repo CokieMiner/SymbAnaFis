@@ -108,7 +108,7 @@ fn compare_with_symbolic() {
     let expr = x.pow(3.0) + 2.0 * x.pow(2.0) + x + 1.0;
 
     // Symbolic derivative
-    let symbolic_deriv = Diff::new().differentiate(expr, &x).unwrap();
+    let symbolic_deriv = Diff::new().differentiate(&expr, &x).unwrap();
     println!("Symbolic: d/dx(x³ + 2x² + x + 1) = {}", symbolic_deriv);
     println!(
         "         (Note: {} is mathematically equivalent to 3x² + 4x + 1)",

@@ -45,7 +45,7 @@ fn bench_diff_raw(c: &mut Criterion) {
         let diff_builder = Diff::new().skip_simplification(true);
 
         group.bench_with_input(BenchmarkId::new("symb_anafis", name), &expr, |b, expr| {
-            b.iter(|| diff_builder.differentiate(black_box(expr.clone()), &var_sym))
+            b.iter(|| diff_builder.differentiate(black_box(expr), &var_sym))
         });
     }
 
@@ -71,7 +71,7 @@ fn bench_diff_simplified(c: &mut Criterion) {
         group.bench_with_input(
             BenchmarkId::new("symb_anafis_diff_only", name),
             &expr,
-            |b, expr| b.iter(|| diff_light.differentiate(black_box(expr.clone()), &var_sym)),
+            |b, expr| b.iter(|| diff_light.differentiate(black_box(expr), &var_sym)),
         );
 
         // SymbAnaFis: diff + full simplification
@@ -80,7 +80,7 @@ fn bench_diff_simplified(c: &mut Criterion) {
         group.bench_with_input(
             BenchmarkId::new("symb_anafis_diff+simplify", name),
             &expr,
-            |b, expr| b.iter(|| diff_full.differentiate(black_box(expr.clone()), &var_sym)),
+            |b, expr| b.iter(|| diff_full.differentiate(black_box(expr), &var_sym)),
         );
     }
 
@@ -101,14 +101,14 @@ fn bench_simplify_only(c: &mut Criterion) {
         let var_sym = symb(var);
 
         let diff_builder = Diff::new().skip_simplification(true);
-        let diff_result = diff_builder.differentiate(expr, &var_sym).unwrap();
+        let diff_result = diff_builder.differentiate(&expr, &var_sym).unwrap();
 
         let simplify_builder = Simplify::new();
 
         group.bench_with_input(
             BenchmarkId::new("symb_anafis", name),
             &diff_result,
-            |b, expr| b.iter(|| simplify_builder.simplify(black_box(expr.clone()))),
+            |b, expr| b.iter(|| simplify_builder.simplify(black_box(expr))),
         );
     }
 
@@ -129,7 +129,7 @@ fn bench_compile(c: &mut Criterion) {
         let var_sym = symb(var);
 
         let diff_builder = Diff::new().skip_simplification(true);
-        let diff_raw = diff_builder.differentiate(expr.clone(), &var_sym).unwrap();
+        let diff_raw = diff_builder.differentiate(&expr, &var_sym).unwrap();
 
         // Simplified result
         let diff_simplified_str = symb_anafis::diff(expr_str, var, fixed, None).unwrap();
@@ -137,14 +137,14 @@ fn bench_compile(c: &mut Criterion) {
 
         // Benchmark: compile raw
         group.bench_with_input(BenchmarkId::new("raw", name), &diff_raw, |b, expr| {
-            b.iter(|| CompiledEvaluator::compile_auto(black_box(expr)))
+            b.iter(|| CompiledEvaluator::compile_auto(black_box(expr), None))
         });
 
         // Benchmark: compile simplified
         group.bench_with_input(
             BenchmarkId::new("simplified", name),
             &diff_simplified,
-            |b, expr| b.iter(|| CompiledEvaluator::compile_auto(black_box(expr))),
+            |b, expr| b.iter(|| CompiledEvaluator::compile_auto(black_box(expr), None)),
         );
     }
 
@@ -168,14 +168,14 @@ fn bench_eval(c: &mut Criterion) {
         let var_sym = symb(var);
 
         let diff_builder = Diff::new().skip_simplification(true);
-        let diff_raw = diff_builder.differentiate(expr, &var_sym).unwrap();
+        let diff_raw = diff_builder.differentiate(&expr, &var_sym).unwrap();
 
         let diff_simplified_str = symb_anafis::diff(expr_str, var, fixed, None).unwrap();
         let diff_simplified = parse(&diff_simplified_str, &empty, &empty, None).unwrap();
 
         // Compile both versions
-        let compiled_raw = CompiledEvaluator::compile_auto(&diff_raw);
-        let compiled_simplified = CompiledEvaluator::compile_auto(&diff_simplified);
+        let compiled_raw = CompiledEvaluator::compile_auto(&diff_raw, None);
+        let compiled_simplified = CompiledEvaluator::compile_auto(&diff_simplified, None);
 
         // Benchmark: evaluate compiled (raw)
         if let Ok(ref evaluator) = compiled_raw {
@@ -248,7 +248,7 @@ fn bench_full_pipeline(c: &mut Criterion) {
                     // Full pipeline
                     let diff_str = symb_anafis::diff(black_box(expr), var, fixed, None).unwrap();
                     let diff_expr = parse(&diff_str, &empty, &empty, None).unwrap();
-                    let compiled = CompiledEvaluator::compile_auto(&diff_expr).unwrap();
+                    let compiled = CompiledEvaluator::compile_auto(&diff_expr, None).unwrap();
 
                     // Evaluate at 1000 points
                     let param_count = compiled.param_count();

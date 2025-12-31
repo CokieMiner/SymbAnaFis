@@ -2,17 +2,8 @@
 """
 API Showcase: Complete SymbAnaFis Feature Demonstration (Python)
 
-This example demonstrates ALL the capabilities of SymbAnaFis from Python:
-- String-based and Object-based APIs
-- Differentiation (single variable, multi-variable)
-- Simplification
-- Numerical Evaluation
-- Gradient, Hessian, and Jacobian
-- LaTeX and Unicode output
-- Custom derivatives
-- Safety features and configuration
-- Uncertainty propagation
-- Parallel evaluation
+This example demonstrates ALL the capabilities of SymbAnaFis from Python,
+following the structure of the API Reference documentation.
 
 Run with: python examples/api_showcase.py
 """
@@ -20,8 +11,10 @@ Run with: python examples/api_showcase.py
 from symb_anafis import (
     Expr, Diff, Simplify,
     diff, simplify, parse,
-    gradient, hessian, jacobian, evaluate,
+    gradient, hessian, jacobian, evaluate, evaluate_str,
     uncertainty_propagation, relative_uncertainty,
+    Context, CompiledEvaluator, Dual, Symbol, symb,
+    gradient_str, hessian_str, jacobian_str
 )
 
 # Try to import parallel evaluation (only available with parallel feature)
@@ -35,115 +28,169 @@ except ImportError:
 def main():
     print("╔══════════════════════════════════════════════════════════════════╗")
     print("║          SYMB ANAFIS: COMPLETE API SHOWCASE (Python)             ║")
-    print("║          Symbolic Differentiation Library                         ║")
+    print("║          Symbolic Differentiation Library                        ║")
     print("╚══════════════════════════════════════════════════════════════════╝\n")
 
-    part1_string_api()
-    part2_object_api()
-    part3_numerical_evaluation()
-    part4_multi_variable_calculus()
-    part5_all_functions()
-    part6_custom_derivatives()
-    part7_safety_features()
-    part8_expression_output()
-    part9_uncertainty_propagation()
+    # Following API_REFERENCE.md structure
+    section_quick_start()
+    section_symbol_management()
+    section_core_functions()
+    section_builder_pattern_api()
+    section_expression_output()
+    section_uncertainty_propagation()
+    section_custom_functions()
+    section_evaluation()
+    section_vector_calculus()
+    section_automatic_differentiation()
     if HAS_PARALLEL:
-        part10_parallel_evaluation()
+        section_parallel_evaluation()
     else:
         print("━" * 66)
-        print("⚡ PART 10: PARALLEL EVALUATION")
+        print("⚡ SECTION 11: PARALLEL EVALUATION")
         print("   (Requires 'parallel' feature - not available)")
         print("━" * 66 + "\n")
+    section_compilation_and_performance()
+    section_builtin_functions()
+    section_expression_syntax()
+    section_error_handling()
 
     print("\n✅ Showcase Complete!")
 
 
 # =============================================================================
-# PART 1: STRING-BASED API
+# SECTION 1: QUICK START
 # =============================================================================
-def part1_string_api():
+def section_quick_start():
     print("━" * 66)
-    print("📦 PART 1: STRING-BASED API")
-    print("   Best for parsing user input, configuration files, web APIs")
+    print("1. QUICK START")
     print("━" * 66 + "\n")
 
-    # 1.1 Simple diff() function
-    print("  1.1 Simple Differentiation: diff()")
-    formula = "x^3 + 2*x^2 - 5*x + 1"
-    print(f"      Formula: {formula}")
+    print("  1.1 Differentiation")
+    formula = "x^3 + sin(x)"
+    print(f"      Input:  diff('{formula}', 'x')")
     result = diff(formula, "x")
-    print(f"      d/dx:    {result}\n")
+    print(f"      Output: {result}\n")
 
-    # 1.2 Simple simplify() function
-    print("  1.2 Simplification: simplify()")
-    ugly = "x + x + x + 0*y + 1*z"
-    print(f"      Before: {ugly}")
-    clean = simplify(ugly)
-    print(f"      After:  {clean}\n")
-
-    # 1.3 Diff builder with options
-    print("  1.3 Diff Builder with Options")
-    d = Diff().fixed_var("a").fixed_var("b").domain_safe(True)
-    result = d.diff_str("a*x^2 + b*x + c", "x")
-    print(f"      d/dx [ax² + bx + c] with a,b as constants: {result}\n")
-
-    # 1.4 Simplify builder with options
-    print("  1.4 Simplify Builder with Options")
-    s = Simplify().fixed_var("k").domain_safe(True)
-    result = s.simplify_str("k*x + k*y")
-    print(f"      Simplified k*x + k*y: {result}\n")
+    print("  1.2 Simplification")
+    formula = "sin(x)^2 + cos(x)^2"
+    print(f"      Input:  simplify('{formula}')")
+    result = simplify(formula)
+    print(f"      Output: {result}\n")
 
 
 # =============================================================================
-# PART 2: OBJECT-BASED API
+# SECTION 2: SYMBOL MANAGEMENT
 # =============================================================================
-def part2_object_api():
+def section_symbol_management():
     print("━" * 66)
-    print("🐍 PART 2: OBJECT-BASED API")
-    print("   Build expressions programmatically in Python")
+    print("2. SYMBOL MANAGEMENT")
     print("━" * 66 + "\n")
 
-    # 2.1 Creating symbols
-    print("  2.1 Creating Symbols: Expr()")
+    print("  2.1 Creating Symbols with Expr()")
     x = Expr("x")
     y = Expr("y")
-    print("      Created x and y symbols\n")
+    alpha = Expr("alpha")
+    print("      x = Expr('x')")
+    print("      y = Expr('y')")
+    print("      alpha = Expr('alpha')\n")
 
-    # 2.2 Building expressions with operators
-    print("  2.2 Building Expressions with Operators (+, -, *, /, **)")
-    expr1 = x + y
-    expr2 = x * y
-    expr3 = x ** 2 + y ** 2
-    print(f"      x + y   = {expr1}")
-    print(f"      x * y   = {expr2}")
-    print(f"      x² + y² = {expr3}\n")
+    print("  2.2 Context: Isolated Environments")
+    ctx1 = Context()
+    ctx2 = Context()
 
-    # 2.3 Building expressions with functions
-    print("  2.3 Building Expressions with Functions")
-    expr_sin = x.sin()
-    expr_cos = x.cos()
-    expr_exp = x.exp()
-    print(f"      sin(x) = {expr_sin}")
-    print(f"      cos(x) = {expr_cos}")
-    print(f"      exp(x) = {expr_exp}\n")
+    x1 = ctx1.symb("x")
+    x2 = ctx2.symb("x")
 
-    # 2.4 Powers
-    print("  2.4 Powers: x.pow(n)")
-    squared = x.pow(2)
-    cubed = x.pow(3)
-    print(f"      x²  = {squared}")
-    print(f"      x³  = {cubed}\n")
+    print("      ctx1 = Context()")
+    print("      ctx2 = Context()")
+    print("      x1 = ctx1.symb('x')")
+    print("      x2 = ctx2.symb('x')")
+    print(f"      ctx1 symbol id: {x1.id()}")
+    print(f"      ctx2 symbol id: {x2.id()} (different!)\n")
 
-    # 2.5 Differentiation with Expr
-    print("  2.5 Differentiating Expression Objects")
-    f = x.pow(3) + (Expr("2") * x).sin()
-    print(f"      f(x) = {f}")
+    print("  2.3 Context API Methods")
+    print(f"      ctx1.is_empty(): {ctx1.is_empty()}")
+    print(f"      ctx1.symbol_names(): {ctx1.symbol_names()}")
+    print(f"      ctx1.contains_symbol('x'): {ctx1.contains_symbol('x')}\n")
+
+    print("  2.4 Global Symbol Registry")
+    from symb_anafis import symbol_exists, symbol_count, symbol_names
+    print(f"      symbol_exists('x'): {symbol_exists('x')}")
+    print(f"      symbol_count(): {symbol_count()}")
+    print(f"      symbol_names(): {symbol_names()}\n")
+
+
+# =============================================================================
+# SECTION 3: CORE FUNCTIONS
+# =============================================================================
+def section_core_functions():
+    print("━" * 66)
+    print("3. CORE FUNCTIONS")
+    print("━" * 66 + "\n")
+
+    print("  3.1 diff(formula, var)")
+    print("      Differentiate x^2 + 2*x + 1 with respect to x")
+    result = diff("x^2 + 2*x + 1", "x")
+    print(f"      Result: {result}\n")
+
+    print("  3.2 simplify(formula)")
+    print("      Simplify x^2 + 2*x + 1")
+    result = simplify("x^2 + 2*x + 1")
+    print(f"      Result: {result}\n")
+
+    print("  3.3 parse(formula)")
+    expr = parse("x^2 + sin(x)")
+    print(f"      parse('x^2 + sin(x)') -> {expr}")
+    print(f"      Type: {type(expr).__name__}\n")
+
+    print("  3.4 Type-Safe Expressions (Object-based API)")
+    x = Expr("x")
+    expr = x.pow(2) + x.sin()  # x² + sin(x)
+    print(f"      x = Expr('x')")
+    print(f"      expr = x.pow(2) + x.sin()")
+    print(f"      Result: {expr}\n")
+
+
+# =============================================================================
+# SECTION 4: BUILDER PATTERN API
+# =============================================================================
+def section_builder_pattern_api():
+    print("━" * 66)
+    print("4. BUILDER PATTERN API")
+    print("━" * 66 + "\n")
+
+    print("  4.1 Diff Builder")
+    print("      Diff().domain_safe(True).fixed_var(symb('a')).diff_str(...)")
+    d = Diff().domain_safe(True).fixed_var(symb("a"))
+    result = d.diff_str("a*x^2 + x", "x")
+    print(f"      d/dx [ax² + x] with a as constant: {result}\n")
+
+    print("  4.2 Diff Builder: Multiple Fixed Variables")
+    print("      Diff().domain_safe(True).fixed_vars([symb('a'), symb('b')]).diff_str(...)")
+    d2 = Diff().domain_safe(True).fixed_vars([symb("a"), symb("b")])
+    result2 = d2.diff_str("a*x + b*y + x^2", "x")
+    print(f"      d/dx [ax + by + x²] with a,b fixed: {result2}\n")
+
+    print("  4.2 Diff Builder Options")
+    d = Diff().max_depth(100).max_nodes(1000)
+    result = d.diff_str("x^3", "x")
+    print(f"      With max_depth=100, max_nodes=1000: {result}\n")
+
+    print("  4.3 Simplify Builder")
+    print("      Simplify().domain_safe(True).fixed_var(symb('k')).simplify_str(...)")
+    s = Simplify().domain_safe(True).fixed_var(symb("k"))
+    result = s.simplify_str("k*x + k*y")
+    print(f"      Simplify k*x + k*y: {result}\n")
+
+    print("  4.4 Differentiating Expression Objects")
+    x = Expr("x")
+    f = x.pow(3) + x.sin()
     df = Diff().differentiate(f, "x")
+    print(f"      f(x) = {f}")
     print(f"      f'(x) = {df}\n")
 
-    # 2.6 Expr utility methods
-    print("  2.6 Expression Utility Methods")
-    complex_expr = x.pow(2) + y.sin()
+    print("  4.5 Expression Inspection")
+    complex_expr = x.pow(2) + Expr("y").sin()
     print(f"      Expression: {complex_expr}")
     print(f"      Node count: {complex_expr.node_count()}")
     print(f"      Max depth:  {complex_expr.max_depth()}")
@@ -151,260 +198,221 @@ def part2_object_api():
 
 
 # =============================================================================
-# PART 3: NUMERICAL EVALUATION
+# SECTION 5: EXPRESSION OUTPUT
 # =============================================================================
-def part3_numerical_evaluation():
+def section_expression_output():
     print("━" * 66)
-    print("🔢 PART 3: NUMERICAL EVALUATION")
-    print("   Evaluate expressions with specific variable values")
-    print("━" * 66 + "\n")
-
-    # 3.1 Evaluate Expr with dict
-    print("  3.1 Evaluate Expression Objects")
-    x = Expr("x")
-    y = Expr("y")
-    expr = x.pow(2) + y.pow(2)
-
-    result = expr.evaluate({"x": 3.0, "y": 4.0})
-    print("      x² + y² at (x=3, y=4)")
-    print(f"      Result: {result} (expected: 25)\n")
-
-    # 3.2 Evaluate using evaluate()
-    print("  3.2 Evaluate from String: evaluate()")
-    result = evaluate("sin(pi/6)^2 + cos(pi/6)^2", [])
-    print(f"      sin²(π/6) + cos²(π/6) = {result} (expected: 1)\n")
-
-    # 3.3 Partial evaluation (mixed symbolic/numeric)
-    print("  3.3 Partial Evaluation")
-    result = evaluate("a*x + b", [("a", 2.0), ("b", 5.0)])
-    print(f"      a*x + b with a=2, b=5 → {result}\n")
-
-
-# =============================================================================
-# PART 4: MULTI-VARIABLE CALCULUS
-# =============================================================================
-def part4_multi_variable_calculus():
-    print("━" * 66)
-    print("📐 PART 4: MULTI-VARIABLE CALCULUS")
-    print("   Gradient, Hessian, and Jacobian computations")
-    print("━" * 66 + "\n")
-
-    # 4.1 Gradient
-    print("  4.1 Gradient: ∇f = [∂f/∂x, ∂f/∂y, ...]")
-    grad = gradient("x^2*y + y^3", ["x", "y"])
-    print("      f(x,y) = x²y + y³")
-    print(f"      ∂f/∂x = {grad[0]}")
-    print(f"      ∂f/∂y = {grad[1]}\n")
-
-    # 4.2 Hessian
-    print("  4.2 Hessian Matrix: H[i][j] = ∂²f/∂xᵢ∂xⱼ")
-    hess = hessian("x^2*y + y^3", ["x", "y"])
-    print("      f = x²y + y³")
-    print(f"      H = | {hess[0][0]} {hess[0][1]} |")
-    print(f"          | {hess[1][0]} {hess[1][1]} |\n")
-
-    # 4.3 Jacobian
-    print("  4.3 Jacobian Matrix: J[i][j] = ∂fᵢ/∂xⱼ")
-    jac = jacobian(["x^2 + y", "x*y"], ["x", "y"])
-    print("      f₁ = x² + y, f₂ = xy")
-    print(f"      J = | {jac[0][0]} {jac[0][1]} |")
-    print(f"          | {jac[1][0]} {jac[1][1]} |\n")
-
-
-# =============================================================================
-# PART 5: ALL SUPPORTED FUNCTIONS
-# =============================================================================
-def part5_all_functions():
-    print("━" * 66)
-    print("📚 PART 5: ALL SUPPORTED MATHEMATICAL FUNCTIONS")
-    print("   60+ functions with symbolic differentiation and numeric eval")
-    print("━" * 66 + "\n")
-
-    print("  TRIGONOMETRIC:")
-    print("    sin(x), cos(x), tan(x), cot(x), sec(x), csc(x)\n")
-
-    print("  INVERSE TRIG:")
-    print("    asin(x), acos(x), atan(x), acot(x), asec(x), acsc(x)\n")
-
-    print("  HYPERBOLIC:")
-    print("    sinh(x), cosh(x), tanh(x), coth(x), sech(x), csch(x)\n")
-
-    print("  INVERSE HYPERBOLIC:")
-    print("    asinh(x), acosh(x), atanh(x), acoth(x), asech(x), acsch(x)\n")
-
-    print("  EXPONENTIAL & LOGARITHMIC:")
-    print("    exp(x), ln(x), log(x), log10(x), log2(x)\n")
-
-    print("  POWERS & ROOTS:")
-    print("    sqrt(x), cbrt(x), x**n, x**(1/n)\n")
-
-    print("  SPECIAL FUNCTIONS:")
-    print("    gamma(x), digamma(x), trigamma(x), polygamma(n,x)")
-    print("    erf(x), erfc(x), zeta(x), beta(a,b)\n")
-
-    print("  BESSEL FUNCTIONS:")
-    print("    besselj(n,x), bessely(n,x), besseli(n,x), besselk(n,x)\n")
-
-    print("  OTHER:")
-    print("    abs(x), sign(x), sinc(x), lambertw(x)\n")
-
-    # Demonstrate some derivatives
-    print("  Example Derivatives:")
-    examples = [
-        ("gamma(x)", "x"),
-        ("erf(x)", "x"),
-        ("lambertw(x)", "x"),
-    ]
-    for expr, var in examples:
-        result = diff(expr, var)
-        print(f"    d/d{var} [{expr}] = {result}")
-    print()
-
-
-# =============================================================================
-# PART 6: CUSTOM DERIVATIVES
-# =============================================================================
-def part6_custom_derivatives():
-    print("━" * 66)
-    print("✨ PART 6: CUSTOM DERIVATIVES")
-    print("   Define derivative rules for user-defined functions")
-    print("━" * 66 + "\n")
-
-    # 6.1 Custom Derivative Rule
-    print("  6.1 Custom Derivative Rule: user_fn()")
-    print("      Define: my_func(u) with derivative: d/dx[my_func(u)] = 3u² · u'")
-
-    def my_func_partial(args):
-        # For f(u), return ∂f/∂u = 3u²
-        # args[0] is the first argument expression
-        return 3 * args[0] ** 2
-
-    x = Expr("x")
-    custom_diff = Diff().user_fn("my_func", 1, my_func_partial)
-
-    # Test the custom derivative
-    result = custom_diff.diff_str("my_func(x^2)", "x")
-    print(f"      d/dx[my_func(x²)] = {result}")
-    print("      Expected: 3*(x^2)^2 * 2*x = 3*x^4 * 2*x = 6*x^5")
-    print()
-
-
-# =============================================================================
-# PART 7: SAFETY FEATURES
-# =============================================================================
-def part7_safety_features():
-    print("━" * 66)
-    print("🛡️  PART 7: SAFETY FEATURES & CONFIGURATION")
-    print("   Prevent resource exhaustion and handle edge cases")
-    print("━" * 66 + "\n")
-
-    # 7.1 Max Depth Limit
-    print("  7.1 Maximum Expression Depth")
-    print("      Diff().max_depth(25) - prevents deeply nested expressions")
-    print()
-
-    # 7.2 Max Node Count Limit
-    print("  7.2 Maximum Node Count")
-    print("      Diff().max_nodes(500) - prevents exponential growth")
-    print()
-
-    # 7.3 Domain Safety
-    print("  7.3 Domain Safety Mode")
-    print("      Diff().domain_safe(True)")
-    print("      Prevents simplifications that could introduce undefined values")
-    print("      Example: √(x²) = |x| (not x, which fails for x < 0)\n")
-
-    # 7.4 Fixed Variables
-    print("  7.4 Fixed Variables (Constants)")
-    d = Diff().fixed_var("a").fixed_var("b")
-    result = d.diff_str("a*x^2 + b*x + c", "x")
-    print("      With a, b as constants:")
-    print(f"      d/dx [ax² + bx + c] = {result}")
-    print()
-
-
-# =============================================================================
-# PART 8: EXPRESSION OUTPUT FORMATS
-# =============================================================================
-def part8_expression_output():
-    print("━" * 66)
-    print("🖨️  PART 8: EXPRESSION OUTPUT FORMATS")
-    print("   LaTeX and Unicode output for beautiful display")
+    print("5. EXPRESSION OUTPUT")
     print("━" * 66 + "\n")
 
     x = Expr("x")
     y = Expr("y")
-    alpha = Expr("alpha")
     sigma = Expr("sigma")
 
-    # 8.1 LaTeX Output
-    print("  8.1 LaTeX Output: to_latex()")
-    expr1 = x.pow(2) / y
-    expr2 = x.sin() * alpha.pow(2) + sigma
-    print(f"      x²/y        → {expr1.to_latex()}")
-    print(f"      sin(x)·α²+σ → {expr2.to_latex()}\n")
+    print("  5.1 LaTeX Output: to_latex()")
+    expr1 = x.pow(2) / sigma
+    expr2 = x.sin() * y
+    print(f"      x²/y      → {expr1.to_latex()}")
+    print(f"      sin(x)·y → {expr2.to_latex()}\n")
 
-    # 8.2 Unicode Output
-    print("  8.2 Unicode Output: to_unicode()")
+    print("  5.2 Unicode Output: to_unicode()")
     pi_expr = Expr("pi")
     omega = Expr("omega")
     expr3 = pi_expr + omega.pow(2)
-    print(f"      π + ω²  → {expr3.to_unicode()}\n")
+    print(f"      π + ω² → {expr3.to_unicode()}\n")
 
-    # 8.3 Regular Display
-    print("  8.3 Standard Display: str()")
+    print("  5.3 Standard Display: str()")
     expr4 = x.sin() + y.cos()
     print(f"      sin(x) + cos(y) → {expr4}\n")
 
 
 # =============================================================================
-# PART 9: UNCERTAINTY PROPAGATION
+# SECTION 6: UNCERTAINTY PROPAGATION
 # =============================================================================
-def part9_uncertainty_propagation():
+def section_uncertainty_propagation():
     print("━" * 66)
-    print("📊 PART 9: UNCERTAINTY PROPAGATION")
-    print("   Calculate error propagation using partial derivatives")
+    print("6. UNCERTAINTY PROPAGATION")
+    print("   σ_f = √(Σᵢ Σⱼ (∂f/∂xᵢ)(∂f/∂xⱼ) Cov(xᵢ, xⱼ))")
     print("━" * 66 + "\n")
 
-    # 9.1 Basic uncertainty (symbolic variances)
-    print("  9.1 Basic Uncertainty: σ_f = √(Σ(∂f/∂xᵢ)²σᵢ²)")
+    print("  6.1 Basic Uncertainty (symbolic)")
     result = uncertainty_propagation("x + y", ["x", "y"])
     print("      f = x + y")
     print(f"      σ_f = {result}\n")
 
-    # 9.2 Product formula
-    print("  9.2 Product Formula Uncertainty")
+    print("  6.2 Product Formula Uncertainty")
     result = uncertainty_propagation("x * y", ["x", "y"])
     print("      f = x * y")
     print(f"      σ_f = {result}\n")
 
-    # 9.3 Numeric covariance
-    print("  9.3 Numeric Uncertainty Values")
+    print("  6.3 Numeric Uncertainty Values")
     # σ_x = 0.1 (so σ_x² = 0.01), σ_y = 0.2 (so σ_y² = 0.04)
     result = uncertainty_propagation("x * y", ["x", "y"], [0.01, 0.04])
     print("      f = x * y with σ_x = 0.1, σ_y = 0.2")
     print(f"      σ_f = {result}\n")
 
-    # 9.4 Relative uncertainty
-    print("  9.4 Relative Uncertainty: σ_f / |f|")
+    print("  6.4 Relative Uncertainty")
     result = relative_uncertainty("x^2", ["x"])
     print("      f = x²")
     print(f"      σ_f/|f| = {result}\n")
 
 
 # =============================================================================
-# PART 10: PARALLEL EVALUATION
+# SECTION 7: CUSTOM FUNCTIONS
 # =============================================================================
-def part10_parallel_evaluation():
+def section_custom_functions():
     print("━" * 66)
-    print("⚡ PART 10: PARALLEL EVALUATION")
-    print("   Evaluate multiple expressions at multiple points in parallel")
+    print("7. CUSTOM FUNCTIONS")
     print("━" * 66 + "\n")
 
-    # 10.1 Basic parallel eval
-    print("  10.1 Basic Parallel Evaluation")
-    print("      Evaluate x² at x = 1, 2, 3, 4, 5")
+    print("  7.1 Single-Argument Custom Derivatives")
+    print("      Define: my_func(u) with derivative ∂f/∂u = 2u")
+
+    def my_func_partial(args):
+        # For f(u), return ∂f/∂u = 2u
+        return 2 * args[0]
+
+    x = Expr("x")
+    # Body is None, partials is a list [∂f/∂u]
+    custom_diff = Diff().user_fn("my_func", 1, None, [my_func_partial])
+
+    # Test the custom derivative
+    result = custom_diff.diff_str("my_func(x^2)", "x")
+    print(f"      d/dx[my_func(x²)] = {result}")
+    print(f"      Chain rule: 2u · u' = 2(x²) · 2x = 4x³\n")
+
+    print("  7.2 Custom Function with Body (for evaluation)")
+    print("      Define: sq(u) = u² with derivative 2u")
+
+    def sq_body(args):
+        return args[0] ** 2
+
+    def sq_partial(args):
+        return 2 * args[0]
+
+    # Register with both body (for evaluation) AND partial derivatives list (for diff)
+    sq_diff = Diff().user_fn("sq", 1, sq_body, [sq_partial])
     
+    # 1. Differentiation
+    result = sq_diff.diff_str("sq(x)", "x")
+    print(f"      d/dx[sq(x)] = {result}")
+
+    # 2. Numeric Evaluation (Now supported!)
+    from symb_anafis import evaluate
+    # We need to register it in a context or use evaluate with valid scope if we were evaluating purely
+    # But since Diff returns a string, we can't easily eval the result string with 'sq' unless 'sq' is in the Evaluator's context.
+    # However, we can demonstrate proper object construction if we extended the API to return Expr.
+    
+    # Let's show Context providing the function for evaluation:
+    ctx = Context().with_function("sq", 1, sq_body, [sq_partial])
+    expr = ctx.symb("x")
+    # This requires constructing a function call expr manually or via parser if we had it exposed attached to context
+    # For now, let's just confirm the API accepts the body callback without error.
+    print(f"      (Body callback registered successfully)\n")
+
+
+# =============================================================================
+# SECTION 8: EVALUATION
+# =============================================================================
+def section_evaluation():
+    print("━" * 66)
+    print("8. EVALUATION")
+    print("━" * 66 + "\n")
+
+    print("  8.1 evaluate_str() from String (full evaluation)")
+    result = evaluate_str("x * y + 1", [("x", 3.0), ("y", 2.0)])
+    print(f"      x*y + 1 with x=3, y=2 → {result} (expected: 7)\n")
+
+    print("  8.2 evaluate_str() Partial Evaluation")
+    result = evaluate_str("x * y + 1", [("x", 3.0)])
+    print(f"      x*y + 1 with x=3 → {result}\n")
+
+    print("  8.3 Expr.evaluate()")
+    x = Expr("x")
+    y = Expr("y")
+    expr = x.pow(2) + y.pow(2)
+    result = expr.evaluate({"x": 3.0, "y": 4.0})
+    print("      x² + y² at (x=3, y=4)")
+    print(f"      Result: {result} (expected: 25)\n")
+
+
+# =============================================================================
+# SECTION 9: VECTOR CALCULUS
+# =============================================================================
+def section_vector_calculus():
+    print("━" * 66)
+    print("9. VECTOR CALCULUS")
+    print("━" * 66 + "\n")
+
+    print("  9.1 Gradient: ∇f = [∂f/∂x, ∂f/∂y, ...]")
+    grad = gradient_str("x^2*y + y^3", ["x", "y"])
+    print("      f(x,y) = x²y + y³")
+    print(f"      ∂f/∂x = {grad[0]}")
+    print(f"      ∂f/∂y = {grad[1]}\n")
+
+    print("  9.2 Hessian Matrix: H[i][j] = ∂²f/∂xᵢ∂xⱼ")
+    hess = hessian_str("x^2*y + y^3", ["x", "y"])
+    print("      f = x²y + y³")
+    print(f"      H = | {hess[0][0]} {hess[0][1]} |")
+    print(f"          | {hess[1][0]} {hess[1][1]} |\n")
+
+    print("  9.3 Jacobian Matrix: J[i][j] = ∂fᵢ/∂xⱼ")
+    jac = jacobian_str(["x^2 + y", "x*y"], ["x", "y"])
+    print("      f₁ = x² + y, f₂ = xy")
+    print(f"      J = | {jac[0][0]} {jac[0][1]} |")
+    print(f"          | {jac[1][0]} {jac[1][1]} |\n")
+
+
+# =============================================================================
+# SECTION 10: AUTOMATIC DIFFERENTIATION
+# =============================================================================
+def section_automatic_differentiation():
+    print("━" * 66)
+    print("10. AUTOMATIC DIFFERENTIATION")
+    print("    Dual Numbers: a + bε where ε² = 0")
+    print("━" * 66 + "\n")
+
+    print("  10.1 Basic Usage")
+    print("      f(x) = x² + 3x + 1, find f(2) and f'(2)")
+
+    x = Dual(2.0, 1.0)
+    fx = x * x + Dual.constant(3.0) * x + Dual.constant(1.0)
+
+    print(f"      f(2)  = {fx.val}")
+    print(f"      f'(2) = {fx.eps}\n")
+
+    print("  10.2 Transcendental Functions")
+    print("      f(x) = sin(x) * exp(x) at x = 1")
+
+    x = Dual(1.0, 1.0)
+    fx = x.sin() * x.exp()
+
+    print(f"      f(1)  = {fx.val:.6f}")
+    print(f"      f'(1) = {fx.eps:.6f}\n")
+
+    print("  10.3 Chain Rule (Automatic)")
+    print("      f(x) = sin(x² + 1), f'(x) = cos(x² + 1) * 2x")
+
+    x = Dual(1.5, 1.0)
+    inner = x * x + Dual.constant(1.0)
+    fx = inner.sin()
+
+    print(f"      f(1.5)  = {fx.val:.6f}")
+    print(f"      f'(1.5) = {fx.eps:.6f}\n")
+
+
+# =============================================================================
+# SECTION 11: PARALLEL EVALUATION
+# =============================================================================
+def section_parallel_evaluation():
+    print("━" * 66)
+    print("11. PARALLEL EVALUATION")
+    print("    Requires 'parallel' feature")
+    print("━" * 66 + "\n")
+
+    print("  11.1 Basic Parallel Evaluation")
+    print("      Evaluate x² at x = 1, 2, 3, 4, 5")
+
     results = evaluate_parallel(
         ["x^2"],
         [["x"]],
@@ -412,8 +420,7 @@ def part10_parallel_evaluation():
     )
     print(f"      Results: {results[0]}\n")
 
-    # 10.2 Multiple expressions
-    print("  10.2 Multiple Expressions in Parallel")
+    print("  11.2 Multiple Expressions in Parallel")
     results = evaluate_parallel(
         ["x^2", "x^3"],
         [["x"], ["x"]],
@@ -425,8 +432,7 @@ def part10_parallel_evaluation():
     print(f"      x²: {results[0]}")
     print(f"      x³: {results[1]}\n")
 
-    # 10.3 Two variables
-    print("  10.3 Two Variables")
+    print("  11.3 Two Variables")
     print("      Evaluate x + y at (x=1,y=10), (x=2,y=20), (x=3,y=30)")
     results = evaluate_parallel(
         ["x + y"],
@@ -435,8 +441,7 @@ def part10_parallel_evaluation():
     )
     print(f"      Results: {results[0]}\n")
 
-    # 10.4 SKIP for partial evaluation
-    print("  10.4 SKIP for Partial Symbolic Evaluation")
+    print("  11.4 SKIP for Partial Symbolic Evaluation")
     print("      Evaluate x*y with x=2,SKIP,4 and y=3,5,6")
     results = evaluate_parallel(
         ["x * y"],
@@ -448,6 +453,209 @@ def part10_parallel_evaluation():
     print(f"      Point 2: x=4, y=6 → {results[0][2]}\n")
 
 
+# =============================================================================
+# SECTION 12: COMPILATION & PERFORMANCE
+# =============================================================================
+def section_compilation_and_performance():
+    print("━" * 66)
+    print("12. COMPILATION & PERFORMANCE")
+    print("    CompiledEvaluator for high-performance repeated evaluation")
+    print("━" * 66 + "\n")
+
+    print("  12.1 Compile Expression")
+    x = Expr("x")
+    expr = x.sin() * x.pow(2) + 1
+    print(f"      Expression: {expr}")
+
+    compiled = CompiledEvaluator(expr, ["x"])
+
+    val = 2.0
+    result = compiled.evaluate([val])
+    print(f"      Result at x={val}: {result}")
+    print(f"      Instructions: {compiled.instruction_count()}\n")
+
+    print("  12.2 Batch Evaluation")
+    inputs = [0.0, 1.0, 2.0, 3.0, 4.0]
+    batch_results = compiled.eval_batch([inputs])
+    print(f"      Inputs: {inputs}")
+    print(f"      Results: {batch_results}\n")
+
+    # 12.3 Compilation with Context (Custom Functions)
+    print("  12.3 Compilation with Custom Functions")
+    # Define body callback
+    def my_sq_body(args):
+        return args[0] ** 2.0
+
+    # Create Context with function (using new API signature: body first, partials list)
+    ctx = Context().with_function("my_sq", 1, my_sq_body, [])
+
+    # Create expression calling custom function
+    # We rely on parse here since Expr builder for functions might not be exposed directly
+    from symb_anafis import parse
+    expr_custom = parse("my_sq(x) + 5", custom_functions=["my_sq"])
+    print(f"      Expression: {expr_custom}")
+
+    # Compile with context (newly supported in bindings)
+    compiled_ctx = CompiledEvaluator(expr_custom, ["x"], ctx)
+
+    res = compiled_ctx.evaluate([3.0])
+    print(f"      my_sq(3) + 5 = {res} (expected: 14.0)\n")
+
+
+# =============================================================================
+# SECTION 13: BUILT-IN FUNCTIONS
+# =============================================================================
+def section_builtin_functions():
+    print("━" * 66)
+    print("13. BUILT-IN FUNCTIONS")
+    print("    60+ functions with symbolic differentiation and numeric eval")
+    print("━" * 66 + "\n")
+
+    print("  TRIGONOMETRIC:")
+    print("    sin, cos, tan, cot, sec, csc\n")
+
+    print("  INVERSE TRIG:")
+    print("    asin, acos, atan, atan2, acot, asec, acsc\n")
+
+    print("  HYPERBOLIC:")
+    print("    sinh, cosh, tanh, coth, sech, csch\n")
+
+    print("  INVERSE HYPERBOLIC:")
+    print("    asinh, acosh, atanh, acoth, asech, acsch\n")
+
+    print("  EXPONENTIAL & LOGARITHMIC:")
+    print("    exp, ln, log(base, x), log10, log2\n")
+
+    print("  POWERS & ROOTS:")
+    print("    sqrt, cbrt, x**n\n")
+
+    print("  SPECIAL FUNCTIONS:")
+    print("    gamma, digamma, trigamma, polygamma(n, x)")
+    print("    erf, erfc, zeta, beta(a, b)\n")
+
+    print("  BESSEL FUNCTIONS:")
+    print("    besselj(n, x), bessely(n, x), besseli(n, x), besselk(n, x)\n")
+
+    print("  ORTHOGONAL POLYNOMIALS:")
+    print("    hermite(n, x), assoc_legendre(l, m, x)\n")
+
+    print("  SPHERICAL HARMONICS:")
+    print("    spherical_harmonic(l, m, theta, phi), ynm(l, m, theta, phi)\n")
+
+    print("  OTHER:")
+    print("    abs, signum, sinc, lambertw, floor, ceil, round\n")
+
+    print("  Example Derivatives:")
+    examples = [
+        ("gamma(x)", "x"),
+        ("erf(x)", "x"),
+        ("besselj(0, x)", "x"),
+        ("atan2(y, x)", "x"),
+    ]
+    for expr, var in examples:
+        result = diff(expr, var)
+        print(f"    d/d{var} [{expr}] = {result}")
+    print()
+
+
+# =============================================================================
+# SECTION 14: EXPRESSION SYNTAX
+# =============================================================================
+def section_expression_syntax():
+    print("━" * 66)
+    print("14. EXPRESSION SYNTAX")
+    print("━" * 66 + "\n")
+
+    print("  Elements:")
+    print("    Variables:      x, y, sigma, theta, phi")
+    print("    Numbers:        1, 3.14, 1e-5")
+    print("    Operators:      +, -, *, /, ^")
+    print("    Functions:      sin(x), log(10, x)")
+    print("    Constants:      pi, e (auto-recognized)")
+    print("    Implicit mult:  2x, (x+1)(x-1)")
+    print()
+
+    print("  Operator Precedence:")
+    print("    Highest: ^ (power, right-associative)")
+    print("    Medium:  *, / (left-associative)")
+    print("    Lowest:  +, - (left-associative)")
+    print()
+
+    print("  Syntax Examples:")
+    examples = [
+        "x^2 + 3*x + 1",
+        "sin(x)^2 + cos(x)^2",
+        "2*(x + y)",
+        "x^2 * y + y^3",
+        "log(10, x)",
+        "besselj(0, x)",
+        "atan2(y, x)",
+    ]
+    for expr in examples:
+        result = simplify(expr)
+        print(f"    {expr:20s} → {result}")
+    print()
+
+
+# =============================================================================
+# SECTION 15: ERROR HANDLING
+# =============================================================================
+def section_error_handling():
+    print("━" * 66)
+    print("15. ERROR HANDLING")
+    print("━" * 66 + "\n")
+
+    print("  All functions return Result<T, DiffError>:")
+    print()
+
+    # Example 1: Empty formula
+    print("  1. Empty Formula:")
+    try:
+        result = diff("", "x")
+        print(f"     Result: {result}")
+    except Exception as e:
+        print(f"     Error: {type(e).__name__}")
+
+    # Example 2: Invalid syntax
+    print("  2. Invalid Syntax:")
+    try:
+        result = diff("((", "x")
+        print(f"     Result: {result}")
+    except Exception as e:
+        print(f"     Error: {type(e).__name__}: {e}")
+
+    # Example 3: Invalid number
+    print("  3. Invalid Number:")
+    try:
+        result = diff("x^abc", "x")
+        print(f"     Result: {result}")
+    except Exception as e:
+        print(f"     Error: {type(e).__name__}: {e}")
+
+    # Example 4: Variable conflict (using known_symbols)
+    print("  4. Variable Conflict:")
+    try:
+        # This would be equivalent to passing x in known_symbols and differentiating w.r.t. x
+        result = diff("x^2", "x")  # This should work normally
+        print(f"     Result: {result}")
+        print("     (Note: Python API doesn't expose known_symbols conflict directly)")
+    except Exception as e:
+        print(f"     Error: {type(e).__name__}: {e}")
+
+    print()
+    print("  Common Error Types:")
+    print("    EmptyFormula")
+    print("    InvalidSyntax")
+    print("    InvalidNumber")
+    print("    InvalidToken")
+    print("    UnexpectedToken")
+    print("    UnexpectedEndOfInput")
+    print("    InvalidFunctionCall")
+    print("    VariableInBothFixedAndDiff")
+    print("    NameCollision")
+    print("    UnsupportedOperation")
+    print()
+
+
 if __name__ == "__main__":
     main()
-

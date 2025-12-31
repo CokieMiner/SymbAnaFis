@@ -111,7 +111,7 @@ mod api_tests {
     fn test_diff_builder_differentiate_expr() {
         let x = symb("x");
         let expr = x.clone().pow(2.0);
-        let result = Diff::new().differentiate(expr, &x).unwrap();
+        let result = Diff::new().differentiate(&expr, &x).unwrap();
         // Result should be 2x
         assert!(format!("{}", result).contains("2") && format!("{}", result).contains("x"));
     }
@@ -137,7 +137,7 @@ mod api_tests {
     fn test_simplify_builder_simplify_expr() {
         let x = symb("x");
         let expr = x + Expr::number(0.0);
-        let result = Simplify::new().simplify(expr).unwrap();
+        let result = Simplify::new().simplify(&expr).unwrap();
         assert_eq!(format!("{}", result), "x");
     }
 
@@ -351,7 +351,7 @@ mod api_tests {
 
         // Differentiate with respect to x
         let diff = Diff::new();
-        let derivative = diff.differentiate(expr, &x_sym).unwrap();
+        let derivative = diff.differentiate(&expr, &x_sym).unwrap();
         // d/dx(x^2 * y + sin(x)) = 2xy + cos(x)
 
         // Now evaluate with specific values
@@ -1180,7 +1180,7 @@ mod custom_fn_differentiation_tests {
 
         let result = Diff::new()
             .user_fn("custom_mul", custom_fn)
-            .differentiate(expr, &t)
+            .differentiate(&expr, &t)
             .unwrap();
 
         // The result should simplify to 3*t^2
@@ -1212,7 +1212,7 @@ mod custom_fn_differentiation_tests {
         // d/dx custom_f(x) = 2x * 1 = 2x
         let result = Diff::new()
             .user_fn("custom_f", custom_fn)
-            .differentiate(expr, &x)
+            .differentiate(&expr, &x)
             .unwrap();
 
         let result_str = format!("{}", result);
@@ -1252,7 +1252,7 @@ mod custom_fn_differentiation_tests {
 
         let result = Diff::new()
             .user_fn("my_func", custom_fn)
-            .differentiate(f_call, &x)
+            .differentiate(&f_call, &x)
             .unwrap();
 
         let result_str = format!("{}", result);
@@ -1288,7 +1288,7 @@ mod custom_fn_differentiation_tests {
 
         let result = Diff::new()
             .user_fn("f", custom_fn)
-            .differentiate(f_call, &x)
+            .differentiate(&f_call, &x)
             .unwrap();
 
         let result_str = format!("{}", result);
@@ -1317,7 +1317,7 @@ mod custom_fn_differentiation_tests {
 
         let result = Diff::new()
             .user_fn("g", custom_fn)
-            .differentiate(f_call, &x)
+            .differentiate(&f_call, &x)
             .unwrap();
 
         let result_str = format!("{}", result);

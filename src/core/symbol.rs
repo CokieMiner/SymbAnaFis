@@ -241,7 +241,7 @@ impl Ord for InternedSymbol {
 /// let expr = a + a;  // Works! No clone needed.
 /// assert!(format!("{}", expr).contains("symbol_doc_a"));
 /// ```
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Symbol(u64); // Just the ID - lightweight and Copy!
 
 impl Symbol {
@@ -259,11 +259,14 @@ impl Symbol {
     /// They cannot be retrieved by name and are useful for intermediate computations.
     pub fn anon() -> Self {
         let interned = InternedSymbol::new_anon();
-        let id = interned.id();
-        // Register in ID registry for lookup
-        let mut id_registry = get_id_registry_mut();
-        id_registry.insert(id, interned);
-        Symbol(id)
+        // Optimization: Don't register anonymous symbols in the global registry.
+        // This avoids:
+        // 1. Global Write Lock contention (performance)
+        // 2. Memory leaks (registry growing indefinitely with temp symbols)
+        //
+        // Symbol::to_expr() and name() handle missing registry entries gracefully
+        // by assuming they are anonymous.
+        Symbol(interned.id())
     }
 
     /// Get the symbol's unique ID
@@ -290,9 +293,12 @@ impl Symbol {
         if let Some(interned) = lookup_by_id(self.0) {
             Expr::from_interned(interned)
         } else {
-            // Fallback: create anonymous symbol expression
-            // This shouldn't happen in normal use
-            Expr::from_interned(InternedSymbol::new_anon())
+            // Optimization: If not found, it's an anonymous symbol (unregistered)
+            // Reconstruct it on the fly to avoid registry lookup requirement
+            Expr::from_interned(InternedSymbol {
+                id: self.0,
+                name: None,
+            })
         }
     }
 
@@ -345,6 +351,44 @@ impl Symbol {
     /// ```
     pub fn log(&self, base: impl Into<Expr>) -> Expr {
         Expr::func_multi("log", vec![base.into(), self.to_expr()])
+    }
+
+    /// Two-argument arctangent: atan2(self, x) = angle to point (x, self)
+    pub fn atan2(&self, x: impl Into<Expr>) -> Expr {
+        Expr::func_multi("atan2", vec![self.to_expr(), x.into()])
+    }
+
+    /// Hermite polynomial H_n(self)
+    pub fn hermite(&self, n: impl Into<Expr>) -> Expr {
+        Expr::func_multi("hermite", vec![n.into(), self.to_expr()])
+    }
+
+    /// Associated Legendre polynomial P_l^m(self)
+    pub fn assoc_legendre(&self, l: impl Into<Expr>, m: impl Into<Expr>) -> Expr {
+        Expr::func_multi("assoc_legendre", vec![l.into(), m.into(), self.to_expr()])
+    }
+
+    /// Spherical harmonic Y_l^m(theta, phi) where self is theta
+    pub fn spherical_harmonic(
+        &self,
+        l: impl Into<Expr>,
+        m: impl Into<Expr>,
+        phi: impl Into<Expr>,
+    ) -> Expr {
+        Expr::func_multi(
+            "spherical_harmonic",
+            vec![l.into(), m.into(), self.to_expr(), phi.into()],
+        )
+    }
+
+    /// Alternative spherical harmonic notation Y_l^m(theta, phi)
+    pub fn ynm(&self, l: impl Into<Expr>, m: impl Into<Expr>, phi: impl Into<Expr>) -> Expr {
+        Expr::func_multi("ynm", vec![l.into(), m.into(), self.to_expr(), phi.into()])
+    }
+
+    /// Derivative of Riemann zeta function: zeta^(n)(self)
+    pub fn zeta_deriv(&self, n: impl Into<Expr>) -> Expr {
+        Expr::func_multi("zeta_deriv", vec![n.into(), self.to_expr()])
     }
 }
 
@@ -451,6 +495,17 @@ pub fn clear_symbols() {
 /// Returns true if the symbol was removed, false if it didn't exist.
 /// This completely removes the symbol from both name and ID registries.
 /// Use with caution - any existing Symbol instances will become invalid.
+///
+/// # Warning
+/// Removing a symbol does NOT reset the global ID counter. Creating a new symbol
+/// with the same name afterwards will result in a **different** ID.
+/// ```rust
+/// # use symb_anafis::{symb, remove_symbol};
+/// let x1 = symb("x"); // ID=1
+/// remove_symbol("x");
+/// let x2 = symb("x"); // ID=2 (x1 != x2)
+/// ```
+/// This can lead to subtle bugs where two "x" variables are mathematically distinct.
 ///
 /// # Example
 /// ```
@@ -700,6 +755,11 @@ impl_binary_ops!(symbol_ops Expr, Expr, |s: Expr| s, |r: Expr| r);
 impl_binary_ops!(symbol_ops Expr, Symbol, |s: Expr| s, |r: Symbol| r.to_expr());
 impl_binary_ops!(symbol_ops Expr, &Symbol, |s: Expr| s, |r: &Symbol| r.to_expr());
 impl_binary_ops!(symbol_ops Expr, f64, |s: Expr| s, |r: f64| Expr::number(r));
+impl_binary_ops!(symbol_ops Expr, &Expr, |s: Expr| s, |r: &Expr| r.clone());
+
+// Symbol + &Symbol and Symbol + &Expr
+impl_binary_ops!(symbol_ops Symbol, &Symbol, |s: Symbol| s.to_expr(), |r: &Symbol| r.to_expr());
+impl_binary_ops!(symbol_ops Symbol, &Expr, |s: Symbol| s.to_expr(), |r: &Expr| r.clone());
 
 // &Expr operations (reference - allows &expr + &expr without explicit .clone())
 impl_binary_ops!(
@@ -744,6 +804,13 @@ impl Sub<Expr> for f64 {
     type Output = Expr;
     fn sub(self, rhs: Expr) -> Expr {
         Expr::sub_expr(Expr::number(self), rhs)
+    }
+}
+
+impl Div<Expr> for f64 {
+    type Output = Expr;
+    fn div(self, rhs: Expr) -> Expr {
+        Expr::div_expr(Expr::number(self), rhs)
     }
 }
 
@@ -804,6 +871,141 @@ impl Div<&Expr> for f64 {
     }
 }
 
+// f64 on left side with &Symbol
+impl Add<&Symbol> for f64 {
+    type Output = Expr;
+    fn add(self, rhs: &Symbol) -> Expr {
+        Expr::add_expr(Expr::number(self), rhs.to_expr())
+    }
+}
+
+impl Sub<&Symbol> for f64 {
+    type Output = Expr;
+    fn sub(self, rhs: &Symbol) -> Expr {
+        Expr::sub_expr(Expr::number(self), rhs.to_expr())
+    }
+}
+
+impl Mul<&Symbol> for f64 {
+    type Output = Expr;
+    fn mul(self, rhs: &Symbol) -> Expr {
+        Expr::mul_expr(Expr::number(self), rhs.to_expr())
+    }
+}
+
+impl Div<&Symbol> for f64 {
+    type Output = Expr;
+    fn div(self, rhs: &Symbol) -> Expr {
+        Expr::div_expr(Expr::number(self), rhs.to_expr())
+    }
+}
+
+// =============================================================================
+// i32 operators (Symbol/Expr on left side)
+// =============================================================================
+
+// Symbol + i32
+impl_binary_ops!(symbol_ops Symbol, i32, |s: Symbol| s.to_expr(), |r: i32| Expr::number(r as f64));
+impl_binary_ops!(
+    symbol_ops & Symbol,
+    i32,
+    |s: &Symbol| s.to_expr(),
+    |r: i32| Expr::number(r as f64)
+);
+
+// Expr + i32
+impl_binary_ops!(symbol_ops Expr, i32, |s: Expr| s, |r: i32| Expr::number(r as f64));
+impl_binary_ops!(symbol_ops & Expr, i32, |e: &Expr| e.clone(), |r: i32| {
+    Expr::number(r as f64)
+});
+
+// i32 on left side with Symbol
+impl Add<Symbol> for i32 {
+    type Output = Expr;
+    fn add(self, rhs: Symbol) -> Expr {
+        Expr::add_expr(Expr::number(self as f64), rhs.to_expr())
+    }
+}
+
+impl Sub<Symbol> for i32 {
+    type Output = Expr;
+    fn sub(self, rhs: Symbol) -> Expr {
+        Expr::sub_expr(Expr::number(self as f64), rhs.to_expr())
+    }
+}
+
+impl Mul<Symbol> for i32 {
+    type Output = Expr;
+    fn mul(self, rhs: Symbol) -> Expr {
+        Expr::mul_expr(Expr::number(self as f64), rhs.to_expr())
+    }
+}
+
+impl Div<Symbol> for i32 {
+    type Output = Expr;
+    fn div(self, rhs: Symbol) -> Expr {
+        Expr::div_expr(Expr::number(self as f64), rhs.to_expr())
+    }
+}
+
+// i32 on left side with Expr
+impl Add<Expr> for i32 {
+    type Output = Expr;
+    fn add(self, rhs: Expr) -> Expr {
+        Expr::add_expr(Expr::number(self as f64), rhs)
+    }
+}
+
+impl Sub<Expr> for i32 {
+    type Output = Expr;
+    fn sub(self, rhs: Expr) -> Expr {
+        Expr::sub_expr(Expr::number(self as f64), rhs)
+    }
+}
+
+impl Mul<Expr> for i32 {
+    type Output = Expr;
+    fn mul(self, rhs: Expr) -> Expr {
+        Expr::mul_expr(Expr::number(self as f64), rhs)
+    }
+}
+
+impl Div<Expr> for i32 {
+    type Output = Expr;
+    fn div(self, rhs: Expr) -> Expr {
+        Expr::div_expr(Expr::number(self as f64), rhs)
+    }
+}
+
+// i32 on left side with &Expr
+impl Add<&Expr> for i32 {
+    type Output = Expr;
+    fn add(self, rhs: &Expr) -> Expr {
+        Expr::add_expr(Expr::number(self as f64), rhs.clone())
+    }
+}
+
+impl Sub<&Expr> for i32 {
+    type Output = Expr;
+    fn sub(self, rhs: &Expr) -> Expr {
+        Expr::sub_expr(Expr::number(self as f64), rhs.clone())
+    }
+}
+
+impl Mul<&Expr> for i32 {
+    type Output = Expr;
+    fn mul(self, rhs: &Expr) -> Expr {
+        Expr::mul_expr(Expr::number(self as f64), rhs.clone())
+    }
+}
+
+impl Div<&Expr> for i32 {
+    type Output = Expr;
+    fn div(self, rhs: &Expr) -> Expr {
+        Expr::div_expr(Expr::number(self as f64), rhs.clone())
+    }
+}
+
 // =============================================================================
 // Arc<Expr> conversions (for CustomFn partials ergonomics)
 // =============================================================================
@@ -854,66 +1056,113 @@ pub trait ArcExprExt {
     fn pow(&self, exp: impl Into<Expr>) -> Expr;
 
     // Trigonometric
+    /// Sine function: sin(x)
     fn sin(&self) -> Expr;
+    /// Cosine function: cos(x)
     fn cos(&self) -> Expr;
+    /// Tangent function: tan(x)
     fn tan(&self) -> Expr;
+    /// Cotangent function: cot(x)
     fn cot(&self) -> Expr;
+    /// Secant function: sec(x)
     fn sec(&self) -> Expr;
+    /// Cosecant function: csc(x)
     fn csc(&self) -> Expr;
 
     // Inverse trigonometric
+    /// Arcsine function: asin(x)
     fn asin(&self) -> Expr;
+    /// Arccosine function: acos(x)
     fn acos(&self) -> Expr;
+    /// Arctangent function: atan(x)
     fn atan(&self) -> Expr;
+    /// Arccotangent function: acot(x)
     fn acot(&self) -> Expr;
+    /// Arcsecant function: asec(x)
     fn asec(&self) -> Expr;
+    /// Arccosecant function: acsc(x)
     fn acsc(&self) -> Expr;
 
     // Hyperbolic
+    /// Hyperbolic sine: sinh(x)
     fn sinh(&self) -> Expr;
+    /// Hyperbolic cosine: cosh(x)
     fn cosh(&self) -> Expr;
+    /// Hyperbolic tangent: tanh(x)
     fn tanh(&self) -> Expr;
+    /// Hyperbolic cotangent: coth(x)
     fn coth(&self) -> Expr;
+    /// Hyperbolic secant: sech(x)
     fn sech(&self) -> Expr;
+    /// Hyperbolic cosecant: csch(x)
     fn csch(&self) -> Expr;
 
     // Inverse hyperbolic
+    /// Inverse hyperbolic sine: asinh(x)
     fn asinh(&self) -> Expr;
+    /// Inverse hyperbolic cosine: acosh(x)
     fn acosh(&self) -> Expr;
+    /// Inverse hyperbolic tangent: atanh(x)
     fn atanh(&self) -> Expr;
+    /// Inverse hyperbolic cotangent: acoth(x)
     fn acoth(&self) -> Expr;
+    /// Inverse hyperbolic secant: asech(x)
     fn asech(&self) -> Expr;
+    /// Inverse hyperbolic cosecant: acsch(x)
     fn acsch(&self) -> Expr;
 
     // Exponential/logarithmic
+    /// Exponential function: exp(x) = e^x
     fn exp(&self) -> Expr;
+    /// Natural logarithm: ln(x)
     fn ln(&self) -> Expr;
     /// Logarithm with arbitrary base: `x.log(base)` → `log(base, x)`
     fn log(&self, base: impl Into<Expr>) -> Expr;
+    /// Base-10 logarithm: log10(x)
     fn log10(&self) -> Expr;
+    /// Base-2 logarithm: log2(x)
     fn log2(&self) -> Expr;
+    /// Square root: sqrt(x)
     fn sqrt(&self) -> Expr;
+    /// Cube root: cbrt(x)
     fn cbrt(&self) -> Expr;
 
     // Rounding
+    /// Floor function: floor(x)
     fn floor(&self) -> Expr;
+    /// Ceiling function: ceil(x)
     fn ceil(&self) -> Expr;
+    /// Round to nearest integer: round(x)
     fn round(&self) -> Expr;
 
     // Special functions
+    /// Absolute value: abs(x)
     fn abs(&self) -> Expr;
+    /// Sign function: signum(x)
     fn signum(&self) -> Expr;
+    /// Sinc function: sin(x)/x
     fn sinc(&self) -> Expr;
+    /// Error function: erf(x)
     fn erf(&self) -> Expr;
+    /// Complementary error function: erfc(x)
     fn erfc(&self) -> Expr;
+    /// Gamma function: Γ(x)
     fn gamma(&self) -> Expr;
+    /// Digamma function: ψ(x)
     fn digamma(&self) -> Expr;
+    /// Trigamma function: ψ₁(x)
     fn trigamma(&self) -> Expr;
+    /// Tetragamma function: ψ₂(x)
     fn tetragamma(&self) -> Expr;
+    /// Riemann zeta function: ζ(x)
     fn zeta(&self) -> Expr;
+    /// Lambert W function
     fn lambertw(&self) -> Expr;
+    /// Complete elliptic integral of the first kind: K(x)
     fn elliptic_k(&self) -> Expr;
+    /// Complete elliptic integral of the second kind: E(x)
     fn elliptic_e(&self) -> Expr;
+    /// Exponential with polar representation
     fn exp_polar(&self) -> Expr;
 }
 
@@ -1220,6 +1469,11 @@ impl Expr {
         Expr::func_multi("besselk", vec![n.into(), self])
     }
 
+    /// Derivative of Riemann zeta function: ζ^(n)(self)
+    pub fn zeta_deriv(self, n: impl Into<Expr>) -> Expr {
+        Expr::func_multi("zeta_deriv", vec![n.into(), self])
+    }
+
     /// Logarithm with arbitrary base: `x.log(base)` → `log(base, x)`
     ///
     /// # Example
@@ -1232,6 +1486,34 @@ impl Expr {
     /// ```
     pub fn log(self, base: impl Into<Expr>) -> Expr {
         Expr::func_multi("log", vec![base.into(), self])
+    }
+
+    /// Hermite polynomial H_n(self)
+    pub fn hermite(self, n: impl Into<Expr>) -> Expr {
+        Expr::func_multi("hermite", vec![n.into(), self])
+    }
+
+    /// Associated Legendre polynomial P_l^m(self)
+    pub fn assoc_legendre(self, l: impl Into<Expr>, m: impl Into<Expr>) -> Expr {
+        Expr::func_multi("assoc_legendre", vec![l.into(), m.into(), self])
+    }
+
+    /// Spherical harmonic Y_l^m(theta, phi) where self is theta
+    pub fn spherical_harmonic(
+        self,
+        l: impl Into<Expr>,
+        m: impl Into<Expr>,
+        phi: impl Into<Expr>,
+    ) -> Expr {
+        Expr::func_multi(
+            "spherical_harmonic",
+            vec![l.into(), m.into(), self, phi.into()],
+        )
+    }
+
+    /// Alternative spherical harmonic notation Y_l^m(theta, phi)
+    pub fn ynm(self, l: impl Into<Expr>, m: impl Into<Expr>, phi: impl Into<Expr>) -> Expr {
+        Expr::func_multi("ynm", vec![l.into(), m.into(), self, phi.into()])
     }
 }
 
@@ -1358,5 +1640,299 @@ mod tests {
         // Mixed with functions (which take &self)
         let expr3 = a.sin() + a.cos() + a;
         assert!(format!("{}", expr3).contains("test_copy_a"));
+    }
+
+    // =========================================================================
+    // Comprehensive Expression Building Tests
+    // =========================================================================
+
+    #[test]
+    fn test_symbol_with_f64() {
+        let x = symb("test_f64_x");
+
+        // Symbol + f64
+        let e1 = x + 1.5;
+        assert!(format!("{}", e1).contains("test_f64_x"));
+
+        // f64 + Symbol
+        let e2 = 2.5 + x;
+        assert!(format!("{}", e2).contains("test_f64_x"));
+
+        // All operations
+        let _ = x - 1.0;
+        let _ = x * 2.0;
+        let _ = x / 3.0;
+        let _ = 1.0 - x;
+        let _ = 2.0 * x;
+        let _ = 3.0 / x;
+    }
+
+    #[test]
+    fn test_symbol_with_i32() {
+        let x = symb("test_i32_x");
+
+        // Symbol + i32
+        let e1 = x + 1;
+        assert!(format!("{}", e1).contains("test_i32_x"));
+
+        // i32 + Symbol
+        let e2 = 2 + x;
+        assert!(format!("{}", e2).contains("test_i32_x"));
+
+        // All operations
+        let _ = x - 1;
+        let _ = x * 2;
+        let _ = x / 3;
+        let _ = 1 - x;
+        let _ = 2 * x;
+        let _ = 3 / x;
+    }
+
+    #[test]
+    fn test_symbol_ref_with_f64() {
+        let x = symb("test_ref_f64_x");
+
+        // &Symbol + f64
+        let e1 = &x + 1.5;
+        assert!(format!("{}", e1).contains("test_ref_f64_x"));
+
+        // All operations
+        let _ = &x - 1.0;
+        let _ = &x * 2.0;
+        let _ = &x / 3.0;
+    }
+
+    #[test]
+    fn test_symbol_ref_with_i32() {
+        let x = symb("test_ref_i32_x");
+
+        // &Symbol + i32
+        let e1 = &x + 1;
+        assert!(format!("{}", e1).contains("test_ref_i32_x"));
+
+        // All operations
+        let _ = &x - 1;
+        let _ = &x * 2;
+        let _ = &x / 3;
+    }
+
+    #[test]
+    fn test_expr_with_f64() {
+        let x = symb("test_expr_f64_x");
+        let expr = x.sin();
+
+        // Expr + f64
+        let e1 = expr.clone() + 1.5;
+        assert!(format!("{}", e1).contains("sin"));
+
+        // f64 + Expr
+        let e2 = 2.5 + expr.clone();
+        assert!(format!("{}", e2).contains("sin"));
+
+        // All operations
+        let _ = expr.clone() - 1.0;
+        let _ = expr.clone() * 2.0;
+        let _ = expr.clone() / 3.0;
+        let _ = 1.0 - expr.clone();
+        let _ = 2.0 * expr.clone();
+        let _ = 3.0 / expr;
+    }
+
+    #[test]
+    fn test_expr_with_i32() {
+        let x = symb("test_expr_i32_x");
+        let expr = x.cos();
+
+        // Expr + i32
+        let e1 = expr.clone() + 1;
+        assert!(format!("{}", e1).contains("cos"));
+
+        // i32 + Expr
+        let e2 = 2 + expr.clone();
+        assert!(format!("{}", e2).contains("cos"));
+
+        // All operations
+        let _ = expr.clone() - 1;
+        let _ = expr.clone() * 2;
+        let _ = expr.clone() / 3;
+        let _ = 1 - expr.clone();
+        let _ = 2 * expr.clone();
+        let _ = 3 / expr;
+    }
+
+    #[test]
+    fn test_expr_ref_with_f64() {
+        let x = symb("test_eref_f64_x");
+        let expr = x.exp();
+
+        // &Expr + f64
+        let e1 = &expr + 1.5;
+        assert!(format!("{}", e1).contains("exp"));
+
+        // f64 + &Expr
+        let e2 = 2.5 + &expr;
+        assert!(format!("{}", e2).contains("exp"));
+
+        // All operations
+        let _ = &expr - 1.0;
+        let _ = &expr * 2.0;
+        let _ = &expr / 3.0;
+        let _ = 1.0 - &expr;
+        let _ = 2.0 * &expr;
+        let _ = 3.0 / &expr;
+    }
+
+    #[test]
+    fn test_expr_ref_with_i32() {
+        let x = symb("test_eref_i32_x");
+        let expr = x.ln();
+
+        // &Expr + i32
+        let e1 = &expr + 1;
+        assert!(format!("{}", e1).contains("ln"));
+
+        // i32 + &Expr
+        let e2 = 2 + &expr;
+        assert!(format!("{}", e2).contains("ln"));
+
+        // All operations
+        let _ = &expr - 1;
+        let _ = &expr * 2;
+        let _ = &expr / 3;
+        let _ = 1 - &expr;
+        let _ = 2 * &expr;
+        let _ = 3 / &expr;
+    }
+
+    #[test]
+    fn test_symbol_with_symbol() {
+        let x = symb("test_ss_x");
+        let y = symb("test_ss_y");
+
+        // Symbol + Symbol
+        let e1 = x + y;
+        assert!(format!("{}", e1).contains("test_ss_x"));
+        assert!(format!("{}", e1).contains("test_ss_y"));
+
+        // &Symbol + Symbol
+        let e2 = x + y;
+        assert!(format!("{}", e2).contains("test_ss_x"));
+
+        // Symbol + &Symbol
+        let e3 = x + y;
+        assert!(format!("{}", e3).contains("test_ss_y"));
+
+        // &Symbol + &Symbol
+        let e4 = x + y;
+        assert!(format!("{}", e4).contains("test_ss_x"));
+        assert!(format!("{}", e4).contains("test_ss_y"));
+    }
+
+    #[test]
+    fn test_symbol_with_expr() {
+        let x = symb("test_se_x");
+        let y = symb("test_se_y");
+        let expr = y.sin();
+
+        // Symbol + Expr
+        let e1 = x + expr.clone();
+        assert!(format!("{}", e1).contains("test_se_x"));
+        assert!(format!("{}", e1).contains("sin"));
+
+        // Expr + Symbol
+        let e2 = expr.clone() + x;
+        assert!(format!("{}", e2).contains("test_se_x"));
+
+        // &Symbol + Expr
+        let e3 = x + expr.clone();
+        assert!(format!("{}", e3).contains("test_se_x"));
+
+        // Symbol + &Expr
+        let e4 = x + &expr;
+        assert!(format!("{}", e4).contains("sin"));
+    }
+
+    #[test]
+    fn test_expr_with_expr() {
+        let x = symb("test_ee_x");
+        let y = symb("test_ee_y");
+        let expr1 = x.sin();
+        let expr2 = y.cos();
+
+        // Expr + Expr
+        let e1 = expr1.clone() + expr2.clone();
+        assert!(format!("{}", e1).contains("sin"));
+        assert!(format!("{}", e1).contains("cos"));
+
+        // &Expr + &Expr
+        let e2 = &expr1 + &expr2;
+        assert!(format!("{}", e2).contains("sin"));
+
+        // &Expr + Expr
+        let e3 = &expr1 + expr2.clone();
+        assert!(format!("{}", e3).contains("sin"));
+
+        // Expr + &Expr
+        let e4 = expr1 + &expr2;
+        assert!(format!("{}", e4).contains("cos"));
+    }
+
+    #[test]
+    fn test_mixed_complex_expression() {
+        let x = symb("test_mix_x");
+        let y = symb("test_mix_y");
+
+        // Complex expression mixing all types
+        // (x + 1) * (y - 2.0) + 3 * x.sin()
+        let expr = (x + 1) * (y - 2.0) + 3 * x.sin();
+        let s = format!("{}", expr);
+        assert!(s.contains("test_mix_x"));
+        assert!(s.contains("test_mix_y"));
+        assert!(s.contains("sin"));
+    }
+
+    #[test]
+    fn test_negation() {
+        let x = symb("test_neg_x");
+        let expr = x.sin();
+
+        // -Symbol
+        let e1 = -x;
+        assert!(format!("{}", e1).contains("test_neg_x"));
+
+        // -&Symbol
+        let e2 = -&x;
+        assert!(format!("{}", e2).contains("test_neg_x"));
+
+        // -Expr
+        let e3 = -expr.clone();
+        assert!(format!("{}", e3).contains("sin"));
+
+        // -&Expr
+        let e4 = -&expr;
+        assert!(format!("{}", e4).contains("sin"));
+    }
+
+    #[test]
+    fn test_power_with_all_types() {
+        let x = symb("test_pow_all_x");
+
+        // Symbol.pow(f64)
+        let e1 = x.pow(2.0);
+        assert!(format!("{}", e1).contains("^2"));
+
+        // Symbol.pow(i32)
+        let e2 = x.pow(3);
+        assert!(format!("{}", e2).contains("^3"));
+
+        // Symbol.pow(Expr)
+        let y = symb("test_pow_all_y");
+        let e3 = x.pow(y);
+        assert!(format!("{}", e3).contains("test_pow_all_y"));
+
+        // Expr.pow(f64)
+        let expr = x.sin();
+        let e4 = expr.pow(2.0);
+        assert!(format!("{}", e4).contains("sin"));
     }
 }

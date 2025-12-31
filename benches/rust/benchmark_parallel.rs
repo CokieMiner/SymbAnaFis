@@ -32,7 +32,7 @@ fn bench_eval_methods(c: &mut Criterion) {
         let diff_expr = parse(&diff_str, &empty, &empty, None).unwrap();
 
         // Use compile_auto to include all variables
-        let evaluator = CompiledEvaluator::compile_auto(&diff_expr);
+        let evaluator = CompiledEvaluator::compile_auto(&diff_expr, None);
         if evaluator.is_err() {
             eprintln!("Skipping {} - compile error", name);
             continue;
@@ -136,7 +136,7 @@ fn bench_eval_scaling(c: &mut Criterion) {
 
     let diff_str = symb_anafis::diff(expr_str, var, &[], None).unwrap();
     let diff_expr = parse(&diff_str, &empty, &empty, None).unwrap();
-    let evaluator = CompiledEvaluator::compile(&diff_expr, &[var]).unwrap();
+    let evaluator = CompiledEvaluator::compile(&diff_expr, &[var], None).unwrap();
 
     let point_counts = [100, 1000, 10000, 100000];
 
@@ -205,7 +205,7 @@ fn bench_multi_expr(c: &mut Criterion) {
     for (_, expr_str, var) in &exprs_str {
         let diff_str = symb_anafis::diff(expr_str, var, &[], None).unwrap();
         let diff_expr = parse(&diff_str, &empty, &empty, None).unwrap();
-        if let Ok(eval) = CompiledEvaluator::compile(&diff_expr, &[var]) {
+        if let Ok(eval) = CompiledEvaluator::compile(&diff_expr, &[var], None) {
             diff_exprs.push(diff_expr);
             evaluators.push(eval);
             vars.push(*var);

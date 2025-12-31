@@ -1065,12 +1065,12 @@ impl Expr {
 
     /// Differentiate with respect to a variable
     pub fn diff(&self, var: &str) -> Result<Expr, crate::DiffError> {
-        crate::Diff::new().differentiate(self.clone(), &crate::symb(var))
+        crate::Diff::new().differentiate(self, &crate::symb(var))
     }
 
     /// Simplify this expression
     pub fn simplified(&self) -> Result<Expr, crate::DiffError> {
-        crate::Simplify::new().simplify(self.clone())
+        crate::Simplify::new().simplify(self)
     }
 
     /// Compile this expression for fast numerical evaluation
@@ -1091,17 +1091,32 @@ impl Expr {
     /// assert!((result_at_3 - 15.0).abs() < 1e-10);
     /// ```
     pub fn compile(&self) -> Result<crate::core::evaluator::CompiledEvaluator, crate::DiffError> {
-        crate::core::evaluator::CompiledEvaluator::compile_auto(self)
+        crate::core::evaluator::CompiledEvaluator::compile_auto(self, None)
     }
 
     /// Compile this expression with explicit parameter ordering
     ///
-    /// Use when you need control over the parameter order in `evaluate()`.
-    pub fn compile_with_params(
+    /// Accepts `&[&str]`, `&[&Symbol]`, or any type implementing `ToParamName`.
+    ///
+    /// # Example
+    /// ```
+    /// use symb_anafis::symb;
+    ///
+    /// let x = symb("x");
+    /// let y = symb("y");
+    /// let expr = x.pow(2.0) + y;
+    ///
+    /// // Using strings
+    /// let compiled = expr.compile_with_params(&["x", "y"]).unwrap();
+    ///
+    /// // Using symbols
+    /// let compiled = expr.compile_with_params(&[&x, &y]).unwrap();
+    /// ```
+    pub fn compile_with_params<P: crate::core::evaluator::ToParamName>(
         &self,
-        param_order: &[&str],
+        param_order: &[P],
     ) -> Result<crate::core::evaluator::CompiledEvaluator, crate::DiffError> {
-        crate::core::evaluator::CompiledEvaluator::compile(self, param_order)
+        crate::core::evaluator::CompiledEvaluator::compile(self, param_order, None)
     }
 
     /// Fold over the expression tree (pre-order)

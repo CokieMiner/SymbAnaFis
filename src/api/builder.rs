@@ -11,11 +11,12 @@
 //!
 //! let derivative = Diff::new()
 //!     .domain_safe(true)
-//!     .differentiate(expr, &x)
+//!     .differentiate(&expr, &x)
 //!     .unwrap();
 //! assert!(!format!("{}", derivative).is_empty());
 //! ```
 
+use crate::core::evaluator::ToParamName;
 use crate::core::unified_context::{Context, UserFunction};
 use crate::{DiffError, Expr, Symbol, parser, simplification};
 use std::collections::HashMap;
@@ -30,6 +31,7 @@ pub struct Diff {
     max_depth: Option<usize>,
     max_nodes: Option<usize>,
     context: Option<Context>,
+    known_symbols: HashSet<String>,
 }
 
 impl Diff {
@@ -80,8 +82,26 @@ impl Diff {
         self
     }
 
+    /// Register a variable as constant during differentiation
+    #[inline]
+    pub fn fixed_var<P: ToParamName>(mut self, var: P) -> Self {
+        let (_, name) = var.to_param_id_and_name();
+        self.known_symbols.insert(name);
+        self
+    }
+
+    /// Register multiple variables as constants during differentiation
+    #[inline]
+    pub fn fixed_vars<P: ToParamName>(mut self, vars: &[P]) -> Self {
+        for var in vars {
+            let (_, name) = var.to_param_id_and_name();
+            self.known_symbols.insert(name);
+        }
+        self
+    }
+
     /// Differentiate an expression with respect to a variable
-    pub fn differentiate(&self, expr: Expr, var: &Symbol) -> Result<Expr, DiffError> {
+    pub fn differentiate(&self, expr: &Expr, var: &Symbol) -> Result<Expr, DiffError> {
         let var_name = var.name().unwrap_or_default();
         self.differentiate_by_name(expr, &var_name)
     }
@@ -116,8 +136,13 @@ impl Diff {
         }
     }
 
-    /// Differentiate an expression with respect to a variable name (internal API)
-    pub(crate) fn differentiate_by_name(&self, expr: Expr, var: &str) -> Result<Expr, DiffError> {
+    pub(crate) fn differentiate_by_name(&self, expr: &Expr, var: &str) -> Result<Expr, DiffError> {
+        if self.known_symbols.contains(var) {
+            return Err(DiffError::VariableInBothFixedAndDiff {
+                var: var.to_string(),
+            });
+        }
+
         if let Some(max_d) = self.max_depth
             && expr.max_depth() > max_d
         {
@@ -138,7 +163,7 @@ impl Diff {
 
         let simplified = simplification::simplify_expr(
             derivative,
-            HashSet::new(),
+            self.known_symbols.clone(),
             self.build_bodies_map(),
             self.max_depth,
             None,
@@ -168,7 +193,8 @@ impl Diff {
         var: &str,
         known_symbols: &[&str],
     ) -> Result<String, DiffError> {
-        let symbols: HashSet<String> = known_symbols.iter().map(|s| s.to_string()).collect();
+        let mut symbols: HashSet<String> = known_symbols.iter().map(|s| s.to_string()).collect();
+        symbols.extend(self.known_symbols.clone());
 
         if symbols.contains(var) {
             return Err(DiffError::VariableInBothFixedAndDiff {
@@ -184,6 +210,13 @@ impl Diff {
             }
         }
 
+        // Check for conflicts between builder's known_symbols and custom functions
+        for func in &custom_functions {
+            if self.known_symbols.contains(func) {
+                return Err(DiffError::NameCollision { name: func.clone() });
+            }
+        }
+
         let ast = parser::parse(formula, &symbols, &custom_functions, self.context.as_ref())?;
 
         let var_sym = if let Some(ctx) = &self.context {
@@ -192,7 +225,7 @@ impl Diff {
             crate::symb(var)
         };
 
-        let result = self.differentiate(ast, &var_sym)?;
+        let result = self.differentiate(&ast, &var_sym)?;
         Ok(format!("{}", result))
     }
 }
@@ -205,6 +238,7 @@ pub struct Simplify {
     max_depth: Option<usize>,
     max_nodes: Option<usize>,
     context: Option<Context>,
+    known_symbols: HashSet<String>,
 }
 
 impl Simplify {
@@ -248,6 +282,24 @@ impl Simplify {
         self
     }
 
+    /// Register a variable as constant during simplification
+    #[inline]
+    pub fn fixed_var<P: ToParamName>(mut self, var: P) -> Self {
+        let (_, name) = var.to_param_id_and_name();
+        self.known_symbols.insert(name);
+        self
+    }
+
+    /// Register multiple variables as constants during simplification
+    #[inline]
+    pub fn fixed_vars<P: ToParamName>(mut self, vars: &[P]) -> Self {
+        for var in vars {
+            let (_, name) = var.to_param_id_and_name();
+            self.known_symbols.insert(name);
+        }
+        self
+    }
+
     /// Get custom function names for parsing
     fn custom_function_names(&self) -> HashSet<String> {
         self.user_fns.keys().cloned().collect()
@@ -262,7 +314,7 @@ impl Simplify {
     }
 
     /// Simplify an expression
-    pub fn simplify(&self, expr: Expr) -> Result<Expr, DiffError> {
+    pub fn simplify(&self, expr: &Expr) -> Result<Expr, DiffError> {
         if let Some(max_n) = self.max_nodes
             && expr.node_count() > max_n
         {
@@ -270,8 +322,8 @@ impl Simplify {
         }
 
         let result = simplification::simplify_expr(
-            expr,
-            HashSet::new(),
+            expr.clone(),
+            self.known_symbols.clone(),
             self.build_bodies_map(),
             self.max_depth,
             None,
@@ -295,7 +347,8 @@ impl Simplify {
     /// assert_eq!(result, "2*alpha");
     /// ```
     pub fn simplify_str(&self, formula: &str, known_symbols: &[&str]) -> Result<String, DiffError> {
-        let symbols: HashSet<String> = known_symbols.iter().map(|s| s.to_string()).collect();
+        let mut symbols: HashSet<String> = known_symbols.iter().map(|s| s.to_string()).collect();
+        symbols.extend(self.known_symbols.clone());
 
         let ast = parser::parse(
             formula,
@@ -303,7 +356,7 @@ impl Simplify {
             &self.custom_function_names(),
             self.context.as_ref(),
         )?;
-        let result = self.simplify(ast)?;
+        let result = self.simplify(&ast)?;
         Ok(format!("{}", result))
     }
 }
@@ -338,7 +391,7 @@ mod tests {
     fn test_diff_expr() {
         let x = symb("test_diff_x");
         let expr = x.pow(2.0);
-        let result = Diff::new().differentiate(expr, &x).unwrap();
+        let result = Diff::new().differentiate(&expr, &x).unwrap();
         assert_eq!(format!("{}", result), "2*test_diff_x");
     }
 
@@ -384,5 +437,30 @@ mod tests {
 
         let result = f_of_x.evaluate(&vars, &HashMap::new());
         assert_eq!(format!("{}", result), "f(3)");
+    }
+
+    #[test]
+    fn test_fixed_var() {
+        let a = symb("a");
+        let _x = symb("x");
+
+        // Test fixed_var on Diff
+        let result = Diff::new().fixed_var(a).diff_str("a*x", "x", &[]).unwrap();
+        assert_eq!(result, "a");
+
+        // Test fixed_vars on Diff
+        let b = symb("b");
+        let result2 = Diff::new()
+            .fixed_vars(&[&a, &b])
+            .diff_str("a*x + b", "x", &[])
+            .unwrap();
+        assert_eq!(result2, "a");
+
+        // Test fixed_var on Simplify
+        let result3 = Simplify::new()
+            .fixed_var(a)
+            .simplify_str("a + a", &[])
+            .unwrap();
+        assert_eq!(result3, "2*a");
     }
 }

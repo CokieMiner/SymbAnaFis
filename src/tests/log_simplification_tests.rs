@@ -11,12 +11,12 @@ fn test_log_simplification_generic() {
     // simplify expects string? No, simplify function takes formula string.
     // Or I can use builder on expression.
 
-    let simplified = crate::Simplify::new().simplify(expr).unwrap();
+    let simplified = crate::Simplify::new().simplify(&expr).unwrap();
     assert_eq!(simplified.as_number(), Some(0.0));
 
     // log(b, b) = 1
     let expr = b.log(b); // log(b, b)
-    let simplified = crate::Simplify::new().simplify(expr).unwrap();
+    let simplified = crate::Simplify::new().simplify(&expr).unwrap();
     assert_eq!(simplified.as_number(), Some(1.0));
 }
 
@@ -27,7 +27,7 @@ fn test_log_power_rule_generic() {
 
     // log(b, x^2) -> 2 * log(b, abs(x)) (even power)
     let expr = x.pow(2.0).log(b); // log(b, x^2)
-    let simplified = crate::Simplify::new().simplify(expr).unwrap();
+    let simplified = crate::Simplify::new().simplify(&expr).unwrap();
     // Expected: 2 * log(b, abs(x))
     // Structure: Product(2.0, FunctionCall(log, [b, FunctionCall(abs, [x])]))
 
@@ -44,7 +44,7 @@ fn test_log_power_rule_generic_odd() {
 
     // log(b, x^3) -> 3 * log(b, x) (odd power) using domain_safe=false (default)
     let expr = x.pow(3.0).log(b);
-    let simplified = crate::Simplify::new().simplify(expr).unwrap();
+    let simplified = crate::Simplify::new().simplify(&expr).unwrap();
     let s = format!("{}", simplified);
     assert!(s.contains("3*log"));
 }
@@ -56,7 +56,7 @@ fn test_log_sqrt_generic() {
 
     // log(b, sqrt(x)) -> 0.5 * log(b, x)
     let expr = x.sqrt().log(b);
-    let simplified = crate::Simplify::new().simplify(expr).unwrap();
+    let simplified = crate::Simplify::new().simplify(&expr).unwrap();
     let s = format!("{}", simplified);
     println!("{}", s);
     assert!(s.contains("log(b, x)/2"));

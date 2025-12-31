@@ -251,10 +251,37 @@ impl std::fmt::Display for EvalResult {
 /// # Returns
 /// For each expression, a Vec of `EvalResult` at each point.
 /// Output type matches input type (string→String, Expr→Expr).
+/// Didn't want to have wrapper in my lib but this one as to stay >:|
 pub fn evaluate_parallel(
     exprs: Vec<ExprInput>,
     var_names: Vec<Vec<VarInput>>,
     values: Vec<Vec<Vec<Value>>>,
+) -> Result<Vec<Vec<EvalResult>>, DiffError> {
+    // Delegate to the hint-based version with no hints (will compute internally)
+    evaluate_parallel_with_hint(exprs, var_names, values, None)
+}
+
+/// Parallel evaluation with optional pre-computed numeric hints.
+///
+/// When `is_fully_numeric` is provided, it tells the Rust side whether each expression's
+/// values are all numeric, allowing us to skip the O(N) check. This is an optimization
+/// for Python bindings that already scan all values during conversion.
+///
+/// # Arguments
+/// * `exprs` - Vec of expression inputs (Expr or string)
+/// * `var_names` - 2D Vec of variable names for each expression
+/// * `values` - 3D Vec of substitution values
+/// * `is_fully_numeric` - Optional Vec of bools, one per expression. If Some(true), skips
+///   the numeric check and goes directly to the SIMD fast path.
+///
+/// # Returns
+/// For each expression, a Vec of `EvalResult` at each point.
+#[inline]
+pub(crate) fn evaluate_parallel_with_hint(
+    exprs: Vec<ExprInput>,
+    var_names: Vec<Vec<VarInput>>,
+    values: Vec<Vec<Vec<Value>>>,
+    is_fully_numeric: Option<Vec<bool>>,
 ) -> Result<Vec<Vec<EvalResult>>, DiffError> {
     let n_exprs = exprs.len();
     if var_names.len() != n_exprs || values.len() != n_exprs {
@@ -312,15 +339,22 @@ pub fn evaluate_parallel(
 
             // We ignore all_values_numeric check here - we'll check per-point
             // We also rely on compile() to check that all variables are bound
-            if let Ok(compiled) = crate::core::evaluator::CompiledEvaluator::compile(expr, &vars) {
+            if let Ok(compiled) =
+                crate::core::evaluator::CompiledEvaluator::compile(expr, &vars, None)
+            {
                 evaluator = Some(compiled);
             }
 
             if let Some(evaluator) = evaluator {
-                // OPTIMIZATION: Pre-check if ALL values across ALL columns are numeric
-                let globally_numeric = vals
-                    .iter()
-                    .all(|col| col.iter().all(|v| matches!(v, Value::Num(_))));
+                // OPTIMIZATION: Use pre-computed hint if available, otherwise compute
+                let globally_numeric = is_fully_numeric
+                    .as_ref()
+                    .map(|hints| hints.get(expr_idx).copied().unwrap_or(false))
+                    .unwrap_or_else(|| {
+                        // Fallback: compute if no hint provided
+                        vals.iter()
+                            .all(|col| col.iter().all(|v| matches!(v, Value::Num(_))))
+                    });
 
                 if globally_numeric {
                     // ULTRA-FAST PATH: Chunked SIMD evaluation
@@ -329,9 +363,11 @@ pub fn evaluate_parallel(
                     // Run eval_batch (SIMD)
                     const CHUNK_SIZE: usize = 256;
 
-                    let chunks: Vec<Vec<EvalResult>> = (0..n_points)
-                        .step_by(CHUNK_SIZE)
-                        .par_bridge() // Enable parallelism for chunks
+                    // Calculate chunk starts for ordered parallel processing
+                    let chunk_starts: Vec<usize> = (0..n_points).step_by(CHUNK_SIZE).collect();
+
+                    let chunks: Vec<Vec<EvalResult>> = chunk_starts
+                        .into_par_iter() // Parallel iter over indices preserves order
                         .map(|start| {
                             let end = (start + CHUNK_SIZE).min(n_points);
                             let len = end - start;

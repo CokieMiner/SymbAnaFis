@@ -1,196 +1,369 @@
-/// API Showcase: Complete SymbAnaFis Feature Demonstration
+/// API Showcase: Complete SymbAnaFis Feature Demonstration (Rust)
 ///
-/// This example demonstrates ALL the capabilities of SymbAnaFis:
-/// - String-based and Type-Safe APIs
-/// - Differentiation (single variable, multi-variable)
-/// - Simplification
-/// - Numerical Evaluation
-/// - Gradient, Hessian, and Jacobian
-/// - All supported mathematical functions
-/// - Custom derivatives
-/// - Safety features and configuration
+/// This example demonstrates ALL the capabilities of SymbAnaFis from Rust,
+/// following the structure of the API Reference documentation.
 ///
 /// Run with: cargo run --example api_showcase
-use std::collections::HashMap;
+use num_traits::Float;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+
 #[allow(unused_imports)]
 use symb_anafis::{
-    CovEntry, CovarianceMatrix, Diff, Expr, Simplify, Symbol, UserFunction, diff, evaluate_str,
-    gradient, gradient_str, hessian, hessian_str, jacobian, jacobian_str, relative_uncertainty,
-    simplify, symb, uncertainty_propagation,
+    CompiledEvaluator, Context, CovEntry, CovarianceMatrix, Diff, Dual, Expr, Simplify, Symbol,
+    UserFunction, diff, evaluate_str, gradient, gradient_str, hessian, hessian_str, jacobian,
+    jacobian_str, parse, relative_uncertainty, simplify, symb, uncertainty_propagation,
 };
 
 fn main() {
     println!("╔══════════════════════════════════════════════════════════════════╗");
-    println!("║          SYMB ANAFIS: COMPLETE API SHOWCASE                      ║");
-    println!("║          Symbolic Differentiation Library for Rust               ║");
+    println!("║          SYMB ANAFIS: COMPLETE API SHOWCASE (Rust)               ║");
+    println!("║          Symbolic Differentiation Library                        ║");
     println!("╚══════════════════════════════════════════════════════════════════╝\n");
 
-    part1_string_api();
-    part2_type_safe_api();
-    part3_numerical_evaluation();
-    part4_multi_variable_calculus();
-    part5_all_functions();
-    part6_custom_derivatives();
-    part7_safety_features();
-    part8_expression_output();
-    part9_uncertainty_propagation();
+    // Following API_REFERENCE.md structure
+    section_quick_start();
+    section_symbol_management();
+    section_core_functions();
+    section_builder_pattern_api();
+    section_expression_output();
+    section_uncertainty_propagation();
+    section_custom_functions();
+    section_evaluation();
+    section_vector_calculus();
+    section_automatic_differentiation();
     #[cfg(feature = "parallel")]
-    part10_parallel_evaluation();
+    section_parallel_evaluation();
+    #[cfg(feature = "parallel")]
+    section_compilation_and_performance();
+    #[cfg(not(feature = "parallel"))]
+    {
+        println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        println!("11. PARALLEL EVALUATION (requires 'parallel' feature)");
+        println!("    Not available in this build");
+        println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+
+        section_compilation_and_performance();
+    }
+
+    section_builtin_functions();
+    section_expression_syntax();
+    section_error_handling();
 
     println!("\n✅ Showcase Complete!");
 }
 
 // =============================================================================
-// PART 1: STRING-BASED API
+// SECTION 1: QUICK START
 // =============================================================================
-fn part1_string_api() {
-    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    println!("📦 PART 1: STRING-BASED API");
-    println!("   Best for parsing user input, configuration files, web APIs");
-    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+fn section_quick_start() {
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    println!("1. QUICK START");
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
 
-    // 1.1 Simple diff() function
-    println!("  1.1 Simple Differentiation: diff()");
-    let formula = "x^3 + 2*x^2 - 5*x + 1";
-    println!("      Formula: {}", formula);
-    let result = diff(formula, "x", &[], None).unwrap();
-    println!("      d/dx:    {}\n", result);
+    // 1.1 Differentiation
+    println!("  1.1 Differentiation");
+    println!("      Input:  diff(\"x^3 + sin(x)\", \"x\")");
+    let result = diff("x^3 + sin(x)", "x", &[], None).unwrap();
+    println!("      Output: {}\n", result);
 
-    // 1.2 Simple simplify() function
-    println!("  1.2 Simplification: simplify()");
-    let ugly = "x + x + x + 0*y + 1*z";
-    println!("      Before: {}", ugly);
-    let clean = simplify(ugly, &[], None).unwrap();
-    println!("      After:  {}\n", clean);
-
-    // 1.3 Diff builder with options
-    println!("  1.3 Diff Builder with Options");
-    let result = Diff::new()
-        .domain_safe(true) // Enable domain safety checks
-        .diff_str("alpha*x^2 + beta*x + c", "x", &["alpha", "beta"])
-        .unwrap();
-    println!(
-        "      d/dx [αx² + βx + c] with α,β as known symbols: {}\n",
-        result
-    );
-
-    // 1.4 Simplify builder with options
-    println!("  1.4 Simplify Builder with Options");
-    let result = Simplify::new()
-        .domain_safe(true) // Safe simplifications only
-        .simplify_str("k*x + k*y", &[])
-        .unwrap();
-    println!("      Simplified k*x + k*y: {}\n", result);
+    // 1.2 Simplification
+    println!("  1.2 Simplification");
+    println!("      Input:  simplify(\"sin(x)^2 + cos(x)^2\")");
+    let result = simplify("sin(x)^2 + cos(x)^2", &[], None).unwrap();
+    println!("      Output: {}\n", result);
 }
 
 // =============================================================================
-// PART 2: TYPE-SAFE RUSTY API
+// SECTION 2: SYMBOL MANAGEMENT
 // =============================================================================
-fn part2_type_safe_api() {
-    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    println!("🦀 PART 2: TYPE-SAFE RUSTY API");
-    println!("   Best for building expressions programmatically in Rust");
-    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+fn section_symbol_management() {
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    println!("2. SYMBOL MANAGEMENT");
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
 
-    // 2.1 Creating symbols
-    println!("  2.1 Creating Symbols: symb()");
-    let x: Symbol = symb("x");
-    let y: Symbol = symb("y");
-    println!("      Created x and y symbols\n");
+    // 2.1 Creating Symbols with symb()
+    println!("  2.1 Creating Symbols with symb()");
+    let _x: Symbol = symb("x");
+    let _y: Symbol = symb("y");
+    let _alpha: Symbol = symb("alpha");
+    println!("      let x = symb(\"x\");");
+    println!("      let y = symb(\"y\");");
+    println!("      let alpha = symb(\"alpha\");\n");
 
-    // 2.2 Symbol is Copy - no .clone() needed!
-    println!("  2.2 Symbol is Copy - No .clone() Needed!");
-    println!("      Symbols implement Copy, so you can reuse them freely:");
-    let expr1: Expr = x + y; // First use
-    let expr2: Expr = x * y; // Second use - still works!
-    let expr3: Expr = x + x; // Same symbol twice - works!
-    let expr4: Expr = x * x + x; // Three uses - no problem!
-    println!("      x + y   = {}", expr1);
-    println!("      x * y   = {}", expr2);
-    println!("      x + x   = {}", expr3);
-    println!("      x*x + x = {}\n", expr4);
+    // 2.2 Context: Isolated Environments
+    println!("  2.2 Context: Isolated Environments");
+    let ctx1 = Context::new();
+    let ctx2 = Context::new();
 
-    // 2.3 Building expressions with functions (methods take &self)
-    println!("  2.3 Building Expressions with Functions");
-    println!("      All methods take &self, so Symbol can be reused:");
-    let expr_sin = x.sin();
-    let expr_cos = x.cos();
-    let expr_exp = x.exp();
-    let combined = x.sin() + x.cos() + x; // Mix operators and methods!
-    println!("      sin(x)           = {}", expr_sin);
-    println!("      cos(x)           = {}", expr_cos);
-    println!("      exp(x)           = {}", expr_exp);
-    println!("      sin(x)+cos(x)+x  = {}\n", combined);
-
-    // 2.4 Powers and more
-    println!("  2.4 Powers: x.pow(n)");
-    let squared = x.pow(2.0);
-    let cubed = x.pow(3.0);
-    let x2_plus_y2: Expr = x.pow(2.0) + y.pow(2.0);
-    println!("      x²       = {}", squared);
-    println!("      x³       = {}", cubed);
-    println!("      x² + y²  = {}\n", x2_plus_y2);
-
-    // 2.5 Differentiation with Expr
-    println!("  2.5 Differentiating Expression Objects");
-    let f: Expr = x.pow(3.0) + (2.0 * x).sin();
-    println!("      f(x) = {}", f);
-    let df = Diff::new().differentiate(f, &x).unwrap();
-    println!("      f'(x) = {}\n", df);
-
-    // 2.5 Context: Unified Context for Symbols and Functions
-    println!("  2.5 Context: Unified Context for Symbols and Functions");
-    println!("      Create isolated contexts for symbols, fixed vars, and custom functions:\n");
-
-    use symb_anafis::Context;
-
-    let ctx1 = Context::new().with_symbol("x").with_symbol("y");
-    let ctx2 = Context::new().with_symbol("x");
-
-    // Same name, different contexts = different symbols!
     let x1 = ctx1.symb("x");
     let x2 = ctx2.symb("x");
 
+    println!("      let ctx1 = Context::new();");
+    println!("      let ctx2 = Context::new();");
+    println!("      let x1 = ctx1.symb(\"x\");");
+    println!("      let x2 = ctx2.symb(\"x\");");
     println!("      ctx1.symb(\"x\").id() = {}", x1.id());
-    println!("      ctx2.symb(\"x\").id() = {} (different!)", x2.id());
+    println!("      ctx2.symb(\"x\").id() = {} (different!)\n", x2.id());
 
-    // Context methods
-    println!("\n      Context utilities:");
+    // 2.3 Context API Methods
+    println!("  2.3 Context API Methods");
+    println!("      ctx1.is_empty(): {}", ctx1.is_empty());
+    println!("      ctx1.symbol_names(): {:?}", ctx1.symbol_names());
     println!(
-        "        ctx1.contains_symbol(\"x\"): {}",
+        "      ctx1.contains_symbol(\"x\"): {}\n",
         ctx1.contains_symbol("x")
     );
-    println!("        ctx1.symbol_names(): {:?}", ctx1.symbol_names());
 
-    // Build expressions in context
-    let y1 = ctx1.symb("y");
-    let expr = x1 + y1;
-    println!("\n      Expression from ctx1: {}", expr);
-    println!();
-
-    // 2.6 Expr utility methods
-    println!("  2.6 Expression Utility Methods");
-    let complex: Expr = x.pow(2.0) + y.sin();
-    println!("      Expression: {}", complex);
-    println!("      Node count: {}", complex.node_count());
-    println!("      Max depth:  {}", complex.max_depth());
-    println!();
+    // 2.4 Registry Management (Global)
+    println!("  2.4 Global Symbol Registry");
+    println!(
+        "      symbol_exists(\"x\"): {}",
+        symb_anafis::symbol_exists("x")
+    );
+    println!("      symbol_count(): {}", symb_anafis::symbol_count());
+    println!("      symbol_names(): {:?}\n", symb_anafis::symbol_names());
 }
 
 // =============================================================================
-// PART 3: NUMERICAL EVALUATION
+// SECTION 3: CORE FUNCTIONS
 // =============================================================================
-fn part3_numerical_evaluation() {
-    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    println!("🔢 PART 3: NUMERICAL EVALUATION");
-    println!("   Evaluate expressions with specific variable values");
-    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+fn section_core_functions() {
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    println!("3. CORE FUNCTIONS");
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
 
-    // 3.1 Evaluate Expr with HashMap
-    println!("  3.1 Evaluate Expression Objects");
+    // 3.1 diff(formula, var)
+    println!("  3.1 diff(formula, var)");
+    println!("      Differentiate x^2 + 2*x + 1 with respect to x");
+    let result = diff("x^2 + 2*x + 1", "x", &[], None).unwrap();
+    println!("      Result: {}\n", result);
+
+    // 3.2 simplify(formula)
+    println!("  3.2 simplify(formula)");
+    println!("      Simplify x^2 + 2*x + 1");
+    let result = simplify("x^2 + 2*x + 1", &[], None).unwrap();
+    println!("      Result: {}\n", result);
+
+    // 3.3 parse(formula)
+    println!("  3.3 parse(formula)");
+    println!("      parse(\"x^2 + sin(x)\")");
+    let expr = parse("x^2 + sin(x)", &HashSet::new(), &HashSet::new(), None).unwrap();
+    println!("      Result: {}", expr);
+    println!("      Type: Expr\n");
+
+    // 3.3 Type-Safe Expressions (Object-based API)
+    println!("  3.3 Type-Safe Expressions");
+    let x = symb("x");
+    let expr = x.pow(2.0) + x.sin(); // x² + sin(x)
+    println!("      let x = symb(\"x\");");
+    println!("      let expr = x.pow(2.0) + x.sin();");
+    println!("      Result: {}\n", expr);
+}
+
+// =============================================================================
+// SECTION 4: BUILDER PATTERN API
+// =============================================================================
+fn section_builder_pattern_api() {
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    println!("4. BUILDER PATTERN API");
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+
+    // 4.1 Diff Builder
+    println!("  4.1 Diff Builder");
+    println!("      Diff::new().domain_safe(true).fixed_var(\"a\").diff_str(...)");
+    let result = Diff::new()
+        .domain_safe(true)
+        .diff_str("a*x^2 + x", "x", &["a"])
+        .unwrap();
+    println!("      d/dx [ax² + x] with a as constant: {}\n", result);
+
+    // 4.2 Diff Builder Options
+    println!("  4.2 Diff Builder Options");
+    let result = Diff::new()
+        .max_depth(100)
+        .max_nodes(1000)
+        .diff_str("x^3", "x", &[])
+        .unwrap();
+    println!("      With max_depth=100, max_nodes=1000: {}\n", result);
+
+    // 4.3 Simplify Builder
+    println!("  4.3 Simplify Builder");
+    println!("      Simplify::new().domain_safe(true).fixed_var(\"k\").simplify_str(...)");
+    let result = Simplify::new()
+        .domain_safe(true)
+        .fixed_vars(&[&symb("x"), &symb("y")])
+        .simplify_str("k*x + k*y", &["k"])
+        .unwrap();
+    println!("      Simplify k*x + k*y: {}\n", result);
+
+    // 4.4 Differentiating Expression Objects
+    println!("  4.4 Differentiating Expression Objects");
+    let x = symb("x");
+    let f = x.pow(3.0) + x.sin() + 1.0;
+    let df = Diff::new().differentiate(&f, &x).unwrap();
+    println!("      f(x) = {}", f);
+    println!("      f'(x) = {}\n", df);
+
+    // 4.5 Expression Inspection
+    println!("  4.5 Expression Inspection");
+    let y = symb("y");
+    let complex_expr = x.pow(2.0) + y.sin();
+    println!("      Expression: {}", complex_expr);
+    println!("      Node count: {}", complex_expr.node_count());
+    println!("      Max depth:  {}\n", complex_expr.max_depth());
+}
+
+// =============================================================================
+// SECTION 5: EXPRESSION OUTPUT
+// =============================================================================
+fn section_expression_output() {
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    println!("5. EXPRESSION OUTPUT");
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+
     let x = symb("x");
     let y = symb("y");
-    let expr: Expr = x.clone().pow(2.0) + y.clone().pow(2.0);
+    let _sigma = symb("sigma");
+
+    // 5.1 LaTeX Output
+    println!("  5.1 LaTeX Output: to_latex()");
+    let expr1 = x.pow(2.0) / y;
+    let expr2 = x.sin() * y;
+    println!("      x²/y      → {}", expr1.to_latex());
+    println!("      sin(x)·y → {}\n", expr2.to_latex());
+
+    // 5.2 Unicode Output
+    println!("  5.2 Unicode Output: to_unicode()");
+    let pi_expr = symb("pi");
+    let omega = symb("omega");
+    let expr3 = pi_expr + omega.pow(2.0);
+    println!("      π + ω² → {}\n", expr3.to_unicode());
+
+    // 5.3 Standard Display
+    println!("  5.3 Standard Display: Display trait");
+    let expr4 = x.sin() + y.cos();
+    println!("      sin(x) + cos(y) → {}\n", expr4);
+}
+
+// =============================================================================
+// SECTION 6: UNCERTAINTY PROPAGATION
+// =============================================================================
+fn section_uncertainty_propagation() {
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    println!("6. UNCERTAINTY PROPAGATION");
+    println!("   σ_f = √(Σᵢ Σⱼ (∂f/∂xᵢ)(∂f/∂xⱼ) Cov(xᵢ, xⱼ))");
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+
+    // 6.1 Basic Uncertainty (symbolic)
+    println!("  6.1 Basic Uncertainty (symbolic)");
+    let x = symb("x");
+    let y = symb("y");
+    let expr = x + y;
+    println!("      f = x + y");
+    match uncertainty_propagation(&expr, &["x", "y"], None) {
+        Ok(sigma) => println!("      σ_f = {}\n", sigma),
+        Err(e) => println!("      Error: {:?}\n", e),
+    }
+
+    // 6.2 Product Formula Uncertainty
+    println!("  6.2 Product Formula Uncertainty");
+    let expr2 = x * y;
+    println!("      f = x * y");
+    match uncertainty_propagation(&expr2, &["x", "y"], None) {
+        Ok(sigma) => println!("      σ_f = {}\n", sigma),
+        Err(e) => println!("      Error: {:?}\n", e),
+    }
+
+    // 6.3 Numeric Covariance
+    println!("  6.3 Numeric Uncertainty Values");
+    println!("      f = x * y with σ_x = 0.1, σ_y = 0.2");
+    let cov = CovarianceMatrix::diagonal(vec![
+        CovEntry::Num(0.01), // σ_x² = 0.01 (σ_x = 0.1)
+        CovEntry::Num(0.04), // σ_y² = 0.04 (σ_y = 0.2)
+    ]);
+    match uncertainty_propagation(&expr2, &["x", "y"], Some(&cov)) {
+        Ok(sigma) => println!("      σ_f = {}\n", sigma),
+        Err(e) => println!("      Error: {:?}\n", e),
+    }
+
+    // 6.4 Relative Uncertainty
+    println!("  6.4 Relative Uncertainty");
+    let expr3 = x.pow(2.0);
+    println!("      f = x²");
+    match relative_uncertainty(&expr3, &["x"], None) {
+        Ok(rel) => println!("      σ_f/|f| = {}\n", rel),
+        Err(e) => println!("      Error: {:?}\n", e),
+    }
+}
+
+// =============================================================================
+// SECTION 7: CUSTOM FUNCTIONS
+// =============================================================================
+fn section_custom_functions() {
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    println!("7. CUSTOM FUNCTIONS");
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+
+    // 7.1 Single-Argument Custom Derivatives
+    println!("  7.1 Single-Argument Custom Derivatives");
+    println!("      Define: my_func(u) with derivative ∂f/∂u = 2u");
+
+    let _x = symb("x");
+
+    let my_func_partial = UserFunction::new(1..=1)
+        .partial(0, |args: &[Arc<Expr>]| {
+            // ∂f/∂u = 2u
+            Expr::number(2.0) * Expr::from(&args[0])
+        })
+        .expect("valid arg");
+
+    let custom_diff = Diff::new().user_fn("my_func", my_func_partial);
+
+    // Test the custom derivative
+    let result = custom_diff.diff_str("my_func(x^2)", "x", &[]).unwrap();
+    println!("      d/dx[my_func(x²)] = {}", result);
+    println!("      Chain rule: 2u · u' = 2(x²) · 2x = 4x³\n");
+
+    // 7.2 Custom Function with Body (for evaluation)
+    println!("  7.2 Custom Function with Body");
+    println!("      Define: sq(u) = u² with derivative 2u");
+
+    let sq_fn = UserFunction::new(1..=1)
+        .body(|args| Expr::from(&args[0]).pow(2.0))
+        .partial(0, |args: &[Arc<Expr>]| {
+            Expr::number(2.0) * Expr::from(&args[0])
+        })
+        .expect("valid arg");
+
+    let sq_diff = Diff::new().user_fn("sq", sq_fn);
+    let result = sq_diff.diff_str("sq(x)", "x", &[]).unwrap();
+    println!("      d/dx[sq(x)] = {}\n", result);
+}
+
+// =============================================================================
+// SECTION 8: EVALUATION
+// =============================================================================
+fn section_evaluation() {
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    println!("8. EVALUATION");
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+
+    // 8.1 evaluate_str() (full evaluation)
+    println!("  8.1 evaluate_str() (full evaluation)");
+    let result = evaluate_str("x * y + 1", &[("x", 3.0), ("y", 2.0)]).unwrap();
+    println!("      x*y + 1 with x=3, y=2 → {} (expected: 7)\n", result);
+
+    // 8.2 evaluate_str() (partial evaluation)
+    println!("  8.2 evaluate_str() (partial evaluation)");
+    let result = evaluate_str("x * y + 1", &[("x", 3.0)]).unwrap();
+    println!("      x*y + 1 with x=3 → {}\n", result);
+
+    // 8.3 Expr.evaluate()
+    println!("  8.3 Expr.evaluate()");
+    let x = symb("x");
+    let y = symb("y");
+    let expr = x.pow(2.0) + y.pow(2.0);
 
     let mut vars: HashMap<&str, f64> = HashMap::new();
     vars.insert("x", 3.0);
@@ -201,54 +374,32 @@ fn part3_numerical_evaluation() {
     if let Some(n) = result.as_number() {
         println!("      Result: {} (expected: 25)\n", n);
     }
-
-    // 3.2 Evaluate using evaluate_str
-    println!("  3.2 Evaluate from String: evaluate_str()");
-    let result = evaluate_str("sin(pi/6)^2 + cos(pi/6)^2", &[]).unwrap();
-    println!("      sin²(π/6) + cos²(π/6) = {} (expected: 1)\n", result);
-
-    // 3.3 Partial evaluation (mixed symbolic/numeric)
-    println!("  3.3 Partial Evaluation");
-    let result = evaluate_str("a*x + b", &[("a", 2.0), ("b", 5.0)]).unwrap();
-    println!("      a*x + b with a=2, b=5 → {}\n", result);
 }
 
 // =============================================================================
-// PART 4: MULTI-VARIABLE CALCULUS
+// SECTION 9: VECTOR CALCULUS
 // =============================================================================
-fn part4_multi_variable_calculus() {
-    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    println!("📐 PART 4: MULTI-VARIABLE CALCULUS");
-    println!("   Gradient, Hessian, and Jacobian computations");
-    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+fn section_vector_calculus() {
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    println!("9. VECTOR CALCULUS");
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
 
-    // 4.1 Gradient (Expr-based)
-    println!("  4.1 Gradient: ∇f = [∂f/∂x, ∂f/∂y, ...]");
-    let x = symb("x");
-    let y = symb("y");
-    let f: Expr = x.clone().pow(2.0) * y + y.clone().pow(3.0);
+    // 9.1 Gradient
+    println!("  9.1 Gradient: ∇f = [∂f/∂x, ∂f/∂y, ...]");
+    let grad = gradient_str("x^2*y + y^3", &["x", "y"]).unwrap();
     println!("      f(x,y) = x²y + y³");
-
-    let grad = gradient(&f, &[&x, &y]).unwrap();
     println!("      ∂f/∂x = {}", grad[0]);
     println!("      ∂f/∂y = {}\n", grad[1]);
 
-    // 4.2 Gradient (String-based)
-    println!("  4.2 Gradient from String: gradient_str()");
-    let grad = gradient_str("sin(x)*cos(y)", &["x", "y"]).unwrap();
-    println!("      f = sin(x)cos(y)");
-    println!("      ∂f/∂x = {}", grad[0]);
-    println!("      ∂f/∂y = {}\n", grad[1]);
-
-    // 4.3 Hessian
-    println!("  4.3 Hessian Matrix: H[i][j] = ∂²f/∂xᵢ∂xⱼ");
+    // 9.2 Hessian Matrix
+    println!("  9.2 Hessian Matrix: H[i][j] = ∂²f/∂xᵢ∂xⱼ");
     let hess = hessian_str("x^2*y + y^3", &["x", "y"]).unwrap();
     println!("      f = x²y + y³");
     println!("      H = | {} {} |", hess[0][0], hess[0][1]);
     println!("          | {} {} |\n", hess[1][0], hess[1][1]);
 
-    // 4.4 Jacobian
-    println!("  4.4 Jacobian Matrix: J[i][j] = ∂fᵢ/∂xⱼ");
+    // 9.3 Jacobian Matrix
+    println!("  9.3 Jacobian Matrix: J[i][j] = ∂fᵢ/∂xⱼ");
     let jac = jacobian_str(&["x^2 + y", "x*y"], &["x", "y"]).unwrap();
     println!("      f₁ = x² + y, f₂ = xy");
     println!("      J = | {} {} |", jac[0][0], jac[0][1]);
@@ -256,52 +407,171 @@ fn part4_multi_variable_calculus() {
 }
 
 // =============================================================================
-// PART 5: ALL SUPPORTED FUNCTIONS
+// SECTION 10: AUTOMATIC DIFFERENTIATION
 // =============================================================================
-fn part5_all_functions() {
-    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    println!("📚 PART 5: ALL SUPPORTED MATHEMATICAL FUNCTIONS");
-    println!("   60+ functions with symbolic differentiation and numeric eval");
-    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+fn section_automatic_differentiation() {
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    println!("10. AUTOMATIC DIFFERENTIATION");
+    println!("    Dual Numbers: a + bε where ε² = 0");
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+
+    // 10.1 Basic Usage
+    println!("  10.1 Basic Usage");
+    println!("      f(x) = x² + 3x + 1, find f(2) and f'(2)");
+
+    // x = 2, x' = 1
+    let x = Dual::new(2.0, 1.0);
+
+    // f(x)
+    let fx = x * x + Dual::new(3.0, 0.0) * x + Dual::new(1.0, 0.0);
+
+    println!("      f(2)  = {} (Value)", fx.val);
+    println!("      f'(2) = {} (Derivative)\n", fx.eps);
+
+    // 10.2 Transcendental Functions
+    println!("  10.2 Transcendental Functions");
+    println!("      f(x) = sin(x) * exp(x) at x = 1");
+
+    let x = Dual::new(1.0, 1.0);
+    let fx = x.sin() * x.exp();
+
+    println!("      f(1)  = {:.6}", fx.val);
+    println!("      f'(1) = {:.6}\n", fx.eps);
+
+    // 10.3 Chain Rule (Automatic)
+    println!("  10.3 Chain Rule (Automatic)");
+    println!("      f(x) = sin(x² + 1), f'(x) = cos(x² + 1) * 2x");
+
+    let x = Dual::new(1.5, 1.0);
+    let inner = x * x + Dual::new(1.0, 0.0); // x² + 1
+    let fx = inner.sin();
+
+    println!("      f(1.5)  = {:.6}", fx.val);
+    println!("      f'(1.5) = {:.6}\n", fx.eps);
+}
+
+// =============================================================================
+// SECTION 11: PARALLEL EVALUATION (requires "parallel" feature)
+// =============================================================================
+#[cfg(feature = "parallel")]
+fn section_parallel_evaluation() {
+    use symb_anafis::eval_f64;
+
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    println!("11. PARALLEL EVALUATION");
+    println!("    Requires 'parallel' feature");
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+
+    // 11.1 High-Performance eval_f64
+    println!("  11.1 High-Performance eval_f64");
+    println!("      Evaluate x² at x = 1, 2, 3, 4, 5");
+
+    let x = symb("x");
+    let expr = x.pow(2.0);
+    let x_data = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+
+    let results = eval_f64(&[&expr], &[&[&x]], &[&[&x_data]]).unwrap();
+    println!("      Results: {:?}\n", results[0]);
+}
+
+// =============================================================================
+// SECTION 12: COMPILATION & PERFORMANCE
+// =============================================================================
+fn section_compilation_and_performance() {
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    println!("12. COMPILATION & PERFORMANCE");
+    println!("    CompiledEvaluator for high-performance repeated evaluation");
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+
+    // 12.1 Compile Expression
+    println!("  12.1 Compile Expression");
+    let x = symb("x");
+    let expr = x.sin() * x.pow(2.0) + Expr::number(1.0);
+    println!("      Expression: {}", expr);
+
+    let compiled = CompiledEvaluator::compile(&expr, &["x"], None).unwrap();
+
+    let val = 2.0;
+    let result = compiled.evaluate(&[val]);
+    println!("      Result at x={}: {}", val, result);
+    println!("      Instructions: {}\n", compiled.instruction_count());
+
+    // 12.2 Batch Evaluation
+    println!("  12.2 Batch Evaluation: eval_batch()");
+    let inputs = vec![0.0, 1.0, 2.0, 3.0, 4.0];
+    let mut batch_result = vec![0.0; inputs.len()];
+    compiled.eval_batch(&[&inputs], &mut batch_result).unwrap();
+    println!("      Inputs: {:?}", inputs);
+    println!("      Results: {:?}\n", batch_result);
+
+    // 12.3 Compilation with Context (Custom Functions)
+    println!("  12.3 Compilation with Custom Functions");
+    let ctx = Context::new().with_function(
+        "my_sq",
+        UserFunction::new(1..=1).body(|args| Expr::from(&args[0]).pow(2.0)),
+    );
+
+    let expr_custom = Expr::func("my_sq", x.to_expr()) + Expr::number(5.0);
+    println!("      Expression: {}", expr_custom);
+
+    let compiled_ctx = CompiledEvaluator::compile(&expr_custom, &["x"], Some(&ctx))
+        .expect("Compilation with context failed");
+
+    let res = compiled_ctx.evaluate(&[3.0]);
+    println!("      my_sq(3) + 5 = {}\n", res);
+}
+
+// =============================================================================
+// SECTION 13: BUILT-IN FUNCTIONS
+// =============================================================================
+fn section_builtin_functions() {
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    println!("13. BUILT-IN FUNCTIONS");
+    println!("    60+ functions with symbolic differentiation and numeric eval");
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
 
     println!("  TRIGONOMETRIC:");
-    println!("    sin(x), cos(x), tan(x), cot(x), sec(x), csc(x)\n");
+    println!("    sin, cos, tan, cot, sec, csc\n");
 
     println!("  INVERSE TRIG:");
-    println!("    asin(x), acos(x), atan(x), acot(x), asec(x), acsc(x)\n");
+    println!("    asin, acos, atan, atan2, acot, asec, acsc\n");
 
     println!("  HYPERBOLIC:");
-    println!("    sinh(x), cosh(x), tanh(x), coth(x), sech(x), csch(x)\n");
+    println!("    sinh, cosh, tanh, coth, sech, csch\n");
 
     println!("  INVERSE HYPERBOLIC:");
-    println!("    asinh(x), acosh(x), atanh(x), acoth(x), asech(x), acsch(x)\n");
+    println!("    asinh, acosh, atanh, acoth, asech, acsch\n");
 
     println!("  EXPONENTIAL & LOGARITHMIC:");
-    println!("    exp(x), ln(x), log(b, x), log10(x), log2(x)\n");
+    println!("    exp, ln, log(base, x), log10, log2\n");
 
     println!("  POWERS & ROOTS:");
-    println!("    sqrt(x), cbrt(x), x^n, x^(1/n)\n");
+    println!("    sqrt, cbrt, x**n\n");
 
     println!("  SPECIAL FUNCTIONS:");
-    println!("    gamma(x), digamma(x), trigamma(x), polygamma(n,x)");
-    println!("    erf(x), erfc(x), zeta(x), beta(a,b)\n");
+    println!("    gamma, digamma, trigamma, polygamma(n, x)");
+    println!("    erf, erfc, zeta, beta(a, b)\n");
 
     println!("  BESSEL FUNCTIONS:");
-    println!("    besselj(n,x), bessely(n,x), besseli(n,x), besselk(n,x)\n");
+    println!("    besselj(n, x), bessely(n, x), besseli(n, x), besselk(n, x)\n");
+
+    println!("  ORTHOGONAL POLYNOMIALS:");
+    println!("    hermite(n, x), assoc_legendre(l, m, x)\n");
+
+    println!("  SPHERICAL HARMONICS:");
+    println!("    spherical_harmonic(l, m, theta, phi), ynm(l, m, theta, phi)\n");
 
     println!("  OTHER:");
-    println!("    abs(x), sign(x), floor(x), ceil(x), round(x)");
-    println!("    sinc(x), lambertw(x)\n");
+    println!("    abs, signum, sinc, lambertw, floor, ceil, round\n");
 
-    // Demonstrate some derivatives
     println!("  Example Derivatives:");
-    let examples = [
+    let examples = vec![
         ("gamma(x)", "x"),
         ("erf(x)", "x"),
         ("besselj(0, x)", "x"),
-        ("lambertw(x)", "x"),
+        ("atan2(y, x)", "x"),
     ];
-    for (expr, var) in &examples {
+    for (expr, var) in examples {
         let result = diff(expr, var, &[], None).unwrap();
         println!("    d/d{} [{}] = {}", var, expr, result);
     }
@@ -309,366 +579,107 @@ fn part5_all_functions() {
 }
 
 // =============================================================================
-// PART 6: CUSTOM FUNCTIONS (DERIVATIVES & EVALUATION)
+// SECTION 14: EXPRESSION SYNTAX
 // =============================================================================
-fn part6_custom_derivatives() {
-    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    println!("✨ PART 6: CUSTOM FUNCTIONS");
-    println!("   Define derivative rules AND evaluation for user-defined functions");
-    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+fn section_expression_syntax() {
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    println!("14. EXPRESSION SYNTAX");
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
 
-    let x = symb("x");
-
-    // 6.1 Custom Derivative with UserFunction
-    println!("  6.1 Custom Derivative Rule: user_fn()");
-    println!("      Define: my_func(u) with partial derivative: \u{2202}f/\u{2202}u = 3u\u{00b2}");
-
-    use std::sync::Arc;
-    use symb_anafis::UserFunction;
-
-    let my_func_partial = UserFunction::new(1..=1)
-        .partial(0, |args: &[Arc<Expr>]| {
-            // \partial my_func / \partial u = 3 * u^2
-            Expr::number(3.0) * Expr::from(&args[0]).pow(Expr::number(2.0))
-        })
-        .expect("valid arg");
-
-    let custom_diff = Diff::new().user_fn("my_func", my_func_partial);
-
-    let my_expr = Expr::func("my_func", x.clone().pow(2.0));
-    println!("      Expression: {}", my_expr);
-
-    let result = custom_diff.differentiate(my_expr, &x).unwrap();
-    println!("      d/dx: {}", result);
-
-    let simplified = Simplify::new().simplify(result).unwrap();
-    println!("      Simplified: {}\n", simplified);
-
-    // 6.2 Custom Evaluation (NEW!)
-    println!("  6.2 Custom Evaluation: custom_eval()");
-    println!("      Define: f(x) = x² + 1 for numerical evaluation");
-
-    // Create f(x)
-    let f_of_x = Expr::func("f", x.to_expr());
-    println!("      Expression: {}", f_of_x);
-
-    // Without custom evaluator: f(3) stays as f(3)
-    let mut vars: HashMap<&str, f64> = HashMap::new();
-    vars.insert("x", 3.0);
-    let result_no_eval = f_of_x.evaluate(&vars, &HashMap::new());
-    println!("      Without custom_eval: f(3) → {}", result_no_eval);
-
-    // With custom evaluator: f(3) computes to 10
-    type CustomEval = Arc<dyn Fn(&[f64]) -> Option<f64> + Send + Sync>;
-    let mut custom_evals: HashMap<String, CustomEval> = HashMap::new();
-    custom_evals.insert(
-        "f".to_string(),
-        Arc::new(|args: &[f64]| Some(args[0].powi(2) + 1.0)), // f(x) = x² + 1
-    );
-    let result_with_eval = f_of_x.evaluate(&vars, &custom_evals);
-    println!(
-        "      With custom_eval:    f(3) → {} (3² + 1 = 10)\n",
-        result_with_eval
-    );
-
-    // 6.3 Combined: Derivative AND Evaluation
-    println!("  6.3 Complete Custom Function: Derivative + Evaluation");
-    println!("      Define g(x) = sin(x)² with known derivative: 2sin(x)cos(x)·x'");
-
-    // Build: g(x²)
-    let g_of_xsq = Expr::func("g", x.clone().pow(2.0));
-    println!("      Expression: {}", g_of_xsq);
-
-    // Setup differentiation with user-defined function and partial
-    let g_fn = UserFunction::new(1..=1)
-        .partial(0, |args: &[Arc<Expr>]| {
-            // \partial g / \partial u = 2*sin(u)*cos(u)
-            let u = Expr::from(&args[0]);
-            Expr::number(2.0) * u.clone().sin() * u.cos()
-        })
-        .expect("valid arg");
-
-    let diff_builder = Diff::new().user_fn("g", g_fn);
-
-    let derivative = diff_builder.differentiate(g_of_xsq.clone(), &x).unwrap();
-    println!("      d/dx[g(x\u{00b2})] = {}", derivative);
-
-    // Setup evaluation: g(x) = sin²(x)
-    let mut g_eval: HashMap<String, CustomEval> = HashMap::new();
-    g_eval.insert(
-        "g".to_string(),
-        Arc::new(|args: &[f64]| Some(args[0].sin().powi(2))), // g(x) = sin²(x)
-    );
-
-    // Evaluate g(x²) at x = π/4 → g(π²/16) = sin²(π²/16)
-    let mut vars2: HashMap<&str, f64> = HashMap::new();
-    let pi_over_4 = std::f64::consts::FRAC_PI_4;
-    vars2.insert("x", pi_over_4);
-    let evaluated = g_of_xsq.evaluate(&vars2, &g_eval);
-    println!("      g(x²) at x=π/4 = {}", evaluated);
-    println!();
-}
-
-// =============================================================================
-// PART 7: SAFETY FEATURES
-// =============================================================================
-fn part7_safety_features() {
-    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    println!("🛡️  PART 7: SAFETY FEATURES & CONFIGURATION");
-    println!("   Prevent resource exhaustion and handle edge cases");
-    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
-
-    // 7.1 Max Depth Limit
-    println!("  7.1 Maximum Expression Depth");
-    let x = symb("x");
-    let mut deep: Expr = x.into();
-    for _ in 0..60 {
-        deep = deep.sin();
-    }
-    println!("      Created expression with depth: {}", deep.max_depth());
-
-    let safe_diff = Diff::new().max_depth(25);
-    match safe_diff.differentiate(deep, &x) {
-        Ok(_) => println!("      Differentiation succeeded"),
-        Err(e) => println!("      ✅ Prevented: {:?}", e),
-    }
+    println!("  Elements:");
+    println!("    Variables:      x, y, sigma, theta, phi");
+    println!("    Numbers:        1, 3.14, 1e-5");
+    println!("    Operators:      +, -, *, /, ^");
+    println!("    Functions:      sin(x), log(10, x)");
+    println!("    Constants:      pi, e (auto-recognized)");
+    println!("    Implicit mult:  2x, (x+1)(x-1)");
     println!();
 
-    // 7.2 Max Node Count Limit
-    println!("  7.2 Maximum Node Count");
-    let x2 = symb("x");
-    let mut broad: Expr = x2.into();
-    for _ in 0..12 {
-        broad = broad.clone() + broad.clone();
-    }
-    println!("      Created expression with {} nodes", broad.node_count());
-
-    let safe_diff = Diff::new().max_nodes(500);
-    match safe_diff.differentiate(broad, &x2) {
-        Ok(_) => println!("      Differentiation succeeded"),
-        Err(e) => println!("      ✅ Prevented: {:?}", e),
-    }
+    println!("  Operator Precedence:");
+    println!("    Highest: ^ (power, right-associative)");
+    println!("    Medium:  *, / (left-associative)");
+    println!("    Lowest:  +, - (left-associative)");
     println!();
 
-    // 7.3 Domain Safety
-    println!("  7.3 Domain Safety Mode");
-    println!("      Diff::new().domain_safe(true)");
-    println!("      Prevents simplifications that could introduce undefined values");
-    println!("      Example: √(x²) = |x| (not x, which fails for x < 0)\n");
-
-    // 7.4 Known Symbols (for parsing)
-    println!("  7.4 Known Symbols (Multi-char variable names)");
-    let result = Diff::new()
-        .diff_str("alpha*x^2 + beta*x + c", "x", &["alpha", "beta"])
-        .unwrap();
-    println!("      With alpha, beta as known symbols:");
-    println!("      d/dx [αx² + βx + c] = {}", result);
-    println!();
-}
-
-// =============================================================================
-// PART 8: EXPRESSION OUTPUT FORMATS
-// =============================================================================
-fn part8_expression_output() {
-    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    println!("🖨️  PART 8: EXPRESSION OUTPUT FORMATS");
-    println!("   LaTeX and Unicode output for beautiful display");
-    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
-
-    let x = symb("x");
-    let y = symb("y");
-    let alpha = symb("alpha");
-    let sigma = symb("sigma");
-
-    // 8.1 LaTeX Output
-    println!("  8.1 LaTeX Output: to_latex()");
-    let expr1: Expr = x.pow(2.0) / y;
-    let expr2: Expr = x.sin() * alpha.pow(2.0) + sigma;
-    let expr3: Expr = x.sqrt() + y.pow(-1.0);
-
-    println!("      x²/y        → {}", expr1.to_latex());
-    println!("      sin(x)·α²+σ → {}", expr2.to_latex());
-    println!("      √x + y⁻¹   → {}\n", expr3.to_latex());
-
-    // 8.2 Unicode Output
-    println!("  8.2 Unicode Output: to_unicode()");
-    let expr4: Expr = symb("pi") + symb("omega").pow(2.0);
-    let expr5: Expr = x.pow(2.0) + x.pow(3.0) + x.pow(-1.0);
-
-    println!("      π + ω²  → {}", expr4.to_unicode());
-    println!("      x² + x³ + x⁻¹ → {}\n", expr5.to_unicode());
-
-    // 8.3 Regular Display
-    println!("  8.3 Standard Display: Display trait");
-    let expr6 = x.sin() + y.cos();
-    println!("      sin(x) + cos(y) → {}\n", expr6);
-}
-
-// =============================================================================
-// PART 9: UNCERTAINTY PROPAGATION
-// =============================================================================
-fn part9_uncertainty_propagation() {
-    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    println!("📊 PART 9: UNCERTAINTY PROPAGATION");
-    println!("   Calculate error propagation using partial derivatives");
-    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
-
-    // 9.1 Basic uncertainty (diagonal covariance)
-    println!("  9.1 Basic Uncertainty: σ_f = √(Σ(∂f/∂xᵢ)²σᵢ²)");
-    let x = symb("x");
-    let y = symb("y");
-    let expr: Expr = x + y;
-    println!("      f = x + y");
-
-    match uncertainty_propagation(&expr, &["x", "y"], None) {
-        Ok(sigma) => println!("      σ_f = {}\n", sigma),
-        Err(e) => println!("      Error: {:?}\n", e),
-    }
-
-    // 9.2 Numeric covariance
-    println!("  9.2 Numeric Covariance Matrix");
-    let expr2: Expr = x * y; // Product formula
-    println!("      f = x * y");
-
-    let cov = CovarianceMatrix::diagonal(vec![
-        CovEntry::Num(0.01), // σ_x² = 0.01 (σ_x = 0.1)
-        CovEntry::Num(0.04), // σ_y² = 0.04 (σ_y = 0.2)
-    ]);
-    println!("      σ_x = 0.1, σ_y = 0.2");
-
-    match uncertainty_propagation(&expr2, &["x", "y"], Some(&cov)) {
-        Ok(sigma) => println!("      σ_f = {}\n", sigma),
-        Err(e) => println!("      Error: {:?}\n", e),
-    }
-
-    // 9.3 Relative uncertainty
-    println!("  9.3 Relative Uncertainty: σ_f / |f|");
-    let expr3: Expr = x.pow(2.0);
-    println!("      f = x²");
-
-    match relative_uncertainty(&expr3, &["x"], None) {
-        Ok(rel) => println!("      σ_f/|f| = {}\n", rel),
-        Err(e) => println!("      Error: {:?}\n", e),
-    }
-}
-
-// =============================================================================
-// PART 10: PARALLEL EVALUATION (requires "parallel" feature)
-// =============================================================================
-#[cfg(feature = "parallel")]
-fn part10_parallel_evaluation() {
-    use symb_anafis::eval_parallel;
-    use symb_anafis::parallel::SKIP;
-
-    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    println!("⚡ PART 10: PARALLEL EVALUATION");
-    println!("   Evaluate multiple expressions at multiple points in parallel");
-    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
-
-    // 10.1 Basic parallel eval
-    println!("  10.1 Basic Parallel Evaluation");
-    println!("      Evaluate x² at x = 1, 2, 3, 4, 5");
-
-    let results = eval_parallel!(
-        exprs: ["x^2"],
-        vars: [["x"]],
-        values: [[[1.0, 2.0, 3.0, 4.0, 5.0]]]
-    )
-    .unwrap();
-
-    print!("      Results: ");
-    for r in &results[0] {
-        print!("{} ", r);
-    }
-    println!("\n");
-
-    // 10.2 Multiple expressions
-    println!("  10.2 Multiple Expressions in Parallel");
-    let x = symb("x");
-    let expr = x.pow(3.0);
-
-    let results = eval_parallel!(
-        exprs: ["x^2", expr],
-        vars: [["x"], ["x"]],
-        values: [
-            [[1.0, 2.0, 3.0]],
-            [[1.0, 2.0, 3.0]]
-        ]
-    )
-    .unwrap();
-
-    println!(
-        "      x²: {:?}",
-        results[0].iter().map(|r| r.to_string()).collect::<Vec<_>>()
-    );
-    println!(
-        "      x³: {:?}\n",
-        results[1].iter().map(|r| r.to_string()).collect::<Vec<_>>()
-    );
-
-    // 10.3 SKIP for partial evaluation
-    println!("  10.3 SKIP for Partial Symbolic Evaluation");
-    println!("      Evaluate x*y with x=2,SKIP,4 and y=3,5,6");
-
-    let results = eval_parallel!(
-        exprs: ["x * y"],
-        vars: [["x", "y"]],
-        values: [[[2.0, SKIP, 4.0], [3.0, 5.0, 6.0]]]
-    )
-    .unwrap();
-
-    println!("      Point 0: x=2, y=3 → {}", results[0][0]);
-    println!("      Point 1: x=SKIP, y=5 → {} (symbolic!)", results[0][1]);
-    println!("      Point 2: x=4, y=6 → {}\n", results[0][2]);
-
-    // 10.4 Using pre-defined variables for clarity
-    println!("  10.4 Using Pre-Defined Variables (Better Readability)");
-    use symb_anafis::parallel::{ExprInput, Value, VarInput, evaluate_parallel};
-
-    // Define expressions
-    let x = symb("x");
-    let y = symb("y");
-    let expr1 = x.pow(2.0) + y; // x² + y
-
-    let expressions: Vec<ExprInput> = vec![
-        ExprInput::from(expr1),
-        ExprInput::from("sin(x) + cos(y)"), // Can mix Expr and strings!
+    println!("  Syntax Examples:");
+    let examples = vec![
+        "x^2 + 3*x + 1",
+        "sin(x)^2 + cos(x)^2",
+        "2*(x + y)",
+        "x^2 * y + y^3",
+        "log(10, x)",
+        "besselj(0, x)",
+        "atan2(y, x)",
     ];
-
-    // Define variables for each expression
-    let variables: Vec<Vec<VarInput>> = vec![
-        vec![VarInput::from("x"), VarInput::from("y")], // For expr1
-        vec![VarInput::from("x"), VarInput::from("y")], // For expr2
-    ];
-
-    // Define evaluation points: for each expr -> for each var -> values at each point
-    let x_values = vec![1.0, 2.0, 3.0];
-    let y_values = vec![4.0, 5.0, 6.0];
-
-    let values: Vec<Vec<Vec<Value>>> = vec![
-        vec![
-            x_values.iter().map(|&v| Value::from(v)).collect(),
-            y_values.iter().map(|&v| Value::from(v)).collect(),
-        ],
-        vec![
-            x_values.iter().map(|&v| Value::from(v)).collect(),
-            y_values.iter().map(|&v| Value::from(v)).collect(),
-        ],
-    ];
-
-    println!("      Expressions: x² + y, sin(x) + cos(y)");
-    println!("      x values: {:?}", x_values);
-    println!("      y values: {:?}", y_values);
-
-    let results = evaluate_parallel(expressions, variables, values).unwrap();
-
-    println!("      Results for x² + y:");
-    for (i, r) in results[0].iter().enumerate() {
-        println!("        Point {}: {}", i, r);
+    for expr in examples {
+        let result = simplify(expr, &[], None).unwrap();
+        println!("    {:20} → {}", expr, result);
     }
-    println!("      Results for sin(x) + cos(y):");
-    for (i, r) in results[1].iter().enumerate() {
-        println!("        Point {}: {}", i, r);
+    println!();
+}
+
+// =============================================================================
+// SECTION 15: ERROR HANDLING
+// =============================================================================
+fn section_error_handling() {
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    println!("15. ERROR HANDLING");
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+
+    use symb_anafis::DiffError;
+
+    println!("  All functions return Result<T, DiffError>:");
+    println!();
+
+    // Example 1: Empty formula
+    println!("  1. Empty Formula:");
+    match diff("", "x", &[], None) {
+        Ok(result) => println!("     Result: {}", result),
+        Err(DiffError::EmptyFormula) => println!("     Error: EmptyFormula"),
+        Err(e) => println!("     Error: {:?}", e),
     }
+
+    // Example 2: Invalid syntax
+    println!("  2. Invalid Syntax:");
+    match diff("((", "x", &[], None) {
+        Ok(result) => println!("     Result: {}", result),
+        Err(DiffError::InvalidSyntax { msg, .. }) => {
+            println!("     Error: InvalidSyntax - {}", msg)
+        }
+        Err(e) => println!("     Error: {:?}", e),
+    }
+
+    // Example 3: Invalid number
+    println!("  3. Invalid Number:");
+    match diff("x^abc", "x", &[], None) {
+        Ok(result) => println!("     Result: {}", result),
+        Err(DiffError::InvalidNumber { value, .. }) => {
+            println!("     Error: InvalidNumber - '{}'", value)
+        }
+        Err(e) => println!("     Error: {:?}", e),
+    }
+
+    // Example 4: Variable in both fixed and diff
+    println!("  4. Variable Conflict:");
+    match Diff::new().diff_str("x^2", "x", &["x"]) {
+        Ok(result) => println!("     Result: {}", result),
+        Err(DiffError::VariableInBothFixedAndDiff { var }) => {
+            println!("     Error: VariableInBothFixedAndDiff - '{}'", var)
+        }
+        Err(e) => println!("     Error: {:?}", e),
+    }
+
+    println!();
+    println!("  Common DiffError Variants:");
+    println!("    EmptyFormula");
+    println!("    InvalidSyntax {{ msg, span }}");
+    println!("    InvalidNumber {{ value, span }}");
+    println!("    InvalidToken {{ token, span }}");
+    println!("    UnexpectedToken {{ expected, got, span }}");
+    println!("    UnexpectedEndOfInput");
+    println!("    InvalidFunctionCall {{ name, expected, got }}");
+    println!("    VariableInBothFixedAndDiff {{ var }}");
+    println!("    NameCollision {{ name }}");
+    println!("    UnsupportedOperation(String)");
     println!();
 }

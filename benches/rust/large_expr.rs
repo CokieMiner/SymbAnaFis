@@ -107,13 +107,13 @@ fn bench_large_expressions(c: &mut Criterion) {
             b.iter(|| {
                 Diff::new()
                     .skip_simplification(true)
-                    .differentiate(black_box(sa_expr.clone()), black_box(&x_symb))
+                    .differentiate(black_box(&sa_expr), black_box(&x_symb))
             })
         });
 
         // SymbAnaFis: diff + full simplification
         group.bench_function("2_diff/symb_anafis_diff+simplify", |b| {
-            b.iter(|| Diff::new().differentiate(black_box(sa_expr.clone()), black_box(&x_symb)))
+            b.iter(|| Diff::new().differentiate(black_box(&sa_expr), black_box(&x_symb)))
         });
 
         // Symbolica: diff (light auto-simplification)
@@ -128,17 +128,17 @@ fn bench_large_expressions(c: &mut Criterion) {
         // Pre-compute derivatives
         let sa_deriv_light = Diff::new()
             .skip_simplification(true)
-            .differentiate(sa_expr.clone(), &x_symb)
+            .differentiate(&sa_expr, &x_symb)
             .unwrap();
-        let sa_deriv_full = Diff::new().differentiate(sa_expr.clone(), &x_symb).unwrap();
+        let sa_deriv_full = Diff::new().differentiate(&sa_expr, &x_symb).unwrap();
         let sy_deriv = sy_expr.derivative(x_sym);
 
         group.bench_function("3_compile/symb_anafis_raw", |b| {
-            b.iter(|| CompiledEvaluator::compile_auto(black_box(&sa_deriv_light)))
+            b.iter(|| CompiledEvaluator::compile_auto(black_box(&sa_deriv_light), None))
         });
 
         group.bench_function("3_compile/symb_anafis_simplified", |b| {
-            b.iter(|| CompiledEvaluator::compile_auto(black_box(&sa_deriv_full)))
+            b.iter(|| CompiledEvaluator::compile_auto(black_box(&sa_deriv_full), None))
         });
 
         let fn_map = symbolica::evaluate::FunctionMap::new();
@@ -161,8 +161,8 @@ fn bench_large_expressions(c: &mut Criterion) {
         let test_points: Vec<f64> = (0..1000).map(|i| 0.1 + i as f64 * 0.01).collect();
 
         // SymbAnaFis compiled evaluators
-        let sa_eval_raw = CompiledEvaluator::compile_auto(&sa_deriv_light).unwrap();
-        let sa_eval_simp = CompiledEvaluator::compile_auto(&sa_deriv_full).unwrap();
+        let sa_eval_raw = CompiledEvaluator::compile_auto(&sa_deriv_light, None).unwrap();
+        let sa_eval_simp = CompiledEvaluator::compile_auto(&sa_deriv_full, None).unwrap();
 
         group.bench_with_input(
             BenchmarkId::new("4_eval_1000pts/symb_anafis_raw", ""),

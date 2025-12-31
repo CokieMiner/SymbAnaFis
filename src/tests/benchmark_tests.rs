@@ -95,7 +95,7 @@ fn test_diff_raw_all_benchmark_expressions() {
         let var_sym = symb(var);
 
         let diff_builder = Diff::new().skip_simplification(true);
-        let result = diff_builder.differentiate(expr, &var_sym);
+        let result = diff_builder.differentiate(&expr, &var_sym);
 
         assert!(
             result.is_ok(),
@@ -121,7 +121,7 @@ fn test_diff_simplified_all_benchmark_expressions() {
 
         // With simplification
         let diff_builder = Diff::new();
-        let result = diff_builder.differentiate(expr, &var_sym);
+        let result = diff_builder.differentiate(&expr, &var_sym);
 
         assert!(
             result.is_ok(),
@@ -147,11 +147,11 @@ fn test_simplify_derivatives_all_benchmark_expressions() {
 
         // Get raw derivative first
         let diff_builder = Diff::new().skip_simplification(true);
-        let diff_result = diff_builder.differentiate(expr, &var_sym).expect(name);
+        let diff_result = diff_builder.differentiate(&expr, &var_sym).expect(name);
 
         // Then simplify
         let simplify_builder = Simplify::new();
-        let simplified = simplify_builder.simplify(diff_result).expect(name);
+        let simplified = simplify_builder.simplify(&diff_result).expect(name);
 
         // Should produce a valid expression (not crash)
         assert!(
@@ -175,9 +175,9 @@ fn test_compile_raw_derivatives() {
         let var_sym = symb(var);
 
         let diff_builder = Diff::new().skip_simplification(true);
-        let diff_raw = diff_builder.differentiate(expr, &var_sym).expect(name);
+        let diff_raw = diff_builder.differentiate(&expr, &var_sym).expect(name);
 
-        let result = CompiledEvaluator::compile_auto(&diff_raw);
+        let result = CompiledEvaluator::compile_auto(&diff_raw, None);
 
         // Some expressions may have unsupported functions (like besselj)
         // We just check it doesn't panic
@@ -196,7 +196,7 @@ fn test_compile_simplified_derivatives() {
         if let Ok(ref diff_str) = diff_result {
             let parsed = parse(diff_str, &empty, &empty, None);
             if let Ok(ref expr) = parsed {
-                let compiled = CompiledEvaluator::compile_auto(expr);
+                let compiled = CompiledEvaluator::compile_auto(expr, None);
                 // Check it compiles (or fails gracefully for unsupported funcs)
                 let _ = compiled;
             }
@@ -228,7 +228,7 @@ fn test_evaluate_compiled_derivatives() {
         eprintln!("{}: derivative = {}", name, diff_result);
 
         let parsed = parse(&diff_result, &empty, &empty, None).expect(name);
-        let compiled = CompiledEvaluator::compile_auto(&parsed);
+        let compiled = CompiledEvaluator::compile_auto(&parsed, None);
 
         if let Ok(evaluator) = compiled {
             let params = evaluator.param_names();
@@ -280,11 +280,11 @@ fn test_full_pipeline_lorentz_factor() {
 
     // Differentiate
     let v = symb("v");
-    let diff = Diff::new().differentiate(expr, &v).unwrap();
+    let diff = Diff::new().differentiate(&expr, &v).unwrap();
     eprintln!("Derivative: {}", diff);
 
     // Compile
-    let compiled = CompiledEvaluator::compile_auto(&diff).unwrap();
+    let compiled = CompiledEvaluator::compile_auto(&diff, None).unwrap();
     eprintln!("Params: {:?}", compiled.param_names());
 
     // Evaluate at v=0
@@ -308,10 +308,10 @@ fn test_full_pipeline_damped_oscillator() {
 
     // Differentiate
     let t = symb("t");
-    let diff = Diff::new().differentiate(expr, &t).unwrap();
+    let diff = Diff::new().differentiate(&expr, &t).unwrap();
 
     // Compile
-    let compiled = CompiledEvaluator::compile_auto(&diff).unwrap();
+    let compiled = CompiledEvaluator::compile_auto(&diff, None).unwrap();
 
     // Evaluate at t=0
     let param_count = compiled.param_count();
@@ -329,8 +329,8 @@ fn test_batch_evaluation_1000_points() {
     let expr_str = "x^3 + 2*x^2 - x + 1";
     let expr = parse(expr_str, &empty, &empty, None).unwrap();
     let x = symb("x");
-    let diff = Diff::new().differentiate(expr, &x).unwrap();
-    let compiled = CompiledEvaluator::compile_auto(&diff).unwrap();
+    let diff = Diff::new().differentiate(&expr, &x).unwrap();
+    let compiled = CompiledEvaluator::compile_auto(&diff, None).unwrap();
 
     // Evaluate at 1000 points
     let mut sum = 0.0;
@@ -404,7 +404,7 @@ fn test_all_benchmarks_produce_valid_results() {
         }
         let expr = parsed.unwrap();
 
-        let compiled = CompiledEvaluator::compile_auto(&expr);
+        let compiled = CompiledEvaluator::compile_auto(&expr, None);
         if compiled.is_err() {
             failed.push(format!("{}: compile failed - {:?}", name, compiled.err()));
             continue;
@@ -453,7 +453,7 @@ fn test_eval_batch_single_var() {
 
     let diff_str = crate::diff(expr_str, var, &[], None).unwrap();
     let parsed = parse(&diff_str, &empty, &empty, None).unwrap();
-    let evaluator = CompiledEvaluator::compile(&parsed, &[var]).unwrap();
+    let evaluator = CompiledEvaluator::compile(&parsed, &[var], None).unwrap();
 
     // Generate test points in valid domain (|v| < 1)
     let test_points: Vec<f64> = (0..100).map(|i| 0.01 + 0.98 * (i as f64 / 100.0)).collect();
@@ -500,7 +500,7 @@ fn test_eval_scaling() {
 
     let diff_str = crate::diff(expr_str, var, &[], None).unwrap();
     let parsed = parse(&diff_str, &empty, &empty, None).unwrap();
-    let evaluator = CompiledEvaluator::compile(&parsed, &[var]).unwrap();
+    let evaluator = CompiledEvaluator::compile(&parsed, &[var], None).unwrap();
 
     for n in [100, 1000, 10000] {
         let test_points: Vec<f64> = (0..n)
@@ -539,7 +539,7 @@ fn test_multi_expression_batch() {
     for (name, expr_str, var, range) in &expressions {
         let diff_str = crate::diff(expr_str, var, &[], None).expect(name);
         let parsed = parse(&diff_str, &empty, &empty, None).expect(name);
-        let evaluator = CompiledEvaluator::compile(&parsed, &[var]).expect(name);
+        let evaluator = CompiledEvaluator::compile(&parsed, &[var], None).expect(name);
 
         // Generate test data in valid domain
         let start = range.start;
@@ -613,7 +613,7 @@ fn test_large_expr_diff_100() {
     let parsed = parse(&expr_str, &empty, &empty, None).unwrap();
     let diff = Diff::new()
         .skip_simplification(true)
-        .differentiate(parsed, &x);
+        .differentiate(&parsed, &x);
 
     assert!(diff.is_ok(), "Failed to differentiate 100-term expression");
     eprintln!("✓ Differentiated 100-term expression");
@@ -627,9 +627,9 @@ fn test_large_expr_eval_50() {
     let x = symb("x");
 
     let parsed = parse(&expr_str, &empty, &empty, None).unwrap();
-    let diff = Diff::new().differentiate(parsed, &x).unwrap();
+    let diff = Diff::new().differentiate(&parsed, &x).unwrap();
 
-    let compiled = CompiledEvaluator::compile_auto(&diff);
+    let compiled = CompiledEvaluator::compile_auto(&diff, None);
     if let Ok(evaluator) = compiled {
         // Evaluate at x=2.0 (safe for log(x + i))
         let result = evaluator.evaluate(&[2.0]);

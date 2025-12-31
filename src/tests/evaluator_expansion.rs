@@ -17,7 +17,7 @@ mod tests {
         let expr_str = "spherical_harmonic(0, 0, 0, 0)";
         let expr = parse_expr(expr_str);
 
-        let eval = CompiledEvaluator::compile(&expr, &[]).unwrap();
+        let eval = CompiledEvaluator::compile_auto(&expr, None).unwrap();
         let result = eval.evaluate(&[]);
 
         let expected = 0.5 * (1.0 / std::f64::consts::PI).sqrt();
@@ -30,7 +30,7 @@ mod tests {
         let expr_str = "ynm(0, 0, 0, 0)";
         let expr = parse_expr(expr_str);
 
-        let eval = CompiledEvaluator::compile(&expr, &[]).unwrap();
+        let eval = CompiledEvaluator::compile_auto(&expr, None).unwrap();
         let result = eval.evaluate(&[]);
 
         let expected = 0.5 * (1.0 / std::f64::consts::PI).sqrt();
@@ -43,7 +43,7 @@ mod tests {
         let expr_str = "exp_polar(2.0)";
         let expr = parse_expr(expr_str);
 
-        let eval = CompiledEvaluator::compile(&expr, &[]).unwrap();
+        let eval = CompiledEvaluator::compile_auto(&expr, None).unwrap();
         let result = eval.evaluate(&[]);
 
         let expected = (2.0f64).exp();
@@ -51,13 +51,16 @@ mod tests {
     }
     #[test]
     fn test_atan2() {
-        let evaluator = CompiledEvaluator::compile_auto(&Expr::func_multi_from_arcs_symbol(
-            get_symbol(&crate::core::known_symbols::ATAN2),
-            vec![
-                Arc::new(Expr::number(1.0)), // y
-                Arc::new(Expr::number(0.0)), // x (y/x -> +infinity -> pi/2)
-            ],
-        ))
+        let evaluator = CompiledEvaluator::compile_auto(
+            &Expr::func_multi_from_arcs_symbol(
+                get_symbol(&crate::core::known_symbols::ATAN2),
+                vec![
+                    Arc::new(Expr::number(1.0)), // y
+                    Arc::new(Expr::number(0.0)), // x (y/x -> +infinity -> pi/2)
+                ],
+            ),
+            None,
+        )
         .unwrap();
 
         let result = evaluator.evaluate(&[]);

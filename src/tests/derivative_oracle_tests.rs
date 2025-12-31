@@ -45,8 +45,8 @@ fn test_derivative(expr: &str, var: &str, expected_symbolic: &str, test_points: 
         let expected_expr =
             parser_parse(expected_symbolic, &HashSet::new(), &HashSet::new(), None).unwrap();
 
-        let result_simplified = Simplify::new().simplify(result_expr).unwrap();
-        let expected_simplified = Simplify::new().simplify(expected_expr).unwrap();
+        let result_simplified = Simplify::new().simplify(&result_expr).unwrap();
+        let expected_simplified = Simplify::new().simplify(&expected_expr).unwrap();
 
         // Numerical comparison at multiple points as fallback
         for x in [0.5, 1.0, 2.0, 3.0] {

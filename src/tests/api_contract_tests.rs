@@ -137,8 +137,8 @@ fn test_diff_builder_order() {
     let expr: Expr = x.pow(3.0);
 
     // Get second derivative by nesting
-    let d1 = Diff::new().differentiate(expr, &x).unwrap();
-    let d2 = Diff::new().differentiate(d1, &x).unwrap();
+    let d1 = Diff::new().differentiate(&expr, &x).unwrap();
+    let d2 = Diff::new().differentiate(&d1, &x).unwrap();
 
     // d²/dx²[x³] = 6x, at x=2: 12
     let vars: HashMap<&str, f64> = [("x_diff_order", 2.0)].into_iter().collect();
@@ -183,7 +183,7 @@ fn test_diff_function_vs_builder() {
 #[test]
 fn test_simplify_builder_basic() {
     let expr = parser_parse("x + x", &HashSet::new(), &HashSet::new(), None).unwrap();
-    let simplified = Simplify::new().simplify(expr).unwrap();
+    let simplified = Simplify::new().simplify(&expr).unwrap();
 
     let vars: HashMap<&str, f64> = [("x", 5.0)].into_iter().collect();
 
@@ -201,8 +201,8 @@ fn test_simplify_idempotence() {
 
     for expr_str in expressions {
         let expr = parser_parse(expr_str, &HashSet::new(), &HashSet::new(), None).unwrap();
-        let s1 = Simplify::new().simplify(expr).unwrap();
-        let s2 = Simplify::new().simplify(s1.clone()).unwrap();
+        let s1 = Simplify::new().simplify(&expr).unwrap();
+        let s2 = Simplify::new().simplify(&s1).unwrap();
 
         // Simplifying twice should give same result
         let vars: HashMap<&str, f64> = [("x", 1.5)].into_iter().collect();

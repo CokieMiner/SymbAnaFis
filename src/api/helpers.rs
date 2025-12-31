@@ -31,7 +31,7 @@ fn var_names_to_str_refs(var_names: &[String]) -> Vec<&str> {
 fn gradient_internal(expr: &Expr, vars: &[&str]) -> Result<Vec<Expr>, DiffError> {
     let diff = Diff::new();
     vars.iter()
-        .map(|var| diff.differentiate_by_name(expr.clone(), var))
+        .map(|var| diff.differentiate_by_name(expr, var))
         .collect()
 }
 
@@ -43,7 +43,7 @@ fn hessian_internal(expr: &Expr, vars: &[&str]) -> Result<Vec<Vec<Expr>>, DiffEr
     grad.iter()
         .map(|partial| {
             vars.iter()
-                .map(|var| diff.differentiate_by_name(partial.clone(), var))
+                .map(|var| diff.differentiate_by_name(partial, var))
                 .collect::<Result<Vec<_>, _>>()
         })
         .collect()

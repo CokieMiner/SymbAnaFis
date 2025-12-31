@@ -3,7 +3,7 @@
 //! Provides expression manipulation utilities: flattening, normalization,
 //! coefficient extraction, root prettification, and like-term grouping.
 
-use crate::core::known_symbols::{ABS, ABS_CAP, COSH, EXP, PI as PI_SYM, SQRT};
+use crate::core::known_symbols::{ABS, COSH, EXP, PI as PI_SYM, SQRT};
 
 use crate::core::traits::EPSILON;
 use crate::{Expr, ExprKind};
@@ -412,7 +412,7 @@ pub(crate) fn is_known_non_negative(expr: &Expr) -> bool {
 
         // abs(x) is always non-negative
         ExprKind::FunctionCall { name, args } if args.len() == 1 => {
-            if name.id() == *ABS || name.id() == *ABS_CAP {
+            if name.id() == *ABS {
                 return true;
             }
             if name.id() == *EXP {

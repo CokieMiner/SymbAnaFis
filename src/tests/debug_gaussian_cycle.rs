@@ -28,7 +28,7 @@ fn test_gaussian_2d_diff_cycle() {
     println!("\nRaw differentiation...");
     let diff_builder = Diff::new().skip_simplification(true);
 
-    let diff_raw = diff_builder.differentiate(expr, &x).unwrap();
+    let diff_raw = diff_builder.differentiate(&expr, &x).unwrap();
     println!("Raw diff nodes: {}", diff_raw.node_count());
 
     // 2b. Simplify with tracing
@@ -37,6 +37,6 @@ fn test_gaussian_2d_diff_cycle() {
 
     // We can enable debug print in Simplify if needed, but for now
     // let's just assert it finishes
-    let simplified = simplify_builder.simplify(diff_raw).unwrap();
+    let simplified = simplify_builder.simplify(&diff_raw).unwrap();
     println!("Simplified: {}", simplified);
 }

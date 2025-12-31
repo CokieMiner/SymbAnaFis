@@ -18,11 +18,12 @@ Example:
 """
 
 from .symb_anafis import (
-    # Core functions
+    # Core functions (string API)
     diff,
     simplify,
     parse,
     evaluate,
+    evaluate_str,
     # Classes
     Expr,
     Diff,
@@ -31,10 +32,14 @@ from .symb_anafis import (
     Symbol,
     Context,
     CompiledEvaluator,
-    # Multi-variable calculus
+    # Multi-variable calculus (Expr API)
     gradient,
     hessian,
     jacobian,
+    # Multi-variable calculus (string API)
+    gradient_str,
+    hessian_str,
+    jacobian_str,
     # Uncertainty propagation
     uncertainty_propagation,
     relative_uncertainty,
@@ -62,11 +67,12 @@ except ImportError:
     eval_f64 = None
 
 __all__ = [
-    # Core functions
+    # Core functions (string API)
     "diff",
     "simplify", 
     "parse",
     "evaluate",
+    "evaluate_str",
     # Classes
     "Expr",
     "Diff",
@@ -75,10 +81,14 @@ __all__ = [
     "Symbol",
     "Context",
     "CompiledEvaluator",
-    # Multi-variable calculus
+    # Multi-variable calculus (Expr API)
     "gradient",
     "hessian",
     "jacobian",
+    # Multi-variable calculus (string API)
+    "gradient_str",
+    "hessian_str",
+    "jacobian_str",
     # Uncertainty propagation
     "uncertainty_propagation",
     "relative_uncertainty",

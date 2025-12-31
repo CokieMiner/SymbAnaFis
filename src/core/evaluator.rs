@@ -24,10 +24,65 @@
 use crate::core::error::DiffError;
 use crate::core::traits::EPSILON;
 use crate::core::unified_context::Context;
-use crate::{Expr, ExprKind};
+use crate::{Expr, ExprKind, Symbol};
 use std::collections::HashMap;
 use std::sync::Arc;
 use wide::f64x4;
+
+// =============================================================================
+// ToParamName trait - allows compile methods to accept strings or symbols
+// =============================================================================
+
+/// Trait for types that can be used as parameter names in compile methods.
+///
+/// This allows `compile` to accept `&[&str]`, `&[&Symbol]`, or mixed types.
+///
+/// # Example
+/// ```
+/// use symb_anafis::{symb, parse, CompiledEvaluator};
+/// use std::collections::HashSet;
+///
+/// let expr = parse("x + y", &HashSet::new(), &HashSet::new(), None).unwrap();
+/// let x = symb("x");
+/// let y = symb("y");
+///
+/// // Using strings
+/// let c1 = CompiledEvaluator::compile(&expr, &["x", "y"], None).unwrap();
+///
+/// // Using symbols
+/// let c2 = CompiledEvaluator::compile(&expr, &[&x, &y], None).unwrap();
+/// ```
+pub trait ToParamName {
+    /// Get the parameter as a symbol ID (for fast lookup) and name (for storage/error messages)
+    fn to_param_id_and_name(&self) -> (u64, String);
+}
+
+// Blanket impl for anything that can convert to &str (covers &str, String, &String, &&str, etc.)
+impl<T: AsRef<str>> ToParamName for T {
+    fn to_param_id_and_name(&self) -> (u64, String) {
+        let s = self.as_ref();
+        let sym = crate::symb(s);
+        (sym.id(), s.to_string())
+    }
+}
+
+impl ToParamName for Symbol {
+    fn to_param_id_and_name(&self) -> (u64, String) {
+        (
+            self.id(),
+            self.name().unwrap_or_else(|| format!("${}", self.id())),
+        )
+    }
+}
+
+impl ToParamName for &Symbol {
+    fn to_param_id_and_name(&self) -> (u64, String) {
+        (
+            self.id(),
+            self.name().unwrap_or_else(|| format!("${}", self.id())),
+        )
+    }
+}
 
 /// Bytecode instruction for stack-based evaluation
 #[derive(Clone, Copy, Debug)]
@@ -764,20 +819,39 @@ pub struct CompiledEvaluator {
 impl CompiledEvaluator {
     /// Compile an expression to bytecode
     ///
-    /// The `param_order` specifies the order of parameters in the evaluation array.
-    /// All variables in the expression must be in this list.
-    pub fn compile(expr: &Expr, param_order: &[&str]) -> Result<Self, DiffError> {
-        Self::compile_with_context(expr, param_order, None)
-    }
-
-    /// Compile an expression with a custom function context
-    pub fn compile_with_context(
+    /// # Arguments
+    /// * `expr` - The expression to compile
+    /// * `param_order` - Parameters in order for evaluation (accepts `&[&str]` or `&[&Symbol]`)
+    /// * `context` - Optional context for custom functions
+    ///
+    /// # Example
+    /// ```
+    /// use symb_anafis::{symb, CompiledEvaluator};
+    ///
+    /// let x = symb("x");
+    /// let y = symb("y");
+    /// let expr = x.pow(2.0) + y;
+    ///
+    /// // Using strings
+    /// let compiled = CompiledEvaluator::compile(&expr, &["x", "y"], None).unwrap();
+    ///
+    /// // Using symbols
+    /// let compiled = CompiledEvaluator::compile(&expr, &[&x, &y], None).unwrap();
+    /// ```
+    pub fn compile<P: ToParamName>(
         expr: &Expr,
-        param_order: &[&str],
+        param_order: &[P],
         context: Option<&Context>,
     ) -> Result<Self, DiffError> {
-        // First, expand any user function calls with their body expressions
-        // This allows the compiled evaluator to evaluate them numerically
+        // Get symbol IDs and names for each parameter
+        let params: Vec<(u64, String)> = param_order
+            .iter()
+            .map(|p| p.to_param_id_and_name())
+            .collect();
+        let param_ids: Vec<u64> = params.iter().map(|(id, _)| *id).collect();
+        let param_names: Vec<String> = params.into_iter().map(|(_, name)| name).collect();
+
+        // Expand user function calls with their body expressions
         let expanded_expr = if let Some(ctx) = context {
             let mut expanding = std::collections::HashSet::new();
             Self::expand_user_functions(expr, ctx, &mut expanding, 0)
@@ -785,13 +859,13 @@ impl CompiledEvaluator {
             expr.clone()
         };
 
-        let mut compiler = Compiler::new(param_order, context);
+        let mut compiler = Compiler::new(&param_ids, context);
         compiler.compile_expr(&expanded_expr)?;
 
         Ok(Self {
             instructions: compiler.instructions.into(),
             stack_size: compiler.max_stack,
-            param_names: param_order.iter().map(|s| s.to_string()).collect(),
+            param_names: param_names.into_iter().collect(),
         })
     }
 
@@ -892,15 +966,23 @@ impl CompiledEvaluator {
     }
 
     /// Compile an expression, automatically determining parameter order from variables
-    pub fn compile_auto(expr: &Expr) -> Result<Self, DiffError> {
-        Self::compile_auto_with_context(expr, None)
-    }
-
-    /// Compile auto with context
-    pub fn compile_auto_with_context(
-        expr: &Expr,
-        context: Option<&Context>,
-    ) -> Result<Self, DiffError> {
+    ///
+    /// # Arguments
+    /// * `expr` - The expression to compile
+    /// * `context` - Optional context for custom functions
+    ///
+    /// # Example
+    /// ```
+    /// use symb_anafis::{symb, CompiledEvaluator};
+    ///
+    /// let x = symb("x");
+    /// let expr = x.pow(2.0) + x.sin();
+    ///
+    /// // Auto-detect variables
+    /// let compiled = CompiledEvaluator::compile_auto(&expr, None).unwrap();
+    /// let result = compiled.evaluate(&[2.0]);
+    /// ```
+    pub fn compile_auto(expr: &Expr, context: Option<&Context>) -> Result<Self, DiffError> {
         let vars = expr.variables();
         let mut param_order: Vec<String> = vars
             .into_iter()
@@ -908,8 +990,7 @@ impl CompiledEvaluator {
             .collect();
         param_order.sort(); // Consistent ordering
 
-        let param_refs: Vec<&str> = param_order.iter().map(|s| s.as_str()).collect();
-        Self::compile_with_context(expr, &param_refs, context)
+        Self::compile(expr, &param_order, context)
     }
 
     /// Get the required stack size for this expression
@@ -1785,18 +1866,18 @@ const MAX_STACK_DEPTH: usize = 1024;
 /// Internal compiler state
 struct Compiler<'a> {
     instructions: Vec<Instruction>,
-    param_map: HashMap<&'a str, usize>,
+    param_map: HashMap<u64, usize>, // Symbol ID -> param index
     current_stack: usize,
     max_stack: usize,
     function_context: Option<&'a Context>,
 }
 
 impl<'a> Compiler<'a> {
-    fn new(param_order: &[&'a str], context: Option<&'a Context>) -> Self {
-        let param_map: HashMap<&str, usize> = param_order
+    fn new(param_ids: &[u64], context: Option<&'a Context>) -> Self {
+        let param_map: HashMap<u64, usize> = param_ids
             .iter()
             .enumerate()
-            .map(|(i, name)| (*name, i))
+            .map(|(i, id)| (*id, i))
             .collect();
 
         Self {
@@ -1901,12 +1982,13 @@ impl<'a> Compiler<'a> {
 
             ExprKind::Symbol(s) => {
                 let name = s.as_str();
+                let sym_id = s.id();
                 // Handle known constants
                 if let Some(value) = crate::core::known_symbols::get_constant_value(name) {
                     self.emit(Instruction::LoadConst(value));
                     self.push()?;
-                } else if let Some(&idx) = self.param_map.get(name) {
-                    // Look up in parameter map
+                } else if let Some(&idx) = self.param_map.get(&sym_id) {
+                    // Look up in parameter map by symbol ID
                     self.emit(Instruction::LoadParam(idx));
                     self.push()?;
                 } else {
@@ -2172,9 +2254,10 @@ impl<'a> Compiler<'a> {
                 // (Currently only handle simple Symbol case)
                 let base_param_idx = if let ExprKind::Symbol(s) = &poly.base().kind {
                     let name = s.as_str();
+                    let sym_id = s.id();
                     match name {
                         _ if crate::core::known_symbols::is_known_constant(name) => None, // Constants, not params
-                        _ => self.param_map.get(name).copied(),
+                        _ => self.param_map.get(&sym_id).copied(),
                     }
                 } else {
                     None
@@ -2304,21 +2387,21 @@ mod tests {
     #[test]
     fn test_simple_arithmetic() {
         let expr = parse_expr("x + 2");
-        let eval = CompiledEvaluator::compile(&expr, &["x"]).unwrap();
+        let eval = CompiledEvaluator::compile(&expr, &["x"], None).unwrap();
         assert!((eval.evaluate(&[3.0]) - 5.0).abs() < 1e-10);
     }
 
     #[test]
     fn test_polynomial() {
         let expr = parse_expr("x^2 + 2*x + 1");
-        let eval = CompiledEvaluator::compile(&expr, &["x"]).unwrap();
+        let eval = CompiledEvaluator::compile(&expr, &["x"], None).unwrap();
         assert!((eval.evaluate(&[3.0]) - 16.0).abs() < 1e-10);
     }
 
     #[test]
     fn test_trig() {
         let expr = parse_expr("sin(x)^2 + cos(x)^2");
-        let eval = CompiledEvaluator::compile(&expr, &["x"]).unwrap();
+        let eval = CompiledEvaluator::compile(&expr, &["x"], None).unwrap();
         // Should always equal 1
         assert!((eval.evaluate(&[0.5]) - 1.0).abs() < 1e-10);
         assert!((eval.evaluate(&[1.23]) - 1.0).abs() < 1e-10);
@@ -2327,7 +2410,7 @@ mod tests {
     #[test]
     fn test_constants() {
         let expr = parse_expr("pi * e");
-        let eval = CompiledEvaluator::compile(&expr, &[]).unwrap();
+        let eval = CompiledEvaluator::compile_auto(&expr, None).unwrap();
         let expected = std::f64::consts::PI * std::f64::consts::E;
         assert!((eval.evaluate(&[]) - expected).abs() < 1e-10);
     }
@@ -2335,21 +2418,21 @@ mod tests {
     #[test]
     fn test_multi_var() {
         let expr = parse_expr("x * y + z");
-        let eval = CompiledEvaluator::compile(&expr, &["x", "y", "z"]).unwrap();
+        let eval = CompiledEvaluator::compile(&expr, &["x", "y", "z"], None).unwrap();
         assert!((eval.evaluate(&[2.0, 3.0, 4.0]) - 10.0).abs() < 1e-10);
     }
 
     #[test]
     fn test_unbound_variable_error() {
         let expr = parse_expr("x + y");
-        let result = CompiledEvaluator::compile(&expr, &["x"]);
+        let result = CompiledEvaluator::compile(&expr, &["x"], None);
         assert!(matches!(result, Err(DiffError::UnboundVariable(_))));
     }
 
     #[test]
     fn test_compile_auto() {
         let expr = parse_expr("x^2 + y");
-        let eval = CompiledEvaluator::compile_auto(&expr).unwrap();
+        let eval = CompiledEvaluator::compile_auto(&expr, None).unwrap();
         // Auto compilation sorts parameters alphabetically
         assert_eq!(eval.param_names(), &["x", "y"]);
     }
@@ -2360,7 +2443,7 @@ mod tests {
     fn test_eval_batch_simd_path() {
         // Tests the SIMD path (4+ points processed with f64x4)
         let expr = parse_expr("x^2 + 2*x + 1");
-        let eval = CompiledEvaluator::compile(&expr, &["x"]).unwrap();
+        let eval = CompiledEvaluator::compile(&expr, &["x"], None).unwrap();
 
         // 8 points to ensure full SIMD chunks
         let x_vals: Vec<f64> = (0..8).map(|i| i as f64).collect();
@@ -2387,7 +2470,7 @@ mod tests {
     fn test_eval_batch_remainder_path() {
         // Tests the scalar remainder path (points not divisible by 4)
         let expr = parse_expr("sin(x) + cos(x)");
-        let eval = CompiledEvaluator::compile(&expr, &["x"]).unwrap();
+        let eval = CompiledEvaluator::compile(&expr, &["x"], None).unwrap();
 
         // 6 points: 4 SIMD + 2 remainder
         let x_vals: Vec<f64> = vec![0.0, 0.5, 1.0, 1.5, 2.0, 2.5];
@@ -2413,7 +2496,7 @@ mod tests {
     fn test_eval_batch_multi_var() {
         // Tests batch evaluation with multiple variables
         let expr = parse_expr("x * y + z");
-        let eval = CompiledEvaluator::compile(&expr, &["x", "y", "z"]).unwrap();
+        let eval = CompiledEvaluator::compile(&expr, &["x", "y", "z"], None).unwrap();
 
         let x_vals = vec![1.0, 2.0, 3.0, 4.0, 5.0];
         let y_vals = vec![2.0, 3.0, 4.0, 5.0, 6.0];
@@ -2439,7 +2522,7 @@ mod tests {
     fn test_eval_batch_special_functions() {
         // Tests SIMD slow path for special functions
         let expr = parse_expr("exp(x) + sqrt(x)");
-        let eval = CompiledEvaluator::compile(&expr, &["x"]).unwrap();
+        let eval = CompiledEvaluator::compile(&expr, &["x"], None).unwrap();
 
         let x_vals: Vec<f64> = vec![1.0, 2.0, 3.0, 4.0];
         let columns: Vec<&[f64]> = vec![&x_vals];
@@ -2464,7 +2547,7 @@ mod tests {
     fn test_eval_batch_single_point() {
         // Edge case: single point (no SIMD, just remainder)
         let expr = parse_expr("x^2");
-        let eval = CompiledEvaluator::compile(&expr, &["x"]).unwrap();
+        let eval = CompiledEvaluator::compile(&expr, &["x"], None).unwrap();
 
         let x_vals = vec![3.0];
         let columns: Vec<&[f64]> = vec![&x_vals];
@@ -2479,7 +2562,7 @@ mod tests {
     fn test_eval_batch_constant_expr() {
         // Edge case: expression with no variables
         let expr = parse_expr("pi * 2");
-        let eval = CompiledEvaluator::compile(&expr, &[]).unwrap();
+        let eval = CompiledEvaluator::compile_auto(&expr, None).unwrap();
 
         let columns: Vec<&[f64]> = vec![];
         let mut output = vec![0.0; 1];
@@ -2494,7 +2577,7 @@ mod tests {
     fn test_eval_batch_vs_single() {
         // Verify batch and single evaluation produce identical results
         let expr = parse_expr("sin(x) * cos(y) + exp(x/y)");
-        let eval = CompiledEvaluator::compile(&expr, &["x", "y"]).unwrap();
+        let eval = CompiledEvaluator::compile(&expr, &["x", "y"], None).unwrap();
 
         let x_vals: Vec<f64> = (1..=8).map(|i| i as f64 * 0.5).collect();
         let y_vals: Vec<f64> = (1..=8).map(|i| i as f64 * 0.3 + 0.1).collect();
@@ -2534,7 +2617,7 @@ mod tests {
         let expr = Expr::func("f", x.to_expr()) + 2.0;
 
         // Compile with context - user function should be expanded
-        let eval = CompiledEvaluator::compile_with_context(&expr, &["x"], Some(&ctx)).unwrap();
+        let eval = CompiledEvaluator::compile(&expr, &["x"], Some(&ctx)).unwrap();
 
         // f(3) + 2 = (3^2 + 1) + 2 = 10 + 2 = 12
         let result = eval.evaluate(&[3.0]);
@@ -2577,7 +2660,7 @@ mod tests {
         let expr = Expr::func("f", x.to_expr());
 
         // Compile with context - nested function calls should be expanded
-        let eval = CompiledEvaluator::compile_with_context(&expr, &["x"], Some(&ctx)).unwrap();
+        let eval = CompiledEvaluator::compile(&expr, &["x"], Some(&ctx)).unwrap();
 
         // f(5) = g(5) + 1 = 2*5 + 1 = 11
         let result = eval.evaluate(&[5.0]);

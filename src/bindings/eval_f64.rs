@@ -13,7 +13,7 @@
 
 use crate::DiffError;
 use crate::Expr;
-use crate::core::evaluator::CompiledEvaluator;
+use crate::core::evaluator::{CompiledEvaluator, ToParamName};
 
 use rayon::prelude::*;
 
@@ -34,7 +34,7 @@ const CHUNK_SIZE: usize = 256;
 ///
 /// # Errors
 /// Returns `DiffError` if compilation fails (e.g., unsupported functions).
-pub fn eval_f64<V: AsRef<str> + Sync>(
+pub fn eval_f64<V: ToParamName + Sync>(
     exprs: &[&Expr],
     var_names: &[&[V]],
     data: &[&[&[f64]]],
@@ -61,7 +61,7 @@ pub fn eval_f64<V: AsRef<str> + Sync>(
     results
 }
 
-fn eval_single_expr_chunked<V: AsRef<str>>(
+fn eval_single_expr_chunked<V: ToParamName>(
     expr: &Expr,
     vars: &[V],
     columns: &[&[f64]],
@@ -73,8 +73,7 @@ fn eval_single_expr_chunked<V: AsRef<str>>(
         columns[0].len()
     };
 
-    let var_strs: Vec<&str> = vars.iter().map(|v| v.as_ref()).collect();
-    let evaluator = CompiledEvaluator::compile(expr, &var_strs).map_err(|e| {
+    let evaluator = CompiledEvaluator::compile(expr, vars, None).map_err(|e| {
         DiffError::invalid_syntax(format!("Failed to compile expression {}: {}", expr_idx, e))
     })?;
 

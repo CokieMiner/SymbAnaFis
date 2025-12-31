@@ -31,7 +31,7 @@ use symb_anafis::{diff, simplify};
 
 // Differentiate
 let result = diff("x^3 + sin(x)", "x", &[], None)?;
-// Result: "3x^2 + cos(x)"
+// Result: "3*x^2 + cos(x)"
 
 // Simplify
 let result = simplify("sin(x)^2 + cos(x)^2", &[], None)?;
@@ -43,8 +43,12 @@ let result = simplify("sin(x)^2 + cos(x)^2", &[], None)?;
 ```python
 import symb_anafis
 
-result = symb_anafis.diff("x^3 + sin(x)", "x")  # "3x^2 + cos(x)"
-result = symb_anafis.simplify("sin(x)^2 + cos(x)^2")  # "1"
+# diff() and simplify() now return Expr objects
+result = symb_anafis.diff("x^3 + sin(x)", "x")
+print(result)  # "3*x^2 + cos(x)"
+
+simplified = symb_anafis.simplify("sin(x)^2 + cos(x)^2")
+print(simplified)  # "1"
 ```
 
 ---
@@ -57,12 +61,12 @@ Symbols are **interned** for O(1) comparison and **Copy** for natural operator u
 
 ### Creating Symbols
 
-| Function | Behavior | Use Case |
-|----------|----------|----------|
-| `symb("x")` | Get or create - never errors | General use, parser |
-| `symb_new("x")` | Create only - errors if exists | Strict control |
-| `symb_get("x")` | Get only - errors if not found | Retrieve existing |
-| `Symbol::anon()` | Create anonymous symbol | Temporary computation |
+| Function         | Behavior                       | Use Case              |
+| ---------------- | ------------------------------ | --------------------- |
+| `symb("x")`      | Get or create - never errors   | General use, parser   |
+| `symb_new("x")`  | Create only - errors if exists | Strict control        |
+| `symb_get("x")`  | Get only - errors if not found | Retrieve existing     |
+| `Symbol::anon()` | Create anonymous symbol        | Temporary computation |
 
 ```rust
 use symb_anafis::{symb, symb_new, symb_get, Symbol};
@@ -134,23 +138,24 @@ let diff = Diff::new()
 
 **Context API:**
 
-| Method | Description |
-|--------|-------------|
-| `Context::new()` | Create new isolated context |
-| `ctx.symb("x")` | Get or create isolated symbol |
-| `ctx.get_symbol("x")` | Get if exists (returns `Option<Symbol>`) |
-| `ctx.contains_symbol("x")` | Check if symbol exists |
-| `ctx.symbol_count()` | Count symbols in context |
-| `ctx.is_empty()` | Check if context has no symbols or functions |
-| `ctx.symbol_names()` | List all symbol names |
-| `ctx.remove_symbol("x")` | Remove a symbol |
-| `ctx.clear_all()` | Remove all symbols and functions |
-| `ctx.with_function("f", func)` | Register a user function |
-
-**Global Context Accessor:**
-
-Warning: `global_context()` is deprecated or internal. Use explicit `Context` or global functions.
-
+| Method                         | Description                                       |
+| ------------------------------ | ------------------------------------------------- |
+| `Context::new()`               | Create new isolated context                       |
+| `ctx.symb("x")`                | Get or create isolated symbol                     |
+| `ctx.get_symbol("x")`          | Get if exists (returns `Option<Symbol>`)          |
+| `ctx.contains_symbol("x")`     | Check if symbol exists                            |
+| `ctx.symbol_count()`           | Count symbols in context                          |
+| `ctx.symbol_names()`           | List all symbol names                             |
+| `ctx.with_symbol("x")`         | Register symbol (builder pattern)                 |
+| `ctx.with_symbols(["x", "y"])` | Register multiple symbols (builder pattern)       |
+| `ctx.remove_symbol("x")`       | Remove a symbol (returns `bool`)                  |
+| `ctx.with_function("f", func)` | Register a user function (builder pattern)        |
+| `ctx.with_function_name("f")`  | Register function name only for parser            |
+| `ctx.has_function("f")`        | Check if function is registered                   |
+| `ctx.function_names()`         | List all function names                           |
+| `ctx.get_user_fn("f")`         | Get function definition (`Option<&UserFunction>`) |
+| `ctx.is_empty()`               | Check if context has no symbols or functions      |
+| `ctx.clear_all()`              | Remove all symbols and functions                  |
 
 ---
 
@@ -160,12 +165,12 @@ Warning: `global_context()` is deprecated or internal. Use explicit `Context` or
 
 Differentiate an expression with respect to a variable.
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `formula` | `&str` | Expression to differentiate |
-| `var` | `&str` | Variable to differentiate with respect to |
-| `known_symbols` | `&[&str]` | Known symbols (e.g., multi-char variables) |
-| `custom_functions` | `Option<&[&str]>` | User-defined function names |
+| Parameter          | Type              | Description                                |
+| ------------------ | ----------------- | ------------------------------------------ |
+| `formula`          | `&str`            | Expression to differentiate                |
+| `var`              | `&str`            | Variable to differentiate with respect to  |
+| `known_symbols`    | `&[&str]`         | Known symbols (e.g., multi-char variables) |
+| `custom_functions` | `Option<&[&str]>` | User-defined function names                |
 
 ```rust
 // Treat "alpha" as a single symbol (not a*l*p*h*a)
@@ -173,16 +178,22 @@ diff("alpha * x^2", "x", &["alpha"], None)?;
 // Result: "2*alpha*x"
 ```
 
+> [!NOTE]
+> **Python API:** `diff()` returns a `PyExpr` object. Membership checks like `"x" in result` should be performed on `str(result)`.
+
 ### `simplify(formula, known_symbols, custom_functions)`
 
 Simplify an expression algebraically.
 
 ```rust
-simplify("x^2 + 2*x + 1", &[], None)?;
-// Result: "(x + 1)^2"
+simplify("x + x + x", &[], None)?;
+// Result: "3*x"
 ```
 
-### `parse(formula, known_symbols, custom_functions)`
+> [!NOTE]
+> **Python API:** `simplify()` returns a `PyExpr` object. Both `diff()` and `simplify()` in Python support duck typing for the `formula` argument (accepts `str` or `Expr`).
+
+### `parse(formula, known_symbols, custom_functions, context)`
 
 Parse a string into an `Expr` AST.
 
@@ -190,7 +201,7 @@ Parse a string into an `Expr` AST.
 use symb_anafis::parse;
 use std::collections::HashSet;
 
-let expr = parse("x^2 + 1", &HashSet::new(), &HashSet::new())?;
+let expr = parse("x^2 + 1", &HashSet::new(), &HashSet::new(), None)?;
 ```
 
 ---
@@ -202,7 +213,7 @@ For fine-grained control, use `Diff` and `Simplify` builders.
 ### `Diff` Builder
 
 ```rust
-use symb_anafis::{Diff, symb};
+use symb_anafis::{Diff, symb, UserFunction};
 
 let result = Diff::new()
     .domain_safe(true)       // Preserve mathematical domains
@@ -211,24 +222,14 @@ let result = Diff::new()
     .max_nodes(50000)        // Node count limit
     .with_context(&ctx)      // Use specific symbol context
     .fixed_var(&symb("a"))   // Single constant
-    .custom_fn("f")          // Register function name
-    .diff_str("a * f(x)", "x")?;
+    .user_fn("f", UserFunction::new(1..=1))  // Register custom function
+    .diff_str("a * f(x)", "x", &[])?;
 ```
 
-**`Diff` Builder Methods:**
+| `with_context(&Context)`      | Sets the symbol context for variable resolution.                                                                            |
 
-| Method | Description |
-|--------|-------------|
-| `domain_safe(bool)` | If true, prevents simplifications that change the domain (e.g., `x/x` $\ne$ `1` if x=0). |
-| `skip_simplification(bool)` | If true, returns the raw unsimplified derivative. Useful for benchmarking or inspecting the raw output of derivation rules. |
-| `fixed_var(&Symbol)` | Registers a variable as constant during differentiation. |
-| `fixed_vars(&[&Symbol])` | Registers multiple constants. |
-| `custom_fn(name)` | Registers a custom function name so the parser recognizes it. |
-| `user_fn(name, UserFunction)` | Defines a custom function with derivative and evaluation rules. |
-| `custom_eval(name, fn)` | Defines a numeric evaluation rule for a custom function. |
-| `custom_fn_multi(name, fn)` | Defines a multi-argument custom function with partial derivatives. |
-| `with_context(&Context)` | Sets the symbol context for variable resolution. |
-```
+> [!TIP]
+> **Python API:** `fixed_var` and `fixed_vars` support duck typing. You can pass either strings or `Symbol` objects. `differentiate` also accepts both strings and `Symbol` objects for the variable argument.
 
 ### `Simplify` Builder
 
@@ -243,19 +244,10 @@ let result = Simplify::new()
 // Without: "x + a"
 ```
 
-**`Simplify` Builder Methods:**
+| `with_context(&Context)`      | Sets the symbol context.                                  |
 
-| Method | Description |
-|--------|-------------|
-| `domain_safe(bool)` | If true, prevents simplifications that change the domain. |
-| `fixed_var(&Symbol)` | Registers a variable as constant. |
-| `fixed_vars(&[&Symbol])` | Registers multiple constants. |
-| `custom_fn(name)` | Registers a custom function name. |
-| `custom_eval(name, fn)` | Defines a numeric evaluation rule for a custom function. |
-| `with_context(&Context)` | Sets the symbol context. |
-| `max_depth(usize)` | Sets the limit for expression tree depth. |
-| `max_nodes(usize)` | Sets the limit for total nodes. |
-```
+> [!TIP]
+> **Python API:** `fixed_var` and `fixed_vars` in `Simplify` also support duck typing (Strings or `Symbol` objects).
 
 ### Type-Safe Expressions
 
@@ -270,7 +262,7 @@ let x = symb("x");
 let expr = x.pow(2.0) + x.sin();  // x² + sin(x)
 let expr2 = x + x;  // Works! Symbol is Copy.
 
-let derivative = Diff::new().differentiate(expr, &x)?;
+let derivative = Diff::new().differentiate(&expr, &x)?;
 ```
 
 ### Expression Inspection
@@ -285,11 +277,6 @@ let id = expr.id();
 
 // Structural hash for fast equality checks
 let hash = expr.hash();
-
-// Access the internal structure (consumes the Expr)
-if let ExprKind::Sum(terms) = expr.into_kind() {
-    println!("Sum of {} terms", terms.len());
-}
 ```
 
 ---
@@ -301,7 +288,7 @@ Format expressions for different output contexts.
 ### LaTeX Output
 
 ```rust
-use symb_anafis::sym;
+use symb_anafis::symb;
 
 let x = symb("x");
 let sigma = symb("sigma");
@@ -312,13 +299,13 @@ println!("{}", expr.to_latex());
 ```
 
 **LaTeX Features:**
-| Expression | LaTeX Output |
-|------------|--------------|
-| `a / b` | `\frac{a}{b}` |
-| `x^n` | `x^{n}` |
-| `a * b` | `a \cdot b` |
-| `sin(x)` | `\sin\left(x\right)` |
-| `sqrt(x)` | `\sqrt{x}` |
+| Expression          | LaTeX Output          |
+| ------------------- | --------------------- |
+| `a / b`             | `\frac{a}{b}`         |
+| `x^n`               | `x^{n}`               |
+| `a * b`             | `a \cdot b`           |
+| `sin(x)`            | `\sin\left(x\right)`  |
+| `sqrt(x)`           | `\sqrt{x}`            |
 | `pi`, `alpha`, etc. | `\pi`, `\alpha`, etc. |
 
 ### Unicode Output
@@ -450,23 +437,20 @@ Define how to differentiate `f(u)`:
 
 ```rust
 use symb_anafis::{Diff, Expr, UserFunction};
+use std::sync::Arc;
 
 let my_func = UserFunction::new(1..=1)
     .partial(0, |args: &[Arc<Expr>]| {
         // ∂f/∂u = 2u
-        Expr::number(2.0) * Expr::from(&args[0])
+        Expr::number(2.0) * (*args[0]).clone()
     })
     .expect("valid arg");
 
 let diff = Diff::new().user_fn("f", my_func);
 
-diff.diff_str("f(x^2)", "x")?;  // Result: 4x³
+diff.diff_str("f(x^2)", "x", &[])?;  // Result: 4x³
 ```
 
-**Parameters:**
-- `inner`: The argument expression (e.g., `x^2` in `f(x^2)`)
-- `_var`: The differentiation variable
-- `inner_prime`: Derivative of the argument (e.g., `2x`)
 
 ### Custom Numeric Evaluation
 
@@ -474,6 +458,7 @@ Allow `f(3)` to evaluate to a number:
 
 ```rust
 use symb_anafis::{Diff, Expr, UserFunction};
+use std::sync::Arc;
 
 let my_func = UserFunction::new(1..=1)
     .body(|args: &[Arc<Expr>]| {
@@ -482,7 +467,7 @@ let my_func = UserFunction::new(1..=1)
     })
     .partial(0, |args: &[Arc<Expr>]| {
         // ∂f/∂x = 2x
-        Expr::number(2.0) * Expr::from(&args[0])
+        Expr::number(2.0) * (*args[0]).clone()
     })
     .expect("valid arg");
 
@@ -495,26 +480,27 @@ For functions with 2+ arguments, define **partial derivatives**:
 
 ```rust
 use symb_anafis::{Diff, UserFunction, Expr};
+use std::sync::Arc;
 
 // F(x, y) = x * sin(y)
 let my_func = UserFunction::new(2..=2)  // exactly 2 arguments
     .body(|args: &[Arc<Expr>]| {
         // F(x, y) = x * sin(y)
-        Expr::from(&args[0]) * Expr::from(&args[1]).sin()
+        (*args[0]).clone() * (*args[1]).clone().sin()
     })
     .partial(0, |args: &[Arc<Expr>]| {
         // ∂F/∂x = sin(y)
-        Expr::from(&args[1]).sin()
+        (*args[1]).clone().sin()
     })
     .expect("valid arg")
     .partial(1, |args: &[Arc<Expr>]| {
         // ∂F/∂y = x * cos(y)
-        Expr::from(&args[0]) * Expr::from(&args[1]).cos()
+        (*args[0]).clone() * (*args[1]).clone().cos()
     })
     .expect("valid arg");
 
 let diff = Diff::new().user_fn("F", my_func);
-diff.diff_str("F(t, t^2)", "t")?;  // Chain rule applied automatically
+diff.diff_str("F(t, t^2)", "t", &[])?;  // Chain rule applied automatically
 ```
 
 ### Nested Custom Functions
@@ -523,18 +509,19 @@ diff.diff_str("F(t, t^2)", "t")?;  // Chain rule applied automatically
 
 ```rust
 use symb_anafis::{Diff, UserFunction, Expr};
+use std::sync::Arc;
 
 let f_func = UserFunction::new(1..=1)
     .partial(0, |args: &[Arc<Expr>]| {
         // ∂f/∂u = 2u
-        Expr::number(2.0) * Expr::from(&args[0])
+        Expr::number(2.0) * (*args[0]).clone()
     })
     .expect("valid arg");
 
 let g_func = UserFunction::new(1..=1)
     .partial(0, |args: &[Arc<Expr>]| {
         // ∂g/∂u = 3u²
-        Expr::number(3.0) * Expr::from(&args[0]).pow(2.0)
+        Expr::number(3.0) * (*args[0]).clone().pow(2.0)
     })
     .expect("valid arg");
 
@@ -544,7 +531,7 @@ let diff = Diff::new()
 
 // f(g(x)) differentiates using chain rule:
 // d/dx[f(g(x))] = f'(g(x)) * g'(x)
-diff.diff_str("f(g(x))", "x")?;
+diff.diff_str("f(g(x))", "x", &[])?;
 ```
 
 ### Helper Trait: `ArcExprExt`
@@ -563,6 +550,32 @@ let f = UserFunction::new(1..=1)
 ```
 
 Available methods include basic math (`pow`, `sqrt`), trigonometry (`sin`, `cos`, ...), hyperbolic functions, and special functions.
+
+### Python API
+
+Define custom functions with a body (for correct evaluation) and partial derivatives (for differentiation).
+
+```python
+import symb_anafis
+from symb_anafis import Diff, Context
+
+def sq_body(args):
+    return args[0] ** 2
+
+def sq_partial(args):
+    # ∂/∂x (x^2) = 2x
+    return 2 * args[0]
+
+# Register with both body (for evaluation) AND partials (for diff)
+# Signature: (name, arity, body_callback, partials_list)
+diff_builder = Diff().user_fn("sq", 1, sq_body, [sq_partial])
+
+result = diff_builder.diff_str("sq(x)", "x")
+# Result: "2*x"
+
+# Register in Context for use in Compilation or Evaluation
+ctx = Context().with_function("sq", 1, sq_body, [sq_partial])
+```
 
 ---
 
@@ -590,24 +603,29 @@ For direct expression evaluation:
 
 ```rust
 use std::collections::HashMap;
+use symb_anafis::parse;
 
-let expr = parse("x^2 + y", ...)?;
+let expr = parse("x^2 + y", &HashSet::new(), &HashSet::new(), None)?;
 let mut vars = HashMap::new();
 vars.insert("x", 3.0);
 
-let result = expr.evaluate(&vars);  // Returns: 9 + y (Expr)
+// evaluate takes 2 args: vars and custom_evals (can be empty)
+let result = expr.evaluate(&vars, &HashMap::new());  // Returns: 9 + y (Expr)
 ```
 
-### `evaluate_with_custom`
+### Evaluate with Custom Functions
 
 Evaluate with custom function implementations:
 
 ```rust
-let mut custom_evals = HashMap::new();
+use std::sync::Arc;
+use std::collections::HashMap;
+
+let mut custom_evals: HashMap<String, Arc<dyn Fn(&[f64]) -> Option<f64> + Send + Sync>> = HashMap::new();
 custom_evals.insert("f".to_string(), 
     Arc::new(|args: &[f64]| Some(args[0].powi(2) + 1.0)));
 
-let result = expr.evaluate_with_custom(&vars, &custom_evals);
+let result = expr.evaluate(&vars, &custom_evals);
 ```
 
 ---
@@ -620,7 +638,7 @@ let result = expr.evaluate_with_custom(&vars, &custom_evals);
 use symb_anafis::gradient_str;
 
 let grad = gradient_str("x^2 + y^2", &["x", "y"])?;
-// grad = ["2x", "2y"]
+// grad = ["2*x", "2*y"]
 ```
 
 ### Hessian Matrix
@@ -629,7 +647,7 @@ let grad = gradient_str("x^2 + y^2", &["x", "y"])?;
 use symb_anafis::hessian_str;
 
 let hess = hessian_str("x^2 * y", &["x", "y"])?;
-// hess = [["2y", "2x"], ["2x", "0"]]
+// hess = [["2*y", "2*x"], ["2*x", "0"]]
 ```
 
 ### Jacobian Matrix
@@ -638,7 +656,7 @@ let hess = hessian_str("x^2 * y", &["x", "y"])?;
 use symb_anafis::jacobian_str;
 
 let jac = jacobian_str(&["x^2 + y", "x * y"], &["x", "y"])?;
-// jac = [["2x", "1"], ["y", "x"]]
+// jac = [["2*x", "1"], ["y", "x"]]
 ```
 
 ### Type-Safe Versions
@@ -653,6 +671,22 @@ let expr = x.pow(2.0) + y.pow(2.0);  // All methods take &self!
 let grad = gradient(&expr, &[&x, &y]);  // Vec<Expr>
 ```
 
+### Python API
+
+```python
+from symb_anafis import gradient, hessian, jacobian
+
+# Gradient: [∂f/∂x, ∂f/∂y]
+grad = gradient("x^2 + y^2", ["x", "y"])
+# grad = ["2*x", "2*y"]
+
+# Hessian: [[∂²f/∂x², ∂²f/∂x∂y], ...]
+hess = hessian("x^2 * y", ["x", "y"])
+
+# Jacobian: [[∂f₁/∂x, ∂f₁/∂y], [∂f₂/∂x, ∂f₂/∂y]]
+jac = jacobian(["x^2 + y", "x * y"], ["x", "y"])
+```
+
 ---
 
 ## Automatic Differentiation
@@ -664,7 +698,7 @@ SymbAnaFis provides dual number arithmetic for exact derivative computation thro
 Dual numbers extend real numbers with an infinitesimal `ε` where `ε² = 0`. A dual number `a + bε` carries both a value (`a`) and its derivative (`b`).
 
 ```rust
-use symb_anafis::math::dual::Dual;
+use symb_anafis::Dual;
 
 // f(x) = x² + 3x + 1, f'(x) = 2x + 3
 let x = Dual::new(2.0, 1.0);  // x + 1ε
@@ -679,7 +713,7 @@ println!("f'(2) = {}", fx.eps);  // 7.0
 All standard mathematical functions work with dual numbers:
 
 ```rust
-use symb_anafis::math::dual::Dual;
+use symb_anafis::Dual;
 
 // f(x) = sin(x) * exp(x), f'(x) = cos(x) * exp(x) + sin(x) * exp(x)
 let x = Dual::new(1.0, 1.0);
@@ -694,7 +728,7 @@ println!("f'(1) = {:.6}", fx.eps);  // 3.756049
 Dual numbers automatically apply the chain rule:
 
 ```rust
-use symb_anafis::math::dual::Dual;
+use symb_anafis::Dual;
 
 // f(x) = sin(x² + 1), f'(x) = cos(x² + 1) * 2x
 let x = Dual::new(1.5, 1.0);
@@ -708,12 +742,12 @@ println!("f'(1.5) = {:.6}", fx.eps);  // -2.982389
 ### Comparison with Symbolic Differentiation
 
 ```rust
-use symb_anafis::{symb, Diff, math::dual::Dual};
+use symb_anafis::{symb, Diff, Dual};
 
 // Symbolic differentiation
 let x = symb("x");
 let expr = x.pow(3.0) + 2.0 * x.pow(2.0) + x + 1.0;
-let symbolic_deriv = Diff::new().differentiate(expr, &x).unwrap();
+let symbolic_deriv = Diff::new().differentiate(&expr, &x).unwrap();
 
 // Dual number differentiation
 let x_dual = Dual::new(2.0, 1.0);
@@ -758,6 +792,13 @@ print(f"f'(1.5) = {fx.eps:.6f}")  # -2.982389
 - **Composable** with other numeric operations
 
 See `examples/dual_autodiff.rs` (Rust) and `examples/dual_autodiff.py` (Python) for comprehensive demonstrations.
+### Python Native Support
+
+`PyExpr` and `PySymbol` objects behave like native Python objects:
+- **Equality**: `expr1 == expr2` compares structure.
+- **Hashing**: Can be used as dictionary keys: `{x: 1, y: 2}`.
+- **Numeric**: `float(expr)` works if the expression is a constant number.
+- **Strings**: `str(expr)` or `repr(expr)` returns the mathematical representation.
 
 ---
 
@@ -772,24 +813,24 @@ Evaluate multiple expressions at multiple points in parallel using Rayon.
 Clean syntax for mixed-type parallel evaluation:
 
 ```rust
-use symb_anafis::parallel::{eval_parallel, SKIP};
+use symb_anafis::{eval_parallel, symb};
+use symb_anafis::parallel::SKIP;
 
 let x = symb("x");
-let y = symb("y");
-let expr1 = &x.pow(2.0);
-let expr2 = &(x.clone() + y.clone());
+let expr = x.pow(2.0);
 
 // Evaluate at multiple points
 let results = eval_parallel!(
-    [expr1, expr2],           // Expressions
-    [["x"], ["x", "y"]],      // Variables per expression
-    [
-        [[1.0, 2.0, 3.0]],                    // expr1: x values
-        [[1.0, 2.0], [10.0, 20.0]]            // expr2: x and y values
+    exprs: ["x + y", expr],         // String or Expr inputs
+    vars: [["x", "y"], ["x"]],      // Variables per expression
+    values: [
+        [[1.0, 2.0], [10.0, 20.0]], // expr0: x and y values  
+        [[1.0, 2.0, 3.0]]           // expr1: x values
     ]
-);
-// results[0] = [1.0, 4.0, 9.0]
-// results[1] = [11.0, 22.0]
+).unwrap();
+
+// results[0] = String results (since input was string): ["11", "22"]
+// results[1] = Expr results (since input was Expr): [Expr(1), Expr(4), Expr(9)]
 ```
 
 ### `SKIP` Constant for Partial Evaluation
@@ -797,26 +838,27 @@ let results = eval_parallel!(
 Use `SKIP` to keep variables symbolic:
 
 ```rust
-use symb_anafis::parallel::{eval_parallel!, SKIP};
+use symb_anafis::{eval_parallel, symb};
+use symb_anafis::parallel::SKIP;
 
 let results = eval_parallel!(
-    [&(x * y)],
-    [["x", "y"]],
-    [[[2.0, SKIP, 4.0], [3.0, 5.0, 6.0]]]
-);
-// Point 0: 2*3 = Num(6.0)
-// Point 1: SKIP*5 = Expr("5*x") - symbolic result!
-// Point 2: 4*6 = Num(24.0)
+    exprs: ["x * y"],
+    vars: [["x", "y"]],
+    values: [[[2.0, SKIP], [3.0, 5.0]]]
+).unwrap();
+
+// Point 0: x=2, y=3 → "6"
+// Point 1: x=SKIP, y=5 → "5*x" (symbolic result)
 ```
 
 ### Return Types: `EvalResult`
 
-Results are `EvalResult` enum preserving type information:
+Results preserve input type:
 
 ```rust
 pub enum EvalResult {
-    Num(f64),       // Fully evaluated numeric result
-    Expr(Expr),     // Symbolic result (when SKIP used)
+    Expr(Expr),     // When input was Expr
+    String(String), // When input was string
 }
 ```
 
@@ -828,15 +870,38 @@ For programmatic use without macro:
 use symb_anafis::parallel::{evaluate_parallel, ExprInput, VarInput, Value};
 
 let results = evaluate_parallel(
-    &[ExprInput::Ref(&expr)],
-    &[VarInput::Slice(&["x"])],
-    &[&[&[Value::Num(1.0), Value::Num(2.0)]]]
-);
+    vec![ExprInput::from("x^2")],
+    vec![vec![VarInput::from("x")]],
+    vec![vec![vec![Value::Num(1.0), Value::Num(2.0)]]]
+)?;
 ```
 
 ### High-Performance Numeric Evaluation: `eval_f64`
 
-For pure numeric workloads (f64 inputs -> f64 outputs), `eval_f64` offers maximum performance using chunked parallel SIMD evaluation:
+For pure numeric workloads (f64 inputs → f64 outputs), `eval_f64` offers maximum performance using chunked parallel SIMD evaluation. This is the recommended approach for evaluating expressions across large datasets.
+
+> [!TIP]
+> `eval_f64` is ideal for scientific computing, data analysis, and any scenario where you need to evaluate expressions at thousands or millions of points.
+
+#### Function Signature
+
+```rust
+pub fn eval_f64<V: ToParamName + Sync>(
+    exprs: &[&Expr],
+    var_names: &[&[V]],
+    data: &[&[&[f64]]],
+) -> Result<Vec<Vec<f64>>, DiffError>
+```
+
+| Parameter   | Type           | Description                                             |
+| ----------- | -------------- | ------------------------------------------------------- |
+| `exprs`     | `&[&Expr]`     | Slice of expressions to evaluate                        |
+| `var_names` | `&[&[V]]`      | Variable names for each expression (strings or symbols) |
+| `data`      | `&[&[&[f64]]]` | Columnar data: `data[expr_idx][var_idx][point_idx]`     |
+
+**Returns:** `Vec<Vec<f64>>` where `result[expr_idx][point_idx]` is the evaluation result.
+
+#### Basic Usage
 
 ```rust
 use symb_anafis::{eval_f64, symb};
@@ -849,12 +914,115 @@ let x_data = vec![1.0, 2.0, 3.0, 4.0];
 let results = eval_f64(
     &[&expr],
     &[&["x"]],
-    &[&[&x_data]]
+    &[&[&x_data[..]]]
 ).unwrap();
 // results[0] = [1.0, 4.0, 9.0, 16.0]
 ```
 
-This function is optimized for large datasets and strictly numeric evaluation.
+#### Multi-Variable Expressions
+
+```rust
+use symb_anafis::{eval_f64, parse};
+use std::collections::HashSet;
+
+let expr = parse("x^2 + y", &HashSet::new(), &HashSet::new(), None).unwrap();
+
+let x_data = [1.0, 2.0, 3.0];
+let y_data = [0.5, 0.5, 0.5];
+
+let results = eval_f64(
+    &[&expr],
+    &[&["x", "y"]],
+    &[&[&x_data[..], &y_data[..]]]
+).unwrap();
+// results[0] = [1.5, 4.5, 9.5]  (1²+0.5, 2²+0.5, 3²+0.5)
+```
+
+#### Multiple Expressions
+
+Evaluate multiple expressions in parallel, each with its own variables and data:
+
+```rust
+use symb_anafis::{eval_f64, parse};
+use std::collections::HashSet;
+
+let expr1 = parse("x + 1", &HashSet::new(), &HashSet::new(), None).unwrap();
+let expr2 = parse("y * 2", &HashSet::new(), &HashSet::new(), None).unwrap();
+
+let x_data = [1.0, 2.0, 3.0];
+let y_data = [10.0, 20.0, 30.0];
+
+let results = eval_f64(
+    &[&expr1, &expr2],
+    &[&["x"], &["y"]],
+    &[&[&x_data[..]], &[&y_data[..]]]
+).unwrap();
+
+// results[0] = [2.0, 3.0, 4.0]    (x + 1)
+// results[1] = [20.0, 40.0, 60.0] (y * 2)
+```
+
+#### Performance Characteristics
+
+`eval_f64` is optimized for high-throughput evaluation:
+
+| Feature                         | Benefit                                                      |
+| ------------------------------- | ------------------------------------------------------------ |
+| **Chunked Parallelism**         | Splits work into 256-point chunks for optimal load balancing |
+| **SIMD Vectorization**          | Uses f64x4 SIMD operations (processes 4 values at a time)    |
+| **Cache Locality**              | Chunk-based processing improves L1 cache hit rates           |
+| **Compiled Bytecode**           | Expressions are compiled to avoid tree traversal overhead    |
+| **Parallel Across Expressions** | Multiple expressions evaluated concurrently with Rayon       |
+
+> [!NOTE]
+> For small datasets (&lt;256 points), `eval_f64` automatically uses sequential evaluation to avoid thread overhead.
+
+#### Error Handling
+
+```rust
+use symb_anafis::{eval_f64, DiffError};
+
+// Mismatched lengths will return an error
+let result = eval_f64(&exprs, &var_names, &data);
+
+match result {
+    Ok(values) => { /* use values */ }
+    Err(DiffError::InvalidSyntax { msg, .. }) => {
+        println!("Input error: {}", msg);
+    }
+    Err(e) => println!("Other error: {:?}", e),
+}
+```
+
+#### Python API
+
+```python
+import symb_anafis
+from symb_anafis import parse, eval_f64
+
+# Single expression
+expr = parse("x^2 + sin(x)")
+x_data = [0.0, 1.0, 2.0, 3.0]
+results = eval_f64([expr], [["x"]], [[[x_data]]])
+# results[0] = [0.0, 1.8414..., 4.9092..., 9.1411...]
+
+# Multiple expressions with different variables
+expr1 = parse("x + y")
+expr2 = parse("x * y")
+x_data = [1.0, 2.0, 3.0]
+y_data = [10.0, 20.0, 30.0]
+
+results = eval_f64(
+    [expr1, expr2],
+    [["x", "y"], ["x", "y"]],
+    [[[x_data, y_data]], [[x_data, y_data]]]
+)
+# results[0] = [11.0, 22.0, 33.0]  (x + y)
+# results[1] = [10.0, 40.0, 90.0]  (x * y)
+```
+
+> [!IMPORTANT]
+> The Python binding releases the GIL during evaluation, allowing true parallel execution in multi-threaded Python programs.
 
 ---
 
@@ -865,12 +1033,17 @@ For tight loops or massive repeated evaluation, use the `CompiledEvaluator`. It 
 ### `CompiledEvaluator`
 
 ```rust
-use symb_anafis::Expr;
+use symb_anafis::{Expr, symb};
+
 // Create an expression
 let expr = symb("x").sin() * symb("x").pow(2.0);
 
-// Compile it (requires list of parameter names in order)
-let compiled = expr.compile(&["x"])?;
+// Compile with auto-detected variables
+let compiled = expr.compile()?;
+
+// Or compile with explicit parameter order (strings or symbols)
+let compiled = expr.compile_with_params(&["x"])?;
+let compiled = expr.compile_with_params(&[&x])?;  // Also works with symbols!
 
 // Evaluate repeatedly (much faster than expr.evaluate)
 let result = compiled.evaluate(&[0.5]); // Result at x=0.5
@@ -878,13 +1051,32 @@ let result = compiled.evaluate(&[0.5]); // Result at x=0.5
 
 **Methods:**
 
-| Method | Description |
-|--------|-------------|
-| `compile(expr, params)` | Compile an expression for given parameters. |
-| `compile_auto(expr)` | Compile, auto-detecting variables from the expression. |
-| `compile_with_context(expr, params, ctx)` | Compile with a custom function context. |
-| `evaluate(args)` | Evaluate at a single point. |
-| `eval_batch(cols, out)` | Evaluate multiple points (SIMD logic). |
+| Method                                                | Description                                       |
+| ----------------------------------------------------- | ------------------------------------------------- |
+| `CompiledEvaluator::compile(&expr, &params, context)` | Compile with explicit params (strings or symbols) |
+| `CompiledEvaluator::compile_auto(&expr, context)`     | Compile, auto-detecting variables                 |
+| `expr.compile()`                                      | Convenience method, auto-detects variables        |
+| `expr.compile_with_params(&params)`                   | Convenience method with explicit params           |
+| `evaluate(&values)`                                   | Evaluate at a single point                        |
+| `eval_batch(&columns, &mut output)`                   | Batch evaluate (SIMD optimized)                   |
+
+### Using Symbols or Strings
+
+You can pass either strings or symbols to `compile`:
+
+```rust
+use symb_anafis::{symb, CompiledEvaluator};
+
+let x = symb("x");
+let y = symb("y");
+let expr = x.pow(2.0) + y;
+
+// Using strings
+let c1 = CompiledEvaluator::compile(&expr, &["x", "y"], None)?;
+
+// Using symbols (preferred - faster lookup)
+let c2 = CompiledEvaluator::compile(&expr, &[&x, &y], None)?;
+```
 
 ### Using `Context` with Compiler
 
@@ -894,44 +1086,68 @@ To use custom functions within compiled expressions, register them in a `Context
 use symb_anafis::{Context, UserFunction, CompiledEvaluator, Expr, symb};
 
 // 1. Create a context with a function body
-// Note: 'body' is required for compilation (defines the logic to compile)
 let ctx = Context::new()
     .with_function("my_sq", UserFunction::new(1..=1)
         .body(|args| args[0].pow(2.0))); 
 
 // 2. Create expression using the function
-let expr = Expr::func("my_sq", symb("x"));
+let x = symb("x");
+let expr = Expr::func("my_sq", x.to_expr());
 
-// 3. Compile with context
-let compiled = CompiledEvaluator::compile_with_context(
-    &expr, 
-    &["x"], 
-    Some(&ctx)
-)?;
+// 3. Compile with context (using symbols)
+let compiled = CompiledEvaluator::compile(&expr, &[&x], Some(&ctx))?;
 
 let result = compiled.evaluate(&[3.0]); // 9.0
+```
+
+### Python API
+
+Python bindings provide a high-performance `CompiledEvaluator` class that releases the GIL during heavy computations, enabling true parallelism.
+
+```python
+from symb_anafis import CompiledEvaluator, Context, parse
+
+# 1. Basic Compilation
+expr = parse("x^2 + sin(x)")
+# compile(expr, params_list)
+compiled = CompiledEvaluator(expr, ["x"])
+
+val = 2.0
+result = compiled.evaluate([val])
+# Batch evaluation (SIMD optimized)
+results = compiled.eval_batch([[0.0, 1.0, 2.0]])
+
+# 2. Compilation with Custom Functions
+def my_sq(args): return args[0]**2
+
+ctx = Context().with_function("my_sq", 1, my_sq, [])
+expr_custom = parse("my_sq(x) + 5", custom_functions=["my_sq"])
+
+# Pass context to constructor
+compiled_ctx = CompiledEvaluator(expr_custom, ["x"], ctx)
+res = compiled_ctx.evaluate([3.0])  # 14.0
 ```
 
 ---
 
 ## Built-in Functions
 
-| Category | Functions |
-|----------|-----------|
-| **Trig** | `sin`, `cos`, `tan`, `cot`, `sec`, `csc` |
-| **Inverse Trig** | `asin`, `acos`, `atan`, `atan2`, `acot`, `asec`, `acsc` |
-| **Hyperbolic** | `sinh`, `cosh`, `tanh`, `coth`, `sech`, `csch` |
-| **Inverse Hyperbolic** | `asinh`, `acosh`, `atanh`, `acoth`, `asech`, `acsch` |
-| **Exp/Log** | `exp`, `ln`, `log(b, x)`, `log10`, `log2`, `exp_polar` |
-| **Roots** | `sqrt`, `cbrt` |
-| **Error Functions** | `erf`, `erfc` |
-| **Gamma Family** | `gamma`, `digamma`, `trigamma`, `tetragamma`, `polygamma(n, x)`, `beta(a, b)` |
-| **Zeta** | `zeta`, `zeta_deriv(n, s)` |
-| **Bessel** | `besselj(n, x)`, `bessely(n, x)`, `besseli(n, x)`, `besselk(n, x)` |
-| **Elliptic Integrals** | `elliptic_k`, `elliptic_e` |
-| **Orthogonal Polynomials** | `hermite(n, x)`, `assoc_legendre(l, m, x)` |
-| **Spherical Harmonics** | `spherical_harmonic(l, m, θ, φ)`, `ynm(l, m, θ, φ)` |
-| **Other** | `abs`, `signum`, `sinc`, `lambertw`, `floor`, `ceil`, `round` |
+| Category                   | Functions                                                                     |
+| -------------------------- | ----------------------------------------------------------------------------- |
+| **Trig**                   | `sin`, `cos`, `tan`, `cot`, `sec`, `csc`                                      |
+| **Inverse Trig**           | `asin`, `acos`, `atan`, `atan2`, `acot`, `asec`, `acsc`                       |
+| **Hyperbolic**             | `sinh`, `cosh`, `tanh`, `coth`, `sech`, `csch`                                |
+| **Inverse Hyperbolic**     | `asinh`, `acosh`, `atanh`, `acoth`, `asech`, `acsch`                          |
+| **Exp/Log**                | `exp`, `ln`, `log(b, x)`, `log10`, `log2`, `exp_polar`                        |
+| **Roots**                  | `sqrt`, `cbrt`                                                                |
+| **Error Functions**        | `erf`, `erfc`                                                                 |
+| **Gamma Family**           | `gamma`, `digamma`, `trigamma`, `tetragamma`, `polygamma(n, x)`, `beta(a, b)` |
+| **Zeta**                   | `zeta`, `zeta_deriv(n, s)`                                                    |
+| **Bessel**                 | `besselj(n, x)`, `bessely(n, x)`, `besseli(n, x)`, `besselk(n, x)`            |
+| **Elliptic Integrals**     | `elliptic_k`, `elliptic_e`                                                    |
+| **Orthogonal Polynomials** | `hermite(n, x)`, `assoc_legendre(l, m, x)`                                    |
+| **Spherical Harmonics**    | `spherical_harmonic(l, m, θ, φ)`, `ynm(l, m, θ, φ)`                           |
+| **Other**                  | `abs`, `signum`, `sinc`, `lambertw`, `floor`, `ceil`, `round`                 |
 
 > **Note:** All functions have both **numeric evaluation** and **symbolic differentiation** rules. Multi-argument functions like `besselj(n, x)` differentiate with respect to `x` (treating `n` as constant).
 
@@ -964,27 +1180,27 @@ let result = Diff::new().diff_str("besselj(0, x)", "x")?;
 
 ## Expression Syntax
 
-| Element | Syntax | Example |
-|---------|--------|---------|
-| Variables | Any identifier | `x`, `y`, `sigma` |
-| Numbers | Integer/decimal/scientific | `1`, `3.14`, `1e-5` |
-| Addition | `+` | `x + 1` |
-| Subtraction | `-` | `x - 1` |
-| Multiplication | `*` | `x * y` |
-| Division | `/` | `x / y` |
-| Power | `^` | `x^2` |
-| Function calls | `name(args)` | `sin(x)`, `log(10, x)` |
-| Constants | `pi`, `e` | Auto-recognized |
-| Implicit mult | Adjacent terms | `2x`, `(x+1)(x-1)` |
-| Partial derivative | `∂_f(x)/∂_x` | Output notation |
+| Element            | Syntax                     | Example                |
+| ------------------ | -------------------------- | ---------------------- |
+| Variables          | Any identifier             | `x`, `y`, `sigma`      |
+| Numbers            | Integer/decimal/scientific | `1`, `3.14`, `1e-5`    |
+| Addition           | `+`                        | `x + 1`                |
+| Subtraction        | `-`                        | `x - 1`                |
+| Multiplication     | `*`                        | `x * y`                |
+| Division           | `/`                        | `x / y`                |
+| Power              | `^`                        | `x^2`                  |
+| Function calls     | `name(args)`               | `sin(x)`, `log(10, x)` |
+| Constants          | `pi`, `e`                  | Auto-recognized        |
+| Implicit mult      | Adjacent terms             | `2x`, `(x+1)(x-1)`     |
+| Partial derivative | `∂_f(x)/∂_x`               | Output notation        |
 
 ### Operator Precedence
 
-| Precedence | Operators | Associativity |
-|------------|-----------|---------------|
-| Highest | `^` (power) | Right |
-| | `*`, `/` | Left |
-| Lowest | `+`, `-` | Left |
+| Precedence | Operators   | Associativity |
+| ---------- | ----------- | ------------- |
+| Highest    | `^` (power) | Right         |
+|            | `*`, `/`    | Left          |
+| Lowest     | `+`, `-`    | Left          |
 
 ---
 
@@ -1005,17 +1221,34 @@ match diff.diff_str("invalid syntax ((", "x") {
 
 **`DiffError` Variants:**
 
-| Variant | Description |
-|---------|-------------|
-| `EmptyFormula` | Input was empty or whitespace only |
-| `InvalidSyntax { msg, span }` | General syntax error |
-| `InvalidNumber { value, span }` | Could not parse number literal |
-| `InvalidToken { token, span }` | Unrecognized token |
-| `UnexpectedToken { expected, got, span }` | Wrong token at position |
-| `UnexpectedEndOfInput` | Input ended prematurely |
-| `InvalidFunctionCall { name, expected, got }` | Function called with wrong number of arguments |
-| `VariableInBothFixedAndDiff { var }` | Variable is both fixed and differentiation target |
-| `NameCollision { name }` | Name used for both variable and function |
-| `UnsupportedOperation(String)` | Operation not supported |
+| Variant                                            | Description                                       |
+| -------------------------------------------------- | ------------------------------------------------- |
+| **Input Errors**                                   |                                                   |
+| `EmptyFormula`                                     | Input was empty or whitespace only                |
+| `InvalidSyntax { msg, span }`                      | General syntax error                              |
+| `InvalidNumber { value, span }`                    | Could not parse number literal                    |
+| `InvalidToken { token, span }`                     | Unrecognized token                                |
+| `UnexpectedToken { expected, got, span }`          | Wrong token at position                           |
+| `UnexpectedEndOfInput`                             | Input ended prematurely                           |
+| `InvalidFunctionCall { name, expected, got }`      | Wrong number of arguments                         |
+| **Semantic Errors**                                |                                                   |
+| `VariableInBothFixedAndDiff { var }`               | Variable is both fixed and differentiation target |
+| `NameCollision { name }`                           | Name used for both variable and function          |
+| `UnsupportedOperation(String)`                     | Operation not supported                           |
+| `AmbiguousSequence { sequence, suggestion, span }` | Ambiguous token sequence                          |
+| **Safety Limits**                                  |                                                   |
+| `MaxDepthExceeded`                                 | Expression exceeds max AST depth                  |
+| `MaxNodesExceeded`                                 | Expression exceeds max node count                 |
+| **Compilation Errors**                             |                                                   |
+| `UnsupportedExpression(String)`                    | Unsupported construct for compilation             |
+| `UnsupportedFunction(String)`                      | Function not supported in compiled mode           |
+| `UnboundVariable(String)`                          | Variable not in parameter list                    |
+| `StackOverflow { depth, limit }`                   | Expression requires too much stack                |
+| **Batch Evaluation Errors**                        |                                                   |
+| `EvalColumnMismatch { expected, got }`             | Column count doesn't match params                 |
+| `EvalColumnLengthMismatch`                         | Column lengths differ                             |
+| `EvalOutputTooSmall { needed, got }`               | Output buffer too small                           |
+| **UserFunction Errors**                            |                                                   |
+| `InvalidPartialIndex { index, max_arity }`         | Partial derivative index out of bounds            |
 
 ---

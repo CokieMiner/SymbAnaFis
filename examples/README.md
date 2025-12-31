@@ -7,7 +7,7 @@ This directory contains examples demonstrating SymbAnaFis capabilities.
 | Example | Description | Run With |
 |---------|-------------|----------|
 | **quickstart** | Minimal 25-line demo | `cargo run --example quickstart` |
-| **api_showcase** | Complete API tour (10 parts) | `cargo run --example api_showcase` |
+| **api_showcase** | Complete API tour (15 sections) | `cargo run --example api_showcase` |
 | **dual_autodiff** | Automatic differentiation with dual numbers | `cargo run --example dual_autodiff` |
 | **applications** | Physics & engineering | `cargo run --example applications` |
 | **simplification_comparison** | Compare against Symbolica CAS | `cargo run --example simplification_comparison` |
@@ -22,25 +22,32 @@ cargo run --example quickstart
 
 ## api_showcase.rs - Complete API Tour
 
-Comprehensive demo of ALL features:
+Comprehensive demo of ALL features across 15 sections:
 
-| Part | Feature |
-|------|---------|
-| 1 | String-based API (`diff`, `simplify`) |
-| 2 | Type-safe API + Symbol Copy |
-| 3 | Numerical evaluation |
-| 4 | Multi-variable calculus (gradient, hessian, jacobian) |
-| 5 | All 60+ supported functions |
-| 6 | Custom derivatives & evaluation |
-| 7 | Safety features (max depth, domain safety) |
-| 8 | Expression output (LaTeX, Unicode) |
-| 9 | Uncertainty propagation |
-| 10 | Parallel evaluation (requires `parallel` feature) |
+| Section | Feature |
+|---------|---------|
+| 1 | Quick Start |
+| 2 | Symbol Management |
+| 3 | Core Functions |
+| 4 | Builder Pattern API |
+| 5 | Expression Output |
+| 6 | Uncertainty Propagation |
+| 7 | Custom Functions |
+| 8 | Evaluation |
+| 9 | Vector Calculus |
+| 10 | Automatic Differentiation |
+| 11 | Parallel Evaluation |
+| 12 | Compilation & Performance |
+| 13 | Built-in Functions |
+| 14 | Expression Syntax |
+| 15 | Error Handling |
 
 ```bash
 cargo run --example api_showcase
-cargo run --example api_showcase --features parallel  # Include Part 10
+cargo run --example api_showcase --features parallel  # Include Section 11
 ```
+
+Python version available: `python examples/api_showcase.py`
 
 ## dual_autodiff.rs - Automatic Differentiation
 
@@ -70,6 +77,8 @@ Error: 0.00e0
 ```bash
 cargo run --example dual_autodiff
 ```
+
+Python version available: `python examples/dual_autodiff.py`
 
 ## applications.rs - Real-World Physics
 

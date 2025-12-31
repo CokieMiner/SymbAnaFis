@@ -2,6 +2,94 @@
 
 All notable changes to SymbAnaFis will be documented in this file.
 
+## [0.5.0] - 2025-12-31
+
+### Added
+- **Python Bindings - Parallel Evaluation Optimizations**:
+  - `evaluate_parallel` now accepts `Expr` or `str` for expressions (Full Hybrid input).
+  - `evaluate_parallel` now accepts NumPy arrays (`ndarray`) or Python lists for values (zero-copy when possible).
+  - Output is type-preserving: `float` for numeric results, `Expr` if input was `Expr` and result is symbolic, `str` if input was `str` and result is symbolic.
+  - Added `evaluate_parallel_with_hint()` internal function to skip O(N) numeric check when Python binding pre-computes the hint.
+- **Python Bindings - NumPy Hybrid Input**:
+  - `CompiledEvaluator.eval_batch()` and `eval_f64_py()` now accept both NumPy arrays (zero-copy via `PyReadonlyArray1`) and Python lists.
+  - Added `DataInput` enum and `extract_data_input()` helper for hybrid input handling.
+- **Python Bindings - Domain Validation**:
+  - Added early domain validation for special functions (`gamma`, `digamma`, `trigamma`, `tetragamma`, `zeta`, `lambertw`, `bessely`, `besselk`, `elliptic_k`, `elliptic_e`, `polygamma`, `beta`, `hermite`, `assoc_legendre`, `spherical_harmonic`, `log`).
+  - Functions now raise `PyValueError` with descriptive messages when numeric arguments are at poles or outside valid domain.
+- **Python Bindings - Duck Typing**:
+  - `diff()`, `simplify()`, `parse()` now return `PyExpr` objects instead of strings for better composability.
+  - All Python API functions (`diff`, `simplify`, `gradient`, `hessian`, `jacobian`, `evaluate`, `uncertainty_propagation`, `relative_uncertainty`) now accept both `str` and `Expr` inputs.
+  - Added `extract_to_expr()` helper enabling Python operators/functions to accept `Expr`, `Symbol`, `int`, `float`, and `str` interchangeably.
+  - Implemented full reverse operators (`__radd__`, `__rsub__`, `__rmul__`, `__rtruediv__`, `__rpow__`) for both `PyExpr` and `PySymbol`.
+  - Added `__eq__`, `__hash__`, `__float__` for `PyExpr` (enables dictionary keys, equality, numeric conversion).
+  - Extended `PySymbol` with full math method suite (trig, hyperbolic, exp/log, special functions).
+  - Updated `.pyi` type stubs to reflect duck typing across 50+ function signatures.
+- **Python Bindings - Builders**:
+  - `fixed_var()` and `fixed_vars()` now accept both strings and `Symbol` objects.
+  - `differentiate()` accepts `Symbol` or `str` for the variable argument.
+  - Added `body_callback` support to `user_fn()` and `Context.with_function()` for custom function evaluation.
+- **Rust API - Builder Pattern**:
+  - `Diff::fixed_var()` and `Diff::fixed_vars()` using `ToParamName` trait (accepts `&str`, `String`, or `&Symbol`).
+  - `Simplify::fixed_var()` and `Simplify::fixed_vars()` with same flexibility.
+  - Builder methods now validate that fixed variables don't conflict with differentiation variables.
+- **Rust API - Operator Extensions**:
+  - Added comprehensive i32 operator support: `Symbol +/- i32`, `i32 +/- Symbol`, `Expr +/- i32`, etc.
+  - Added f64 operators with `&Symbol` and `&Expr` references.
+  - Added 47 doc comments to `ArcExprExt` trait methods for rustdoc compliance.
+- **Rust API - CompiledEvaluator**:
+  - `compile()` and `compile_auto()` now accept optional `Context` parameter for custom functions.
+  - Added convenience methods: `Expr::compile()` and `Expr::compile_with_params()`.
+- **Testing**:
+  - New `test_comprehensive_api.py`: gradient/hessian/jacobian, builder patterns, integrated workflows.
+  - New `test_special_functions.py`: Bessel, Gamma, Beta, Lambert W, erf, elliptic integrals, Hermite.
+  - New `test_derivative_oracle.py`: SymPy-verified derivative tests (polynomial, trig, exp/log, chain/product/quotient rules).
+  - New `test_parallel_eval.py`: Full Hybrid evaluate_parallel tests with NumPy arrays.
+  - New `test_property_based.py`: Mathematical invariants, derivative rules, trig/exp/hyperbolic identities.
+  - New `test_compiled_evaluator.py`: CompiledEvaluator batch evaluation tests.
+  - New property-based test suite (`src/tests/property_tests.rs`) with 15+ tests for operator combinations.
+  - Python fuzz testing (`tests/python/fuzz_test.py`) for crash detection.
+  - Python stress testing (`tests/python/stress_test.py`) for memory stability.
+- **Documentation**:
+  - Comprehensive `eval_f64` documentation in API Reference with function signature, multi-variable examples, performance characteristics table, error handling, and Python API section.
+  - Updated API Reference to 15-section structure (~630 lines of additions).
+  - Rewrote `examples/api_showcase.py` (759 lines) and `examples/api_showcase.rs` (1095 lines) to match new API structure.
+
+### Changed
+- **Breaking: Rust API Signatures**:
+  - `Diff::differentiate()` now takes `&Expr` instead of `Expr` (avoid unnecessary cloning).
+  - `Simplify::simplify()` now takes `&Expr` instead of `Expr`.
+- **Python Return Types**:
+  - `parse()` returns `PyExpr` instead of `str`.
+  - `diff()` and `simplify()` return `Expr`/`PyExpr` objects instead of strings.
+- **eval_f64**: Changed trait bound from `AsRef<str>` to `ToParamName` for Symbol support.
+- **Code Quality**:
+  - Removed 11 clippy warnings (needless borrows, redundant closures, useless conversions, type complexity).
+  - Added `BodyFn` type alias import to reduce complex type annotations.
+  - Simplified `ABS_CAP` references to just `ABS` in simplification rules.
+
+### Fixed
+- **Critical: Parallel chunk ordering bug** - Fixed `par_bridge()` usage in chunked SIMD path which did not preserve order. Replaced with `into_par_iter()` on pre-collected chunk indices to guarantee result ordering matches input order.
+- Fixed rustdoc warning: escaped `Option<Arc<Expr>>` in macro comment.
+- Fixed clippy `needless_borrows_for_generic_args` warnings (4 instances).
+- Fixed clippy `type_complexity` warnings using `BodyFn` alias (2 instances).
+- Fixed clippy `redundant_closure` (1 instance) and `useless_conversion` (6 instances).
+- Added missing doc comments to 47 trait methods in `ArcExprExt`.
+- Fixed `test_depth_limit` to only run in debug builds (`#[cfg(debug_assertions)]`) since it relies on `debug_assert!`.
+
+### Internal
+- **LaTeX Display**: Added proper `log` with base formatting (`\log_{base}(x)`) in LaTeX output.
+- **Known Symbols**: Added `LOG` symbol ID for parametric log function; removed deprecated `ABS_CAP` alias.
+
+### Documentation
+- **API Reference** (`docs/API_REFERENCE.md`): Major overhaul with 630+ lines of additions including:
+  - Comprehensive `eval_f64` section with signature, examples, performance table
+  - Updated Context API table with 18 methods
+  - Python API examples for custom functions, vector calculus, compilation
+  - Extended error handling section with 17 error variants
+  - Fixed code examples to use `&expr` instead of `expr`
+- **Examples README**: Updated to reflect 15-section structure.
+- **Python Type Stubs**: 137+ lines of additions for duck typing support.
+
 ## [0.4.1] - 2025-12-29
 
 ### Changed

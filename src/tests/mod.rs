@@ -60,5 +60,6 @@ mod trig_simplification_tests;
 
 // Validation test suite
 mod api_contract_tests;
+mod api_parity_checks;
 mod derivative_oracle_tests;
 mod eval_consistency_tests;

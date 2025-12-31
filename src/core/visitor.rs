@@ -238,6 +238,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(debug_assertions)]
     #[should_panic(expected = "Expression depth exceeds maximum safe limit")]
     fn test_depth_limit() {
         // Create a deeply nested expression that exceeds MAX_DEPTH

@@ -31,7 +31,7 @@ fn eval_at_vars(expr_str: &str, vars: &[(&str, f64)]) -> f64 {
     let param_values: Vec<f64> = vars.iter().map(|(_, val)| *val).collect();
 
     // Try using CompiledEvaluator first (handles all functions properly)
-    if let Ok(eval) = CompiledEvaluator::compile(&expr, &param_names) {
+    if let Ok(eval) = CompiledEvaluator::compile(&expr, &param_names, None) {
         return eval.evaluate(&param_values);
     }
 
@@ -475,7 +475,7 @@ fn test_spherical_harmonic_derivative_simplifies() {
 
     // Parse and simplify
     let expr = parse_expr(&deriv);
-    let simplified = Simplify::new().simplify(expr);
+    let simplified = Simplify::new().simplify(&expr);
 
     assert!(
         simplified.is_ok(),

@@ -30,7 +30,7 @@ fn numerical_derivative(expr_str: &str, var: &str, point: f64, h: f64) -> f64 {
 fn symbolic_derivative_at(expr_str: &str, var: &str, point: f64) -> f64 {
     let derivative = diff(expr_str, var, &[], None).unwrap();
     let expr = parser_parse(&derivative, &HashSet::new(), &HashSet::new(), None).unwrap();
-    let simplified = Simplify::new().simplify(expr).unwrap();
+    let simplified = Simplify::new().simplify(&expr).unwrap();
 
     let vars: HashMap<&str, f64> = [(var, point)].into_iter().collect();
     match &simplified.evaluate(&vars, &HashMap::new()).kind {
@@ -177,7 +177,7 @@ fn test_consistency_second_derivative() {
         let d1 = diff(expr_str, var, &[], None).unwrap();
         let d2 = diff(&d1, var, &[], None).unwrap();
         let expr = parser_parse(&d2, &HashSet::new(), &HashSet::new(), None).unwrap();
-        let simplified = Simplify::new().simplify(expr).unwrap();
+        let simplified = Simplify::new().simplify(&expr).unwrap();
 
         let vars: HashMap<&str, f64> = [(var, point)].into_iter().collect();
         match &simplified.evaluate(&vars, &HashMap::new()).kind {
@@ -226,7 +226,7 @@ fn test_compiled_vs_tree_walking() {
 
     for expr_str in expressions {
         let expr = parser_parse(expr_str, &HashSet::new(), &HashSet::new(), None).unwrap();
-        let compiled = CompiledEvaluator::compile(&expr, &["x"]).unwrap();
+        let compiled = CompiledEvaluator::compile(&expr, &["x"], None).unwrap();
 
         for &x in &test_points {
             let vars: HashMap<&str, f64> = [("x", x)].into_iter().collect();

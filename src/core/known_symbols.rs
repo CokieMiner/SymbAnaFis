@@ -76,7 +76,6 @@ define_symbol_ids! {
     SIGNUM => "signum",
 
     // Aliases found in codebase (for compatibility)
-    ABS_CAP => "Abs",
     SIGN => "sign",
     SGN => "sgn",
 

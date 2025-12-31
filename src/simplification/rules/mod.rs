@@ -258,7 +258,7 @@ macro_rules! rule_arc {
     };
 }
 
-/// Macro for rules with helpers that return Option<Arc<Expr>> directly
+/// Macro for rules with helpers that return `Option<Arc<Expr>>` directly
 #[macro_export]
 macro_rules! rule_with_helpers_arc {
     // Basic form

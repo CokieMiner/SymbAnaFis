@@ -1,4 +1,4 @@
-use crate::core::known_symbols::{ABS, ABS_CAP, SGN, SIGN, get_symbol};
+use crate::core::known_symbols::{ABS, SGN, SIGN, get_symbol};
 use crate::simplification::rules::{ExprKind, Rule, RuleCategory, RuleContext};
 use crate::{Expr, ExprKind as AstKind};
 use std::sync::Arc;
@@ -11,7 +11,7 @@ rule_arc!(
     &[ExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::FunctionCall { name, args } = &expr.kind
-            && (name.id() == *ABS || name.id() == *ABS_CAP)
+            && name.id() == *ABS
             && args.len() == 1
             && let AstKind::Number(n) = &args[0].kind
         {
@@ -29,13 +29,13 @@ rule_arc!(
     &[ExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::FunctionCall { name, args } = &expr.kind
-            && (name.id() == *ABS || name.id() == *ABS_CAP)
+            && name.id() == *ABS
             && args.len() == 1
             && let AstKind::FunctionCall {
                 name: inner_name,
                 args: inner_args,
             } = &args[0].kind
-            && (inner_name.id() == *ABS || inner_name.id() == *ABS_CAP)
+            && inner_name.id() == *ABS
             && inner_args.len() == 1
         {
             return Some(args[0].clone());
@@ -52,7 +52,7 @@ rule_arc!(
     &[ExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::FunctionCall { name, args } = &expr.kind
-            && (name.id() == *ABS || name.id() == *ABS_CAP)
+            && name.id() == *ABS
             && args.len() == 1
         {
             // Check for -x (represented as Product([-1, x]))
@@ -80,7 +80,7 @@ rule_arc!(
     &[ExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::FunctionCall { name, args } = &expr.kind
-            && (name.id() == *ABS || name.id() == *ABS_CAP)
+            && name.id() == *ABS
             && args.len() == 1
         {
             // Check for x^(even number)
@@ -107,7 +107,7 @@ rule_arc!(
         // abs(x)^n where n is positive even integer -> x^n
         if let AstKind::Pow(base, exp) = &expr.kind
             && let AstKind::FunctionCall { name, args } = &base.kind
-            && (name.id() == *ABS || name.id() == *ABS_CAP)
+            && name.id() == *ABS
             && args.len() == 1
             && let AstKind::Number(n) = &exp.kind
         {
@@ -178,7 +178,7 @@ rule_arc!(
             && let AstKind::FunctionCall {
                 name: inner_name, ..
             } = &args[0].kind
-            && (inner_name.id() == *ABS || inner_name.id() == *ABS_CAP)
+            && inner_name.id() == *ABS
         {
             // sign(abs(x)) = 1 for x != 0
             return Some(Arc::new(Expr::number(1.0)));
@@ -216,10 +216,10 @@ rule_arc!(
                         && args2.len() == 1
                         && args1[0] == args2[0]
                     {
-                        let is_abs_sign = (name1.id() == *ABS || name1.id() == *ABS_CAP)
-                            && (name2.id() == *SIGN || name2.id() == *SGN);
-                        let is_sign_abs = (name1.id() == *SIGN || name1.id() == *SGN)
-                            && (name2.id() == *ABS || name2.id() == *ABS_CAP);
+                        let is_abs_sign =
+                            name1.id() == *ABS && (name2.id() == *SIGN || name2.id() == *SGN);
+                        let is_sign_abs =
+                            (name1.id() == *SIGN || name1.id() == *SGN) && name2.id() == *ABS;
                         if is_abs_sign || is_sign_abs {
                             // abs(x) * sign(x) = x, replace these two factors with x
                             let mut new_factors: Vec<Arc<Expr>> = factors

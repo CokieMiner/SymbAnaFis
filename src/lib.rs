@@ -26,7 +26,7 @@
 //! use symb_anafis::{symb, Diff};
 //! let x = symb("x");
 //! let expr = x.pow(2.0) + x.sin();
-//! let derivative = Diff::new().differentiate(expr, &x).unwrap();
+//! let derivative = Diff::new().differentiate(&expr, &x).unwrap();
 //! // derivative is: 2*x + cos(x)
 //! ```
 

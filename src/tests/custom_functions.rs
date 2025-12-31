@@ -51,7 +51,7 @@ fn test_compiled_evaluation_with_context() {
     let expr = crate::Expr::func("times_two", x) + crate::Expr::number(1.0);
 
     // Compile with context
-    let evaluator = crate::CompiledEvaluator::compile_with_context(&expr, &["x"], Some(&ctx))
+    let evaluator = crate::CompiledEvaluator::compile(&expr, &["x"], Some(&ctx))
         .expect("Compilation should succeed");
 
     // Evaluate at x = 10.0 -> times_two(10) + 1 = 20 + 1 = 21
@@ -69,7 +69,7 @@ fn test_compiled_evaluation_missing_context() {
     let x = crate::symb("x");
     let expr = crate::Expr::func("times_two", x) + crate::Expr::number(1.0);
 
-    let result = crate::CompiledEvaluator::compile(&expr, &["x"]);
+    let result = crate::CompiledEvaluator::compile(&expr, &["x"], None);
     assert!(result.is_err(), "Should fail to compile unknown function");
 }
 
@@ -99,9 +99,8 @@ fn test_arity_check() {
     let y = crate::symb("y");
     let expr_ok = crate::Expr::func_multi("add2", vec![x.into(), y.into()]);
 
-    let evaluator =
-        crate::CompiledEvaluator::compile_with_context(&expr_ok, &["x", "y"], Some(&ctx))
-            .expect("Should compile with correct arity");
+    let evaluator = crate::CompiledEvaluator::compile(&expr_ok, &["x", "y"], Some(&ctx))
+        .expect("Should compile with correct arity");
     let res = evaluator.evaluate(&[2.0, 3.0]);
     assert!((res - 5.0).abs() < 1e-10, "Expected 5.0, got {}", res);
 
@@ -109,6 +108,6 @@ fn test_arity_check() {
     // The function won't be expanded because arity doesn't match,
     // but the compiler should still fail because the external function call remains
     let expr_bad = crate::Expr::func_multi("add2", vec![x.into()]);
-    let result = crate::CompiledEvaluator::compile_with_context(&expr_bad, &["x"], Some(&ctx));
+    let result = crate::CompiledEvaluator::compile(&expr_bad, &["x"], Some(&ctx));
     assert!(result.is_err(), "Should fail with invalid arity");
 }
