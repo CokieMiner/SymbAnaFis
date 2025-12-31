@@ -1,6 +1,6 @@
 [package]
 name = "symb_anafis"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2024"
 authors = ["CokieMiner"]
 description = "Fast symbolic differentiation library for Rust"

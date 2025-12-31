@@ -2,6 +2,11 @@
 
 All notable changes to SymbAnaFis will be documented in this file.
 
+## [0.5.1] - 2025-12-31
+
+### Fixed
+- **CI/CD**: Fixed Linux ARM builds by specifying Python interpreter path for cross-compilation in GitHub Actions.
+
 ## [0.5.0] - 2025-12-31
 
 ### Added
