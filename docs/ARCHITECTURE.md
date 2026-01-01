@@ -58,7 +58,7 @@ flowchart TB
     subgraph "Simplification Engine"
         S1["Bottom-up traversal"]
         S2["Multi-pass until stable"]
-        S3["Priority ordering (Epochs)"]
+        S3["Priority ordering"]
         S4["Hash-based change detection"]
         subgraph "Rules (120+)"
             R1["Numeric: 0+x→x, constant fold"]
@@ -109,7 +109,7 @@ The differentiation engine (`diff/engine.rs`) implements symbolic differentiatio
 ```mermaid
 flowchart TB
     subgraph "Entry Point"
-        E1["Expr.derive(var, fixed_vars, custom_derivatives, custom_fns)"]
+        E1["Expr.derive(var, context: Option<&Context>)"]
         E2["Expr.derive_raw(var) - No simplification"]
     end
 
@@ -144,11 +144,10 @@ flowchart TB
     end
 
     subgraph "Function Registry Lookup"
-        F1["Check custom_derivatives map"]
-        F2["Check CustomFn partials"]
-        F3["Lookup in global Registry
+        F1["Lookup in global Registry
         (50+ built-in functions)"]
-        F4["Fallback: Symbolic ∂f/∂x"]
+        F2["Check Context user_fn partials"]
+        F3["Fallback: Symbolic ∂f/∂x"]
     end
 
     subgraph "Inline Optimizations"
@@ -163,12 +162,10 @@ flowchart TB
     M1 --> R1
     M2 --> R2
     M3 --> F1
-    F1 -->|"Found"| R3
+    F1 -->|"Built-in"| R3
     F1 -->|"Not Found"| F2
     F2 -->|"Has Partials"| R3
     F2 -->|"No Partials"| F3
-    F3 -->|"Built-in"| R3
-    F3 -->|"Unknown"| F4
 
     M4 --> R4
     M5 --> R5
@@ -183,15 +180,15 @@ flowchart TB
 
 ### Key Differentation Features
 
-| Feature | Implementation |
-|---------|----------------|
-| **Logarithmic Differentiation** | Handles `x^x`, `f^g` correctly |
-| **Custom Functions** | `Diff::user_fn("f", UserFunction)` with partial derivatives and evaluation |
-| **Multi-arg Partials** | `CustomFn::partial(0, \|args| ...)` for chain rule |
-| **Fixed Variables** | Variables in `fixed_vars` treated as constants (derivative = 0) |
-| **Inline Optimization** | Prevents expression explosion during recursion |
+| Feature                         | Implementation                                                             |
+| ------------------------------- | -------------------------------------------------------------------------- |
+| **Logarithmic Differentiation** | Handles `x^x`, `f^g` correctly                                             |
+| **Custom Functions**            | `Diff::user_fn("f", UserFunction)` with partial derivatives and evaluation |
+| **Multi-arg Partials**          | `CustomFn::partial(0, \|args                                               | ...)` for chain rule |
+| **Fixed Variables**             | Variables in `fixed_vars` treated as constants (derivative = 0)            |
+| **Inline Optimization**         | Prevents expression explosion during recursion                             |
 
----
+--- 
 
 ## Simplification Engine Architecture
 
@@ -203,7 +200,7 @@ flowchart TB
         E1["Simplifier::new()
         .with_domain_safe(bool)
         .with_max_iterations(n)
-        .with_fixed_vars(set)"]
+        .with_max_depth(n)"]
         E2["simplify(expr)"]
     end
 
@@ -372,12 +369,12 @@ flowchart TB
 
 ### Compiled vs Tree-Walking Performance
 
-| Operation | Tree-Walking | Compiled |
-|-----------|--------------|----------|
-| Setup | None | ~1-5 μs compile |
-| Per-eval | ~100-500 ns | ~10-50 ns |
-| Best for | Single evaluation | Batch evaluation (1000s of points) |
-| Memory | O(depth) recursion | Pre-allocated stack |
+| Operation | Tree-Walking       | Compiled                           |
+| --------- | ------------------ | ---------------------------------- |
+| Setup     | None               | ~1-5 μs compile                    |
+| Per-eval  | ~100-500 ns        | ~10-50 ns                          |
+| Best for  | Single evaluation  | Batch evaluation (1000s of points) |
+| Memory    | O(depth) recursion | Pre-allocated stack                |
 
 ---
 
@@ -522,43 +519,44 @@ flowchart LR
 
 ```
 src/
-├── lib.rs                    # Public API: diff(), simplify(), re-exports
+├── lib.rs                    # Public API: diff(), simplify(), re-exports (6KB)
 ├── core/                     # Core types and utilities
 │   ├── mod.rs               # Re-exports
-│   ├── expr.rs              # Expr, ExprKind - core expression types
-│   ├── symbol.rs            # InternedSymbol, Symbol - Copy symbols
+│   ├── expr.rs              # Expr, ExprKind - core expression types (61KB)
+│   ├── symbol.rs            # InternedSymbol, Symbol - Copy symbols (58KB)
 │   ├── known_symbols.rs     # Pre-interned symbols for O(1) lookup
-│   ├── evaluator.rs         # CompiledEvaluator bytecode VM
-│   ├── display.rs           # to_string(), to_latex(), to_unicode()
-│   ├── error.rs             # DiffError, Span - error types
+│   ├── evaluator.rs         # CompiledEvaluator bytecode VM (103KB)
+│   ├── unified_context.rs   # Context, UserFunction - isolated registries (19KB)
+│   ├── display.rs           # to_string(), to_latex(), to_unicode() (34KB)
+│   ├── error.rs             # DiffError, Span - error types (14KB)
 │   ├── traits.rs            # MathScalar trait
-│   ├── poly.rs              # Univariate polynomial type
+│   ├── poly.rs              # Univariate polynomial type (24KB)
 │   └── visitor.rs           # AST visitor pattern
 │
 ├── parser/                   # String → Expr
 │   ├── mod.rs               # parse() function
 │   ├── lexer.rs             # Tokenizer (30KB)
-│   ├── tokens.rs            # Token definitions
-│   ├── pratt.rs             # Pratt parsing algorithm
+│   ├── tokens.rs            # Token definitions (13KB)
+│   ├── pratt.rs             # Pratt parsing algorithm (17KB)
 │   └── implicit_mul.rs      # 2x → 2*x handling
 │
 ├── api/                      # Builder layer
 │   ├── mod.rs               # Re-exports
-│   ├── builder.rs           # Diff, Simplify builders (fluent API)
-│   └── helpers.rs           # gradient, hessian, jacobian
+│   ├── builder.rs           # Diff, Simplify builders (fluent API) (14KB)
+│   └── helpers.rs           # gradient, hessian, jacobian (8KB)
 │
 ├── diff/                     # Differentiation engine
 │   ├── mod.rs               # Module exports
-│   └── engine.rs            # Core differentiation logic (chain rule, etc.)
+│   └── engine.rs            # Core differentiation logic (23KB)
 │
 ├── simplification/           # Rule-based simplification
 │   ├── mod.rs               # simplify_expr() entry point
-│   ├── engine.rs            # Multi-pass engine
-│   ├── helpers.rs           # Expression utilities
+│   ├── engine.rs            # Multi-pass engine (13KB)
+│   ├── helpers.rs           # Expression utilities (27KB)
 │   ├── README.md            # Rule documentation
 │   ├── patterns/            # Pattern matching
 │   └── rules/               # 120+ rules organized by category
-│       ├── mod.rs           # Rule trait, priority system
+│       ├── mod.rs           # Rule trait, priority system, RuleRegistry (21KB)
 │       ├── numeric/         # 0+x→x, constant folding
 │       ├── algebraic/       # 9 files: factoring, power, terms, etc.
 │       ├── trigonometric/   # 7 files: Pythagorean, double angle, etc.
@@ -566,11 +564,11 @@ src/
 │       ├── exponential/     # exp/ln rules
 │       └── root/            # sqrt/cbrt rules
 │
-├── uncertainty.rs            # Uncertainty propagation (GUM formula)
+├── uncertainty.rs            # Uncertainty propagation (GUM formula) (12KB)
 │
 ├── functions/                # Built-in functions
 │   ├── mod.rs               # Function registry
-│   ├── definitions.rs       # 50+ function defs (41KB)
+│   ├── definitions.rs       # 50+ function defs (55KB)
 │   └── registry.rs          # Name → Function lookup
 │
 ├── math/                     # Numeric implementations
@@ -579,23 +577,26 @@ src/
 │
 ├── bindings/                 # Optional feature-gated bindings
 │   ├── mod.rs               # Feature gates
-│   ├── parallel.rs          # (parallel feature) Rayon batch evaluation
-│   └── python.rs            # (python feature) PyO3 bindings
+│   ├── eval_f64.rs          # Fast f64 evaluation helper (6KB)
+│   ├── parallel.rs          # (parallel feature) Rayon batch evaluation (25KB)
+│   └── python.rs            # (python feature) PyO3 bindings (99KB)
 │
-└── tests/                    # 49 test files
+└── tests/                    # 65 test files (+22 integration tests at root)
 ```
 
 ### Key File Sizes
 
-| File | Size | Purpose |
-|------|------|---------|
-| `functions/definitions.rs` | 41 KB | All built-in function derivatives/evaluations |
-| `symbol.rs` | 30 KB | Complete symbol interning system |
-| `parser/lexer.rs` | 30 KB | Tokenizer with edge case handling |
-| `display.rs` | 29 KB | LaTeX/Unicode/String formatting |
-| `differentiation.rs` | 32 KB | All differentiation rules |
-| `simplification/helpers.rs` | 24 KB | Pattern matching utilities |
-| `python.rs` | 23 KB | Full Python API bindings |
+| File                        | Size   | Purpose                                           |
+| --------------------------- | ------ | ------------------------------------------------- |
+| `core/evaluator.rs`         | 103 KB | Bytecode VM, CompiledEvaluator, all instructions  |
+| `bindings/python.rs`        | 99 KB  | Full Python API bindings via PyO3                 |
+| `core/expr.rs`              | 61 KB  | Expr, ExprKind, constructors, methods             |
+| `core/symbol.rs`            | 58 KB  | InternedSymbol, Symbol, global registry           |
+| `functions/definitions.rs`  | 55 KB  | All built-in function derivatives/evaluations     |
+| `core/display.rs`           | 34 KB  | LaTeX/Unicode/String formatting                   |
+| `parser/lexer.rs`           | 30 KB  | Tokenizer with edge case handling                 |
+| `simplification/helpers.rs` | 27 KB  | Pattern matching utilities                        |
+| `diff/engine.rs`            | 23 KB  | Core differentiation rules (chain, product, etc.) |
 
 ---
 
@@ -640,9 +641,17 @@ pub enum ExprKind {
 Symbols are **interned** for O(1) comparison and implement **`Copy`** for ergonomic usage.
 
 ```rust
+/// An interned symbol stored in the global registry
+#[derive(Debug, Clone)]
+pub struct InternedSymbol {
+    id: u64,
+    name: Option<Arc<String>>,  // None for anonymous symbols
+}
+
+/// Copy-able handle to an interned symbol (just the ID)
 #[derive(Copy, Clone)]
 pub struct Symbol {
-    id: InternedSymbol,  // Internal ID
+    id: u64,
 }
 ```
 
@@ -650,10 +659,42 @@ pub struct Symbol {
 - `symb("x")` - Get or create symbol (idempotent)
 - `symb_new("x")` - Create only (errors if exists)
 - `symb_get("x")` - Get only (errors if not found)
-- Registry is thread-local for safety
+- Registry is **global with RwLock** for thread-safe access
 - **Function names** also use `InternedSymbol` for O(1) pattern matching
 
 **Why Copy?** Enables natural operator usage: `x + x` works without `.clone()`.
+
+### 2b. Unified Context (`unified_context.rs`)
+
+The `Context` type provides **isolated symbol registries** and **user-defined functions** for advanced use cases.
+
+```rust
+use symb_anafis::{Context, UserFunction, Expr, Diff};
+
+let ctx = Context::new()
+    .with_symbol("x")
+    .with_symbol("alpha")  // Multi-char symbol for parsing
+    .with_function("f", UserFunction::new(1..=1)
+        .body(|args| (*args[0]).clone().pow(2.0) + 1.0)
+        .partial(0, |args| 2.0 * (*args[0]).clone()).expect("valid"));
+
+let x = ctx.symb("x");
+let derivative = Diff::new()
+    .with_context(&ctx)
+    .differentiate(&Expr::func("f", x), &x);
+```
+
+**Key features:**
+- **Isolated registries**: Symbols created via `ctx.symb()` don't collide with global symbols
+- **User-defined functions**: `UserFunction` with optional body and partial derivatives
+- **Thread-safe**: Uses `Arc<RwLock>` internally for concurrent access
+
+| Method                              | Purpose                                     |
+| ----------------------------------- | ------------------------------------------- |
+| `with_symbol(name)`                 | Register symbol for parsing hints           |
+| `with_function(name, UserFunction)` | Register custom function with body/partials |
+| `symb(name)`                        | Get or create symbol in this context        |
+| `get_user_fn(name)`                 | Retrieve a registered function              |
 
 ### 3. Parser (`parser/`)
 
@@ -679,15 +720,15 @@ parser/
 
 Implements standard calculus rules:
 
-| Rule | Implementation |
-|------|----------------|
-| Constant | d/dx[c] = 0 |
-| Variable | d/dx[x] = 1 |
-| Sum | d/dx[a + b] = a' + b' |
-| Product | d/dx[a · b] = a'b + ab' |
-| Quotient | d/dx[a/b] = (a'b - ab')/b² |
-| Chain | d/dx[f(g)] = f'(g) · g' |
-| Power | d/dx[a^b] = a^b · (b' ln(a) + b · a'/a) |
+| Rule     | Implementation                          |
+| -------- | --------------------------------------- |
+| Constant | d/dx[c] = 0                             |
+| Variable | d/dx[x] = 1                             |
+| Sum      | d/dx[a + b] = a' + b'                   |
+| Product  | d/dx[a · b] = a'b + ab'                 |
+| Quotient | d/dx[a/b] = (a'b - ab')/b²              |
+| Chain    | d/dx[f(g)] = f'(g) · g'                 |
+| Power    | d/dx[a^b] = a^b · (b' ln(a) + b · a'/a) |
 
 **Custom functions:**
 ```rust
@@ -719,12 +760,12 @@ simplification/
 
 **Priority ordering:** Expand → Cancel → Compact
 
-| Priority | Phase | Purpose |
-|----------|-------|---------|
-| 85-95 | Expansion | Distribute, flatten |
-| 70-84 | Cancellation | x^0→1, x/x→1 |
-| 40-69 | Consolidation | Factor, combine terms |
-| 1-39 | Canonicalization | Sort terms |
+| Priority | Phase            | Purpose               |
+| -------- | ---------------- | --------------------- |
+| 85-95    | Expansion        | Distribute, flatten   |
+| 70-84    | Cancellation     | x^0→1, x/x→1          |
+| 40-69    | Consolidation    | Factor, combine terms |
+| 1-39     | Canonicalization | Sort terms            |
 
 **Domain-safe mode:** Skips rules that alter domains (e.g., `sqrt(x²) → x`).
 
@@ -812,15 +853,15 @@ PyO3 bindings exposing:
 
 50+ functions with differentiation and evaluation rules:
 
-| Category | Functions |
-|----------|-----------|
-| Trig | sin, cos, tan, cot, sec, csc + inverses |
-| Hyperbolic | sinh, cosh, tanh + inverses |
-| Exp/Log | exp, ln, log, log10, log2 |
-| Special | gamma, digamma, polygamma, beta |
-| Bessel | besselj, bessely, besseli, besselk |
-| Error | erf, erfc |
-| Other | zeta, LambertW, abs, sign |
+| Category   | Functions                               |
+| ---------- | --------------------------------------- |
+| Trig       | sin, cos, tan, cot, sec, csc + inverses |
+| Hyperbolic | sinh, cosh, tanh + inverses             |
+| Exp/Log    | exp, ln, log, log10, log2               |
+| Special    | gamma, digamma, polygamma, beta         |
+| Bessel     | besselj, bessely, besseli, besselk      |
+| Error      | erf, erfc                               |
+| Other      | zeta, LambertW, abs, signum             |
 
 ---
 
