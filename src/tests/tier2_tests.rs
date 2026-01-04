@@ -76,7 +76,8 @@ mod tier3_special_functions {
     #[test]
     fn test_sinc() {
         let result = diff("sinc(x)", "x", &[], None).unwrap();
-        assert!(result.contains("cos") && result.contains("sin"));
+        // Derivative now uses _sinc_deriv helper to handle x=0 singularity
+        assert!(result.contains("_sinc_deriv") || (result.contains("cos") && result.contains("sin")));
     }
 
     #[test]
