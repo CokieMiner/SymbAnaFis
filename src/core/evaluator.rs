@@ -148,6 +148,7 @@ pub(crate) enum Instruction {
     Trigamma,
     Tetragamma,
     Sinc,
+    SincDeriv,
     LambertW,
     EllipticK,
     EllipticE,
@@ -446,6 +447,16 @@ macro_rules! process_instruction {
             Instruction::Sinc => {
                 let x = *$stack.last().unwrap();
                 *$stack.last_mut().unwrap() = if x.abs() < EPSILON { 1.0 } else { x.sin() / x };
+            }
+            Instruction::SincDeriv => {
+                let x = *$stack.last().unwrap();
+                *$stack.last_mut().unwrap() = if x.abs() < 1e-6 {
+                    // Taylor series: sinc'(x) ≈ -x/3 + x³/30
+                    -x / 3.0 + x.powi(3) / 30.0
+                } else {
+                    // Standard formula: (x*cos(x) - sin(x))/x²
+                    (x * x.cos() - x.sin()) / (x * x)
+                };
             }
             Instruction::LambertW => {
                 *$stack.last_mut().unwrap() =
@@ -1503,6 +1514,25 @@ impl CompiledEvaluator {
                 let sinc = |x: f64| if x.abs() < EPSILON { 1.0 } else { x.sin() / x };
                 *top = f64x4::new([sinc(arr[0]), sinc(arr[1]), sinc(arr[2]), sinc(arr[3])]);
             }
+            Instruction::SincDeriv => {
+                let top = stack.last_mut().unwrap();
+                let arr = top.to_array();
+                let sinc_deriv = |x: f64| {
+                    if x.abs() < 1e-6 {
+                        // Taylor series: sinc'(x) ≈ -x/3 + x³/30
+                        -x / 3.0 + x.powi(3) / 30.0
+                    } else {
+                        // Standard formula: (x*cos(x) - sin(x))/x²
+                        (x * x.cos() - x.sin()) / (x * x)
+                    }
+                };
+                *top = f64x4::new([
+                    sinc_deriv(arr[0]),
+                    sinc_deriv(arr[1]),
+                    sinc_deriv(arr[2]),
+                    sinc_deriv(arr[3]),
+                ]);
+            }
             Instruction::LambertW => {
                 let top = stack.last_mut().unwrap();
                 let arr = top.to_array();
@@ -2130,6 +2160,7 @@ impl<'a> Compiler<'a> {
                     ("trigamma", 1) => Instruction::Trigamma,
                     ("tetragamma", 1) => Instruction::Tetragamma,
                     ("sinc", 1) => Instruction::Sinc,
+                    ("_sinc_deriv", 1) => Instruction::SincDeriv,
                     ("lambertw", 1) => Instruction::LambertW,
                     ("elliptic_k", 1) => Instruction::EllipticK,
                     ("elliptic_e", 1) => Instruction::EllipticE,

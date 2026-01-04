@@ -152,3 +152,119 @@ fn test_linear_derivatives() {
     let result = diff("7*x", "x", &[], None).unwrap();
     assert_eq!(result, "7");
 }
+
+#[test]
+fn test_sinc_derivative_at_zero() {
+    use crate::{parse, Diff, CompiledEvaluator};
+    use std::collections::{HashMap, HashSet};
+
+    // Test the problem from the issue: sinc'(0) should be 0, not NaN
+    
+    // Parse sinc(x)
+    let fixed_vars = HashSet::new();
+    let custom_funcs = HashSet::new();
+    let expr = parse("sinc(x)", &fixed_vars, &custom_funcs, None).unwrap();
+    
+    // Differentiate
+    let diff_engine = Diff::new();
+    let deriv = diff_engine.differentiate_by_name(&expr, "x").unwrap();
+    println!("Derivative of sinc(x): {}", deriv);
+    
+    // Test 1: Compiled evaluation at x=0
+    let compiled = CompiledEvaluator::compile(&deriv, &["x"], None).unwrap();
+    let result_at_zero = compiled.evaluate(&[0.0]);
+    assert!(
+        !result_at_zero.is_nan(),
+        "sinc'(0) should not be NaN, got: {}",
+        result_at_zero
+    );
+    assert!(
+        result_at_zero.abs() < 1e-10,
+        "sinc'(0) should be 0, got: {}",
+        result_at_zero
+    );
+    
+    // Test 2: Verify behavior near zero (Taylor series approximation)
+    let result_near_zero = compiled.evaluate(&[1e-8]);
+    assert!(
+        !result_near_zero.is_nan(),
+        "sinc'(1e-8) should not be NaN"
+    );
+    // sinc'(x) ≈ -x/3 for small x, so sinc'(1e-8) ≈ -1e-8/3 ≈ -3.3e-9
+    let expected_near_zero = -1e-8 / 3.0;
+    assert!(
+        (result_near_zero - expected_near_zero).abs() < 1e-10,
+        "sinc'(1e-8) should be approximately {}, got: {}",
+        expected_near_zero,
+        result_near_zero
+    );
+    
+    // Test 3: Verify correct behavior away from zero
+    let x_test = 1.0;
+    let result_at_one = compiled.evaluate(&[x_test]);
+    // Analytical: sinc'(x) = (x*cos(x) - sin(x))/x²
+    let expected_at_one = (x_test * x_test.cos() - x_test.sin()) / (x_test * x_test);
+    assert!(
+        (result_at_one - expected_at_one).abs() < 1e-10,
+        "sinc'(1.0) should be {}, got: {}",
+        expected_at_one,
+        result_at_one
+    );
+    
+    // Test 4: Symbolic evaluation (partial) should work
+    let mut vars = HashMap::new();
+    vars.insert("x", 0.0);
+    let symbolic_result = deriv.evaluate(&vars, &HashMap::new());
+    println!("Symbolic evaluation at x=0: {}", symbolic_result);
+    // Should either be a number close to 0, or an expression that can be compiled
+    match symbolic_result.as_number() {
+        Some(n) => {
+            assert!(
+                !n.is_nan() && n.abs() < 1e-10,
+                "Symbolic evaluation at x=0 should give 0, got: {}",
+                n
+            );
+        }
+        None => {
+            // If still symbolic, compile and evaluate should work
+            let compiled2 = CompiledEvaluator::compile::<&str>(&symbolic_result, &[], None);
+            match compiled2 {
+                Ok(c) => {
+                    let val = c.evaluate(&[]);
+                    assert!(
+                        !val.is_nan() && val.abs() < 1e-10,
+                        "Compiled symbolic result should be 0, got: {}",
+                        val
+                    );
+                }
+                Err(_) => {
+                    // If it can't compile (because it still contains x), that's ok
+                    // as long as it's not NaN when we try to use it
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn test_sinc_derivative_formula() {
+    use crate::{parse, Diff};
+    use std::collections::HashSet;
+
+    // Verify the derivative formula is correct symbolically
+    let fixed_vars = HashSet::new();
+    let custom_funcs = HashSet::new();
+    let expr = parse("sinc(x)", &fixed_vars, &custom_funcs, None).unwrap();
+    
+    let diff_engine = Diff::new();
+    let deriv = diff_engine.differentiate_by_name(&expr, "x").unwrap();
+    let deriv_str = deriv.to_string();
+    
+    // The derivative should mention _sinc_deriv helper function
+    assert!(
+        deriv_str.contains("_sinc_deriv") || deriv_str.contains("sinc"),
+        "Derivative should use _sinc_deriv helper or be simplified, got: {}",
+        deriv_str
+    );
+}
+

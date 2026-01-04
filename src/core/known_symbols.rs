@@ -93,6 +93,7 @@ define_symbol_ids! {
     POLYGAMMA => "polygamma",
     TETRAGAMMA => "tetragamma",
     SINC => "sinc",
+    SINC_DERIV => "_sinc_deriv",
     LAMBERTW => "lambertw",
     ELLIPTIC_K => "elliptic_k",
     ELLIPTIC_E => "elliptic_e",

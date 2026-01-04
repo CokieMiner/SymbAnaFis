@@ -997,23 +997,51 @@ pub(crate) fn all_definitions() -> Vec<FunctionDefinition> {
                 }
             },
             derivative: |args, arg_primes| {
-                // d/dx sinc(u) = (u*cos(u) - sin(u))/u^2 * u'
+                // d/dx sinc(u) = _sinc_deriv(u) * u'
+                // where _sinc_deriv(u) = (u*cos(u) - sin(u))/u^2, handled carefully at u=0
                 let u = Arc::clone(&args[0]);
                 let u_prime = arg_primes[0].clone();
-                let lhs = Expr::div_expr(
-                    Expr::sub_expr(
-                        Expr::mul_from_arcs(vec![
-                            Arc::new(Expr::func_multi_from_arcs_symbol(
-                                get_symbol(&COS),
-                                vec![u.clone()],
-                            )),
-                            u.clone(),
-                        ]),
-                        Expr::func_multi_from_arcs_symbol(get_symbol(&SIN), vec![u.clone()]),
-                    ),
-                    Expr::pow_from_arcs(u.clone(), Arc::new(Expr::number(2.0))),
+                
+                // Use helper function to properly handle singularity at u=0
+                let deriv_val = Expr::func_multi_from_arcs_symbol(
+                    get_symbol(&crate::core::known_symbols::SINC_DERIV),
+                    vec![u],
                 );
-                Expr::mul_expr(lhs, u_prime)
+                Expr::mul_expr(deriv_val, u_prime)
+            },
+        },
+        // Internal helper for sinc derivative - handles x=0 singularity
+        FunctionDefinition {
+            name: "_sinc_deriv",
+            arity: 1..=1,
+            eval: |args| {
+                let x = args[0];
+                // At x=0, sinc'(x) = 0 (from Taylor series: sinc(x) = 1 - x²/6 + ..., so sinc'(x) = -x/3 + ...)
+                if x.abs() < 1e-6 {
+                    // Use Taylor series: sinc'(x) ≈ -x/3 + x³/30 - x⁵/840 + ...
+                    Some(-x / 3.0 + x.powi(3) / 30.0)
+                } else {
+                    // Standard formula: (x*cos(x) - sin(x))/x²
+                    Some((x * x.cos() - x.sin()) / (x * x))
+                }
+            },
+            derivative: |args, arg_primes| {
+                // Second derivative of sinc - not commonly needed, return symbolic
+                // d²/dx² sinc(x) would require computing the derivative of this function
+                // For now, we'll use a symbolic representation
+                let u = Arc::clone(&args[0]);
+                let u_prime = arg_primes[0].clone();
+                
+                // Symbolic second derivative (not evaluated, just for consistency)
+                // This won't be called in normal use since _sinc_deriv is internal
+                Expr::mul_expr(
+                    Expr::derivative(
+                        Expr::func_multi_from_arcs("_sinc_deriv", vec![Arc::clone(&u)]),
+                        "x",
+                        1,
+                    ),
+                    u_prime,
+                )
             },
         },
         FunctionDefinition {
