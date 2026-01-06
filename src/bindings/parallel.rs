@@ -357,67 +357,64 @@ pub(crate) fn evaluate_parallel_with_hint(
                     });
 
                 if globally_numeric {
-                    // ULTRA-FAST PATH: Chunked SIMD evaluation
-                    // We split into chunks of CHUNK_SIZE
-                    // Unpack Value::Num -> f64 columns
-                    // Run eval_batch (SIMD)
+                    // ULTRA-FAST PATH: Chunked SIMD evaluation with thread-local buffers
+                    // Each thread allocates its SIMD buffer ONCE, reuses across all chunks
                     const CHUNK_SIZE: usize = 256;
 
                     // Calculate chunk starts for ordered parallel processing
                     let chunk_starts: Vec<usize> = (0..n_points).step_by(CHUNK_SIZE).collect();
 
                     let chunks: Vec<Vec<EvalResult>> = chunk_starts
-                        .into_par_iter() // Parallel iter over indices preserves order
-                        .map(|start| {
-                            let end = (start + CHUNK_SIZE).min(n_points);
-                            let len = end - start;
+                        .into_par_iter()
+                        // map_init: Allocate SIMD buffer once per thread (not per chunk!)
+                        .map_init(
+                            || Vec::with_capacity(evaluator.stack_size()),
+                            |simd_buffer, start| {
+                                let end = (start + CHUNK_SIZE).min(n_points);
+                                let len = end - start;
 
-                            // 1. Unpack columns for this chunk
-                            let mut chunk_cols: Vec<Vec<f64>> = Vec::with_capacity(n_vars);
-                            for var_vals in vals.iter().take(n_vars) {
-                                let mut col = Vec::with_capacity(len);
-                                // We know it's globally numeric
-                                for i in start..end {
-                                    // Handle scalar broadcasting if column is shorter?
-                                    // The current logic assumes loose check, but typically columns are same length.
-                                    // Let's mimic original logic: if index out of bounds, use last.
-                                    let val = if i < var_vals.len() {
-                                        &var_vals[i]
-                                    } else {
-                                        var_vals.last().unwrap()
-                                    };
+                                // 1. Unpack columns for this chunk
+                                let mut chunk_cols: Vec<Vec<f64>> = Vec::with_capacity(n_vars);
+                                for var_vals in vals.iter().take(n_vars) {
+                                    let mut col = Vec::with_capacity(len);
+                                    for i in start..end {
+                                        let val = if i < var_vals.len() {
+                                            &var_vals[i]
+                                        } else {
+                                            var_vals.last().unwrap()
+                                        };
 
-                                    if let Value::Num(n) = val {
-                                        col.push(*n);
-                                    } else {
-                                        // Should be unreachable due to globally_numeric check
-                                        col.push(f64::NAN);
+                                        if let Value::Num(n) = val {
+                                            col.push(*n);
+                                        } else {
+                                            col.push(f64::NAN);
+                                        }
                                     }
+                                    chunk_cols.push(col);
                                 }
-                                chunk_cols.push(col);
-                            }
 
-                            let col_refs: Vec<&[f64]> =
-                                chunk_cols.iter().map(|c| c.as_slice()).collect();
-                            let mut chunk_out = vec![0.0; len];
+                                let col_refs: Vec<&[f64]> =
+                                    chunk_cols.iter().map(|c| c.as_slice()).collect();
+                                let mut chunk_out = vec![0.0; len];
 
-                            // 2. SIMD Batch Eval
-                            evaluator
-                                .eval_batch(&col_refs, &mut chunk_out)
-                                .expect("eval_batch failed in parallel chunk");
+                                // 2. SIMD Batch Eval with thread-local buffer reuse
+                                evaluator
+                                    .eval_batch(&col_refs, &mut chunk_out, Some(simd_buffer))
+                                    .expect("eval_batch failed in parallel chunk");
 
-                            // 3. Convert back to EvalResult
-                            chunk_out
-                                .into_iter()
-                                .map(|n| {
-                                    if *was_string {
-                                        EvalResult::String(format_float(n))
-                                    } else {
-                                        EvalResult::Expr(crate::Expr::number(n))
-                                    }
-                                })
-                                .collect()
-                        })
+                                // 3. Convert back to EvalResult
+                                chunk_out
+                                    .into_iter()
+                                    .map(|n| {
+                                        if *was_string {
+                                            EvalResult::String(format_float(n))
+                                        } else {
+                                            EvalResult::Expr(crate::Expr::number(n))
+                                        }
+                                    })
+                                    .collect()
+                            },
+                        )
                         .collect();
 
                     return chunks.into_iter().flatten().collect();

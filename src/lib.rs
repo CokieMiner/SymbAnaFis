@@ -1,4 +1,12 @@
 #![deny(unsafe_code)]
+// Obriga a ter documentação em tudo o que é público
+#![deny(missing_docs)]
+// Obriga a ter exemplos de código na doc que funcionem
+#![deny(rustdoc::broken_intra_doc_links)]
+#![deny(clippy::all)]
+#![deny(clippy::perf)] // Apanha ineficiências de performance
+#![deny(clippy::style)] // Garante estilo idiomático
+
 //! Symbolic Differentiation Library
 //!
 //! A fast, focused Rust library for symbolic differentiation.

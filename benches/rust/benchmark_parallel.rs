@@ -110,7 +110,7 @@ fn bench_eval_methods(c: &mut Criterion) {
                     let columns: Vec<&[f64]> = vec![&points[..]];
                     let mut output = vec![0.0; points.len()];
                     b.iter(|| {
-                        evaluator.eval_batch(&columns, &mut output).unwrap();
+                        evaluator.eval_batch(&columns, &mut output, None).unwrap();
                         black_box(output.iter().sum::<f64>())
                     })
                 },
@@ -169,7 +169,7 @@ fn bench_eval_scaling(c: &mut Criterion) {
                 let columns: Vec<&[f64]> = vec![&points[..]];
                 let mut output = vec![0.0; points.len()];
                 b.iter(|| {
-                    evaluator.eval_batch(&columns, &mut output).unwrap();
+                    evaluator.eval_batch(&columns, &mut output, None).unwrap();
                     black_box(output.iter().sum::<f64>())
                 })
             },
@@ -250,7 +250,7 @@ fn bench_multi_expr(c: &mut Criterion) {
             let mut total = 0.0;
             for (i, eval) in evaluators.iter().enumerate() {
                 let columns: Vec<&[f64]> = vec![&test_data[i][..]];
-                eval.eval_batch(&columns, &mut outputs[i]).unwrap();
+                eval.eval_batch(&columns, &mut outputs[i], None).unwrap();
                 total += outputs[i].iter().sum::<f64>();
             }
             black_box(total)

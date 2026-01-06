@@ -82,23 +82,35 @@ fn eval_single_expr_chunked<V: ToParamName>(
 
     // For very small datasets, use sequential eval_batch directly
     if n_points < CHUNK_SIZE {
-        evaluator.eval_batch(columns, &mut output)?;
+        evaluator.eval_batch(columns, &mut output, None)?;
     } else {
-        // Parallel chunked evaluation using sliced eval_batch (SIMD-enabled)
-        // 1. Splits output into mutable chunks
-        // 2. Each chunk slices columns and calls eval_batch (uses SIMD f64x4)
-        output
-            .par_chunks_mut(CHUNK_SIZE)
-            .enumerate()
-            .for_each(|(chunk_idx, chunk)| {
-                let start = chunk_idx * CHUNK_SIZE;
-                let end = start + chunk.len();
-                // Slice columns for this chunk
-                let col_slices: Vec<&[f64]> = columns.iter().map(|col| &col[start..end]).collect();
-                evaluator
-                    .eval_batch(&col_slices, chunk)
-                    .expect("eval_batch failed in parallel chunk");
-            });
+        // Parallel chunked evaluation with thread-local SIMD buffer reuse
+        // Uses map_init to allocate buffer once per thread, not per chunk
+        let chunk_indices: Vec<usize> = (0..n_points).step_by(CHUNK_SIZE).collect();
+
+        // Process chunks in parallel, collecting results
+        let chunk_results: Vec<(usize, Vec<f64>)> = chunk_indices
+            .into_par_iter()
+            .map_init(
+                || Vec::with_capacity(evaluator.stack_size()),
+                |simd_buffer, start| {
+                    let end = (start + CHUNK_SIZE).min(n_points);
+                    let len = end - start;
+                    let col_slices: Vec<&[f64]> =
+                        columns.iter().map(|col| &col[start..end]).collect();
+                    let mut chunk_out = vec![0.0; len];
+                    evaluator
+                        .eval_batch(&col_slices, &mut chunk_out, Some(simd_buffer))
+                        .expect("eval_batch failed in parallel chunk");
+                    (start, chunk_out)
+                },
+            )
+            .collect();
+
+        // Copy results back to output buffer (maintains order)
+        for (start, chunk_out) in chunk_results {
+            output[start..start + chunk_out.len()].copy_from_slice(&chunk_out);
+        }
     }
 
     Ok(output)

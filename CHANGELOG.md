@@ -4,6 +4,16 @@ All notable changes to SymbAnaFis will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- **Parser**: Fixed implicit multiplication between numbers and functions, e.g., `4 sin(x)` now correctly parses as `4 * sin(x)`.
+
+### Performance
+- **Polynomial operations**: Added `Arc::ptr_eq` short-circuit optimization to all base comparisons (`try_add_assign`, `add`, `mul`, `gcd`, `try_mul`). Provides O(1) pointer comparison (~1 CPU cycle) before falling back to O(N) deep equality, benefiting:
+  - **Squaring**: `p.mul(&p)` now skips redundant self-comparison
+  - **Cloned polynomials**: Operations on `Arc::clone`d bases avoid deep tree traversal
+  - **Simplifier reuse**: Expressions with shared sub-structures get fast-path matching
+- **Parallel evaluation**: Implemented thread-local buffer optimization using Rayon's `map_init`. The SIMD stack buffer is now allocated once per thread instead of once per chunk, reducing allocations by ~N/threads factor (e.g., 8x fewer allocations on 8-core systems for 1M points).
+
 ### Changed
 - **Breaking**: `eval_f64_py` and `CompiledEvaluator.eval_batch` return `numpy.ndarray` instead of `list` when input contains NumPy arrays (Type-Preserving).
 

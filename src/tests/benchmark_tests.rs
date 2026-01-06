@@ -462,7 +462,7 @@ fn test_eval_batch_single_var() {
     let columns: Vec<&[f64]> = vec![&test_points[..]];
     let mut output = vec![0.0; test_points.len()];
     evaluator
-        .eval_batch(&columns, &mut output)
+        .eval_batch(&columns, &mut output, None)
         .expect("eval_batch should succeed");
 
     // Verify results are finite
@@ -510,7 +510,7 @@ fn test_eval_scaling() {
         // eval_batch
         let columns: Vec<&[f64]> = vec![&test_points[..]];
         let mut output = vec![0.0; n];
-        evaluator.eval_batch(&columns, &mut output).unwrap();
+        evaluator.eval_batch(&columns, &mut output, None).unwrap();
 
         let sum: f64 = output.iter().sum();
         assert!(
@@ -550,7 +550,9 @@ fn test_multi_expression_batch() {
 
         let columns: Vec<&[f64]> = vec![&data[..]];
         let mut output = vec![0.0; n_points];
-        evaluator.eval_batch(&columns, &mut output).expect(name);
+        evaluator
+            .eval_batch(&columns, &mut output, None)
+            .expect(name);
 
         let sum: f64 = output.iter().sum();
         assert!(

@@ -566,7 +566,6 @@ impl<T: MathScalar + Float> Float for Dual<T> {
 // ============================================================================
 // These enable automatic differentiation for special mathematical functions.
 // Each function implements both the value and its derivative.
-#[allow(dead_code)]
 impl<T: MathScalar> Dual<T> {
     /// Error function: erf(x) = (2/√π) ∫₀ˣ e^(-t²) dt
     /// d/dx erf(x) = (2/√π) * e^(-x²)

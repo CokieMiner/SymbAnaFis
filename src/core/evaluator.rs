@@ -1139,13 +1139,25 @@ impl CompiledEvaluator {
     /// - `columns`: Columnar data, where `columns[param_idx][point_idx]` gives the value
     ///   of parameter `param_idx` at data point `point_idx`
     /// - `output`: Mutable slice to write results, must have length >= number of data points
+    /// - `simd_buffer`: Optional pre-allocated SIMD stack buffer for reuse. When `Some`,
+    ///   the provided buffer is reused across calls (ideal for parallel evaluation with
+    ///   `map_init`). When `None`, a temporary buffer is allocated per call.
+    ///
+    /// # Performance
+    /// Pass `Some(&mut buffer)` when calling in a loop or parallel context to eliminate
+    /// repeated memory allocations. Use `None` for one-off evaluations.
     ///
     /// # Errors
     /// - `EvalColumnMismatch` if `columns.len()` != `param_count()`
     /// - `EvalColumnLengthMismatch` if column lengths don't all match
     /// - `EvalOutputTooSmall` if `output.len()` < number of data points
     #[inline]
-    pub fn eval_batch(&self, columns: &[&[f64]], output: &mut [f64]) -> Result<(), DiffError> {
+    pub fn eval_batch(
+        &self,
+        columns: &[&[f64]],
+        output: &mut [f64],
+        simd_buffer: Option<&mut Vec<f64x4>>,
+    ) -> Result<(), DiffError> {
         if columns.len() != self.param_names.len() {
             return Err(DiffError::EvalColumnMismatch {
                 expected: self.param_names.len(),
@@ -1171,7 +1183,17 @@ impl CompiledEvaluator {
 
         // Process in chunks of 4 using SIMD
         let full_chunks = n_points / 4;
-        let mut simd_stack: Vec<f64x4> = Vec::with_capacity(self.stack_size);
+
+        // Use provided buffer or create local one
+        // The buffer is moved in/out to satisfy the macro which expects an owned ident
+        let (mut simd_stack, return_buffer) = match simd_buffer {
+            Some(buf) => {
+                // Take ownership temporarily, will restore after
+                let stack = std::mem::take(buf);
+                (stack, Some(buf))
+            }
+            None => (Vec::with_capacity(self.stack_size), None),
+        };
 
         for chunk in 0..full_chunks {
             let base = chunk * 4;
@@ -1202,6 +1224,12 @@ impl CompiledEvaluator {
                 *out = scalar_stack.pop().unwrap_or(f64::NAN);
             }
         }
+
+        // Restore buffer if it was provided (preserves allocation for reuse)
+        if let Some(buf) = return_buffer {
+            *buf = simd_stack;
+        }
+
         Ok(())
     }
 
@@ -1227,8 +1255,7 @@ impl CompiledEvaluator {
     /// SIMD slow path for handling less common instructions
     /// Falls back to scalar computation for each of the 4 lanes
     #[inline(never)]
-    #[cold]
-    #[allow(clippy::ptr_arg)] // Vec is needed for potential push/pop in slow path
+    #[cold] // Vec is needed for potential push/pop in slow path
     fn exec_simd_slow_instruction(&self, instr: &Instruction, stack: &mut Vec<f64x4>) {
         // Safety: stack operations are validated at compile time by the Compiler
         debug_assert!(
@@ -1837,25 +1864,35 @@ impl CompiledEvaluator {
         const MIN_PARALLEL_SIZE: usize = 256;
         if n_points < MIN_PARALLEL_SIZE {
             let mut output = vec![0.0; n_points];
-            self.eval_batch(columns, &mut output)?;
+            self.eval_batch(columns, &mut output, None)?;
             return Ok(output);
         }
 
-        // Parallel chunked evaluation using SIMD-enabled eval_batch
-        // Each chunk slices the columns and calls eval_batch (uses f64x4 SIMD)
+        // Parallel chunked evaluation with thread-local SIMD buffer reuse
+        // Uses map_init to allocate buffer once per thread, not per chunk
         let mut output = vec![0.0; n_points];
-        output
-            .par_chunks_mut(MIN_PARALLEL_SIZE)
-            .enumerate()
-            .for_each(|(chunk_idx, chunk)| {
-                let start = chunk_idx * MIN_PARALLEL_SIZE;
-                let end = start + chunk.len();
-                // Slice columns for this chunk
-                let col_slices: Vec<&[f64]> = columns.iter().map(|col| &col[start..end]).collect();
-                // Note: eval_batch cannot fail here because we've already validated inputs
-                self.eval_batch(&col_slices, chunk)
-                    .expect("eval_batch failed in parallel chunk");
-            });
+        let chunk_indices: Vec<usize> = (0..n_points).step_by(MIN_PARALLEL_SIZE).collect();
+
+        let chunk_results: Vec<(usize, Vec<f64>)> = chunk_indices
+            .into_par_iter()
+            .map_init(
+                || Vec::with_capacity(self.stack_size),
+                |simd_buffer, start| {
+                    let end = (start + MIN_PARALLEL_SIZE).min(n_points);
+                    let len = end - start;
+                    let col_slices: Vec<&[f64]> =
+                        columns.iter().map(|col| &col[start..end]).collect();
+                    let mut chunk_out = vec![0.0; len];
+                    self.eval_batch(&col_slices, &mut chunk_out, Some(simd_buffer))
+                        .expect("eval_batch failed in parallel chunk");
+                    (start, chunk_out)
+                },
+            )
+            .collect();
+
+        for (start, chunk_out) in chunk_results {
+            output[start..start + chunk_out.len()].copy_from_slice(&chunk_out);
+        }
         Ok(output)
     }
 }
@@ -2450,7 +2487,7 @@ mod tests {
         let columns: Vec<&[f64]> = vec![&x_vals];
         let mut output = vec![0.0; 8];
 
-        eval.eval_batch(&columns, &mut output).unwrap();
+        eval.eval_batch(&columns, &mut output, None).unwrap();
 
         // Verify each result: (x+1)^2
         for (i, &result) in output.iter().enumerate() {
@@ -2477,7 +2514,7 @@ mod tests {
         let columns: Vec<&[f64]> = vec![&x_vals];
         let mut output = vec![0.0; 6];
 
-        eval.eval_batch(&columns, &mut output).unwrap();
+        eval.eval_batch(&columns, &mut output, None).unwrap();
 
         for (i, &result) in output.iter().enumerate() {
             let x = x_vals[i];
@@ -2504,7 +2541,7 @@ mod tests {
         let columns: Vec<&[f64]> = vec![&x_vals, &y_vals, &z_vals];
         let mut output = vec![0.0; 5];
 
-        eval.eval_batch(&columns, &mut output).unwrap();
+        eval.eval_batch(&columns, &mut output, None).unwrap();
 
         for i in 0..5 {
             let expected = x_vals[i] * y_vals[i] + z_vals[i];
@@ -2528,7 +2565,7 @@ mod tests {
         let columns: Vec<&[f64]> = vec![&x_vals];
         let mut output = vec![0.0; 4];
 
-        eval.eval_batch(&columns, &mut output).unwrap();
+        eval.eval_batch(&columns, &mut output, None).unwrap();
 
         for (i, &result) in output.iter().enumerate() {
             let x = x_vals[i];
@@ -2553,7 +2590,7 @@ mod tests {
         let columns: Vec<&[f64]> = vec![&x_vals];
         let mut output = vec![0.0; 1];
 
-        eval.eval_batch(&columns, &mut output).unwrap();
+        eval.eval_batch(&columns, &mut output, None).unwrap();
 
         assert!((output[0] - 9.0).abs() < 1e-10);
     }
@@ -2567,7 +2604,7 @@ mod tests {
         let columns: Vec<&[f64]> = vec![];
         let mut output = vec![0.0; 1];
 
-        eval.eval_batch(&columns, &mut output).unwrap();
+        eval.eval_batch(&columns, &mut output, None).unwrap();
 
         let expected = std::f64::consts::PI * 2.0;
         assert!((output[0] - expected).abs() < 1e-10);
@@ -2584,7 +2621,7 @@ mod tests {
         let columns: Vec<&[f64]> = vec![&x_vals, &y_vals];
         let mut batch_output = vec![0.0; 8];
 
-        eval.eval_batch(&columns, &mut batch_output).unwrap();
+        eval.eval_batch(&columns, &mut batch_output, None).unwrap();
 
         // Compare with single evaluations
         for i in 0..8 {

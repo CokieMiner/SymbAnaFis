@@ -2604,7 +2604,7 @@ impl PyCompiledEvaluator {
 
         let mut output = vec![0.0; n_points];
         self.evaluator
-            .eval_batch(&col_refs, &mut output)
+            .eval_batch(&col_refs, &mut output, None)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e)))?;
 
         if use_numpy {

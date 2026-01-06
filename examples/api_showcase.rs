@@ -500,7 +500,9 @@ fn section_compilation_and_performance() {
     println!("  12.2 Batch Evaluation: eval_batch()");
     let inputs = vec![0.0, 1.0, 2.0, 3.0, 4.0];
     let mut batch_result = vec![0.0; inputs.len()];
-    compiled.eval_batch(&[&inputs], &mut batch_result).unwrap();
+    compiled
+        .eval_batch(&[&inputs], &mut batch_result, None)
+        .unwrap();
     println!("      Inputs: {:?}", inputs);
     println!("      Results: {:?}\n", batch_result);
 

@@ -531,7 +531,8 @@ impl Polynomial {
         }
 
         // Same base: normal multiply
-        if a.base == b.base {
+        // Arc::ptr_eq provides O(1) short-circuit for squaring (p.mul(&p)) and cloned polynomials
+        if Arc::ptr_eq(&a.base, &b.base) || a.base == b.base {
             return Some(a.mul(b));
         }
 

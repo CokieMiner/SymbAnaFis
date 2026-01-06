@@ -34,6 +34,9 @@ pub(crate) fn insert_implicit_multiplication(
                 // Number * (
                 (Token::Number(_), Token::LeftParen) => true,
 
+                // Number * Function operator: 4 sin(x) → 4 * sin(x)
+                (Token::Number(_), Token::Operator(op)) if op.is_function() => true,
+
                 // Identifier * Identifier
                 (Token::Identifier(_), Token::Identifier(_)) => true,
 
@@ -116,6 +119,14 @@ mod tests {
         let tokens = vec![Token::Operator(Operator::Sin), Token::LeftParen];
         let result = insert_implicit_multiplication(tokens, &HashSet::new());
         assert_eq!(result.len(), 2); // No multiplication inserted
+    }
+    
+    #[test]
+    fn test_number_function() {
+        let tokens = vec![Token::Number(4.0), Token::Operator(Operator::Sin)];
+        let result = insert_implicit_multiplication(tokens, &HashSet::new());
+        assert_eq!(result.len(), 3);
+        assert!(matches!(result[1], Token::Operator(Operator::Mul)));
     }
 
     #[test]
