@@ -40,35 +40,40 @@ impl Expr {
     /// let expr = x.pow(2.0);
     /// let derivative = expr.derive("x", Some(&ctx));
     /// ```
-    pub fn derive(&self, var: &str, context: Option<&Context>) -> Expr {
+    ///
+    /// # Panics
+    /// Panics only if internal invariants are violated (never in normal use).
+    #[must_use]
+    #[allow(clippy::too_many_lines)]
+    pub fn derive(&self, var: &str, context: Option<&Context>) -> Self {
         // Use static empty context for None case to avoid allocation
         static EMPTY_CONTEXT: std::sync::OnceLock<Context> = std::sync::OnceLock::new();
         let ctx = context.unwrap_or_else(|| EMPTY_CONTEXT.get_or_init(Context::new));
 
         match &self.kind {
             // Base cases
-            ExprKind::Number(_) => Expr::number(0.0),
+            ExprKind::Number(_) => Self::number(0.0),
 
             ExprKind::Symbol(name) => {
                 // d/dx(x) = 1, d/dx(y) = 0 (anything else is constant)
                 if name.as_str() == var {
-                    Expr::number(1.0)
+                    Self::number(1.0)
                 } else {
-                    Expr::number(0.0)
+                    Self::number(0.0)
                 }
             }
 
             // Function call - check Context for user-defined partials
             ExprKind::FunctionCall { name, args } => {
                 if args.is_empty() {
-                    return Expr::number(0.0);
+                    return Self::number(0.0);
                 }
 
                 // Special handling for exponential function e^x
                 if name.id() == *EXP && args.len() == 1 {
                     let inner_deriv = args[0].derive(var, Some(ctx));
-                    return Expr::product(vec![
-                        Expr::func_symbol(get_symbol(&EXP), (*args[0]).clone()),
+                    return Self::product(vec![
+                        Self::func_symbol(get_symbol(&EXP), (*args[0]).clone()),
                         inner_deriv,
                     ]);
                 }
@@ -77,7 +82,7 @@ impl Expr {
                 if let Some(def) = crate::functions::registry::Registry::get_by_symbol(name)
                     && def.validate_arity(args.len())
                 {
-                    let arg_primes: Vec<Expr> =
+                    let arg_primes: Vec<Self> =
                         args.iter().map(|arg| arg.derive(var, Some(ctx))).collect();
                     return (def.derivative)(args, &arg_primes);
                 }
@@ -96,24 +101,22 @@ impl Expr {
                         }
 
                         // Try to get partial from user function
-                        let partial = if let Some(partial_fn) = user_fn.partials.get(&i) {
-                            partial_fn(args)
-                        } else {
+                        let partial = user_fn.partials.get(&i).map_or_else(|| {
                             // No partial registered - symbolic
-                            let args_vec: Vec<Expr> = args.iter().map(|a| (**a).clone()).collect();
-                            let inner_func = Expr::func_multi(name.clone(), args_vec);
-                            Expr::derivative(inner_func, format!("arg{}", i), 1)
-                        };
+                            let args_vec: Vec<Self> = args.iter().map(|a| (**a).clone()).collect();
+                            let inner_func = Self::func_multi(name.clone(), args_vec);
+                            Self::derivative(inner_func, format!("arg{i}"), 1)
+                        }, |partial_fn| partial_fn(args));
 
-                        terms.push(Expr::mul_expr(partial, arg_prime));
+                        terms.push(Self::mul_expr(partial, arg_prime));
                     }
 
                     return if terms.is_empty() {
-                        Expr::number(0.0)
+                        Self::number(0.0)
                     } else if terms.len() == 1 {
                         terms.remove(0)
                     } else {
-                        Expr::sum(terms)
+                        Self::sum(terms)
                     };
                 }
 
@@ -124,42 +127,42 @@ impl Expr {
                     if arg_prime.is_zero_num() {
                         continue;
                     }
-                    let args_vec: Vec<Expr> = args.iter().map(|a| (**a).clone()).collect();
-                    let inner_func = Expr::func_multi(name.clone(), args_vec);
-                    let partial = Expr::derivative(inner_func, format!("arg{}", i), 1);
-                    terms.push(Expr::mul_expr(partial, arg_prime));
+                    let args_vec: Vec<Self> = args.iter().map(|a| (**a).clone()).collect();
+                    let inner_func = Self::func_multi(name.clone(), args_vec);
+                    let partial = Self::derivative(inner_func, format!("arg{i}"), 1);
+                    terms.push(Self::mul_expr(partial, arg_prime));
                 }
 
                 if terms.is_empty() {
-                    Expr::number(0.0)
+                    Self::number(0.0)
                 } else if terms.len() == 1 {
                     terms.remove(0)
                 } else {
-                    Expr::sum(terms)
+                    Self::sum(terms)
                 }
             }
 
             // Sum rule: (a + b + c + ...)' = a' + b' + c' + ...
             ExprKind::Sum(terms) => {
-                let derivs: Vec<Expr> = terms
+                let derivs: Vec<Self> = terms
                     .iter()
                     .map(|t| t.derive(var, Some(ctx)))
                     .filter(|d| !d.is_zero_num())
                     .collect();
 
                 if derivs.is_empty() {
-                    Expr::number(0.0)
+                    Self::number(0.0)
                 } else if derivs.len() == 1 {
                     derivs.into_iter().next().unwrap()
                 } else {
-                    Expr::sum(derivs)
+                    Self::sum(derivs)
                 }
             }
 
             // Product rule for N-ary: (f1 * f2 * ... * fn)' = Σ (f1 * ... * fi' * ... * fn)
             ExprKind::Product(factors) => {
                 if factors.is_empty() {
-                    return Expr::number(0.0);
+                    return Self::number(0.0);
                 }
                 if factors.len() == 1 {
                     return factors[0].derive(var, Some(ctx));
@@ -181,7 +184,7 @@ impl Expr {
                     }
 
                     // Build product of all other factors * this derivative
-                    let other_factors: Vec<Arc<Expr>> = factors
+                    let other_factors: Vec<Arc<Self>> = factors
                         .iter()
                         .enumerate()
                         .filter(|(j, _)| *j != i)
@@ -191,20 +194,20 @@ impl Expr {
                     if other_factors.is_empty() {
                         terms.push(factor_prime);
                     } else if factor_prime.is_one_num() {
-                        terms.push(Expr::product_from_arcs(other_factors));
+                        terms.push(Self::product_from_arcs(other_factors));
                     } else {
                         let mut all = other_factors;
                         all.push(Arc::new(factor_prime));
-                        terms.push(Expr::product_from_arcs(all));
+                        terms.push(Self::product_from_arcs(all));
                     }
                 }
 
                 if terms.is_empty() {
-                    Expr::number(0.0)
+                    Self::number(0.0)
                 } else if terms.len() == 1 {
                     terms.remove(0)
                 } else {
-                    Expr::sum(terms)
+                    Self::sum(terms)
                 }
             }
 
@@ -216,19 +219,19 @@ impl Expr {
                 if let ExprKind::Number(n) = &u.kind {
                     let v_prime = v.derive(var, Some(ctx));
                     if v_prime.is_zero_num() {
-                        return Expr::number(0.0);
+                        return Self::number(0.0);
                     }
                     // -n * f' / f²
-                    let neg_n_fprime = Expr::product(vec![Expr::number(-n), v_prime]);
-                    let f_squared = Expr::pow_from_arcs(Arc::clone(v), Arc::new(Expr::number(2.0)));
-                    return Expr::div_expr(neg_n_fprime, f_squared);
+                    let neg_n_fprime = Self::product(vec![Self::number(-n), v_prime]);
+                    let f_squared = Self::pow_from_arcs(Arc::clone(v), Arc::new(Self::number(2.0)));
+                    return Self::div_expr(neg_n_fprime, f_squared);
                 }
 
                 // Fast-path 2: Constant denominator (u/n) → u'/n
                 // Skip computing v' since we know it's 0
                 if let ExprKind::Number(_) = &v.kind {
                     let u_prime = u.derive(var, Some(ctx));
-                    return Expr::div_from_arcs(Arc::new(u_prime), Arc::clone(v));
+                    return Self::div_from_arcs(Arc::new(u_prime), Arc::clone(v));
                 }
 
                 // General case: compute both derivatives
@@ -239,24 +242,24 @@ impl Expr {
                 let v_is_zero = v_prime.is_zero_num();
 
                 if u_is_zero && v_is_zero {
-                    Expr::number(0.0)
+                    Self::number(0.0)
                 } else if v_is_zero {
                     // v is constant: (u'/v)
-                    Expr::div_from_arcs(Arc::new(u_prime), Arc::clone(v))
+                    Self::div_from_arcs(Arc::new(u_prime), Arc::clone(v))
                 } else if u_is_zero {
                     // u' is zero: (-u * v') / v²
                     let u_times_vprime =
-                        Expr::mul_from_arcs(vec![Arc::clone(u), Arc::new(v_prime)]);
+                        Self::mul_from_arcs(vec![Arc::clone(u), Arc::new(v_prime)]);
                     let neg_u_vprime = u_times_vprime.negate();
-                    let v_squared = Expr::pow_from_arcs(Arc::clone(v), Arc::new(Expr::number(2.0)));
-                    Expr::div_expr(neg_u_vprime, v_squared)
+                    let v_squared = Self::pow_from_arcs(Arc::clone(v), Arc::new(Self::number(2.0)));
+                    Self::div_expr(neg_u_vprime, v_squared)
                 } else {
                     // Full quotient rule: (u'v - uv') / v²
-                    let u_prime_v = Expr::mul_from_arcs(vec![Arc::new(u_prime), Arc::clone(v)]);
-                    let u_v_prime = Expr::mul_from_arcs(vec![Arc::clone(u), Arc::new(v_prime)]);
-                    let numerator = Expr::sub_expr(u_prime_v, u_v_prime);
-                    let v_squared = Expr::pow_from_arcs(Arc::clone(v), Arc::new(Expr::number(2.0)));
-                    Expr::div_expr(numerator, v_squared)
+                    let u_prime_v = Self::mul_from_arcs(vec![Arc::new(u_prime), Arc::clone(v)]);
+                    let u_v_prime = Self::mul_from_arcs(vec![Arc::clone(u), Arc::new(v_prime)]);
+                    let numerator = Self::sub_expr(u_prime_v, u_v_prime);
+                    let v_squared = Self::pow_from_arcs(Arc::clone(v), Arc::new(Self::number(2.0)));
+                    Self::div_expr(numerator, v_squared)
                 }
             }
 
@@ -270,22 +273,22 @@ impl Expr {
 
                 if !u_contains_var && !v_contains_var {
                     // Both constant
-                    Expr::number(0.0)
+                    Self::number(0.0)
                 } else if !v_contains_var {
                     // Case 1: u^n, n is constant
                     let u_prime = u.derive(var, Some(ctx));
 
                     if u_prime.is_zero_num() {
-                        Expr::number(0.0)
+                        Self::number(0.0)
                     } else {
-                        let n_minus_1 = Expr::sub_expr((**v).clone(), Expr::number(1.0));
+                        let n_minus_1 = Self::sub_expr((**v).clone(), Self::number(1.0));
                         let u_pow_n_minus_1 =
-                            Expr::pow_from_arcs(Arc::clone(u), Arc::new(n_minus_1));
+                            Self::pow_from_arcs(Arc::clone(u), Arc::new(n_minus_1));
 
                         if u_prime.is_one_num() {
-                            Expr::mul_expr((**v).clone(), u_pow_n_minus_1)
+                            Self::mul_expr((**v).clone(), u_pow_n_minus_1)
                         } else {
-                            Expr::product(vec![(**v).clone(), u_pow_n_minus_1, u_prime])
+                            Self::product(vec![(**v).clone(), u_pow_n_minus_1, u_prime])
                         }
                     }
                 } else if !u_contains_var {
@@ -293,15 +296,15 @@ impl Expr {
                     let v_prime = v.derive(var, Some(ctx));
 
                     if v_prime.is_zero_num() {
-                        Expr::number(0.0)
+                        Self::number(0.0)
                     } else {
-                        let a_pow_v = Expr::pow_from_arcs(Arc::clone(u), Arc::clone(v));
-                        let ln_a = Expr::func_symbol(get_symbol(&LN), (**u).clone());
+                        let a_pow_v = Self::pow_from_arcs(Arc::clone(u), Arc::clone(v));
+                        let ln_a = Self::func_symbol(get_symbol(&LN), (**u).clone());
 
                         if v_prime.is_one_num() {
-                            Expr::mul_expr(a_pow_v, ln_a)
+                            Self::mul_expr(a_pow_v, ln_a)
                         } else {
-                            Expr::product(vec![a_pow_v, ln_a, v_prime])
+                            Self::product(vec![a_pow_v, ln_a, v_prime])
                         }
                     }
                 } else {
@@ -309,45 +312,45 @@ impl Expr {
                     let u_prime = u.derive(var, Some(ctx));
                     let v_prime = v.derive(var, Some(ctx));
 
-                    let ln_u = Expr::func_symbol(get_symbol(&LN), (**u).clone());
+                    let ln_u = Self::func_symbol(get_symbol(&LN), (**u).clone());
 
                     // Term 1: v' * ln(u)
                     let term1 = if v_prime.is_zero_num() {
-                        Expr::number(0.0)
+                        Self::number(0.0)
                     } else if v_prime.is_one_num() {
-                        ln_u.clone()
+                        ln_u
                     } else {
-                        Expr::mul_expr(v_prime, ln_u.clone())
+                        Self::mul_expr(v_prime, ln_u)
                     };
 
                     // Term 2: v * u'/u
                     let term2 = if u_prime.is_zero_num() {
-                        Expr::number(0.0)
+                        Self::number(0.0)
                     } else {
-                        let u_prime_over_u = Expr::div_from_arcs(Arc::new(u_prime), Arc::clone(u));
-                        Expr::mul_from_arcs(vec![Arc::clone(v), Arc::new(u_prime_over_u)])
+                        let u_prime_over_u = Self::div_from_arcs(Arc::new(u_prime), Arc::clone(u));
+                        Self::mul_from_arcs(vec![Arc::clone(v), Arc::new(u_prime_over_u)])
                     };
 
                     // Sum: v' * ln(u) + v * u'/u
                     let sum = if term1.is_zero_num() && term2.is_zero_num() {
-                        return Expr::number(0.0);
+                        return Self::number(0.0);
                     } else if term1.is_zero_num() {
                         term2
                     } else if term2.is_zero_num() {
                         term1
                     } else {
-                        Expr::add_expr(term1, term2)
+                        Self::add_expr(term1, term2)
                     };
 
                     // Multiply by u^v
                     if sum.is_zero_num() {
-                        Expr::number(0.0)
+                        Self::number(0.0)
                     } else {
-                        let u_pow_v = Expr::pow_from_arcs(Arc::clone(u), Arc::clone(v));
+                        let u_pow_v = Self::pow_from_arcs(Arc::clone(u), Arc::clone(v));
                         if sum.is_one_num() {
                             u_pow_v
                         } else {
-                            Expr::mul_expr(u_pow_v, sum)
+                            Self::mul_expr(u_pow_v, sum)
                         }
                     }
                 }
@@ -360,12 +363,12 @@ impl Expr {
                 order,
             } => {
                 if deriv_var.as_str() == var {
-                    Expr::derivative_interned(inner.as_ref().clone(), deriv_var.clone(), order + 1)
+                    Self::derivative_interned(inner.as_ref().clone(), deriv_var.clone(), order + 1)
                 } else if !inner.contains_var(var) {
-                    Expr::number(0.0)
+                    Self::number(0.0)
                 } else {
-                    Expr::derivative(
-                        Expr::new(ExprKind::Derivative {
+                    Self::derivative(
+                        Self::new(ExprKind::Derivative {
                             inner: inner.clone(),
                             var: deriv_var.clone(),
                             order: *order,
@@ -378,11 +381,7 @@ impl Expr {
 
             // Polynomial
             ExprKind::Poly(poly) => {
-                if let Some(result) = poly.derivative_expr(var) {
-                    result
-                } else {
-                    Expr::number(0.0)
-                }
+                poly.derivative_expr(var)
             }
         }
     }
@@ -397,7 +396,8 @@ impl Expr {
     /// let derivative = expr.derive_raw("derive_raw_doc_x");
     /// ```
     #[inline]
-    pub fn derive_raw(&self, var: &str) -> Expr {
+    #[must_use]
+    pub fn derive_raw(&self, var: &str) -> Self {
         self.derive(var, None)
     }
 }

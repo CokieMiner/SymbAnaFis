@@ -11,7 +11,7 @@ use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 /// Macro for warning messages that respects library usage.
-/// Silent by default - only outputs when SYMB_TRACE env var is enabled.
+/// Silent by default - only outputs when `SYMB_TRACE` env var is enabled.
 /// This prevents polluting stderr when used as a library.
 macro_rules! warn_once {
     ($($arg:tt)*) => {
@@ -47,7 +47,7 @@ fn global_registry() -> &'static RuleRegistry {
 }
 
 /// Main simplification engine with rule-based architecture
-pub(crate) struct Simplifier {
+pub struct Simplifier {
     /// Per-rule caches - cleared when exceeding capacity to bound memory
     /// Uses &'static str keys since rule names are guaranteed to be static
     rule_caches: HashMap<&'static str, HashMap<u64, Option<Arc<Expr>>>>,
@@ -79,17 +79,17 @@ impl Simplifier {
         }
     }
 
-    pub fn with_max_iterations(mut self, max_iterations: usize) -> Self {
+    pub const fn with_max_iterations(mut self, max_iterations: usize) -> Self {
         self.max_iterations = max_iterations;
         self
     }
 
-    pub fn with_max_depth(mut self, max_depth: usize) -> Self {
+    pub const fn with_max_depth(mut self, max_depth: usize) -> Self {
         self.max_depth = max_depth;
         self
     }
 
-    pub fn with_domain_safe(mut self, domain_safe: bool) -> Self {
+    pub const fn with_domain_safe(mut self, domain_safe: bool) -> Self {
         self.domain_safe = domain_safe;
         self
     }
@@ -122,8 +122,6 @@ impl Simplifier {
         // Use expression id (structural hash) for cheap cycle detection
         // This avoids storing full expression clones and expensive normalization
         let mut seen_hashes: HashSet<u64> = HashSet::new();
-        // Keep history for cycle breaker - return shortest expression when cycle detected
-        let mut history: Vec<Arc<Expr>> = Vec::new();
         let start_time = Instant::now();
 
         loop {
@@ -148,8 +146,7 @@ impl Simplifier {
 
             if trace_enabled() {
                 eprintln!(
-                    "[DEBUG] Iteration {}: {} -> {}",
-                    iterations, original, current
+                    "[DEBUG] Iteration {iterations}: {original} -> {current}"
                 );
             }
 
@@ -172,7 +169,6 @@ impl Simplifier {
             }
             // Add AFTER checking, so first iteration's result doesn't trigger false positive
             seen_hashes.insert(fingerprint);
-            history.push(current.clone());
 
             iterations += 1;
         }

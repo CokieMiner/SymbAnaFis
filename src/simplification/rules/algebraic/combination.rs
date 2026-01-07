@@ -163,14 +163,12 @@ rule_arc!(
                 }
             }
 
-            if combined_factors.len() != factors_len {
-                if combined_factors.len() == 1 {
-                    Some(combined_factors.into_iter().next().unwrap())
-                } else {
-                    Some(Arc::new(Expr::product_from_arcs(combined_factors)))
-                }
-            } else {
+            if combined_factors.len() == factors_len {
                 None
+            } else if combined_factors.len() == 1 {
+                Some(combined_factors.into_iter().next().unwrap())
+            } else {
+                Some(Arc::new(Expr::product_from_arcs(combined_factors)))
             }
         } else {
             None
@@ -401,16 +399,14 @@ rule_arc!(
                 }
             }
 
-            if combined_terms.len() != terms.len() {
-                if combined_terms.is_empty() {
-                    Some(Arc::new(Expr::number(0.0)))
-                } else if combined_terms.len() == 1 {
-                    Some(combined_terms.into_iter().next().unwrap())
-                } else {
-                    Some(Arc::new(Expr::sum_from_arcs(combined_terms)))
-                }
-            } else {
+            if combined_terms.len() == terms.len() {
                 None
+            } else if combined_terms.is_empty() {
+                Some(Arc::new(Expr::number(0.0)))
+            } else if combined_terms.len() == 1 {
+                Some(combined_terms.into_iter().next().unwrap())
+            } else {
+                Some(Arc::new(Expr::sum_from_arcs(combined_terms)))
             }
         } else {
             None

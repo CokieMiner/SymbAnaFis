@@ -14,9 +14,9 @@ use crate::parser::tokens::{Operator, Token};
 /// - Identifier/Number * (: `x (y)` → `x * (y)` (unless function call)
 ///
 /// Exception: Function followed by ( is NOT multiplication
-pub(crate) fn insert_implicit_multiplication(
+pub fn insert_implicit_multiplication<S: std::hash::BuildHasher>(
     tokens: Vec<Token>,
-    custom_functions: &std::collections::HashSet<String>,
+    custom_functions: &std::collections::HashSet<String, S>,
 ) -> Vec<Token> {
     if tokens.is_empty() {
         return tokens;
@@ -26,52 +26,40 @@ pub(crate) fn insert_implicit_multiplication(
     let mut it = tokens.into_iter().peekable();
 
     while let Some(current) = it.next() {
-        let needs_mul = if let Some(next) = it.peek() {
-            match (&current, next) {
-                // Number * Identifier
-                (Token::Number(_), Token::Identifier(_)) => true,
+        let needs_mul = it.peek().is_some_and(|next| match (&current, next) {
+            // Number * Function operator: 4 sin(x) → 4 * sin(x)
+            (Token::Number(_), Token::Operator(op)) if op.is_function() => true,
 
-                // Number * (
-                (Token::Number(_), Token::LeftParen) => true,
+            // Identifier * Function operator
+            (Token::Identifier(_), Token::Operator(op)) if op.is_function() => true,
 
-                // Number * Function operator: 4 sin(x) → 4 * sin(x)
-                (Token::Number(_), Token::Operator(op)) if op.is_function() => true,
-
-                // Identifier * Identifier
-                (Token::Identifier(_), Token::Identifier(_)) => true,
-
-                // Identifier * Number
-                (Token::Identifier(_), Token::Number(_)) => true,
-
-                // Identifier * Function operator
-                (Token::Identifier(_), Token::Operator(op)) if op.is_function() => true,
-
-                // Identifier * (
-                (Token::Identifier(name), Token::LeftParen) => {
-                    // If it's a custom function, do NOT insert multiplication
-                    !custom_functions.contains(name)
-                }
-
-                // ) * Identifier
-                (Token::RightParen, Token::Identifier(_)) => true,
-
-                // ) * Number
-                (Token::RightParen, Token::Number(_)) => true,
-
-                // ) * (
-                (Token::RightParen, Token::LeftParen) => true,
-
-                // ) * Function operator: (a) sin(x) → (a) * sin(x)
-                (Token::RightParen, Token::Operator(op)) if op.is_function() => true,
-
-                // Function operator * ( is NOT multiplication (it's function call)
-                (Token::Operator(op), Token::LeftParen) if op.is_function() => false,
-
-                _ => false,
+            // Identifier * (
+            (Token::Identifier(name), Token::LeftParen) => {
+                // If it's a custom function, do NOT insert multiplication
+                !custom_functions.contains(name)
             }
-        } else {
-            false
-        };
+
+            // ) * Function operator: (a) sin(x) → (a) * sin(x)
+            (Token::RightParen, Token::Operator(op)) if op.is_function() => true,
+
+            // Coalesced arms for standard multiplication cases:
+            // Number * Identifier: 2x
+            // Number * (: 2(x)
+            // Identifier * Identifier: xy
+            // Identifier * Number: x2
+            // ) * Identifier: )x
+            // ) * Number: )2
+            // ) * (: )(
+            (Token::Number(_) | Token::Identifier(_) | Token::RightParen,
+             Token::Identifier(_))
+            | (Token::Number(_) | Token::RightParen, Token::LeftParen)
+            | (Token::Identifier(_) | Token::RightParen, Token::Number(_)) => true,
+
+            // Function operator * ( is NOT multiplication (it's function call)
+            (Token::Operator(op), Token::LeftParen) if op.is_function() => false,
+
+            _ => false,
+        });
 
         result.push(current);
         if needs_mul {
@@ -120,7 +108,7 @@ mod tests {
         let result = insert_implicit_multiplication(tokens, &HashSet::new());
         assert_eq!(result.len(), 2); // No multiplication inserted
     }
-    
+
     #[test]
     fn test_number_function() {
         let tokens = vec![Token::Number(4.0), Token::Operator(Operator::Sin)];

@@ -25,7 +25,7 @@ rule!(
                 {
                     // Check if any base factor is present in 'other'
                     let mut useful = false;
-                    for factor in base_factors.iter() {
+                    for factor in base_factors {
                         if contains_factor(other, factor) {
                             useful = true;
                             break;

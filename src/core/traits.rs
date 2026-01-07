@@ -10,10 +10,10 @@ use std::ops::{
 };
 
 /// Tolerance for floating-point comparisons (used throughout expression operations)
-pub(crate) const EPSILON: f64 = 1e-14;
+pub const EPSILON: f64 = 1e-14;
 
 /// A trait comprising all operations required for mathematical scalars
-/// in the SymbAnaFis library.
+/// in the `SymbAnaFis` library.
 ///
 /// This trait aggregates essential numeric operations needed for symbolic computation:
 /// - `num_traits::Float`: Trigonometric, exponential, and logarithmic functions
@@ -98,19 +98,19 @@ impl<T> MathScalar for T where
 
 /// Check if a float is approximately zero (within tolerance)
 #[inline]
-pub(crate) fn is_zero(n: f64) -> bool {
+pub fn is_zero(n: f64) -> bool {
     n.abs() < EPSILON
 }
 
 /// Check if a float is approximately one (within tolerance)
 #[inline]
-pub(crate) fn is_one(n: f64) -> bool {
+pub fn is_one(n: f64) -> bool {
     (n - 1.0).abs() < EPSILON
 }
 
 /// Check if a float is approximately negative one (within tolerance)
 #[inline]
-pub(crate) fn is_neg_one(n: f64) -> bool {
+pub fn is_neg_one(n: f64) -> bool {
     (n + 1.0).abs() < EPSILON
 }
 

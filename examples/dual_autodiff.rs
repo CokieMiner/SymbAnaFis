@@ -1,6 +1,6 @@
 //! Dual Numbers for Automatic Differentiation
 //!
-//! This example demonstrates using SymbAnaFis's Dual number implementation
+//! This example demonstrates using `SymbAnaFis`'s Dual number implementation
 //! for automatic differentiation. Dual numbers enable exact derivative computation
 //! through algebraic manipulation.
 //!
@@ -44,7 +44,7 @@ fn transcendental_example() {
 
     println!("f(1) = {:.6}", fx.val);
     println!("f'(1) = {:.6}", fx.eps);
-    println!("Expected f'(1) = {:.6}", expected_deriv);
+    println!("Expected f'(1) = {expected_deriv:.6}");
     println!("Error: {:.2e}", (fx.eps - expected_deriv).abs());
     println!();
 }
@@ -91,7 +91,7 @@ fn chain_rule_example() {
 
     println!("f(1.5) = {:.6}", fx.val);
     println!("f'(1.5) = {:.6}", fx.eps);
-    println!("Expected f'(1.5) = {:.6}", expected_deriv);
+    println!("Expected f'(1.5) = {expected_deriv:.6}");
     println!("Error: {:.2e}", (fx.eps - expected_deriv).abs());
     println!();
 }
@@ -109,16 +109,15 @@ fn compare_with_symbolic() {
 
     // Symbolic derivative
     let symbolic_deriv = Diff::new().differentiate(&expr, &x).unwrap();
-    println!("Symbolic: d/dx(x³ + 2x² + x + 1) = {}", symbolic_deriv);
+    println!("Symbolic: d/dx(x³ + 2x² + x + 1) = {symbolic_deriv}");
     println!(
-        "         (Note: {} is mathematically equivalent to 3x² + 4x + 1)",
-        symbolic_deriv
+        "         (Note: {symbolic_deriv} is mathematically equivalent to 3x² + 4x + 1)"
     );
 
     // Evaluate symbolic derivative at x=2
     let vars = std::collections::HashMap::from([("x", 2.0)]);
     let symbolic_val = symbolic_deriv.evaluate(&vars, &std::collections::HashMap::new());
-    println!("Symbolic derivative at x=2: {}", symbolic_val);
+    println!("Symbolic derivative at x=2: {symbolic_val}");
 
     // Dual number derivative at x = 2
     let x_dual = Dual::new(2.0, 1.0);

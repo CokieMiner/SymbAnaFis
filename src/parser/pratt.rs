@@ -9,10 +9,7 @@ use crate::{DiffError, Expr};
 use crate::core::unified_context::Context;
 
 /// Parse tokens into an AST using Pratt parsing algorithm
-pub(crate) fn parse_expression(
-    tokens: &[Token],
-    context: Option<&Context>,
-) -> Result<Expr, DiffError> {
+pub fn parse_expression(tokens: &[Token], context: Option<&Context>) -> Result<Expr, DiffError> {
     if tokens.is_empty() {
         return Err(DiffError::UnexpectedEndOfInput);
     }
@@ -32,12 +29,12 @@ struct Parser<'a> {
     context: Option<&'a Context>,
 }
 
-impl<'a> Parser<'a> {
+impl Parser<'_> {
     fn current(&self) -> Option<&Token> {
         self.tokens.get(self.pos)
     }
 
-    fn advance(&mut self) {
+    const fn advance(&mut self) {
         self.pos += 1;
     }
 
@@ -72,7 +69,7 @@ impl<'a> Parser<'a> {
         Ok(left)
     }
 
-    /// Collect all additive terms (+ and -) at precedence 10, then call Expr::sum once.
+    /// Collect all additive terms (+ and -) at precedence 10, then call `Expr::sum` once.
     /// This avoids O(N²) cascading when parsing large sums like "a + b + c + d + ..."
     fn parse_additive_chain(&mut self, first: Expr) -> Result<Expr, DiffError> {
         let mut terms: Vec<Expr> = vec![first];
@@ -91,11 +88,11 @@ impl<'a> Parser<'a> {
                     // This ensures we stop at the next + or - at the same level
                     let term = self.parse_expr(11)?;
 
-                    if !add {
+                    if add {
+                        terms.push(term);
+                    } else {
                         // a - b becomes a + (-1)*b
                         terms.push(Expr::product(vec![Expr::number(-1.0), term]));
-                    } else {
-                        terms.push(term);
                     }
                 }
                 None => break,
@@ -112,7 +109,7 @@ impl<'a> Parser<'a> {
     fn parse_arguments(&mut self) -> Result<Vec<Expr>, DiffError> {
         let mut args = Vec::new();
 
-        if let Some(Token::RightParen) = self.current() {
+        if matches!(self.current(), Some(Token::RightParen)) {
             return Ok(args); // Empty argument list
         }
 
@@ -139,6 +136,7 @@ impl<'a> Parser<'a> {
         Ok(args)
     }
 
+    #[allow(clippy::too_many_lines)]
     fn parse_prefix(&mut self) -> Result<Expr, DiffError> {
         // Direct access enables borrowing token while mutating self.pos (via advance)
         // because we borrow from the underlying slice 'a, not from self
@@ -157,12 +155,12 @@ impl<'a> Parser<'a> {
                 self.advance();
 
                 // Check if this is a function call
-                if let Some(Token::LeftParen) = self.current() {
+                if matches!(self.current(), Some(Token::LeftParen)) {
                     // This is a custom function call
                     self.advance(); // consume (
                     let args = self.parse_arguments()?;
 
-                    if let Some(Token::RightParen) = self.current() {
+                    if matches!(self.current(), Some(Token::RightParen)) {
                         self.advance(); // consume )
                     } else {
                         return Err(DiffError::UnexpectedToken {
@@ -184,11 +182,11 @@ impl<'a> Parser<'a> {
                 self.advance();
 
                 // Function must be followed by (
-                if let Some(Token::LeftParen) = self.current() {
+                if matches!(self.current(), Some(Token::LeftParen)) {
                     self.advance(); // consume (
                     let args = self.parse_arguments()?;
 
-                    if let Some(Token::RightParen) = self.current() {
+                    if matches!(self.current(), Some(Token::RightParen)) {
                         self.advance(); // consume )
                     } else {
                         return Err(DiffError::UnexpectedToken {
@@ -239,7 +237,7 @@ impl<'a> Parser<'a> {
                 self.advance(); // consume (
                 let expr = self.parse_expr(0)?;
 
-                if let Some(Token::RightParen) = self.current() {
+                if matches!(self.current(), Some(Token::RightParen)) {
                     self.advance(); // consume )
                     Ok(expr)
                 } else {
@@ -262,11 +260,7 @@ impl<'a> Parser<'a> {
                 let arg_exprs = if args.is_empty() {
                     // Implicit dependency on the differentiation variable
                     // Implicit dependency on the differentiation variable
-                    vec![if let Some(ctx) = self.context {
-                        ctx.symb(var).to_expr()
-                    } else {
-                        Expr::symbol(var.clone())
-                    }]
+                    vec![self.context.map_or_else(|| Expr::symbol(var.clone()), |ctx| ctx.symb(var).to_expr())]
                 } else {
                     // Parse the tokenized arguments
                     // We create a temporary sub-parser for the argument tokens
@@ -284,7 +278,7 @@ impl<'a> Parser<'a> {
                         let expr = sub_parser.parse_expr(0)?;
                         exprs.push(expr);
 
-                        if let Some(Token::Comma) = sub_parser.current() {
+                        if matches!(sub_parser.current(), Some(Token::Comma)) {
                             sub_parser.advance();
                         } else {
                             // If not comma, we expect end of input (sub-parser exhausted)

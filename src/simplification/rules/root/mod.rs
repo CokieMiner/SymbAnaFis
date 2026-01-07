@@ -30,15 +30,15 @@ rule!(
             let simplified_exp = match &new_exp.kind {
                 AstKind::Div(u, v) => {
                     if let (AstKind::Number(a), AstKind::Number(b)) = (&u.kind, &v.kind) {
-                        if *b != 0.0 {
+                        if *b == 0.0 {
+                            new_exp
+                        } else {
                             let result = a / b;
                             if (result - result.round()).abs() < 1e-10 {
                                 Expr::number(result.round())
                             } else {
                                 new_exp
                             }
-                        } else {
-                            new_exp
                         }
                     } else {
                         new_exp
@@ -52,7 +52,7 @@ rule!(
                 return Some(base.as_ref().clone());
             }
 
-            let result = Expr::pow_static(base.as_ref().clone(), simplified_exp.clone());
+            let result = Expr::pow_static(base.as_ref().clone(), simplified_exp);
 
             return Some(result);
         }
@@ -79,15 +79,15 @@ rule!(
             let simplified_exp = match &new_exp.kind {
                 AstKind::Div(u, v) => {
                     if let (AstKind::Number(a), AstKind::Number(b)) = (&u.kind, &v.kind) {
-                        if *b != 0.0 {
+                        if *b == 0.0 {
+                            new_exp
+                        } else {
                             let result = a / b;
                             if (result - result.round()).abs() < 1e-10 {
                                 Expr::number(result.round())
                             } else {
                                 new_exp
                             }
-                        } else {
-                            new_exp
                         }
                     } else {
                         new_exp
@@ -136,9 +136,8 @@ rule!(SqrtProductRule, "sqrt_product", 56, Root, &[ExprKind::Product], alters_do
 
                         if new_factors.len() == 1 {
                             return Some(new_factors.into_iter().next().unwrap());
-                        } else {
-                            return Some(Expr::product(new_factors));
                         }
+                        return Some(Expr::product(new_factors));
                     }
             }
         }
@@ -249,7 +248,7 @@ rule!(
 );
 
 /// Get all root simplification rules in priority order
-pub(crate) fn get_root_rules() -> Vec<Arc<dyn Rule + Send + Sync>> {
+pub fn get_root_rules() -> Vec<Arc<dyn Rule + Send + Sync>> {
     vec![
         Arc::new(SqrtPowerRule),
         Arc::new(SqrtExtractSquareRule),

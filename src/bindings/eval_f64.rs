@@ -74,7 +74,7 @@ fn eval_single_expr_chunked<V: ToParamName>(
     };
 
     let evaluator = CompiledEvaluator::compile(expr, vars, None).map_err(|e| {
-        DiffError::invalid_syntax(format!("Failed to compile expression {}: {}", expr_idx, e))
+        DiffError::invalid_syntax(format!("Failed to compile expression {expr_idx}: {e}"))
     })?;
 
     // Pre-allocate output buffer

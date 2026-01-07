@@ -86,7 +86,7 @@ impl ToParamName for &Symbol {
 
 /// Bytecode instruction for stack-based evaluation
 #[derive(Clone, Copy, Debug)]
-pub(crate) enum Instruction {
+pub enum Instruction {
     /// Push a constant value onto the stack
     LoadConst(f64),
     /// Push a parameter value onto the stack (by index)
@@ -188,7 +188,7 @@ pub(crate) enum Instruction {
 // Safety is guaranteed by the Compiler which tracks max_stack at compile time.
 // Stack underflow is impossible in correctly compiled bytecode.
 
-/// Get mutable reference to the top of stack (unsafe, but validated by debug_assert)
+/// Get mutable reference to the top of stack (unsafe, but validated by `debug_assert`)
 macro_rules! stack_top_mut {
     ($stack:expr) => {{
         debug_assert!(!$stack.is_empty(), "Stack empty - compiler bug");
@@ -227,7 +227,7 @@ macro_rules! stack_binop_fn {
 /// Macro to process a single instruction
 /// $instr: The instruction to process
 /// $stack: The stack to operate on (`Vec<f64>`)
-/// $load_param: Closure/Expression to load a parameter by index: |idx| -> f64
+/// $`load_param`: Closure/Expression to load a parameter by index: |idx| -> f64
 macro_rules! process_instruction {
     ($instr:expr, $stack:ident, $load_param:expr) => {
         match *$instr {
@@ -475,7 +475,7 @@ macro_rules! process_instruction {
                 *base = if *base <= 0.0 || *base == 1.0 || x <= 0.0 {
                     f64::NAN
                 } else {
-                    x.ln() / base.ln()
+                    x.log(*base)
                 };
             }
             Instruction::Atan2 => {
@@ -496,7 +496,7 @@ macro_rules! process_instruction {
             Instruction::BesselI => {
                 let x = $stack.pop().unwrap();
                 let n = $stack.last_mut().unwrap();
-                *n = crate::math::bessel_i((*n).round() as i32, x).unwrap_or(f64::NAN);
+                *n = crate::math::bessel_i((*n).round() as i32, x);
             }
             Instruction::BesselK => {
                 let x = $stack.pop().unwrap();
@@ -561,7 +561,7 @@ macro_rules! process_instruction {
 /// $instr: The instruction to process
 /// $stack: The stack `Vec<f64>`
 /// $params: The params slice `&[f64]`
-/// $self: Reference to CompiledEvaluator (for slow path fallback)
+/// $self: Reference to `CompiledEvaluator` (for slow path fallback)
 macro_rules! single_fast_path {
     ($instr:expr, $stack:ident, $params:expr, $self_ref:expr) => {
         match *$instr {
@@ -630,7 +630,7 @@ macro_rules! single_fast_path {
                 let top = $stack.last_mut().unwrap();
                 *top = 1.0 / *top;
             }
-            _ => $self_ref.exec_slow_instruction_single($instr, &mut *$stack, $params),
+            _ => Self::exec_slow_instruction_single($instr, &mut *$stack, $params),
         }
     };
 }
@@ -639,8 +639,8 @@ macro_rules! single_fast_path {
 /// $instr: The instruction to process
 /// $stack: The stack `Vec<f64>`
 /// $columns: The columnar data `&[&[f64]]`
-/// $point_idx: The current point index
-/// $self: Reference to CompiledEvaluator (for slow path fallback)
+/// $`point_idx`: The current point index
+/// $self: Reference to `CompiledEvaluator` (for slow path fallback)
 macro_rules! batch_fast_path {
     ($instr:expr, $stack:ident, $columns:expr, $point_idx:expr, $self_ref:expr) => {
         match *$instr {
@@ -709,7 +709,7 @@ macro_rules! batch_fast_path {
                 let top = $stack.last_mut().unwrap();
                 *top = 1.0 / *top;
             }
-            _ => $self_ref.exec_slow_instruction($instr, &mut $stack),
+            _ => Self::exec_slow_instruction($instr, &mut $stack),
         }
     };
 }
@@ -720,7 +720,7 @@ macro_rules! batch_fast_path {
 /// $stack: The stack `Vec<f64x4>`
 /// $columns: The columnar data `&[&[f64]]`
 /// $base: Base index for the 4-point chunk
-/// $self: Reference to CompiledEvaluator (for slow path fallback)
+/// $self: Reference to `CompiledEvaluator` (for slow path fallback)
 macro_rules! simd_batch_fast_path {
     ($instr:expr, $stack:ident, $columns:expr, $base:expr, $self_ref:expr) => {
         match *$instr {
@@ -797,7 +797,7 @@ macro_rules! simd_batch_fast_path {
                 let top = $stack.last_mut().unwrap();
                 *top = f64x4::splat(1.0) / *top;
             }
-            _ => $self_ref.exec_simd_slow_instruction($instr, &mut $stack),
+            _ => Self::exec_simd_slow_instruction($instr, &mut $stack),
         }
     };
 }
@@ -812,7 +812,7 @@ pub struct CompiledEvaluator {
     instructions: Arc<[Instruction]>,
     /// Required stack depth for evaluation
     stack_size: usize,
-    /// Parameter names in order (for mapping HashMap -> array)
+    /// Parameter names in order (for mapping `HashMap` -> array)
     param_names: Arc<[String]>,
 }
 
@@ -838,6 +838,9 @@ impl CompiledEvaluator {
     /// // Using symbols
     /// let compiled = CompiledEvaluator::compile(&expr, &[&x, &y], None).unwrap();
     /// ```
+    ///
+    /// # Errors
+    /// Returns `DiffError` if compilation fails (e.g., unknown function encountered).
     pub fn compile<P: ToParamName>(
         expr: &Expr,
         param_order: &[P],
@@ -846,18 +849,18 @@ impl CompiledEvaluator {
         // Get symbol IDs and names for each parameter
         let params: Vec<(u64, String)> = param_order
             .iter()
-            .map(|p| p.to_param_id_and_name())
+            .map(ToParamName::to_param_id_and_name)
             .collect();
-        let param_ids: Vec<u64> = params.iter().map(|(id, _)| *id).collect();
-        let param_names: Vec<String> = params.into_iter().map(|(_, name)| name).collect();
+        let (param_ids, param_names): (Vec<u64>, Vec<String>) = params.into_iter().unzip();
 
         // Expand user function calls with their body expressions
-        let expanded_expr = if let Some(ctx) = context {
-            let mut expanding = std::collections::HashSet::new();
-            Self::expand_user_functions(expr, ctx, &mut expanding, 0)
-        } else {
-            expr.clone()
-        };
+        let expanded_expr = context.map_or_else(
+            || expr.clone(),
+            |ctx| {
+                let mut expanding = std::collections::HashSet::new();
+                Self::expand_user_functions(expr, ctx, &mut expanding, 0)
+            },
+        );
 
         let mut compiler = Compiler::new(&param_ids, context);
         compiler.compile_expr(&expanded_expr)?;
@@ -982,6 +985,9 @@ impl CompiledEvaluator {
     /// let compiled = CompiledEvaluator::compile_auto(&expr, None).unwrap();
     /// let result = compiled.evaluate(&[2.0]);
     /// ```
+    ///
+    /// # Errors
+    /// Returns `DiffError` if compilation fails.
     pub fn compile_auto(expr: &Expr, context: Option<&Context>) -> Result<Self, DiffError> {
         let vars = expr.variables();
         let mut param_order: Vec<String> = vars
@@ -994,7 +1000,8 @@ impl CompiledEvaluator {
     }
 
     /// Get the required stack size for this expression
-    pub fn stack_size(&self) -> usize {
+    #[must_use]
+    pub const fn stack_size(&self) -> usize {
         self.stack_size
     }
 
@@ -1006,6 +1013,7 @@ impl CompiledEvaluator {
     /// # Panics
     /// Panics if stack underflow (indicates compiler bug)
     #[inline]
+    #[must_use]
     pub fn evaluate(&self, params: &[f64]) -> f64 {
         // Fast path: use stack-allocated buffer for common expressions (stack_size <= 32)
         // This avoids heap allocation entirely for most use cases
@@ -1112,18 +1120,21 @@ impl CompiledEvaluator {
 
     /// Get parameter names in order
     #[inline]
+    #[must_use]
     pub fn param_names(&self) -> &[String] {
         &self.param_names
     }
 
     /// Get number of parameters
     #[inline]
+    #[must_use]
     pub fn param_count(&self) -> usize {
         self.param_names.len()
     }
 
     /// Get number of bytecode instructions (for debugging/profiling)
     #[inline]
+    #[must_use]
     pub fn instruction_count(&self) -> usize {
         self.instructions.len()
     }
@@ -1154,7 +1165,7 @@ impl CompiledEvaluator {
     #[inline]
     pub fn eval_batch(
         &self,
-        columns: &[&[f64]],
+        columns: &[&[f64]], // slice of columns (one per param)
         output: &mut [f64],
         simd_buffer: Option<&mut Vec<f64x4>>,
     ) -> Result<(), DiffError> {
@@ -1185,14 +1196,15 @@ impl CompiledEvaluator {
         let full_chunks = n_points / 4;
 
         // Use provided buffer or create local one
-        // The buffer is moved in/out to satisfy the macro which expects an owned ident
-        let (mut simd_stack, return_buffer) = match simd_buffer {
-            Some(buf) => {
-                // Take ownership temporarily, will restore after
-                let stack = std::mem::take(buf);
-                (stack, Some(buf))
+        let mut local_stack;
+        // Using match is clearer here than map_or_else due to mutable reference handling
+        #[allow(clippy::option_if_let_else, clippy::single_match_else)]
+        let mut simd_stack: &mut Vec<f64x4> = match simd_buffer {
+            Some(buf) => buf,
+            None => {
+                local_stack = Vec::with_capacity(self.stack_size);
+                &mut local_stack
             }
-            None => (Vec::with_capacity(self.stack_size), None),
         };
 
         for chunk in 0..full_chunks {
@@ -1225,17 +1237,12 @@ impl CompiledEvaluator {
             }
         }
 
-        // Restore buffer if it was provided (preserves allocation for reuse)
-        if let Some(buf) = return_buffer {
-            *buf = simd_stack;
-        }
-
         Ok(())
     }
 
     #[inline(never)]
     #[cold]
-    fn exec_slow_instruction(&self, instr: &Instruction, stack: &mut Vec<f64>) {
+    fn exec_slow_instruction(instr: &Instruction, stack: &mut Vec<f64>) {
         process_instruction!(instr, stack, |_| unreachable!(
             "LoadParam should be handled in fast path"
         ));
@@ -1243,20 +1250,17 @@ impl CompiledEvaluator {
 
     #[inline(never)]
     #[cold]
-    fn exec_slow_instruction_single(
-        &self,
-        instr: &Instruction,
-        stack: &mut Vec<f64>,
-        params: &[f64],
-    ) {
+    fn exec_slow_instruction_single(instr: &Instruction, stack: &mut Vec<f64>, params: &[f64]) {
         process_instruction!(instr, stack, |i| params[i]);
     }
 
     /// SIMD slow path for handling less common instructions
     /// Falls back to scalar computation for each of the 4 lanes
+    // This function handles many instruction variants, length is justified
+    #[allow(clippy::too_many_lines)]
     #[inline(never)]
     #[cold] // Vec is needed for potential push/pop in slow path
-    fn exec_simd_slow_instruction(&self, instr: &Instruction, stack: &mut Vec<f64x4>) {
+    fn exec_simd_slow_instruction(instr: &Instruction, stack: &mut Vec<f64x4>) {
         // Safety: stack operations are validated at compile time by the Compiler
         debug_assert!(
             !stack.is_empty(),
@@ -1591,7 +1595,7 @@ impl CompiledEvaluator {
                     if b <= 0.0 || b == 1.0 || v <= 0.0 {
                         f64::NAN
                     } else {
-                        v.ln() / b.ln()
+                        v.log(b)
                     }
                 };
                 *base = f64x4::new([
@@ -1643,10 +1647,10 @@ impl CompiledEvaluator {
                 let x_arr = x.to_array();
                 let n_arr = n.to_array();
                 *n = f64x4::new([
-                    crate::math::bessel_i(n_arr[0].round() as i32, x_arr[0]).unwrap_or(f64::NAN),
-                    crate::math::bessel_i(n_arr[1].round() as i32, x_arr[1]).unwrap_or(f64::NAN),
-                    crate::math::bessel_i(n_arr[2].round() as i32, x_arr[2]).unwrap_or(f64::NAN),
-                    crate::math::bessel_i(n_arr[3].round() as i32, x_arr[3]).unwrap_or(f64::NAN),
+                    crate::math::bessel_i(n_arr[0].round() as i32, x_arr[0]),
+                    crate::math::bessel_i(n_arr[1].round() as i32, x_arr[1]),
+                    crate::math::bessel_i(n_arr[2].round() as i32, x_arr[2]),
+                    crate::math::bessel_i(n_arr[3].round() as i32, x_arr[3]),
                 ]);
             }
             Instruction::BesselK => {
@@ -1814,10 +1818,7 @@ impl CompiledEvaluator {
                 // which are all handled in simd_batch_fast_path macro.
                 // If we get here, it's a bug - log a warning in debug builds
                 #[cfg(debug_assertions)]
-                eprintln!(
-                    "Warning: Unhandled SIMD instruction {:?}, returning NaN",
-                    instr
-                );
+                eprintln!("Warning: Unhandled SIMD instruction {instr:?}, returning NaN");
                 let top = stack.last_mut().unwrap();
                 *top = f64x4::new([f64::NAN, f64::NAN, f64::NAN, f64::NAN]);
             }
@@ -1839,6 +1840,9 @@ impl CompiledEvaluator {
     /// # Errors
     /// - `EvalColumnMismatch` if `columns.len()` != `param_count()`
     /// - `EvalColumnLengthMismatch` if column lengths don't all match
+    ///
+    /// # Panics
+    /// Panics only if internal invariants are violated (never in normal use).
     #[cfg(feature = "parallel")]
     pub fn eval_batch_parallel(&self, columns: &[&[f64]]) -> Result<Vec<f64>, DiffError> {
         use rayon::prelude::*;
@@ -1861,6 +1865,8 @@ impl CompiledEvaluator {
         }
 
         // For small point counts, fall back to sequential to avoid overhead
+        // Const defined here for locality to parallel evaluation logic
+        #[allow(clippy::items_after_statements)]
         const MIN_PARALLEL_SIZE: usize = 256;
         if n_points < MIN_PARALLEL_SIZE {
             let mut output = vec![0.0; n_points];
@@ -1938,7 +1944,7 @@ impl<'a> Compiler<'a> {
         Ok(())
     }
 
-    fn pop(&mut self) {
+    const fn pop(&mut self) {
         self.current_stack = self.current_stack.saturating_sub(1);
     }
 
@@ -1989,8 +1995,7 @@ impl<'a> Compiler<'a> {
                     ("cos", [x]) => Some(x.cos()),
                     ("tan", [x]) => Some(x.tan()),
                     ("exp", [x]) => Some(x.exp()),
-                    ("ln", [x]) => Some(x.ln()),
-                    ("log", [x]) => Some(x.ln()),
+                    ("ln" | "log", [x]) => Some(x.ln()),
                     ("sqrt", [x]) => Some(x.sqrt()),
                     ("abs", [x]) => Some(x.abs()),
                     ("floor", [x]) => Some(x.floor()),
@@ -2003,6 +2008,8 @@ impl<'a> Compiler<'a> {
         }
     }
 
+    // Compilation handles many expression kinds, length is justified
+    #[allow(clippy::too_many_lines)]
     fn compile_expr(&mut self, expr: &Expr) -> Result<(), DiffError> {
         // Try constant folding first - evaluate constant expressions at compile time
         if let Some(value) = Self::try_eval_const(expr) {
@@ -2223,7 +2230,7 @@ impl<'a> Compiler<'a> {
                     }
 
                     // Four-argument functions
-                    ("spherical_harmonic", 4) | ("ynm", 4) => {
+                    ("spherical_harmonic" | "ynm", 4) => {
                         self.pop();
                         self.pop();
                         self.pop();
@@ -2243,24 +2250,20 @@ impl<'a> Compiler<'a> {
                                     // Return an error at compile time instead of
                                     // silently returning NaN at runtime.
                                     return Err(DiffError::UnsupportedFunction(format!(
-                                        "{}: user function has no body for numeric evaluation. \
-                                         Define a body with `with_function(.., body: Some(expr))`",
-                                        func_name
-                                    )));
-                                } else {
-                                    return Err(DiffError::UnsupportedFunction(format!(
-                                        "{}: invalid arity (expected {:?}, got {})",
-                                        func_name,
-                                        user_fn.arity,
-                                        args.len()
+                                        "{func_name}: user function has no body for numeric evaluation. \
+                                         Define a body with `with_function(.., body: Some(expr))`"
                                     )));
                                 }
-                            } else {
-                                return Err(DiffError::UnsupportedFunction(func_name.to_string()));
+                                return Err(DiffError::UnsupportedFunction(format!(
+                                    "{}: invalid arity (expected {:?}, got {})",
+                                    func_name,
+                                    user_fn.arity,
+                                    args.len()
+                                )));
                             }
-                        } else {
                             return Err(DiffError::UnsupportedFunction(func_name.to_string()));
                         }
+                        return Err(DiffError::UnsupportedFunction(func_name.to_string()));
                     }
                 };
 
@@ -2300,102 +2303,98 @@ impl<'a> Compiler<'a> {
                     None
                 };
 
-                match base_param_idx {
-                    Some(idx) => {
-                        // Fast path: base is a simple parameter, use Horner's method
-                        // Start with highest coefficient
-                        self.emit(Instruction::LoadConst(sorted_terms[0].1));
+                if let Some(idx) = base_param_idx {
+                    // Fast path: base is a simple parameter, use Horner's method
+                    // Start with highest coefficient
+                    self.emit(Instruction::LoadConst(sorted_terms[0].1));
+                    self.push()?;
+
+                    let mut term_iter = sorted_terms.iter().skip(1).peekable();
+
+                    for pow in (0..max_pow).rev() {
+                        // Multiply by x
+                        self.emit(Instruction::LoadParam(idx));
                         self.push()?;
+                        self.emit(Instruction::Mul);
+                        self.pop();
 
-                        let mut term_iter = sorted_terms.iter().skip(1).peekable();
-
-                        for pow in (0..max_pow).rev() {
-                            // Multiply by x
-                            self.emit(Instruction::LoadParam(idx));
+                        // Add coefficient if this power exists
+                        if term_iter.peek().is_some_and(|(p, _)| *p == pow) {
+                            let (_, coeff) = term_iter.next().unwrap();
+                            self.emit(Instruction::LoadConst(*coeff));
                             self.push()?;
-                            self.emit(Instruction::Mul);
+                            self.emit(Instruction::Add);
                             self.pop();
-
-                            // Add coefficient if this power exists
-                            if term_iter.peek().is_some_and(|(p, _)| *p == pow) {
-                                let (_, coeff) = term_iter.next().unwrap();
-                                self.emit(Instruction::LoadConst(*coeff));
-                                self.push()?;
-                                self.emit(Instruction::Add);
-                                self.pop();
-                            }
                         }
                     }
-                    None => {
-                        // Slow path: expand the polynomial explicitly
-                        // Evaluate as sum of coeff * base^power
-                        // OPTIMIZATION: Cache base instructions instead of recompiling for each term
-                        let base = poly.base();
+                } else {
+                    // Slow path: expand the polynomial explicitly
+                    // Evaluate as sum of coeff * base^power
+                    // OPTIMIZATION: Cache base instructions instead of recompiling for each term
+                    let base = poly.base();
 
-                        // 1. Compile base once to learn instructions and stack usage
-                        let base_start_stack = self.current_stack;
-                        let base_start_instruction = self.instructions.len();
+                    // 1. Compile base once to learn instructions and stack usage
+                    let base_start_stack = self.current_stack;
+                    let base_start_instruction = self.instructions.len();
 
-                        self.compile_expr(base)?;
+                    self.compile_expr(base)?;
 
-                        let base_end_instruction = self.instructions.len();
-                        // Calculate how much stack the base expression needs relative to its start
-                        // max_stack tracks the global high-water mark, so (max_stack - start) covers
-                        // the deepest excursion during base compilation.
-                        let base_headroom = self.max_stack.saturating_sub(base_start_stack);
+                    let base_end_instruction = self.instructions.len();
+                    // Calculate how much stack the base expression needs relative to its start
+                    // max_stack tracks the global high-water mark, so (max_stack - start) covers
+                    // the deepest excursion during base compilation.
+                    let base_headroom = self.max_stack.saturating_sub(base_start_stack);
 
-                        let base_instrs: Vec<Instruction> = self.instructions
-                            [base_start_instruction..base_end_instruction]
-                            .to_vec();
+                    let base_instrs: Vec<Instruction> =
+                        self.instructions[base_start_instruction..base_end_instruction].to_vec();
 
-                        // 2. Reset state to before base compilation (truncate instructions)
-                        self.instructions.truncate(base_start_instruction);
-                        self.current_stack = base_start_stack;
+                    // 2. Reset state to before base compilation (truncate instructions)
+                    self.instructions.truncate(base_start_instruction);
+                    self.current_stack = base_start_stack;
 
-                        // 3. Emit polynomial expansion using the cached instructions
-                        // First term
-                        let (first_pow, first_coeff) = sorted_terms[0];
-                        self.emit(Instruction::LoadConst(first_coeff));
+                    // 3. Emit polynomial expansion using the cached instructions
+                    // First term
+                    let (first_pow, first_coeff) = sorted_terms[0];
+                    self.emit(Instruction::LoadConst(first_coeff));
+                    self.push()?;
+
+                    // Replaying base: ensure we have enough stack space!
+                    // We are at `current_stack`, and base needs `base_headroom` above that.
+                    self.max_stack = self.max_stack.max(self.current_stack + base_headroom);
+
+                    for instr in &base_instrs {
+                        self.emit(*instr);
+                    }
+                    // Manually track the stack effect of the base expression (it pushes 1 value)
+                    self.push()?;
+
+                    self.emit(Instruction::LoadConst(f64::from(first_pow)));
+                    self.push()?;
+                    self.emit(Instruction::Pow);
+                    self.pop();
+                    self.emit(Instruction::Mul);
+                    self.pop();
+
+                    // Remaining terms
+                    for &(pow, coeff) in &sorted_terms[1..] {
+                        self.emit(Instruction::LoadConst(coeff));
                         self.push()?;
 
-                        // Replaying base: ensure we have enough stack space!
-                        // We are at `current_stack`, and base needs `base_headroom` above that.
+                        // Replay base again
                         self.max_stack = self.max_stack.max(self.current_stack + base_headroom);
-
                         for instr in &base_instrs {
                             self.emit(*instr);
                         }
-                        // Manually track the stack effect of the base expression (it pushes 1 value)
                         self.push()?;
 
-                        self.emit(Instruction::LoadConst(first_pow as f64));
+                        self.emit(Instruction::LoadConst(f64::from(pow)));
                         self.push()?;
                         self.emit(Instruction::Pow);
                         self.pop();
                         self.emit(Instruction::Mul);
                         self.pop();
-
-                        // Remaining terms
-                        for &(pow, coeff) in &sorted_terms[1..] {
-                            self.emit(Instruction::LoadConst(coeff));
-                            self.push()?;
-
-                            // Replay base again
-                            self.max_stack = self.max_stack.max(self.current_stack + base_headroom);
-                            for instr in &base_instrs {
-                                self.emit(*instr);
-                            }
-                            self.push()?;
-
-                            self.emit(Instruction::LoadConst(pow as f64));
-                            self.push()?;
-                            self.emit(Instruction::Pow);
-                            self.pop();
-                            self.emit(Instruction::Mul);
-                            self.pop();
-                            self.emit(Instruction::Add);
-                            self.pop();
-                        }
+                        self.emit(Instruction::Add);
+                        self.pop();
                     }
                 }
             }

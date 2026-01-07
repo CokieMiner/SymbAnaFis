@@ -1,4 +1,4 @@
-//! Unified Context for symb_anafis operations
+//! Unified Context for `symb_anafis` operations
 //!
 //! Provides a single `Context` type that combines:
 //! - Isolated symbol registry (for parsing hints)
@@ -89,6 +89,7 @@ impl UserFunction {
     /// use symb_anafis::UserFunction;
     /// let f = UserFunction::new(1..=2);  // 1 or 2 arguments
     /// ```
+    #[must_use] 
     pub fn new(arity: RangeInclusive<usize>) -> Self {
         Self {
             arity,
@@ -109,6 +110,7 @@ impl UserFunction {
     /// let f = UserFunction::new(1..=1)
     ///     .body(|args| (*args[0]).clone().pow(2.0) + 1.0);
     /// ```
+    #[must_use]
     pub fn body<F>(mut self, f: F) -> Self
     where
         F: Fn(&[Arc<Expr>]) -> Expr + Send + Sync + 'static,
@@ -118,6 +120,7 @@ impl UserFunction {
     }
 
     /// Set the body using a pre-wrapped Arc (for FFI/Python bindings).
+    #[must_use]
     pub fn body_arc(mut self, f: BodyFn) -> Self {
         self.body = Some(f);
         self
@@ -140,6 +143,9 @@ impl UserFunction {
     ///     .partial(0, |args| Expr::mul_expr(Expr::number(2.0), (*args[0]).clone()))
     ///     .expect("valid arg index");
     /// ```
+    ///
+    /// # Errors
+    /// Returns `DiffError::InvalidPartialIndex` if `arg_idx` exceeds the maximum arity.
     pub fn partial<F>(mut self, arg_idx: usize, f: F) -> Result<Self, crate::DiffError>
     where
         F: Fn(&[Arc<Expr>]) -> Expr + Send + Sync + 'static,
@@ -161,6 +167,9 @@ impl UserFunction {
     /// # Returns
     /// - `Ok(Self)` if successful
     /// - `Err(DiffError)` if `arg_idx` exceeds the maximum arity
+    ///
+    /// # Errors
+    /// Returns `DiffError::InvalidPartialIndex` if `arg_idx` exceeds the maximum arity.
     pub fn partial_arc(mut self, arg_idx: usize, f: PartialFn) -> Result<Self, crate::DiffError> {
         let max_arity = *self.arity.end();
         if max_arity != usize::MAX && arg_idx >= max_arity {
@@ -175,18 +184,21 @@ impl UserFunction {
 
     /// Check if this function has a body expression defined.
     #[inline]
+    #[must_use] 
     pub fn has_body(&self) -> bool {
         self.body.is_some()
     }
 
     /// Check if this function has a partial derivative for the given argument.
     #[inline]
+    #[must_use] 
     pub fn has_partial(&self, arg_idx: usize) -> bool {
         self.partials.contains_key(&arg_idx)
     }
 
     /// Check if the given argument count is valid for this function.
     #[inline]
+    #[must_use] 
     pub fn accepts_arity(&self, n: usize) -> bool {
         self.arity.contains(&n)
     }
@@ -212,11 +224,11 @@ static NEXT_CONTEXT_ID: AtomicU64 = AtomicU64::new(1);
 /// Inner data for Context (behind `Arc<RwLock>`)
 #[derive(Debug, Default)]
 struct ContextInner {
-    /// Isolated symbol registry: name -> InternedSymbol
+    /// Isolated symbol registry: name -> `InternedSymbol`
     symbols: HashMap<String, InternedSymbol>,
 }
 
-/// Unified context for all symb_anafis operations.
+/// Unified context for all `symb_anafis` operations.
 ///
 /// Combines:
 /// - **Isolated symbol registry** (for parsing hints - telling parser about multi-char symbols)
@@ -263,7 +275,8 @@ impl Context {
 
     /// Get the context's unique ID.
     #[inline]
-    pub fn id(&self) -> u64 {
+    #[must_use] 
+    pub const fn id(&self) -> u64 {
         self.id
     }
 
@@ -275,13 +288,15 @@ impl Context {
     ///
     /// This pre-registers a symbol in the context's isolated registry.
     /// Useful for telling the parser about multi-character variable names.
-    pub fn with_symbol(mut self, name: &str) -> Self {
+    #[must_use] 
+    pub fn with_symbol(self, name: &str) -> Self {
         self.register_symbol(name);
         self
     }
 
     /// Add multiple symbols (builder pattern).
-    pub fn with_symbols<I, S>(mut self, names: I) -> Self
+    #[must_use]
+    pub fn with_symbols<I, S>(self, names: I) -> Self
     where
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
@@ -296,6 +311,10 @@ impl Context {
     ///
     /// If a symbol with this name already exists, returns it.
     /// Otherwise, creates a new symbol with a unique ID.
+    ///
+    /// # Panics
+    /// Panics if the internal lock is poisoned (indicates a prior panic while holding the lock).
+    #[must_use] 
     pub fn symb(&self, name: &str) -> Symbol {
         let mut inner = self.inner.write().expect("Context lock poisoned");
 
@@ -312,16 +331,21 @@ impl Context {
 
         // Save in local context
         inner.symbols.insert(name.to_string(), interned);
+        drop(inner);
 
         Symbol::from_id(id)
     }
 
     /// Register a symbol (mutating version).
-    fn register_symbol(&mut self, name: &str) {
+    fn register_symbol(&self, name: &str) {
         let _ = self.symb(name);
     }
 
     /// Check if a symbol exists in this context.
+    ///
+    /// # Panics
+    /// Panics if the internal lock is poisoned.
+    #[must_use] 
     pub fn contains_symbol(&self, name: &str) -> bool {
         self.inner
             .read()
@@ -331,6 +355,10 @@ impl Context {
     }
 
     /// Get an existing symbol by name (returns None if not found).
+    ///
+    /// # Panics
+    /// Panics if the internal lock is poisoned.
+    #[must_use] 
     pub fn get_symbol(&self, name: &str) -> Option<Symbol> {
         self.inner
             .read()
@@ -341,6 +369,10 @@ impl Context {
     }
 
     /// List all symbol names in this context.
+    ///
+    /// # Panics
+    /// Panics if the internal lock is poisoned.
+    #[must_use] 
     pub fn symbol_names(&self) -> Vec<String> {
         self.inner
             .read()
@@ -351,7 +383,11 @@ impl Context {
             .collect()
     }
 
-    /// Get symbol names as a HashSet (for parser compatibility).
+    /// Get symbol names as a `HashSet` (for parser compatibility).
+    ///
+    /// # Panics
+    /// Panics if the internal lock is poisoned.
+    #[must_use] 
     pub fn symbol_names_set(&self) -> HashSet<String> {
         self.inner
             .read()
@@ -367,6 +403,7 @@ impl Context {
     // =========================================================================
 
     /// Register a user-defined function (builder pattern).
+    #[must_use] 
     pub fn with_function(mut self, name: &str, func: UserFunction) -> Self {
         self.user_functions.insert(name.to_string(), func);
         self
@@ -376,6 +413,7 @@ impl Context {
     ///
     /// This allows the parser to recognize `f(x)` without requiring
     /// an evaluation or derivative definition.
+    #[must_use] 
     pub fn with_function_name(mut self, name: &str) -> Self {
         if !self.user_functions.contains_key(name) {
             // Create a placeholder with default arity (any number of args)
@@ -386,6 +424,7 @@ impl Context {
     }
 
     /// Register multiple function names (for parsing).
+    #[must_use]
     pub fn with_function_names<I, S>(mut self, names: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -399,39 +438,45 @@ impl Context {
 
     /// Get a user function by name.
     #[inline]
+    #[must_use] 
     pub fn get_user_fn(&self, name: &str) -> Option<&UserFunction> {
         self.user_functions.get(name)
     }
 
     /// Check if a function is registered.
     #[inline]
+    #[must_use] 
     pub fn has_function(&self, name: &str) -> bool {
         self.user_functions.contains_key(name)
     }
 
     /// Get all registered function names.
+    #[must_use] 
     pub fn function_names(&self) -> HashSet<String> {
         self.user_functions.keys().cloned().collect()
     }
 
     /// Get the body function for a user function.
     #[inline]
+    #[must_use] 
     pub fn get_body(&self, name: &str) -> Option<&BodyFn> {
         self.user_functions.get(name).and_then(|f| f.body.as_ref())
     }
 
     /// Get the partial derivative function for a user function argument.
     #[inline]
+    #[must_use] 
     pub fn get_partial(&self, name: &str, arg_idx: usize) -> Option<&PartialFn> {
         self.user_functions
             .get(name)
             .and_then(|f| f.partials.get(&arg_idx))
     }
 
-    /// Get the body function by symbol ID (for CompiledEvaluator).
+    /// Get the body function by symbol ID (for `CompiledEvaluator`).
     ///
     /// Looks up the symbol name from the global registry, then finds the user function.
     #[inline]
+    #[must_use] 
     pub fn get_body_by_id(&self, id: u64) -> Option<&BodyFn> {
         // Look up symbol name from global registry
         if let Some(sym) = crate::core::symbol::lookup_by_id(id)
@@ -442,8 +487,9 @@ impl Context {
         None
     }
 
-    /// Get a user function by symbol ID (for CompiledEvaluator).
+    /// Get a user function by symbol ID (for `CompiledEvaluator`).
     #[inline]
+    #[must_use] 
     pub fn get_user_fn_by_id(&self, id: u64) -> Option<&UserFunction> {
         if let Some(sym) = crate::core::symbol::lookup_by_id(id)
             && let Some(name) = sym.name()
@@ -459,6 +505,9 @@ impl Context {
 
     /// Remove a specific symbol from this context.
     /// Returns true if the symbol was removed.
+    ///
+    /// # Panics
+    /// Panics if the internal lock is poisoned.
     pub fn remove_symbol(&mut self, name: &str) -> bool {
         self.inner
             .write()
@@ -475,6 +524,9 @@ impl Context {
     }
 
     /// Clear all symbols from this context.
+    ///
+    /// # Panics
+    /// Panics if the internal lock is poisoned.
     pub fn clear_symbols(&mut self) {
         self.inner
             .write()
@@ -495,6 +547,10 @@ impl Context {
     }
 
     /// Get the number of symbols in this context.
+    ///
+    /// # Panics
+    /// Panics if the internal lock is poisoned.
+    #[must_use] 
     pub fn symbol_count(&self) -> usize {
         self.inner
             .read()
@@ -504,6 +560,7 @@ impl Context {
     }
 
     /// Check if context has no symbols and no functions.
+    #[must_use] 
     pub fn is_empty(&self) -> bool {
         self.symbol_count() == 0 && self.user_functions.is_empty()
     }
@@ -518,7 +575,7 @@ impl std::fmt::Debug for Context {
                 "user_functions",
                 &self.user_functions.keys().collect::<Vec<_>>(),
             )
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 

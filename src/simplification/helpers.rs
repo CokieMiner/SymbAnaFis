@@ -11,13 +11,13 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 // Floating point approx equality used for numeric pattern matching
-pub(crate) fn approx_eq(a: f64, b: f64) -> bool {
+pub fn approx_eq(a: f64, b: f64) -> bool {
     (a - b).abs() < EPSILON
 }
 
 /// Get numeric value from expression if it's a Number.
 /// Returns None if the expression is not a Number.
-pub(crate) fn get_numeric_value(expr: &Expr) -> Option<f64> {
+pub const fn get_numeric_value(expr: &Expr) -> Option<f64> {
     if let ExprKind::Number(n) = &expr.kind {
         Some(*n)
     } else {
@@ -27,7 +27,7 @@ pub(crate) fn get_numeric_value(expr: &Expr) -> Option<f64> {
 
 // Trigonometric helpers
 use std::f64::consts::PI;
-pub(crate) fn is_multiple_of_two_pi(expr: &Expr) -> bool {
+pub fn is_multiple_of_two_pi(expr: &Expr) -> bool {
     if let ExprKind::Number(n) = &expr.kind {
         // Fix: If n is too large, we lose fractional precision,
         // so we can't possibly know if it's a multiple of 2pi.
@@ -60,7 +60,7 @@ pub(crate) fn is_multiple_of_two_pi(expr: &Expr) -> bool {
     false
 }
 
-pub(crate) fn is_pi(expr: &Expr) -> bool {
+pub fn is_pi(expr: &Expr) -> bool {
     // Check numeric pi
     if let ExprKind::Number(n) = &expr.kind {
         return (n - PI).abs() < EPSILON;
@@ -72,7 +72,7 @@ pub(crate) fn is_pi(expr: &Expr) -> bool {
     false
 }
 
-pub(crate) fn is_three_pi_over_two(expr: &Expr) -> bool {
+pub fn is_three_pi_over_two(expr: &Expr) -> bool {
     // Check numeric 3π/2
     if let ExprKind::Number(n) = &expr.kind {
         return (n - 3.0 * PI / 2.0).abs() < EPSILON;
@@ -106,7 +106,7 @@ pub(crate) fn is_three_pi_over_two(expr: &Expr) -> bool {
 
 /// Flatten nested multiplication into a list of factors
 /// Returns slice reference to avoid cloning when expr is already a Product
-pub(crate) fn flatten_mul_arcs(expr: &Expr) -> Option<&[Arc<Expr>]> {
+pub const fn flatten_mul_arcs(expr: &Expr) -> Option<&[Arc<Expr>]> {
     if let ExprKind::Product(factors) = &expr.kind {
         Some(factors.as_slice())
     } else {
@@ -125,12 +125,12 @@ pub(crate) fn flatten_mul_arcs(expr: &Expr) -> Option<&[Arc<Expr>]> {
 /// - Numbers (coefficients) first: 2*x not x*2  
 /// - Then symbols alphabetically
 /// - Then more complex expressions
-pub(crate) fn compare_expr(a: &Expr, b: &Expr) -> std::cmp::Ordering {
-    use crate::ExprKind::*;
+pub fn compare_expr(a: &Expr, b: &Expr) -> std::cmp::Ordering {
+    use crate::ExprKind::{Derivative, Div, FunctionCall, Number, Poly, Pow, Product, Sum, Symbol};
     use std::cmp::Ordering;
 
-    /// Extract (base_name, degree) for polynomial-style ordering.
-    /// Returns (type_priority, base_symbol_id, degree) - uses u64 ID to avoid String alloc
+    /// Extract (`base_name`, degree) for polynomial-style ordering.
+    /// Returns (`type_priority`, `base_symbol_id`, degree) - uses u64 ID to avoid String alloc
     fn get_sort_key(e: &Expr) -> (i32, u64, f64) {
         // Returns (type_priority, symbol_id, degree)
         // Lower type_priority = comes first
@@ -194,8 +194,8 @@ pub(crate) fn compare_expr(a: &Expr, b: &Expr) -> std::cmp::Ordering {
 
 /// Compare expressions for multiplication factor ordering
 /// Numbers (coefficients) come first, then symbols, then complex expressions
-pub(crate) fn compare_mul_factors(a: &Expr, b: &Expr) -> std::cmp::Ordering {
-    use crate::ExprKind::*;
+pub fn compare_mul_factors(a: &Expr, b: &Expr) -> std::cmp::Ordering {
+    use crate::ExprKind::{Derivative, Div, FunctionCall, Number, Poly, Pow, Product, Sum, Symbol};
     use std::cmp::Ordering;
 
     fn factor_priority(e: &Expr) -> i32 {
@@ -230,10 +230,10 @@ pub(crate) fn compare_mul_factors(a: &Expr, b: &Expr) -> std::cmp::Ordering {
 }
 
 /// Helper to extract coefficient and base
-/// Returns (coefficient, base_expr)
+/// Returns (coefficient, `base_expr`)
 /// e.g. 2*x -> (2.0, x)
 ///      x   -> (1.0, x)
-pub(crate) fn extract_coeff(expr: &Expr) -> (f64, Expr) {
+pub fn extract_coeff(expr: &Expr) -> (f64, Expr) {
     match &expr.kind {
         ExprKind::Number(n) => (*n, Expr::number(1.0)),
         ExprKind::Product(factors) => {
@@ -268,8 +268,8 @@ pub(crate) fn extract_coeff(expr: &Expr) -> (f64, Expr) {
 }
 
 /// Helper to extract coefficient and base, returning Arc to avoid deep cloning
-/// Returns (coefficient, Arc<base_expr>)
-pub(crate) fn extract_coeff_arc(expr: &Expr) -> (f64, Arc<Expr>) {
+/// Returns (coefficient, Arc<`base_expr`>)
+pub fn extract_coeff_arc(expr: &Expr) -> (f64, Arc<Expr>) {
     match &expr.kind {
         ExprKind::Number(n) => (*n, Arc::new(Expr::number(1.0))),
         ExprKind::Product(factors) => {
@@ -302,7 +302,7 @@ pub(crate) fn extract_coeff_arc(expr: &Expr) -> (f64, Arc<Expr>) {
 /// x^(1/2) -> sqrt(x)
 /// x^(1/3) -> cbrt(x)
 /// Optimized: only allocates when transformation occurs
-pub(crate) fn prettify_roots(expr: Expr) -> Expr {
+pub fn prettify_roots(expr: Expr) -> Expr {
     match &expr.kind {
         ExprKind::Pow(base, exp) => {
             let base_pretty = prettify_roots((**base).clone());
@@ -389,7 +389,7 @@ pub(crate) fn prettify_roots(expr: Expr) -> Expr {
 
 /// Check if an expression is known to be non-negative for all real values of its variables.
 /// This is a conservative check - returns true only when we can prove non-negativity.
-pub(crate) fn is_known_non_negative(expr: &Expr) -> bool {
+pub fn is_known_non_negative(expr: &Expr) -> bool {
     match &expr.kind {
         // Positive numbers
         ExprKind::Number(n) => *n >= 0.0,
@@ -441,7 +441,7 @@ pub(crate) fn is_known_non_negative(expr: &Expr) -> bool {
 
 /// Check if an exponent represents a fractional power that requires non-negative base
 /// (i.e., exponents like 1/2, 1/4, 3/2, etc. where denominator is even)
-pub(crate) fn is_fractional_root_exponent(expr: &Expr) -> bool {
+pub fn is_fractional_root_exponent(expr: &Expr) -> bool {
     match &expr.kind {
         // Direct fraction: 1/2, 1/4, 3/4, etc.
         ExprKind::Div(_, den) => {
@@ -457,20 +457,20 @@ pub(crate) fn is_fractional_root_exponent(expr: &Expr) -> bool {
         ExprKind::Number(n) => {
             // Check if it's a fractional power (not an integer)
             // For 0.5, 0.25, 1.5, etc. - these involve even roots
-            if n.fract() != 0.0 {
+            if n.fract() == 0.0 {
+                false
+            } else {
                 // Check if it's k/2^n for some integers
                 // Simple check: 0.5 = 1/2, 0.25 = 1/4, 0.75 = 3/4, etc.
                 let doubled = *n * 2.0;
                 doubled.fract() == 0.0 // If 2*n is integer, then n = k/2
-            } else {
-                false
             }
         }
         _ => false,
     }
 }
 
-pub(crate) fn gcd(a: i64, b: i64) -> i64 {
+pub const fn gcd(a: i64, b: i64) -> i64 {
     let mut a = a.unsigned_abs();
     let mut b = b.unsigned_abs();
     while b != 0 {
@@ -478,31 +478,32 @@ pub(crate) fn gcd(a: i64, b: i64) -> i64 {
         b = a % b;
         a = t;
     }
-    a as i64
+    #[allow(clippy::cast_possible_wrap)]
+    {
+        a as i64
+    }
 }
 
 /// Check if an expression contains a specific factor
-pub(crate) fn contains_factor(expr: &Expr, factor: &Expr) -> bool {
+pub fn contains_factor(expr: &Expr, factor: &Expr) -> bool {
     match &expr.kind {
         ExprKind::Product(factors) => factors.iter().any(|f| &**f == factor),
         _ => expr == factor,
     }
 }
 
-/// Remove factors from an expression - O(n+m) using HashSet
-/// Uses zero-copy flatten_mul_arcs where possible
+/// Remove factors from an expression - O(n+m) using `HashSet`
+/// Uses zero-copy `flatten_mul_arcs` where possible
 /// Optimized to reuse Arcs and avoid deep clones
-pub(crate) fn remove_factors(expr: &Expr, factors_to_remove: &Expr) -> Expr {
+pub fn remove_factors(expr: &Expr, factors_to_remove: &Expr) -> Expr {
     match &expr.kind {
         ExprKind::Product(expr_factors) => {
             // Build HashSet of factors to remove - zero-copy storage of references
             // We use &Expr keys which use structural equality/hashing
-            let remove_set: HashSet<&Expr> =
-                if let Some(factors) = flatten_mul_arcs(factors_to_remove) {
-                    factors.iter().map(|f| f.as_ref()).collect()
-                } else {
-                    std::iter::once(factors_to_remove).collect()
-                };
+            let remove_set: HashSet<&Expr> = flatten_mul_arcs(factors_to_remove).map_or_else(
+                || std::iter::once(factors_to_remove).collect(),
+                |factors| factors.iter().map(std::convert::AsRef::as_ref).collect(),
+            );
 
             // Filter factors - keep Arcs to avoid deep clones
             let remaining_factors: Vec<Arc<Expr>> = expr_factors
@@ -537,27 +538,27 @@ pub(crate) fn remove_factors(expr: &Expr, factors_to_remove: &Expr) -> Expr {
 /// 2. Uses `wrapping_add` for commutative operations (Sum, Product), ensuring
 ///    order-independence (a+b = b+a) without sorting or allocations.
 /// 3. Uses `InternedSymbol::id()` (u64) directly, avoiding string hashing.
-pub(crate) fn get_term_hash(expr: &Expr) -> u64 {
+pub fn get_term_hash(expr: &Expr) -> u64 {
     // FNV-1a constants
-    const FNV_OFFSET: u64 = 14695981039346656037;
-    const FNV_PRIME: u64 = 1099511628211;
+    const FNV_OFFSET: u64 = 14_695_981_039_346_656_037;
+    const FNV_PRIME: u64 = 1_099_511_628_211;
 
-    #[inline(always)]
+    #[inline]
     fn hash_u64(mut hash: u64, n: u64) -> u64 {
         for byte in n.to_le_bytes() {
-            hash ^= byte as u64;
+            hash ^= u64::from(byte);
             hash = hash.wrapping_mul(FNV_PRIME);
         }
         hash
     }
 
-    #[inline(always)]
+    #[inline]
     fn hash_f64(hash: u64, n: f64) -> u64 {
         hash_u64(hash, n.to_bits())
     }
 
-    #[inline(always)]
-    fn hash_one_byte(mut hash: u64, b: u8) -> u64 {
+    #[inline]
+    const fn hash_one_byte(mut hash: u64, b: u8) -> u64 {
         hash ^= b as u64;
         hash.wrapping_mul(FNV_PRIME)
     }
@@ -639,7 +640,7 @@ pub(crate) fn get_term_hash(expr: &Expr) -> u64 {
                 // Use var.id() for O(1) hashing (InternedSymbol)
                 let h = hash_u64(h, var.id());
 
-                let h = hash_u64(h, *order as u64);
+                let h = hash_u64(h, u64::from(*order));
                 hash_term_inner(h, inner)
             }
 
@@ -651,7 +652,7 @@ pub(crate) fn get_term_hash(expr: &Expr) -> u64 {
                 // Commutative sum of term hashes (power, coeff)
                 let mut acc: u64 = 0;
                 for &(pow, coeff) in poly.terms() {
-                    let term_h = hash_u64(hash_f64(FNV_OFFSET, coeff), pow as u64);
+                    let term_h = hash_u64(hash_f64(FNV_OFFSET, coeff), u64::from(pow));
                     acc = acc.wrapping_add(term_h);
                 }
                 hash_u64(h, acc)
@@ -664,7 +665,7 @@ pub(crate) fn get_term_hash(expr: &Expr) -> u64 {
 
 /// Normalize an expression to canonical form for comparison purposes.
 /// This ensures that semantically equivalent expressions compare as equal.
-pub(crate) fn normalize_for_comparison(expr: &Expr) -> Expr {
+pub fn normalize_for_comparison(expr: &Expr) -> Expr {
     // Early exit for leaf nodes - just clone, no transformation needed
     match &expr.kind {
         ExprKind::Number(_) | ExprKind::Symbol(_) => return expr.clone(),
@@ -755,6 +756,6 @@ pub(crate) fn normalize_for_comparison(expr: &Expr) -> Expr {
 }
 
 /// Check if two expressions are semantically equivalent (same after normalization)
-pub(crate) fn exprs_equivalent(a: &Expr, b: &Expr) -> bool {
+pub fn exprs_equivalent(a: &Expr, b: &Expr) -> bool {
     normalize_for_comparison(a) == normalize_for_comparison(b)
 }

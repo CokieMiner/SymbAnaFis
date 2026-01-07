@@ -177,9 +177,9 @@ rule!(
             {
                 let neg_exp =
                     Expr::product_from_arcs(vec![Arc::new(Expr::number(-1.0)), exp_v.clone()]);
-                let new_exp =
+                let combined_exp =
                     Expr::sum_from_arcs(vec![Arc::new(Expr::number(1.0)), Arc::new(neg_exp)]);
-                return Some(Expr::pow_from_arcs(base_v.clone(), Arc::new(new_exp)));
+                return Some(Expr::pow_from_arcs(base_v.clone(), Arc::new(combined_exp)));
             }
         }
         None
@@ -198,7 +198,7 @@ rule_arc!(
             use std::collections::HashMap;
             let mut base_to_exponents: HashMap<Arc<Expr>, Vec<Arc<Expr>>> = HashMap::new();
 
-            for factor in factors.iter() {
+            for factor in factors {
                 if let AstKind::Pow(base, exp) = &factor.kind {
                     base_to_exponents
                         .entry(base.clone())
@@ -344,9 +344,8 @@ rule_arc!(
 
                         if new_factors.len() == 1 {
                             return Some(new_factors.into_iter().next().unwrap());
-                        } else {
-                            return Some(Arc::new(Expr::product_from_arcs(new_factors)));
                         }
+                        return Some(Arc::new(Expr::product_from_arcs(new_factors)));
                     }
                 }
             }
@@ -442,8 +441,7 @@ rule!(
                         false
                     }
                 }
-                AstKind::Symbol(_) => is_root_exponent,
-                AstKind::Number(_) => is_root_exponent,
+                AstKind::Symbol(_) | AstKind::Number(_) => is_root_exponent,
                 _ => false,
             };
 

@@ -11,6 +11,18 @@ rule!(
     Trigonometric,
     &[ExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
+        // Helper to extract negated term from Product([-1, x])
+        fn extract_negated(term: &Expr) -> Option<Expr> {
+            if let AstKind::Product(factors) = &term.kind
+                && factors.len() == 2
+                && let AstKind::Number(n) = &factors[0].kind
+                && (*n + 1.0).abs() < 1e-10
+            {
+                return Some((*factors[1]).clone());
+            }
+            None
+        }
+
         if let AstKind::FunctionCall { name, args } = &expr.kind
             && args.len() == 1
         {
@@ -30,18 +42,6 @@ rule!(
                             .is_some_and(|v| helpers::approx_eq(v, std::f64::consts::PI / 2.0))
                     }
                 };
-
-                // Helper to extract negated term from Product([-1, x])
-                fn extract_negated(term: &Expr) -> Option<Expr> {
-                    if let AstKind::Product(factors) = &term.kind
-                        && factors.len() == 2
-                        && let AstKind::Number(n) = &factors[0].kind
-                        && (*n + 1.0).abs() < 1e-10
-                    {
-                        return Some((*factors[1]).clone());
-                    }
-                    None
-                }
 
                 // Check pi/2 + (-x) pattern
                 if is_pi_div_2(u)
@@ -113,6 +113,18 @@ rule!(
     Trigonometric,
     &[ExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
+        // Helper to extract negated term from Product([-1, x])
+        fn extract_negated(term: &Expr) -> Option<Expr> {
+            if let AstKind::Product(factors) = &term.kind
+                && factors.len() == 2
+                && let AstKind::Number(n) = &factors[0].kind
+                && (*n + 1.0).abs() < 1e-10
+            {
+                return Some((*factors[1]).clone());
+            }
+            None
+        }
+
         if let AstKind::FunctionCall { name, args } = &expr.kind
             && (name.id() == *SIN || name.id() == *COS)
             && args.len() == 1
@@ -121,18 +133,6 @@ rule!(
         {
             let u = &terms[0];
             let v = &terms[1];
-
-            // Helper to extract negated term from Product([-1, x])
-            fn extract_negated(term: &Expr) -> Option<Expr> {
-                if let AstKind::Product(factors) = &term.kind
-                    && factors.len() == 2
-                    && let AstKind::Number(n) = &factors[0].kind
-                    && (*n + 1.0).abs() < 1e-10
-                {
-                    return Some((*factors[1]).clone());
-                }
-                None
-            }
 
             // Check π + (-x) pattern: sin(π - x) = sin(x), cos(π - x) = -cos(x)
             if helpers::is_pi(u)
@@ -186,6 +186,18 @@ rule!(
     Trigonometric,
     &[ExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
+        // Helper to extract negated term from Product([-1, x])
+        fn extract_negated(term: &Expr) -> Option<Expr> {
+            if let AstKind::Product(factors) = &term.kind
+                && factors.len() == 2
+                && let AstKind::Number(n) = &factors[0].kind
+                && (*n + 1.0).abs() < 1e-10
+            {
+                return Some((*factors[1]).clone());
+            }
+            None
+        }
+
         if let AstKind::FunctionCall { name, args } = &expr.kind
             && (name.id() == *SIN || name.id() == *COS)
             && args.len() == 1
@@ -194,18 +206,6 @@ rule!(
         {
             let u = &terms[0];
             let v = &terms[1];
-
-            // Helper to extract negated term from Product([-1, x])
-            fn extract_negated(term: &Expr) -> Option<Expr> {
-                if let AstKind::Product(factors) = &term.kind
-                    && factors.len() == 2
-                    && let AstKind::Number(n) = &factors[0].kind
-                    && (*n + 1.0).abs() < 1e-10
-                {
-                    return Some((*factors[1]).clone());
-                }
-                None
-            }
 
             // Check 3π/2 + (-x) pattern
             if helpers::is_three_pi_over_two(u)

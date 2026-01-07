@@ -1,4 +1,4 @@
-//! Comprehensive SymbAnaFis Benchmarks
+//! Comprehensive `SymbAnaFis` Benchmarks
 //!
 //! Tests the full pipeline: parse → diff → simplify → compile → evaluate
 //! Uses realistic medium-sized expressions from physics and ML.
@@ -21,7 +21,7 @@ fn bench_parse(c: &mut Criterion) {
 
     for (name, expr, _, _) in ALL_EXPRESSIONS {
         group.bench_with_input(BenchmarkId::new("symb_anafis", name), expr, |b, expr| {
-            b.iter(|| parse(black_box(expr), &empty, &empty, None))
+            b.iter(|| parse(black_box(expr), &empty, &empty, None));
         });
     }
 
@@ -130,7 +130,7 @@ fn bench_compile(c: &mut Criterion) {
 
         // Benchmark: compile raw
         group.bench_with_input(BenchmarkId::new("raw", name), &diff_raw, |b, expr| {
-            b.iter(|| CompiledEvaluator::compile_auto(black_box(expr), None))
+            b.iter(|| CompiledEvaluator::compile_auto(black_box(expr), None));
         });
 
         // Benchmark: compile simplified
@@ -153,7 +153,7 @@ fn bench_eval(c: &mut Criterion) {
     let empty = HashSet::new();
 
     // Generate 1000 test points
-    let test_points: Vec<f64> = (0..1000).map(|i| 0.1 + i as f64 * 0.01).collect();
+    let test_points: Vec<f64> = (0..1000).map(|i| f64::from(i).mul_add(0.01, 0.1)).collect();
 
     for (name, expr_str, var, fixed) in ALL_EXPRESSIONS {
         // Get raw and simplified derivatives
@@ -189,7 +189,7 @@ fn bench_eval(c: &mut Criterion) {
                             sum += evaluator.evaluate(&values);
                         }
                         sum
-                    })
+                    });
                 },
             );
         }
@@ -212,7 +212,7 @@ fn bench_eval(c: &mut Criterion) {
                             sum += evaluator.evaluate(&values);
                         }
                         sum
-                    })
+                    });
                 },
             );
         }
@@ -229,7 +229,7 @@ fn bench_full_pipeline(c: &mut Criterion) {
     let mut group = c.benchmark_group("7_full_pipeline");
 
     // Test: parse → diff → simplify → compile → eval 1000 points
-    let test_points: Vec<f64> = (0..1000).map(|i| 0.1 + i as f64 * 0.01).collect();
+    let test_points: Vec<f64> = (0..1000).map(|i| f64::from(i).mul_add(0.01, 0.1)).collect();
     let empty = HashSet::new();
 
     for (name, expr_str, var, fixed) in ALL_EXPRESSIONS {
@@ -252,7 +252,7 @@ fn bench_full_pipeline(c: &mut Criterion) {
                         sum += compiled.evaluate(&values);
                     }
                     sum
-                })
+                });
             },
         );
     }

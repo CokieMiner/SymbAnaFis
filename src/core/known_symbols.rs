@@ -11,9 +11,9 @@ fn intern_id(name: &str) -> u64 {
     symb_interned(name).id()
 }
 
-/// Get the InternedSymbol for a known ID.
+/// Get the `InternedSymbol` for a known ID.
 /// Panics if the ID is not found (should never happen for known symbols).
-pub(crate) fn get_symbol(id: &LazyLock<u64>) -> InternedSymbol {
+pub fn get_symbol(id: &LazyLock<u64>) -> InternedSymbol {
     lookup_by_id(**id).expect("Known symbol ID not found in registry")
 }
 
@@ -112,14 +112,14 @@ define_symbol_ids! {
 /// Check if a name is a known mathematical constant (pi, e, etc.)
 /// Returns true for any case variation: "pi", "PI", "Pi", "e", "E"
 #[inline]
-pub(crate) fn is_known_constant(name: &str) -> bool {
+pub fn is_known_constant(name: &str) -> bool {
     matches!(name, "pi" | "PI" | "Pi" | "e" | "E")
 }
 
 /// Get the numeric value of a known constant, if it matches.
 /// Returns `Some(value)` for known constants, `None` otherwise.
 #[inline]
-pub(crate) fn get_constant_value(name: &str) -> Option<f64> {
+pub fn get_constant_value(name: &str) -> Option<f64> {
     match name {
         "pi" | "PI" | "Pi" => Some(std::f64::consts::PI),
         "e" | "E" => Some(std::f64::consts::E),

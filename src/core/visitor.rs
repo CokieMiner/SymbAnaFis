@@ -64,7 +64,7 @@ pub trait ExprVisitor {
 /// nested expressions. For safety, expressions are limited to reasonable depth
 /// in normal usage, but extremely deep expressions should be handled carefully.
 pub fn walk_expr<V: ExprVisitor>(expr: &Expr, visitor: &mut V) {
-    walk_expr_with_depth(expr, visitor, 0)
+    walk_expr_with_depth(expr, visitor, 0);
 }
 
 /// Internal recursive walker with depth tracking

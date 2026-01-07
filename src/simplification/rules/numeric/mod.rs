@@ -30,9 +30,8 @@ rule!(
                         Ok(e) => e,
                         Err(a) => (*a).clone(),
                     });
-                } else {
-                    return Some(Expr::sum_from_arcs(non_zero));
                 }
+                return Some(Expr::sum_from_arcs(non_zero));
             }
         }
         None
@@ -86,9 +85,8 @@ rule!(
                         Ok(e) => e,
                         Err(a) => (*a).clone(),
                     });
-                } else {
-                    return Some(Expr::product_from_arcs(non_one));
                 }
+                return Some(Expr::product_from_arcs(non_one));
             }
         }
         None
@@ -280,9 +278,8 @@ rule!(
                             Ok(e) => e,
                             Err(a) => (*a).clone(),
                         });
-                    } else {
-                        return Some(Expr::sum_from_arcs(non_numeric));
                     }
+                    return Some(Expr::sum_from_arcs(non_numeric));
                 }
             }
         }
@@ -329,9 +326,8 @@ rule!(
                             Ok(e) => e,
                             Err(a) => (*a).clone(),
                         });
-                    } else {
-                        return Some(Expr::product_from_arcs(non_numeric));
                     }
+                    return Some(Expr::product_from_arcs(non_numeric));
                 } else {
                     // Mix - add the combined number
                     let mut result_factors = vec![Arc::new(Expr::number(num_product))];
@@ -385,7 +381,7 @@ rule!(
 
 rule_with_helpers!(FractionSimplifyRule, "fraction_simplify", 80, Numeric, &[ExprKind::Div],
     helpers: {
-        fn gcd(mut a: i64, mut b: i64) -> i64 {
+        const fn gcd(mut a: i64, mut b: i64) -> i64 {
             while b != 0 {
                 let temp = b;
                 b = a % b;
@@ -395,6 +391,13 @@ rule_with_helpers!(FractionSimplifyRule, "fraction_simplify", 80, Numeric, &[Exp
         }
     },
     |expr: &Expr, _context: &RuleContext| {
+        // Check bounds before casting to i64 to prevent overflow
+        // i64::MAX/MIN->f64: intentional for boundary checking
+        #[allow(clippy::cast_precision_loss)]
+        const MAX_SAFE: f64 = i64::MAX as f64;
+        #[allow(clippy::cast_precision_loss)]
+        const MIN_SAFE: f64 = i64::MIN as f64;
+
         if let AstKind::Div(u, v) = &expr.kind
             && let (AstKind::Number(a), AstKind::Number(b)) = (&u.kind, &v.kind)
             && *b != 0.0
@@ -405,25 +408,23 @@ rule_with_helpers!(FractionSimplifyRule, "fraction_simplify", 80, Numeric, &[Exp
             if is_int_a && is_int_b {
                 if a % b == 0.0 {
                     return Some(Expr::number(a / b));
-                } else {
-                    // Check bounds before casting to i64 to prevent overflow
-                    const MAX_SAFE: f64 = i64::MAX as f64;
-                    const MIN_SAFE: f64 = i64::MIN as f64;
-                    if a.abs() > MAX_SAFE || b.abs() > MAX_SAFE
-                        || *a < MIN_SAFE || *b < MIN_SAFE {
-                        return None;  // Too large for integer GCD
-                    }
+                }
+                if a.abs() > MAX_SAFE || b.abs() > MAX_SAFE
+                    || *a < MIN_SAFE || *b < MIN_SAFE {
+                    return None;  // Too large for integer GCD
+                }
 
-                    let a_int = *a as i64;
-                    let b_int = *b as i64;
-                    let common = gcd(a_int.abs(), b_int.abs());
+                let a_int = *a as i64;
+                let b_int = *b as i64;
+                let common = gcd(a_int.abs(), b_int.abs());
 
-                    if common > 1 {
-                        return Some(Expr::div_expr(
-                            Expr::number((a_int / common) as f64),
-                            Expr::number((b_int / common) as f64),
-                        ));
-                    }
+                if common > 1 {
+                    // i64->f64: GCD results are small integers from fraction simplification
+                    #[allow(clippy::cast_precision_loss)]
+                    return Some(Expr::div_expr(
+                        Expr::number((a_int / common) as f64),
+                        Expr::number((b_int / common) as f64),
+                    ));
                 }
             }
         }
@@ -551,7 +552,7 @@ rule!(
 );
 
 /// Get all numeric rules in priority order
-pub(crate) fn get_numeric_rules() -> Vec<Arc<dyn Rule + Send + Sync>> {
+pub fn get_numeric_rules() -> Vec<Arc<dyn Rule + Send + Sync>> {
     vec![
         Arc::new(SumIdentityRule),
         Arc::new(ProductZeroRule),

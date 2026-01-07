@@ -6,6 +6,10 @@
 #![deny(clippy::all)]
 #![deny(clippy::perf)] // Apanha ineficiências de performance
 #![deny(clippy::style)] // Garante estilo idiomático
+// Allow intentional float/cast behavior in symbolic math
+#![allow(clippy::float_cmp)] // Exact comparisons for small integers like 1.0, 2.0
+#![allow(clippy::missing_panics_doc)] // Panics are defensive assertions on impossible conditions
+#![allow(clippy::cast_possible_truncation)] // Integer casts are intentional in math logic
 
 //! Symbolic Differentiation Library
 //!
@@ -110,13 +114,19 @@ pub const DEFAULT_MAX_NODES: usize = 10_000;
 /// Main API function for symbolic differentiation
 ///
 /// # Arguments
-/// * `formula` - Mathematical expression to differentiate (e.g., "x^2 + y()")
+/// * `formula` - Mathematical expression to differentiate (e.g., "x^2 + `y()`")
 /// * `var_to_diff` - Variable to differentiate with respect to (e.g., "x")
-/// * `known_symbols` - Known multi-character symbols for parsing (e.g., &["alpha", "beta"])
-/// * `custom_functions` - Optional user-defined function names (e.g., Some(&[[["y", "f"]))
+/// * `known_symbols` - Known multi-character symbols for parsing (e.g., `&["alpha", "beta"]`)
+/// * `custom_functions` - Optional user-defined function names (e.g., `Some(&["y", "f"])`)
 ///
 /// # Returns
 /// The derivative as a string, or an error if parsing/differentiation fails
+///
+/// # Errors
+/// Returns `DiffError` if:
+/// - The formula cannot be parsed (syntax error)
+/// - The variable to differentiate is not found
+/// - An unsupported operation is encountered
 ///
 /// # Example
 /// ```
@@ -131,7 +141,7 @@ pub const DEFAULT_MAX_NODES: usize = 10_000;
 /// to prevent stack overflow and memory exhaustion.
 ///
 /// # Note
-/// For more control (domain_safe, max_depth, etc.), use the `Diff` builder:
+/// For more control (`domain_safe`, `max_depth`, etc.), use the `Diff` builder:
 /// ```
 /// use symb_anafis::Diff;
 /// let result = Diff::new().domain_safe(true).diff_str("x^2", "x", &[]).unwrap();
@@ -161,11 +171,16 @@ pub fn diff(
 ///
 /// # Arguments
 /// * `formula` - Mathematical expression to simplify (e.g., "x^2 + 2*x + 1")
-/// * `known_symbols` - Known multi-character symbols for parsing (e.g., &["alpha", "beta"])
-/// * `custom_functions` - Optional user-defined function names (e.g., Some(&[[["f", "g"]))
+/// * `known_symbols` - Known multi-character symbols for parsing (e.g., `&["alpha", "beta"]`)
+/// * `custom_functions` - Optional user-defined function names (e.g., `Some(&["f", "g"])`)
 ///
 /// # Returns
 /// The simplified expression as a string, or an error if parsing/simplification fails
+///
+/// # Errors
+/// Returns `DiffError` if:
+/// - The formula cannot be parsed (syntax error)
+/// - An unsupported operation is encountered during simplification
 ///
 /// # Example
 /// ```
@@ -179,7 +194,7 @@ pub fn diff(
 /// to prevent stack overflow and memory exhaustion.
 ///
 /// # Note
-/// For more control (domain_safe, max_depth, etc.), use the `Simplify` builder:
+/// For more control (`domain_safe`, `max_depth`, etc.), use the `Simplify` builder:
 /// ```
 /// use symb_anafis::Simplify;
 /// let result = Simplify::new().domain_safe(true).simplify_str("2*x + 3*x", &[]).unwrap();

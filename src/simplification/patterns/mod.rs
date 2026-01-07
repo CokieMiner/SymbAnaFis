@@ -7,8 +7,8 @@ use crate::{Expr, ExprKind};
 // Common pattern matching utilities have been moved to helpers.rs
 
 /// Trigonometric pattern matching utilities
-pub(crate) mod trigonometric {
-    use super::*;
+pub mod trigonometric {
+    use super::{Expr, ExprKind};
     use crate::core::known_symbols::{COS, COT, CSC, SEC, SIN, TAN};
     use crate::core::symbol::InternedSymbol;
 

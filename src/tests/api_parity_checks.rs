@@ -6,8 +6,13 @@ macro_rules! assert_api_parity {
     ($name:ident, $string_expr:expr, $object_expr:expr) => {
         #[test]
         fn $name() {
-            let s_api = crate::parse($string_expr, &Default::default(), &Default::default(), None)
-                .expect("String API parse failed");
+            let s_api = crate::parse(
+                $string_expr,
+                &std::collections::HashSet::new(),
+                &std::collections::HashSet::new(),
+                None,
+            )
+            .expect("String Parse Failed");
             let o_api = $object_expr;
 
             assert_eq!(
@@ -38,7 +43,7 @@ fn parity_fixed_vars() {
     let str_res = crate::diff("a*x", "x", &["a"], None).expect("String diff failed");
 
     let obj_res = Diff::new()
-        .fixed_var(a)
+        .fixed_var(&a)
         .differentiate(&(a * x), &x)
         .expect("Object diff failed");
 
@@ -58,7 +63,7 @@ fn parity_simplify_fixed() {
     let str_res = crate::simplify("k*x + k*x", &["k"], None).expect("String simplify failed");
 
     let obj_res = Simplify::new()
-        .fixed_var(k)
+        .fixed_var(&k)
         .simplify(&(k * x + k * x))
         .expect("Object simplify failed");
 
@@ -78,7 +83,9 @@ fn parity_custom_functions() {
     // String API: parse "f(x)" with known function "f"
     let mut funcs = std::collections::HashSet::new();
     funcs.insert("f".to_string());
-    let str_expr = crate::parse("f(x)", &Default::default(), &funcs, None).unwrap();
+    let mut funcs = std::collections::HashSet::new();
+    funcs.insert("f".to_string());
+    let str_expr = crate::parse("f(x)", &std::collections::HashSet::new(), &funcs, None).unwrap();
 
     // Object API: Expr::func("f", x)
     let obj_expr = Expr::func("f", x.to_expr());
@@ -113,7 +120,15 @@ fn ensure_string_and_typesafe_apis_match() {
     let x = symb("x");
     let y = symb("y");
 
-    let p = |s: &str| parse(s, &Default::default(), &Default::default(), None).unwrap();
+    let p = |s: &str| {
+        parse(
+            s,
+            &std::collections::HashSet::new(),
+            &std::collections::HashSet::new(),
+            None,
+        )
+        .unwrap()
+    };
 
     macro_rules! check_unary {
         ($($method:ident),*) => {

@@ -251,9 +251,6 @@ rule!(
         if let AstKind::Sum(terms) = &expr.kind
             && terms.len() == 2
         {
-            let u = &terms[0];
-            let v = &terms[1];
-
             // Helper to extract negated term from Product([-1, x])
             fn extract_negated(term: &Expr) -> Option<Expr> {
                 if let AstKind::Product(factors) = &term.kind
@@ -266,12 +263,14 @@ rule!(
                         factors.iter().skip(1).map(|f| (**f).clone()).collect();
                     if remaining.len() == 1 {
                         return Some(remaining.into_iter().next().unwrap());
-                    } else {
-                        return Some(Expr::product(remaining));
                     }
+                    return Some(Expr::product(remaining));
                 }
                 None
             }
+
+            let u = &terms[0];
+            let v = &terms[1];
 
             // Try sin triple angle: 3*sin(x) + (-4*sin^3(x)) = sin(3x)
             if let Some(result) = check_sin_triple_add(u, v, eps) {

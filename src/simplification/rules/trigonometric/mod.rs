@@ -1,16 +1,16 @@
 use crate::simplification::rules::Rule;
 use std::sync::Arc;
 
-pub(crate) mod angles;
+pub mod angles;
 /// Trigonometric simplification rules
-pub(crate) mod basic;
-pub(crate) mod identities;
-pub(crate) mod inverse;
-pub(crate) mod transformations;
-pub(crate) mod triple_angle;
+pub mod basic;
+pub mod identities;
+pub mod inverse;
+pub mod transformations;
+pub mod triple_angle;
 
 /// Get all trigonometric rules in priority order
-pub(crate) fn get_trigonometric_rules() -> Vec<Arc<dyn Rule + Send + Sync>> {
+pub fn get_trigonometric_rules() -> Vec<Arc<dyn Rule + Send + Sync>> {
     vec![
         // Basic rules: special values and constants
         Arc::new(basic::SinZeroRule),

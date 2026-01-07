@@ -234,10 +234,10 @@ fn get_cos_arg_arc(expr: &Expr) -> Option<Arc<Expr>> {
             None
         }
     } else if let AstKind::Sum(terms) = &expr.kind {
-        if !terms.is_empty() {
-            get_cos_arg_arc(&terms[0])
-        } else {
+        if terms.is_empty() {
             None
+        } else {
+            get_cos_arg_arc(&terms[0])
         }
     } else {
         None
@@ -382,13 +382,12 @@ rule_arc!(
                 if (new_coeff - 1.0).abs() < 1e-10 {
                     // Coefficient is 1, just return sin(2x)
                     return Some(sin_2x);
-                } else {
-                    // Return (k/2) * sin(2x)
-                    return Some(Arc::new(Expr::product_from_arcs(vec![
-                        Arc::new(Expr::number(new_coeff)),
-                        sin_2x,
-                    ])));
                 }
+                // Return (k/2) * sin(2x)
+                return Some(Arc::new(Expr::product_from_arcs(vec![
+                    Arc::new(Expr::number(new_coeff)),
+                    sin_2x,
+                ])));
             }
         }
         None

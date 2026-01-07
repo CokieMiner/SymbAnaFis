@@ -8,20 +8,20 @@ use crate::core::known_symbols::{E, EXP};
 /// Represents an exponential term with its argument
 /// e^x has argument x, e^(-x) has argument -x, 1/e^x has argument -x
 #[derive(Debug, Clone)]
-pub(crate) struct ExpTerm {
+pub struct ExpTerm {
     pub arg: Expr,
 }
 
 impl ExpTerm {
     /// Try to extract an exponential term from various forms:
-    /// - e^x -> ExpTerm { arg: x }
-    /// - exp(x) -> ExpTerm { arg: x }  
-    /// - 1/e^x -> ExpTerm { arg: -x }
-    /// - 1/exp(x) -> ExpTerm { arg: -x }
+    /// - e^x -> `ExpTerm` { arg: x }
+    /// - exp(x) -> `ExpTerm` { arg: x }  
+    /// - 1/e^x -> `ExpTerm` { arg: -x }
+    /// - 1/exp(x) -> `ExpTerm` { arg: -x }
     pub fn from_expr(expr: &Expr) -> Option<Self> {
         // Direct form: e^x or exp(x)
         if let Some(arg) = Self::get_direct_exp_arg(expr) {
-            return Some(ExpTerm { arg });
+            return Some(Self { arg });
         }
 
         // Reciprocal form: 1/e^x or 1/exp(x)
@@ -31,7 +31,7 @@ impl ExpTerm {
             && let Some(arg) = Self::get_direct_exp_arg(den)
         {
             // 1/e^x = e^(-x)
-            return Some(ExpTerm {
+            return Some(Self {
                 arg: Self::negate(&arg),
             });
         }
@@ -127,7 +127,7 @@ impl ExpTerm {
 
 /// Try to match the pattern (e^x + e^(-x)) for cosh detection
 /// Returns Some(x) if pattern matches (always returns the positive argument)
-pub(crate) fn match_cosh_pattern(u: &Expr, v: &Expr) -> Option<Expr> {
+pub fn match_cosh_pattern(u: &Expr, v: &Expr) -> Option<Expr> {
     let exp1 = ExpTerm::from_expr(u)?;
     let exp2 = ExpTerm::from_expr(v)?;
 
@@ -145,7 +145,7 @@ pub(crate) fn match_cosh_pattern(u: &Expr, v: &Expr) -> Option<Expr> {
 
 /// Try to match the pattern (e^x - e^(-x)) for sinh detection
 /// Returns Some(x) if pattern matches (always returns the positive argument)
-pub(crate) fn match_sinh_pattern_sub(u: &Expr, v: &Expr) -> Option<Expr> {
+pub fn match_sinh_pattern_sub(u: &Expr, v: &Expr) -> Option<Expr> {
     // u should be e^x, v should be e^(-x)
     let exp1 = ExpTerm::from_expr(u)?;
     let exp2 = ExpTerm::from_expr(v)?;
@@ -160,7 +160,7 @@ pub(crate) fn match_sinh_pattern_sub(u: &Expr, v: &Expr) -> Option<Expr> {
 /// Get the positive form of an expression
 /// If expr is -x (i.e., Product([-1, x])), return x
 /// Otherwise return expr as-is
-pub(crate) fn get_positive_form(expr: &Expr) -> Expr {
+pub fn get_positive_form(expr: &Expr) -> Expr {
     if let AstKind::Product(factors) = &expr.kind
         && factors.len() == 2
     {
@@ -180,7 +180,7 @@ pub(crate) fn get_positive_form(expr: &Expr) -> Expr {
 
 /// Try to match alternative cosh pattern: (e^(2x) + 1) / (2 * e^x) = cosh(x)
 /// Returns Some(x) if pattern matches
-pub(crate) fn match_alt_cosh_pattern(numerator: &Expr, denominator: &Expr) -> Option<Expr> {
+pub fn match_alt_cosh_pattern(numerator: &Expr, denominator: &Expr) -> Option<Expr> {
     // Denominator must be 2 * e^x
     let x = match_two_times_exp(denominator)?;
 
@@ -209,7 +209,7 @@ pub(crate) fn match_alt_cosh_pattern(numerator: &Expr, denominator: &Expr) -> Op
 
 /// Try to match alternative sinh pattern: (e^(2x) - 1) / (2 * e^x) = sinh(x)
 /// Returns Some(x) if pattern matches
-pub(crate) fn match_alt_sinh_pattern(numerator: &Expr, denominator: &Expr) -> Option<Expr> {
+pub fn match_alt_sinh_pattern(numerator: &Expr, denominator: &Expr) -> Option<Expr> {
     // Denominator must be 2 * e^x
     let x = match_two_times_exp(denominator)?;
 
@@ -231,7 +231,7 @@ pub(crate) fn match_alt_sinh_pattern(numerator: &Expr, denominator: &Expr) -> Op
 
 /// Match pattern: 2 * e^x or Product([2, e^x])
 /// Returns the argument x if pattern matches
-pub(crate) fn match_two_times_exp(expr: &Expr) -> Option<Expr> {
+pub fn match_two_times_exp(expr: &Expr) -> Option<Expr> {
     if let AstKind::Product(factors) = &expr.kind
         && factors.len() == 2
     {
@@ -252,7 +252,7 @@ pub(crate) fn match_two_times_exp(expr: &Expr) -> Option<Expr> {
 }
 
 /// Check if expr = 2 * other (i.e., expr is double of other)
-pub(crate) fn is_double_of(expr: &Expr, other: &Expr) -> bool {
+pub fn is_double_of(expr: &Expr, other: &Expr) -> bool {
     if let AstKind::Product(factors) = &expr.kind
         && factors.len() == 2
     {
@@ -273,9 +273,9 @@ pub(crate) fn is_double_of(expr: &Expr, other: &Expr) -> bool {
 }
 
 /// Try to match alternative sech pattern: (2 * e^x) / (e^(2x) + 1) = sech(x)
-/// This is the reciprocal of the alt_cosh form
+/// This is the reciprocal of the `alt_cosh` form
 /// Returns Some(x) if pattern matches
-pub(crate) fn match_alt_sech_pattern(numerator: &Expr, denominator: &Expr) -> Option<Expr> {
+pub fn match_alt_sech_pattern(numerator: &Expr, denominator: &Expr) -> Option<Expr> {
     // Numerator must be 2 * e^x
     let x = match_two_times_exp(numerator)?;
 
@@ -304,7 +304,7 @@ pub(crate) fn match_alt_sech_pattern(numerator: &Expr, denominator: &Expr) -> Op
 
 /// Try to match pattern: (e^x - 1/e^x) * e^x = e^(2x) - 1 (for sinh numerator in tanh)
 /// Returns Some(x) if pattern matches
-pub(crate) fn match_e2x_minus_1_factored(expr: &Expr) -> Option<Expr> {
+pub fn match_e2x_minus_1_factored(expr: &Expr) -> Option<Expr> {
     // Pattern: (e^x - 1/e^x) * e^x or Product([..., e^x])
     if let AstKind::Product(factors) = &expr.kind {
         // Check pairwise for factored form
@@ -351,7 +351,7 @@ fn try_match_factored_sinh_times_exp(factor: &Expr, exp_part: &Expr) -> Option<E
 
 /// Match pattern: e^(2x) + 1 directly
 /// Returns Some(x) if pattern matches
-pub(crate) fn match_e2x_plus_1(expr: &Expr) -> Option<Expr> {
+pub fn match_e2x_plus_1(expr: &Expr) -> Option<Expr> {
     if let AstKind::Sum(terms) = &expr.kind
         && terms.len() == 2
     {
@@ -388,7 +388,7 @@ pub(crate) fn match_e2x_plus_1(expr: &Expr) -> Option<Expr> {
 
 /// Match pattern: e^(2x) - 1 directly (not factored form)
 /// Returns Some(x) if pattern matches
-pub(crate) fn match_e2x_minus_1_direct(expr: &Expr) -> Option<Expr> {
+pub fn match_e2x_minus_1_direct(expr: &Expr) -> Option<Expr> {
     if let AstKind::Sum(terms) = &expr.kind
         && terms.len() == 2
     {
@@ -438,7 +438,7 @@ pub(crate) fn match_e2x_minus_1_direct(expr: &Expr) -> Option<Expr> {
 }
 
 /// Try to extract the inner expression from Product([-1, expr])
-pub(crate) fn extract_negated_term(expr: &Expr) -> Option<Expr> {
+pub fn extract_negated_term(expr: &Expr) -> Option<Expr> {
     if let AstKind::Product(factors) = &expr.kind
         && factors.len() == 2
     {

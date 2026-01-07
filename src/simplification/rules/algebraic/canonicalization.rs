@@ -102,9 +102,8 @@ rule!(
 
                 if result_factors.is_empty() {
                     return Some(Expr::number(1.0));
-                } else {
-                    return Some(Expr::product_from_arcs(result_factors));
                 }
+                return Some(Expr::product_from_arcs(result_factors));
             }
         }
         None

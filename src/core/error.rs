@@ -19,21 +19,23 @@ pub struct Span {
 impl Span {
     /// Create a new span. If end < start, they will be swapped.
     #[inline]
-    pub fn new(start: usize, end: usize) -> Self {
+    #[must_use]
+    pub const fn new(start: usize, end: usize) -> Self {
         if end < start {
-            Span {
+            Self {
                 start: end,
                 end: start,
             }
         } else {
-            Span { start, end }
+            Self { start, end }
         }
     }
 
     /// Create a span for a single position
     #[inline]
-    pub fn at(pos: usize) -> Self {
-        Span {
+    #[must_use]
+    pub const fn at(pos: usize) -> Self {
+        Self {
             start: pos,
             end: pos + 1,
         }
@@ -41,19 +43,22 @@ impl Span {
 
     /// Create an empty/unknown span
     #[inline]
-    pub fn empty() -> Self {
-        Span { start: 0, end: 0 }
+    #[must_use]
+    pub const fn empty() -> Self {
+        Self { start: 0, end: 0 }
     }
 
     /// Get the start position
     #[inline]
-    pub fn start(&self) -> usize {
+    #[must_use]
+    pub const fn start(&self) -> usize {
         self.start
     }
 
     /// Get the end position
     #[inline]
-    pub fn end(&self) -> usize {
+    #[must_use]
+    pub const fn end(&self) -> usize {
         self.end
     }
 
@@ -61,11 +66,13 @@ impl Span {
     ///
     /// A span is valid if it covers at least one character (end > start).
     /// An empty span (0..0 or N..N) is considered invalid.
-    pub fn is_valid(&self) -> bool {
+    #[must_use]
+    pub const fn is_valid(&self) -> bool {
         self.end > self.start
     }
 
     /// Format the span for display (1-indexed for users)
+    #[must_use]
     pub fn display(&self) -> String {
         if !self.is_valid() {
             String::new()
@@ -203,33 +210,33 @@ pub enum DiffError {
 impl DiffError {
     // Convenience constructors for backward compatibility
 
-    /// Create InvalidSyntax without span (backward compatible)
+    /// Create `InvalidSyntax` without span (backward compatible)
     pub fn invalid_syntax(msg: impl Into<String>) -> Self {
-        DiffError::InvalidSyntax {
+        Self::InvalidSyntax {
             msg: msg.into(),
             span: None,
         }
     }
 
-    /// Create InvalidSyntax with span
+    /// Create `InvalidSyntax` with span
     pub fn invalid_syntax_at(msg: impl Into<String>, span: Span) -> Self {
-        DiffError::InvalidSyntax {
+        Self::InvalidSyntax {
             msg: msg.into(),
             span: Some(span),
         }
     }
 
-    /// Create InvalidNumber without span (backward compatible)
+    /// Create `InvalidNumber` without span (backward compatible)
     pub fn invalid_number(value: impl Into<String>) -> Self {
-        DiffError::InvalidNumber {
+        Self::InvalidNumber {
             value: value.into(),
             span: None,
         }
     }
 
-    /// Create InvalidToken without span (backward compatible)
+    /// Create `InvalidToken` without span (backward compatible)
     pub fn invalid_token(token: impl Into<String>) -> Self {
-        DiffError::InvalidToken {
+        Self::InvalidToken {
             token: token.into(),
             span: None,
         }
@@ -237,10 +244,11 @@ impl DiffError {
 }
 
 impl fmt::Display for DiffError {
+    #[allow(clippy::too_many_lines)]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            DiffError::EmptyFormula => write!(f, "Formula cannot be empty"),
-            DiffError::InvalidSyntax { msg, span } => {
+            Self::EmptyFormula => write!(f, "Formula cannot be empty"),
+            Self::InvalidSyntax { msg, span } => {
                 write!(
                     f,
                     "Invalid syntax: {}{}",
@@ -248,7 +256,7 @@ impl fmt::Display for DiffError {
                     span.map_or(String::new(), |s| s.display())
                 )
             }
-            DiffError::InvalidNumber { value, span } => {
+            Self::InvalidNumber { value, span } => {
                 write!(
                     f,
                     "Invalid number format: '{}'{}",
@@ -256,7 +264,7 @@ impl fmt::Display for DiffError {
                     span.map_or(String::new(), |s| s.display())
                 )
             }
-            DiffError::InvalidToken { token, span } => {
+            Self::InvalidToken { token, span } => {
                 write!(
                     f,
                     "Invalid token: '{}'{}",
@@ -264,7 +272,7 @@ impl fmt::Display for DiffError {
                     span.map_or(String::new(), |s| s.display())
                 )
             }
-            DiffError::UnexpectedToken {
+            Self::UnexpectedToken {
                 expected,
                 got,
                 span,
@@ -277,36 +285,33 @@ impl fmt::Display for DiffError {
                     span.map_or(String::new(), |s| s.display())
                 )
             }
-            DiffError::UnexpectedEndOfInput => write!(f, "Unexpected end of input"),
-            DiffError::InvalidFunctionCall {
+            Self::UnexpectedEndOfInput => write!(f, "Unexpected end of input"),
+            Self::InvalidFunctionCall {
                 name,
                 expected,
                 got,
             } => {
                 write!(
                     f,
-                    "Function '{}' requires at least {} argument(s), but got {}",
-                    name, expected, got
+                    "Function '{name}' requires at least {expected} argument(s), but got {got}"
                 )
             }
-            DiffError::VariableInBothFixedAndDiff { var } => {
+            Self::VariableInBothFixedAndDiff { var } => {
                 write!(
                     f,
-                    "Variable '{}' cannot be both the differentiation variable and a fixed constant",
-                    var
+                    "Variable '{var}' cannot be both the differentiation variable and a fixed constant"
                 )
             }
-            DiffError::NameCollision { name } => {
+            Self::NameCollision { name } => {
                 write!(
                     f,
-                    "Name '{}' appears in both fixed_vars and custom_functions",
-                    name
+                    "Name '{name}' appears in both fixed_vars and custom_functions"
                 )
             }
-            DiffError::UnsupportedOperation(msg) => {
-                write!(f, "Unsupported operation: {}", msg)
+            Self::UnsupportedOperation(msg) => {
+                write!(f, "Unsupported operation: {msg}")
             }
-            DiffError::AmbiguousSequence {
+            Self::AmbiguousSequence {
                 sequence,
                 suggestion,
                 span,
@@ -321,52 +326,48 @@ impl fmt::Display for DiffError {
                     span.map_or(String::new(), |s| s.display())
                 )
             }
-            DiffError::MaxDepthExceeded => {
+            Self::MaxDepthExceeded => {
                 write!(f, "Expression nesting depth exceeds maximum limit")
             }
-            DiffError::MaxNodesExceeded => {
+            Self::MaxNodesExceeded => {
                 write!(f, "Expression size exceeds maximum node count limit")
             }
             // Compile errors
-            DiffError::UnsupportedExpression(msg) => {
-                write!(f, "Unsupported expression: {}", msg)
+            Self::UnsupportedExpression(msg) => {
+                write!(f, "Unsupported expression: {msg}")
             }
-            DiffError::UnsupportedFunction(name) => {
-                write!(f, "Unsupported function for evaluation: {}", name)
+            Self::UnsupportedFunction(name) => {
+                write!(f, "Unsupported function for evaluation: {name}")
             }
-            DiffError::UnboundVariable(name) => {
-                write!(f, "Unbound variable: {}", name)
+            Self::UnboundVariable(name) => {
+                write!(f, "Unbound variable: {name}")
             }
-            DiffError::StackOverflow { depth, limit } => {
+            Self::StackOverflow { depth, limit } => {
                 write!(
                     f,
-                    "Expression requires stack depth {} which exceeds limit {}",
-                    depth, limit
+                    "Expression requires stack depth {depth} which exceeds limit {limit}"
                 )
             }
             // Evaluation errors
-            DiffError::EvalColumnMismatch { expected, got } => {
+            Self::EvalColumnMismatch { expected, got } => {
                 write!(
                     f,
-                    "Column count mismatch: expected {} columns, got {}",
-                    expected, got
+                    "Column count mismatch: expected {expected} columns, got {got}"
                 )
             }
-            DiffError::EvalColumnLengthMismatch => {
+            Self::EvalColumnLengthMismatch => {
                 write!(f, "All columns must have the same length")
             }
-            DiffError::EvalOutputTooSmall { needed, got } => {
+            Self::EvalOutputTooSmall { needed, got } => {
                 write!(
                     f,
-                    "Output buffer too small: need {} elements, got {}",
-                    needed, got
+                    "Output buffer too small: need {needed} elements, got {got}"
                 )
             }
-            DiffError::InvalidPartialIndex { index, max_arity } => {
+            Self::InvalidPartialIndex { index, max_arity } => {
                 write!(
                     f,
-                    "Partial derivative index {} exceeds maximum arity {}",
-                    index, max_arity
+                    "Partial derivative index {index} exceeds maximum arity {max_arity}"
                 )
             }
         }

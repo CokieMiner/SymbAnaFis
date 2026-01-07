@@ -7,6 +7,14 @@ All notable changes to SymbAnaFis will be documented in this file.
 ### Fixed
 - **Parser**: Fixed implicit multiplication between numbers and functions, e.g., `4 sin(x)` now correctly parses as `4 * sin(x)`.
 
+### Code Quality
+- **Pedantic Clippy Compliance**: Fixed all pedantic clippy warnings with targeted `#[allow(...)]` attributes and code refactoring:
+  - Added `#[allow(clippy::needless_pass_by_value)]` to 15+ PyO3 functions where owned types are required by Python bindings
+  - Added `#[allow(clippy::cast_precision_loss)]` to i64→f64 casts (intentional for Python integer interop)
+  - Added `#[allow(clippy::cast_possible_wrap)]` to `__hash__` functions (Python requires isize)
+  - Added `#[allow(clippy::too_many_lines)]` to large dispatch functions in display, evaluator, and simplification
+  - Refactored closures in `user_fn` and `with_function` to use idiomatic `let...else` and `map_or_else` patterns
+
 ### Performance
 - **Polynomial operations**: Added `Arc::ptr_eq` short-circuit optimization to all base comparisons (`try_add_assign`, `add`, `mul`, `gcd`, `try_mul`). Provides O(1) pointer comparison (~1 CPU cycle) before falling back to O(N) deep equality, benefiting:
   - **Squaring**: `p.mul(&p)` now skips redundant self-comparison

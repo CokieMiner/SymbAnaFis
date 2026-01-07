@@ -1,4 +1,4 @@
-//! Python bindings for symb_anafis using PyO3
+//! Python bindings for `symb_anafis` using `PyO3`
 //!
 //! # Installation
 //! ```bash
@@ -64,7 +64,7 @@ enum DataInput<'py> {
     List(Vec<f64>),
 }
 
-impl<'py> DataInput<'py> {
+impl DataInput<'_> {
     fn as_slice(&self) -> PyResult<&[f64]> {
         match self {
             DataInput::Array(arr) => arr.as_slice().map_err(|_| {
@@ -80,7 +80,7 @@ impl<'py> DataInput<'py> {
         match self {
             DataInput::Array(arr) => arr
                 .len()
-                .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e))), // Handle Result<usize>? Wait, len()? is ok.
+                .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{e:?}"))), // Handle Result<usize>? Wait, len()? is ok.
             DataInput::List(vec) => Ok(vec.len()),
         }
     }
@@ -150,7 +150,7 @@ fn is_legendre_l_domain_error(l: f64) -> bool {
 }
 
 /// Check if |m| > l for Associated Legendre/Spherical Harmonic
-fn is_legendre_m_domain_error(l: f64, m: f64) -> bool {
+const fn is_legendre_m_domain_error(l: f64, m: f64) -> bool {
     let l_int = l.round() as i32;
     let m_int = m.round() as i32;
     m_int.abs() > l_int
@@ -172,7 +172,7 @@ fn is_log_value_domain_error(x: f64) -> bool {
 }
 
 /// Helper to get numeric value from expression if it's a constant
-fn get_numeric_value(expr: &RustExpr) -> Option<f64> {
+const fn get_numeric_value(expr: &RustExpr) -> Option<f64> {
     if let crate::ExprKind::Number(n) = &expr.kind {
         Some(*n)
     } else {
@@ -192,6 +192,8 @@ fn extract_to_expr(value: &Bound<'_, PyAny>) -> PyResult<RustExpr> {
         return Ok(RustExpr::number(n));
     }
     if let Ok(n) = value.extract::<i64>() {
+        // i64->f64 intentional: Python integers map naturally to floats
+        #[allow(clippy::cast_precision_loss)]
         return Ok(RustExpr::number(n as f64));
     }
     if let Ok(s) = value.extract::<String>() {
@@ -214,7 +216,7 @@ impl PyExpr {
     /// Create a symbolic expression or numeric constant
     #[new]
     fn new(value: &Bound<'_, PyAny>) -> PyResult<Self> {
-        Ok(PyExpr(extract_to_expr(value)?))
+        Ok(Self(extract_to_expr(value)?))
     }
 
     fn __str__(&self) -> String {
@@ -226,7 +228,7 @@ impl PyExpr {
     }
 
     fn __eq__(&self, other: &Bound<'_, PyAny>) -> bool {
-        if let Ok(other_expr) = other.extract::<PyExpr>() {
+        if let Ok(other_expr) = other.extract::<Self>() {
             return self.0 == other_expr.0;
         }
         if let Ok(other_sym) = other.extract::<PySymbol>() {
@@ -242,7 +244,11 @@ impl PyExpr {
         use std::hash::{Hash, Hasher};
         let mut s = DefaultHasher::new();
         self.0.to_string().hash(&mut s);
-        s.finish() as isize
+        // u64->isize: Python __hash__ requires isize, wrap is expected
+        #[allow(clippy::cast_possible_wrap)]
+        {
+            s.finish() as isize
+        }
     }
 
     fn __float__(&self) -> PyResult<f64> {
@@ -257,190 +263,199 @@ impl PyExpr {
     }
 
     // Arithmetic operators
-    fn __add__(&self, other: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+    fn __add__(&self, other: &Bound<'_, PyAny>) -> PyResult<Self> {
         let other_expr = extract_to_expr(other)?;
-        Ok(PyExpr(self.0.clone() + other_expr))
+        Ok(Self(self.0.clone() + other_expr))
     }
 
-    fn __sub__(&self, other: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+    fn __sub__(&self, other: &Bound<'_, PyAny>) -> PyResult<Self> {
         let other_expr = extract_to_expr(other)?;
-        Ok(PyExpr(self.0.clone() - other_expr))
+        Ok(Self(self.0.clone() - other_expr))
     }
 
-    fn __mul__(&self, other: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+    fn __mul__(&self, other: &Bound<'_, PyAny>) -> PyResult<Self> {
         let other_expr = extract_to_expr(other)?;
-        Ok(PyExpr(self.0.clone() * other_expr))
+        Ok(Self(self.0.clone() * other_expr))
     }
 
-    fn __truediv__(&self, other: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+    fn __truediv__(&self, other: &Bound<'_, PyAny>) -> PyResult<Self> {
         let other_expr = extract_to_expr(other)?;
-        Ok(PyExpr(self.0.clone() / other_expr))
+        Ok(Self(self.0.clone() / other_expr))
     }
 
-    fn __pow__(&self, other: &Bound<'_, PyAny>, _modulo: Option<Py<PyAny>>) -> PyResult<PyExpr> {
+    fn __pow__(&self, other: &Bound<'_, PyAny>, _modulo: Option<Py<PyAny>>) -> PyResult<Self> {
         let other_expr = extract_to_expr(other)?;
-        Ok(PyExpr(self.0.clone().pow(other_expr)))
+        Ok(Self(self.0.clone().pow(other_expr)))
     }
 
     // Reverse power: 2 ** x where x is Expr
-    fn __rpow__(&self, other: &Bound<'_, PyAny>, _modulo: Option<Py<PyAny>>) -> PyResult<PyExpr> {
+    fn __rpow__(&self, other: &Bound<'_, PyAny>, _modulo: Option<Py<PyAny>>) -> PyResult<Self> {
         // other ** self (other is the base, self is the exponent)
         if let Ok(n) = other.extract::<f64>() {
-            return Ok(PyExpr(RustExpr::number(n).pow(self.0.clone())));
+            return Ok(Self(RustExpr::number(n).pow(self.0.clone())));
         }
         if let Ok(n) = other.extract::<i64>() {
-            return Ok(PyExpr(RustExpr::number(n as f64).pow(self.0.clone())));
+            // i64->f64 intentional: Python integers map naturally to floats
+            #[allow(clippy::cast_precision_loss)]
+            return Ok(Self(RustExpr::number(n as f64).pow(self.0.clone())));
         }
         Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
             "rpow() base must be int or float",
         ))
     }
 
-    fn __neg__(&self) -> PyExpr {
-        PyExpr(RustExpr::number(0.0) - self.0.clone())
+    fn __neg__(&self) -> Self {
+        Self(RustExpr::number(0.0) - self.0.clone())
     }
 
-    fn __radd__(&self, other: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+    fn __radd__(&self, other: &Bound<'_, PyAny>) -> PyResult<Self> {
         if let Ok(n) = other.extract::<f64>() {
-            return Ok(PyExpr(RustExpr::number(n) + self.0.clone()));
+            return Ok(Self(RustExpr::number(n) + self.0.clone()));
         }
         if let Ok(n) = other.extract::<i64>() {
-            return Ok(PyExpr(RustExpr::number(n as f64) + self.0.clone()));
+            // i64->f64 intentional: Python integers map naturally to floats
+            #[allow(clippy::cast_precision_loss)]
+            return Ok(Self(RustExpr::number(n as f64) + self.0.clone()));
         }
         Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
             "Operand must be int or float",
         ))
     }
 
-    fn __rsub__(&self, other: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+    fn __rsub__(&self, other: &Bound<'_, PyAny>) -> PyResult<Self> {
         if let Ok(n) = other.extract::<f64>() {
-            return Ok(PyExpr(RustExpr::number(n) - self.0.clone()));
+            return Ok(Self(RustExpr::number(n) - self.0.clone()));
         }
         if let Ok(n) = other.extract::<i64>() {
-            return Ok(PyExpr(RustExpr::number(n as f64) - self.0.clone()));
+            // i64->f64 intentional: Python integers map naturally to floats
+            #[allow(clippy::cast_precision_loss)]
+            return Ok(Self(RustExpr::number(n as f64) - self.0.clone()));
         }
         Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
             "Operand must be int or float",
         ))
     }
 
-    fn __rmul__(&self, other: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+    fn __rmul__(&self, other: &Bound<'_, PyAny>) -> PyResult<Self> {
         if let Ok(n) = other.extract::<f64>() {
-            return Ok(PyExpr(RustExpr::number(n) * self.0.clone()));
+            return Ok(Self(RustExpr::number(n) * self.0.clone()));
         }
         if let Ok(n) = other.extract::<i64>() {
-            return Ok(PyExpr(RustExpr::number(n as f64) * self.0.clone()));
+            // i64->f64 intentional: Python integers map naturally to floats
+            #[allow(clippy::cast_precision_loss)]
+            return Ok(Self(RustExpr::number(n as f64) * self.0.clone()));
         }
         Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
             "Operand must be int or float",
         ))
     }
 
-    fn __rtruediv__(&self, other: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+    fn __rtruediv__(&self, other: &Bound<'_, PyAny>) -> PyResult<Self> {
         if let Ok(n) = other.extract::<f64>() {
-            return Ok(PyExpr(RustExpr::number(n) / self.0.clone()));
+            return Ok(Self(RustExpr::number(n) / self.0.clone()));
         }
         if let Ok(n) = other.extract::<i64>() {
-            return Ok(PyExpr(RustExpr::number(n as f64) / self.0.clone()));
+            // i64->f64 intentional: Python integers map naturally to floats
+            #[allow(clippy::cast_precision_loss)]
+            return Ok(Self(RustExpr::number(n as f64) / self.0.clone()));
         }
         Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
             "Operand must be int or float",
         ))
     }
     // Functions
-    fn sin(&self) -> PyExpr {
-        PyExpr(self.0.clone().sin())
+    fn sin(&self) -> Self {
+        Self(self.0.clone().sin())
     }
-    fn cos(&self) -> PyExpr {
-        PyExpr(self.0.clone().cos())
+    fn cos(&self) -> Self {
+        Self(self.0.clone().cos())
     }
-    fn tan(&self) -> PyExpr {
-        PyExpr(self.0.clone().tan())
+    fn tan(&self) -> Self {
+        Self(self.0.clone().tan())
     }
-    fn cot(&self) -> PyExpr {
-        PyExpr(self.0.clone().cot())
+    fn cot(&self) -> Self {
+        Self(self.0.clone().cot())
     }
-    fn sec(&self) -> PyExpr {
-        PyExpr(self.0.clone().sec())
+    fn sec(&self) -> Self {
+        Self(self.0.clone().sec())
     }
-    fn csc(&self) -> PyExpr {
-        PyExpr(self.0.clone().csc())
-    }
-
-    fn asin(&self) -> PyExpr {
-        PyExpr(self.0.clone().asin())
-    }
-    fn acos(&self) -> PyExpr {
-        PyExpr(self.0.clone().acos())
-    }
-    fn atan(&self) -> PyExpr {
-        PyExpr(self.0.clone().atan())
-    }
-    fn acot(&self) -> PyExpr {
-        PyExpr(self.0.clone().acot())
-    }
-    fn asec(&self) -> PyExpr {
-        PyExpr(self.0.clone().asec())
-    }
-    fn acsc(&self) -> PyExpr {
-        PyExpr(self.0.clone().acsc())
+    fn csc(&self) -> Self {
+        Self(self.0.clone().csc())
     }
 
-    fn sinh(&self) -> PyExpr {
-        PyExpr(self.0.clone().sinh())
+    fn asin(&self) -> Self {
+        Self(self.0.clone().asin())
     }
-    fn cosh(&self) -> PyExpr {
-        PyExpr(self.0.clone().cosh())
+    fn acos(&self) -> Self {
+        Self(self.0.clone().acos())
     }
-    fn tanh(&self) -> PyExpr {
-        PyExpr(self.0.clone().tanh())
+    fn atan(&self) -> Self {
+        Self(self.0.clone().atan())
     }
-    fn coth(&self) -> PyExpr {
-        PyExpr(self.0.clone().coth())
+    fn acot(&self) -> Self {
+        Self(self.0.clone().acot())
     }
-    fn sech(&self) -> PyExpr {
-        PyExpr(self.0.clone().sech())
+    fn asec(&self) -> Self {
+        Self(self.0.clone().asec())
     }
-    fn csch(&self) -> PyExpr {
-        PyExpr(self.0.clone().csch())
-    }
-
-    fn asinh(&self) -> PyExpr {
-        PyExpr(self.0.clone().asinh())
-    }
-    fn acosh(&self) -> PyExpr {
-        PyExpr(self.0.clone().acosh())
-    }
-    fn atanh(&self) -> PyExpr {
-        PyExpr(self.0.clone().atanh())
-    }
-    fn acoth(&self) -> PyExpr {
-        PyExpr(self.0.clone().acoth())
-    }
-    fn asech(&self) -> PyExpr {
-        PyExpr(self.0.clone().asech())
-    }
-    fn acsch(&self) -> PyExpr {
-        PyExpr(self.0.clone().acsch())
+    fn acsc(&self) -> Self {
+        Self(self.0.clone().acsc())
     }
 
-    fn exp(&self) -> PyExpr {
-        PyExpr(self.0.clone().exp())
+    fn sinh(&self) -> Self {
+        Self(self.0.clone().sinh())
     }
-    fn ln(&self) -> PyExpr {
-        PyExpr(self.0.clone().ln())
+    fn cosh(&self) -> Self {
+        Self(self.0.clone().cosh())
+    }
+    fn tanh(&self) -> Self {
+        Self(self.0.clone().tanh())
+    }
+    fn coth(&self) -> Self {
+        Self(self.0.clone().coth())
+    }
+    fn sech(&self) -> Self {
+        Self(self.0.clone().sech())
+    }
+    fn csch(&self) -> Self {
+        Self(self.0.clone().csch())
+    }
+
+    fn asinh(&self) -> Self {
+        Self(self.0.clone().asinh())
+    }
+    fn acosh(&self) -> Self {
+        Self(self.0.clone().acosh())
+    }
+    fn atanh(&self) -> Self {
+        Self(self.0.clone().atanh())
+    }
+    fn acoth(&self) -> Self {
+        Self(self.0.clone().acoth())
+    }
+    fn asech(&self) -> Self {
+        Self(self.0.clone().asech())
+    }
+    fn acsch(&self) -> Self {
+        Self(self.0.clone().acsch())
+    }
+
+    fn exp(&self) -> Self {
+        Self(self.0.clone().exp())
+    }
+    fn ln(&self) -> Self {
+        Self(self.0.clone().ln())
     }
     /// Logarithm with the specified base: log(self, base) → log(base, self)
-    /// For natural logarithm, use ln() instead
-    fn log(&self, base: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+    /// For natural logarithm, use `ln()` instead
+    fn log(&self, base: &Bound<'_, PyAny>) -> PyResult<Self> {
         let base_expr = extract_to_expr(base)?;
         // Check base is valid
         if let Some(b) = get_numeric_value(&base_expr)
             && is_log_base_domain_error(b)
         {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                "log base {} invalid: must be positive and not 1",
-                b
+                "log base {b} invalid: must be positive and not 1"
             )));
         }
         // Check value is valid
@@ -448,128 +463,120 @@ impl PyExpr {
             && is_log_value_domain_error(x)
         {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                "log({}, x) undefined: x must be positive",
-                x
+                "log({x}, x) undefined: x must be positive"
             )));
         }
-        Ok(PyExpr(self.0.clone().log(base_expr)))
+        Ok(Self(self.0.clone().log(base_expr)))
     }
-    fn log10(&self) -> PyExpr {
-        PyExpr(self.0.clone().log10())
+    fn log10(&self) -> Self {
+        Self(self.0.clone().log10())
     }
-    fn log2(&self) -> PyExpr {
-        PyExpr(self.0.clone().log2())
+    fn log2(&self) -> Self {
+        Self(self.0.clone().log2())
     }
 
-    fn sqrt(&self) -> PyExpr {
-        PyExpr(self.0.clone().sqrt())
+    fn sqrt(&self) -> Self {
+        Self(self.0.clone().sqrt())
     }
-    fn cbrt(&self) -> PyExpr {
-        PyExpr(self.0.clone().cbrt())
+    fn cbrt(&self) -> Self {
+        Self(self.0.clone().cbrt())
     }
 
-    fn abs(&self) -> PyExpr {
-        PyExpr(self.0.clone().abs())
+    fn abs(&self) -> Self {
+        Self(self.0.clone().abs())
     }
-    fn signum(&self) -> PyExpr {
-        PyExpr(self.0.clone().signum())
+    fn signum(&self) -> Self {
+        Self(self.0.clone().signum())
     }
-    fn sinc(&self) -> PyExpr {
-        PyExpr(self.0.clone().sinc())
+    fn sinc(&self) -> Self {
+        Self(self.0.clone().sinc())
     }
-    fn erf(&self) -> PyExpr {
-        PyExpr(self.0.clone().erf())
+    fn erf(&self) -> Self {
+        Self(self.0.clone().erf())
     }
-    fn erfc(&self) -> PyExpr {
-        PyExpr(self.0.clone().erfc())
+    fn erfc(&self) -> Self {
+        Self(self.0.clone().erfc())
     }
-    fn gamma(&self) -> PyResult<PyExpr> {
+    fn gamma(&self) -> PyResult<Self> {
         if let Some(n) = get_numeric_value(&self.0)
             && is_gamma_pole(n)
         {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                "gamma({}) undefined: pole at non-positive integer",
-                n
+                "gamma({n}) undefined: pole at non-positive integer"
             )));
         }
-        Ok(PyExpr(self.0.clone().gamma()))
+        Ok(Self(self.0.clone().gamma()))
     }
-    fn digamma(&self) -> PyResult<PyExpr> {
+    fn digamma(&self) -> PyResult<Self> {
         if let Some(n) = get_numeric_value(&self.0)
             && is_gamma_pole(n)
         {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                "digamma({}) undefined: pole at non-positive integer",
-                n
+                "digamma({n}) undefined: pole at non-positive integer"
             )));
         }
-        Ok(PyExpr(self.0.clone().digamma()))
+        Ok(Self(self.0.clone().digamma()))
     }
-    fn trigamma(&self) -> PyResult<PyExpr> {
+    fn trigamma(&self) -> PyResult<Self> {
         if let Some(n) = get_numeric_value(&self.0)
             && is_gamma_pole(n)
         {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                "trigamma({}) undefined: pole at non-positive integer",
-                n
+                "trigamma({n}) undefined: pole at non-positive integer"
             )));
         }
-        Ok(PyExpr(self.0.clone().trigamma()))
+        Ok(Self(self.0.clone().trigamma()))
     }
-    fn tetragamma(&self) -> PyResult<PyExpr> {
+    fn tetragamma(&self) -> PyResult<Self> {
         if let Some(n) = get_numeric_value(&self.0)
             && is_gamma_pole(n)
         {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                "tetragamma({}) undefined: pole at non-positive integer",
-                n
+                "tetragamma({n}) undefined: pole at non-positive integer"
             )));
         }
-        Ok(PyExpr(self.0.clone().tetragamma()))
+        Ok(Self(self.0.clone().tetragamma()))
     }
-    fn floor(&self) -> PyExpr {
-        PyExpr(self.0.clone().floor())
+    fn floor(&self) -> Self {
+        Self(self.0.clone().floor())
     }
-    fn ceil(&self) -> PyExpr {
-        PyExpr(self.0.clone().ceil())
+    fn ceil(&self) -> Self {
+        Self(self.0.clone().ceil())
     }
-    fn round(&self) -> PyExpr {
-        PyExpr(self.0.clone().round())
+    fn round(&self) -> Self {
+        Self(self.0.clone().round())
     }
-    fn elliptic_k(&self) -> PyResult<PyExpr> {
+    fn elliptic_k(&self) -> PyResult<Self> {
         if let Some(k) = get_numeric_value(&self.0)
             && is_elliptic_k_domain_error(k)
         {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                "elliptic_k({}) undefined: |k| must be < 1",
-                k
+                "elliptic_k({k}) undefined: |k| must be < 1"
             )));
         }
-        Ok(PyExpr(self.0.clone().elliptic_k()))
+        Ok(Self(self.0.clone().elliptic_k()))
     }
-    fn elliptic_e(&self) -> PyResult<PyExpr> {
+    fn elliptic_e(&self) -> PyResult<Self> {
         if let Some(k) = get_numeric_value(&self.0)
             && is_elliptic_e_domain_error(k)
         {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                "elliptic_e({}) undefined: |k| must be <= 1",
-                k
+                "elliptic_e({k}) undefined: |k| must be <= 1"
             )));
         }
-        Ok(PyExpr(self.0.clone().elliptic_e()))
+        Ok(Self(self.0.clone().elliptic_e()))
     }
-    fn exp_polar(&self) -> PyExpr {
-        PyExpr(self.0.clone().exp_polar())
+    fn exp_polar(&self) -> Self {
+        Self(self.0.clone().exp_polar())
     }
-    fn polygamma(&self, n: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+    fn polygamma(&self, n: &Bound<'_, PyAny>) -> PyResult<Self> {
         let n_expr = extract_to_expr(n)?;
         // Check order n is valid
         if let Some(order) = get_numeric_value(&n_expr)
             && is_polygamma_order_domain_error(order)
         {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                "polygamma order {} invalid: must be non-negative integer",
-                order
+                "polygamma order {order} invalid: must be non-negative integer"
             )));
         }
         // Check x is not at a pole
@@ -577,34 +584,31 @@ impl PyExpr {
             && is_gamma_pole(x)
         {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                "polygamma(n, {}) undefined: pole at non-positive integer",
-                x
+                "polygamma(n, {x}) undefined: pole at non-positive integer"
             )));
         }
-        Ok(PyExpr(self.0.clone().polygamma(n_expr)))
+        Ok(Self(self.0.clone().polygamma(n_expr)))
     }
-    fn beta(&self, other: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+    fn beta(&self, other: &Bound<'_, PyAny>) -> PyResult<Self> {
         let other_expr = extract_to_expr(other)?;
         // Check both arguments are not at gamma poles
         if let Some(a) = get_numeric_value(&self.0)
             && is_gamma_pole(a)
         {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                "beta({}, b) undefined: pole at non-positive integer",
-                a
+                "beta({a}, b) undefined: pole at non-positive integer"
             )));
         }
         if let Some(b) = get_numeric_value(&other_expr)
             && is_gamma_pole(b)
         {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                "beta(a, {}) undefined: pole at non-positive integer",
-                b
+                "beta(a, {b}) undefined: pole at non-positive integer"
             )));
         }
-        Ok(PyExpr(self.0.clone().beta(other_expr)))
+        Ok(Self(self.0.clone().beta(other_expr)))
     }
-    fn zeta(&self) -> PyResult<PyExpr> {
+    fn zeta(&self) -> PyResult<Self> {
         if let Some(s) = get_numeric_value(&self.0)
             && is_zeta_pole(s)
         {
@@ -612,105 +616,99 @@ impl PyExpr {
                 "zeta(1) undefined: pole at s=1",
             ));
         }
-        Ok(PyExpr(self.0.clone().zeta()))
+        Ok(Self(self.0.clone().zeta()))
     }
-    fn lambertw(&self) -> PyResult<PyExpr> {
+    fn lambertw(&self) -> PyResult<Self> {
         if let Some(x) = get_numeric_value(&self.0)
             && is_lambert_w_domain_error(x)
         {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                "lambertw({}) undefined: x must be >= -1/e",
-                x
+                "lambertw({x}) undefined: x must be >= -1/e"
             )));
         }
-        Ok(PyExpr(self.0.clone().lambertw()))
+        Ok(Self(self.0.clone().lambertw()))
     }
-    fn besselj(&self, n: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+    fn besselj(&self, n: &Bound<'_, PyAny>) -> PyResult<Self> {
         let n_expr = extract_to_expr(n)?;
-        Ok(PyExpr(self.0.clone().besselj(n_expr)))
+        Ok(Self(self.0.clone().besselj(n_expr)))
     }
-    fn bessely(&self, n: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+    fn bessely(&self, n: &Bound<'_, PyAny>) -> PyResult<Self> {
         let n_expr = extract_to_expr(n)?;
         // Y_n(x) requires x > 0
         if let Some(x) = get_numeric_value(&self.0)
             && is_bessel_yk_domain_error(x)
         {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                "bessely(n, {}) undefined: x must be > 0",
-                x
+                "bessely(n, {x}) undefined: x must be > 0"
             )));
         }
-        Ok(PyExpr(self.0.clone().bessely(n_expr)))
+        Ok(Self(self.0.clone().bessely(n_expr)))
     }
-    fn besseli(&self, n: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+    fn besseli(&self, n: &Bound<'_, PyAny>) -> PyResult<Self> {
         let n_expr = extract_to_expr(n)?;
-        Ok(PyExpr(self.0.clone().besseli(n_expr)))
+        Ok(Self(self.0.clone().besseli(n_expr)))
     }
-    fn besselk(&self, n: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+    fn besselk(&self, n: &Bound<'_, PyAny>) -> PyResult<Self> {
         let n_expr = extract_to_expr(n)?;
         // K_n(x) requires x > 0
         if let Some(x) = get_numeric_value(&self.0)
             && is_bessel_yk_domain_error(x)
         {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                "besselk(n, {}) undefined: x must be > 0",
-                x
+                "besselk(n, {x}) undefined: x must be > 0"
             )));
         }
-        Ok(PyExpr(self.0.clone().besselk(n_expr)))
+        Ok(Self(self.0.clone().besselk(n_expr)))
     }
 
-    fn pow(&self, exp: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+    fn pow(&self, exp: &Bound<'_, PyAny>) -> PyResult<Self> {
         let exp_expr = extract_to_expr(exp)?;
-        Ok(PyExpr(RustExpr::pow_static(self.0.clone(), exp_expr)))
+        Ok(Self(RustExpr::pow_static(self.0.clone(), exp_expr)))
     }
 
     // Multi-argument functions
     /// Two-argument arctangent: atan2(y, x) = angle to point (x, y)
-    fn atan2(&self, x: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+    fn atan2(&self, x: &Bound<'_, PyAny>) -> PyResult<Self> {
         let x_expr = extract_to_expr(x)?;
-        Ok(PyExpr(RustExpr::func_multi(
+        Ok(Self(RustExpr::func_multi(
             "atan2",
             vec![self.0.clone(), x_expr],
         )))
     }
 
-    /// Hermite polynomial H_n(self)
-    fn hermite(&self, n: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+    /// Hermite polynomial `H_n(self)`
+    fn hermite(&self, n: &Bound<'_, PyAny>) -> PyResult<Self> {
         let n_expr = extract_to_expr(n)?;
         // Check n is valid (non-negative integer)
         if let Some(order) = get_numeric_value(&n_expr)
             && is_hermite_domain_error(order)
         {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                "hermite({}, x) undefined: n must be non-negative integer",
-                order
+                "hermite({order}, x) undefined: n must be non-negative integer"
             )));
         }
-        Ok(PyExpr(RustExpr::func_multi(
+        Ok(Self(RustExpr::func_multi(
             "hermite",
             vec![n_expr, self.0.clone()],
         )))
     }
 
-    /// Associated Legendre polynomial P_l^m(self)
-    fn assoc_legendre(&self, l: &Bound<'_, PyAny>, m: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+    /// Associated Legendre polynomial `P_l^m(self)`
+    fn assoc_legendre(&self, l: &Bound<'_, PyAny>, m: &Bound<'_, PyAny>) -> PyResult<Self> {
         let l_expr = extract_to_expr(l)?;
         let m_expr = extract_to_expr(m)?;
         // Check domain: l >= 0, |m| <= l, |x| <= 1
         if let Some(l_val) = get_numeric_value(&l_expr) {
             if is_legendre_l_domain_error(l_val) {
                 return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                    "assoc_legendre({}, m, x) undefined: l must be non-negative integer",
-                    l_val
+                    "assoc_legendre({l_val}, m, x) undefined: l must be non-negative integer"
                 )));
             }
             if let Some(m_val) = get_numeric_value(&m_expr)
                 && is_legendre_m_domain_error(l_val, m_val)
             {
                 return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                    "assoc_legendre({}, {}, x) undefined: |m| must be <= l",
-                    l_val, m_val
+                    "assoc_legendre({l_val}, {m_val}, x) undefined: |m| must be <= l"
                 )));
             }
         }
@@ -718,23 +716,22 @@ impl PyExpr {
             && is_assoc_legendre_x_domain_error(x)
         {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                "assoc_legendre(l, m, {}) undefined: |x| must be <= 1",
-                x
+                "assoc_legendre(l, m, {x}) undefined: |x| must be <= 1"
             )));
         }
-        Ok(PyExpr(RustExpr::func_multi(
+        Ok(Self(RustExpr::func_multi(
             "assoc_legendre",
             vec![l_expr, m_expr, self.0.clone()],
         )))
     }
 
-    /// Spherical harmonic Y_l^m(theta, phi) where self is theta
+    /// Spherical harmonic `Y_l^m(theta`, phi) where self is theta
     fn spherical_harmonic(
         &self,
         l: &Bound<'_, PyAny>,
         m: &Bound<'_, PyAny>,
         phi: &Bound<'_, PyAny>,
-    ) -> PyResult<PyExpr> {
+    ) -> PyResult<Self> {
         let l_expr = extract_to_expr(l)?;
         let m_expr = extract_to_expr(m)?;
         let phi_expr = extract_to_expr(phi)?;
@@ -742,32 +739,30 @@ impl PyExpr {
         if let Some(l_val) = get_numeric_value(&l_expr) {
             if is_legendre_l_domain_error(l_val) {
                 return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                    "spherical_harmonic({}, m, θ, φ) undefined: l must be non-negative integer",
-                    l_val
+                    "spherical_harmonic({l_val}, m, θ, φ) undefined: l must be non-negative integer"
                 )));
             }
             if let Some(m_val) = get_numeric_value(&m_expr)
                 && is_legendre_m_domain_error(l_val, m_val)
             {
                 return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                    "spherical_harmonic({}, {}, θ, φ) undefined: |m| must be <= l",
-                    l_val, m_val
+                    "spherical_harmonic({l_val}, {m_val}, θ, φ) undefined: |m| must be <= l"
                 )));
             }
         }
-        Ok(PyExpr(RustExpr::func_multi(
+        Ok(Self(RustExpr::func_multi(
             "spherical_harmonic",
             vec![l_expr, m_expr, self.0.clone(), phi_expr],
         )))
     }
 
-    /// Alternative spherical harmonic notation Y_l^m(theta, phi)
+    /// Alternative spherical harmonic notation `Y_l^m(theta`, phi)
     fn ynm(
         &self,
         l: &Bound<'_, PyAny>,
         m: &Bound<'_, PyAny>,
         phi: &Bound<'_, PyAny>,
-    ) -> PyResult<PyExpr> {
+    ) -> PyResult<Self> {
         let l_expr = extract_to_expr(l)?;
         let m_expr = extract_to_expr(m)?;
         let phi_expr = extract_to_expr(phi)?;
@@ -775,27 +770,25 @@ impl PyExpr {
         if let Some(l_val) = get_numeric_value(&l_expr) {
             if is_legendre_l_domain_error(l_val) {
                 return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                    "ynm({}, m, θ, φ) undefined: l must be non-negative integer",
-                    l_val
+                    "ynm({l_val}, m, θ, φ) undefined: l must be non-negative integer"
                 )));
             }
             if let Some(m_val) = get_numeric_value(&m_expr)
                 && is_legendre_m_domain_error(l_val, m_val)
             {
                 return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                    "ynm({}, {}, θ, φ) undefined: |m| must be <= l",
-                    l_val, m_val
+                    "ynm({l_val}, {m_val}, θ, φ) undefined: |m| must be <= l"
                 )));
             }
         }
-        Ok(PyExpr(RustExpr::func_multi(
+        Ok(Self(RustExpr::func_multi(
             "ynm",
             vec![l_expr, m_expr, self.0.clone(), phi_expr],
         )))
     }
 
     /// Derivative of Riemann zeta function: zeta^(n)(self)
-    fn zeta_deriv(&self, n: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+    fn zeta_deriv(&self, n: &Bound<'_, PyAny>) -> PyResult<Self> {
         let n_expr = extract_to_expr(n)?;
         // Check zeta pole at s=1
         if let Some(s) = get_numeric_value(&self.0)
@@ -810,11 +803,10 @@ impl PyExpr {
             && (order < 0.0 || (order - order.round()).abs() > 1e-10)
         {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                "zeta_deriv({}, s) undefined: n must be non-negative integer",
-                order
+                "zeta_deriv({order}, s) undefined: n must be non-negative integer"
             )));
         }
-        Ok(PyExpr(RustExpr::func_multi(
+        Ok(Self(RustExpr::func_multi(
             "zeta_deriv",
             vec![n_expr, self.0.clone()],
         )))
@@ -843,12 +835,12 @@ impl PyExpr {
     }
 
     /// Check if expression is a raw symbol
-    fn is_symbol(&self) -> bool {
+    const fn is_symbol(&self) -> bool {
         matches!(self.0.kind, crate::ExprKind::Symbol(_))
     }
 
     /// Check if expression is a constant number
-    fn is_number(&self) -> bool {
+    const fn is_number(&self) -> bool {
         matches!(self.0.kind, crate::ExprKind::Number(_))
     }
 
@@ -864,9 +856,9 @@ impl PyExpr {
 
     /// Substitute a variable with a numeric value or another expression
     #[pyo3(signature = (var, value))]
-    fn substitute(&self, var: &str, value: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+    fn substitute(&self, var: &str, value: &Bound<'_, PyAny>) -> PyResult<Self> {
         let replacement = extract_to_expr(value)?;
-        Ok(PyExpr(self.0.substitute(var, &replacement)))
+        Ok(Self(self.0.substitute(var, &replacement)))
     }
 
     /// Evaluate the expression with given variable values
@@ -876,27 +868,29 @@ impl PyExpr {
     ///
     /// Returns:
     ///     Evaluated expression (may be a number or symbolic if variables remain)
-    fn evaluate(&self, vars: std::collections::HashMap<String, f64>) -> PyExpr {
+    // PyO3 requires owned HashMap for Python dict arguments
+    #[allow(clippy::needless_pass_by_value)]
+    fn evaluate(&self, vars: std::collections::HashMap<String, f64>) -> Self {
         let var_map: std::collections::HashMap<&str, f64> =
             vars.iter().map(|(k, v)| (k.as_str(), *v)).collect();
-        PyExpr(self.0.evaluate(&var_map, &std::collections::HashMap::new()))
+        Self(self.0.evaluate(&var_map, &std::collections::HashMap::new()))
     }
 
     /// Differentiate this expression
-    fn diff(&self, var: &str) -> PyResult<PyExpr> {
+    fn diff(&self, var: &str) -> PyResult<Self> {
         let sym = crate::symb(var);
         crate::Diff::new()
             .differentiate(&self.0, &sym)
             .map(PyExpr)
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e)))
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{e:?}")))
     }
 
     /// Simplify this expression
-    fn simplify(&self) -> PyResult<PyExpr> {
+    fn simplify(&self) -> PyResult<Self> {
         crate::Simplify::new()
             .simplify(&self.0)
             .map(PyExpr)
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e)))
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{e:?}")))
     }
 }
 
@@ -916,8 +910,8 @@ impl PyDual {
     /// Returns:
     ///     A new Dual number representing val + eps*ε
     #[new]
-    fn new(val: f64, eps: f64) -> Self {
-        PyDual(Dual::new(val, eps))
+    const fn new(val: f64, eps: f64) -> Self {
+        Self(Dual::new(val, eps))
     }
 
     /// Create a constant dual number (derivative = 0)
@@ -929,18 +923,18 @@ impl PyDual {
     ///     A Dual number representing val + 0*ε
     #[staticmethod]
     fn constant(val: f64) -> Self {
-        PyDual(Dual::constant(val))
+        Self(Dual::constant(val))
     }
 
     /// Get the real value component
     #[getter]
-    fn val(&self) -> f64 {
+    const fn val(&self) -> f64 {
         self.0.val
     }
 
     /// Get the infinitesimal derivative component
     #[getter]
-    fn eps(&self) -> f64 {
+    const fn eps(&self) -> f64 {
         self.0.eps
     }
 
@@ -954,141 +948,141 @@ impl PyDual {
     }
 
     // Arithmetic operators
-    fn __add__(&self, other: &Bound<'_, PyAny>) -> PyResult<PyDual> {
-        if let Ok(dual) = other.extract::<PyDual>() {
-            return Ok(PyDual(self.0 + dual.0));
+    fn __add__(&self, other: &Bound<'_, PyAny>) -> PyResult<Self> {
+        if let Ok(dual) = other.extract::<Self>() {
+            return Ok(Self(self.0 + dual.0));
         }
         if let Ok(n) = other.extract::<f64>() {
-            return Ok(PyDual(self.0 + Dual::constant(n)));
+            return Ok(Self(self.0 + Dual::constant(n)));
         }
         if let Ok(n) = other.extract::<i32>() {
-            return Ok(PyDual(self.0 + Dual::constant(n as f64)));
+            return Ok(Self(self.0 + Dual::constant(f64::from(n))));
         }
         Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
             "Operand must be Dual, int, or float",
         ))
     }
 
-    fn __sub__(&self, other: &Bound<'_, PyAny>) -> PyResult<PyDual> {
-        if let Ok(dual) = other.extract::<PyDual>() {
-            return Ok(PyDual(self.0 - dual.0));
+    fn __sub__(&self, other: &Bound<'_, PyAny>) -> PyResult<Self> {
+        if let Ok(dual) = other.extract::<Self>() {
+            return Ok(Self(self.0 - dual.0));
         }
         if let Ok(n) = other.extract::<f64>() {
-            return Ok(PyDual(self.0 - Dual::constant(n)));
+            return Ok(Self(self.0 - Dual::constant(n)));
         }
         if let Ok(n) = other.extract::<i32>() {
-            return Ok(PyDual(self.0 - Dual::constant(n as f64)));
+            return Ok(Self(self.0 - Dual::constant(f64::from(n))));
         }
         Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
             "Operand must be Dual, int, or float",
         ))
     }
 
-    fn __mul__(&self, other: &Bound<'_, PyAny>) -> PyResult<PyDual> {
-        if let Ok(dual) = other.extract::<PyDual>() {
-            return Ok(PyDual(self.0 * dual.0));
+    fn __mul__(&self, other: &Bound<'_, PyAny>) -> PyResult<Self> {
+        if let Ok(dual) = other.extract::<Self>() {
+            return Ok(Self(self.0 * dual.0));
         }
         if let Ok(n) = other.extract::<f64>() {
-            return Ok(PyDual(self.0 * Dual::constant(n)));
+            return Ok(Self(self.0 * Dual::constant(n)));
         }
         if let Ok(n) = other.extract::<i32>() {
-            return Ok(PyDual(self.0 * Dual::constant(n as f64)));
+            return Ok(Self(self.0 * Dual::constant(f64::from(n))));
         }
         Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
             "Operand must be Dual, int, or float",
         ))
     }
 
-    fn __truediv__(&self, other: &Bound<'_, PyAny>) -> PyResult<PyDual> {
-        if let Ok(dual) = other.extract::<PyDual>() {
-            return Ok(PyDual(self.0 / dual.0));
+    fn __truediv__(&self, other: &Bound<'_, PyAny>) -> PyResult<Self> {
+        if let Ok(dual) = other.extract::<Self>() {
+            return Ok(Self(self.0 / dual.0));
         }
         if let Ok(n) = other.extract::<f64>() {
-            return Ok(PyDual(self.0 / Dual::constant(n)));
+            return Ok(Self(self.0 / Dual::constant(n)));
         }
         if let Ok(n) = other.extract::<i32>() {
-            return Ok(PyDual(self.0 / Dual::constant(n as f64)));
+            return Ok(Self(self.0 / Dual::constant(f64::from(n))));
         }
         Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
             "Operand must be Dual, int, or float",
         ))
     }
 
-    fn __neg__(&self) -> PyDual {
-        PyDual(-self.0)
+    fn __neg__(&self) -> Self {
+        Self(-self.0)
     }
 
     // Reverse operations for mixed types
-    fn __radd__(&self, other: &Bound<'_, PyAny>) -> PyResult<PyDual> {
+    fn __radd__(&self, other: &Bound<'_, PyAny>) -> PyResult<Self> {
         if let Ok(n) = other.extract::<f64>() {
-            return Ok(PyDual(Dual::constant(n) + self.0));
+            return Ok(Self(Dual::constant(n) + self.0));
         }
         if let Ok(n) = other.extract::<i32>() {
-            return Ok(PyDual(Dual::constant(n as f64) + self.0));
+            return Ok(Self(Dual::constant(f64::from(n)) + self.0));
         }
         Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
             "Operand must be int or float",
         ))
     }
 
-    fn __rsub__(&self, other: &Bound<'_, PyAny>) -> PyResult<PyDual> {
+    fn __rsub__(&self, other: &Bound<'_, PyAny>) -> PyResult<Self> {
         if let Ok(n) = other.extract::<f64>() {
-            return Ok(PyDual(Dual::constant(n) - self.0));
+            return Ok(Self(Dual::constant(n) - self.0));
         }
         if let Ok(n) = other.extract::<i32>() {
-            return Ok(PyDual(Dual::constant(n as f64) - self.0));
+            return Ok(Self(Dual::constant(f64::from(n)) - self.0));
         }
         Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
             "Operand must be int or float",
         ))
     }
 
-    fn __rmul__(&self, other: &Bound<'_, PyAny>) -> PyResult<PyDual> {
+    fn __rmul__(&self, other: &Bound<'_, PyAny>) -> PyResult<Self> {
         if let Ok(n) = other.extract::<f64>() {
-            return Ok(PyDual(Dual::constant(n) * self.0));
+            return Ok(Self(Dual::constant(n) * self.0));
         }
         if let Ok(n) = other.extract::<i32>() {
-            return Ok(PyDual(Dual::constant(n as f64) * self.0));
+            return Ok(Self(Dual::constant(f64::from(n)) * self.0));
         }
         Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
             "Operand must be int or float",
         ))
     }
 
-    fn __rtruediv__(&self, other: &Bound<'_, PyAny>) -> PyResult<PyDual> {
+    fn __rtruediv__(&self, other: &Bound<'_, PyAny>) -> PyResult<Self> {
         if let Ok(n) = other.extract::<f64>() {
-            return Ok(PyDual(Dual::constant(n) / self.0));
+            return Ok(Self(Dual::constant(n) / self.0));
         }
         if let Ok(n) = other.extract::<i32>() {
-            return Ok(PyDual(Dual::constant(n as f64) / self.0));
+            return Ok(Self(Dual::constant(f64::from(n)) / self.0));
         }
         Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
             "Operand must be int or float",
         ))
     }
 
-    fn __pow__(&self, other: &Bound<'_, PyAny>, _modulo: Option<Py<PyAny>>) -> PyResult<PyDual> {
-        if let Ok(dual) = other.extract::<PyDual>() {
-            return Ok(PyDual(self.0.powf(dual.0)));
+    fn __pow__(&self, other: &Bound<'_, PyAny>, _modulo: Option<Py<PyAny>>) -> PyResult<Self> {
+        if let Ok(dual) = other.extract::<Self>() {
+            return Ok(Self(self.0.powf(dual.0)));
         }
         if let Ok(n) = other.extract::<f64>() {
-            return Ok(PyDual(self.0.powf(Dual::constant(n))));
+            return Ok(Self(self.0.powf(Dual::constant(n))));
         }
         if let Ok(n) = other.extract::<i32>() {
-            return Ok(PyDual(self.0.powi(n)));
+            return Ok(Self(self.0.powi(n)));
         }
         Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
             "Exponent must be Dual, int, or float",
         ))
     }
 
-    fn __rpow__(&self, other: &Bound<'_, PyAny>, _modulo: Option<Py<PyAny>>) -> PyResult<PyDual> {
+    fn __rpow__(&self, other: &Bound<'_, PyAny>, _modulo: Option<Py<PyAny>>) -> PyResult<Self> {
         // other ** self (other is the base, self is the exponent)
         if let Ok(n) = other.extract::<f64>() {
-            return Ok(PyDual(Dual::constant(n).powf(self.0)));
+            return Ok(Self(Dual::constant(n).powf(self.0)));
         }
         if let Ok(n) = other.extract::<i32>() {
-            return Ok(PyDual(Dual::constant(n as f64).powf(self.0)));
+            return Ok(Self(Dual::constant(f64::from(n)).powf(self.0)));
         }
         Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
             "Base must be int or float",
@@ -1096,108 +1090,108 @@ impl PyDual {
     }
 
     // Mathematical functions
-    fn sin(&self) -> PyDual {
-        PyDual(self.0.sin())
+    fn sin(&self) -> Self {
+        Self(self.0.sin())
     }
 
-    fn cos(&self) -> PyDual {
-        PyDual(self.0.cos())
+    fn cos(&self) -> Self {
+        Self(self.0.cos())
     }
 
-    fn tan(&self) -> PyDual {
-        PyDual(self.0.tan())
+    fn tan(&self) -> Self {
+        Self(self.0.tan())
     }
 
-    fn asin(&self) -> PyDual {
-        PyDual(self.0.asin())
+    fn asin(&self) -> Self {
+        Self(self.0.asin())
     }
 
-    fn acos(&self) -> PyDual {
-        PyDual(self.0.acos())
+    fn acos(&self) -> Self {
+        Self(self.0.acos())
     }
 
-    fn atan(&self) -> PyDual {
-        PyDual(self.0.atan())
+    fn atan(&self) -> Self {
+        Self(self.0.atan())
     }
 
-    fn sinh(&self) -> PyDual {
-        PyDual(self.0.sinh())
+    fn sinh(&self) -> Self {
+        Self(self.0.sinh())
     }
 
-    fn cosh(&self) -> PyDual {
-        PyDual(self.0.cosh())
+    fn cosh(&self) -> Self {
+        Self(self.0.cosh())
     }
 
-    fn tanh(&self) -> PyDual {
-        PyDual(self.0.tanh())
+    fn tanh(&self) -> Self {
+        Self(self.0.tanh())
     }
 
-    fn exp(&self) -> PyDual {
-        PyDual(self.0.exp())
+    fn exp(&self) -> Self {
+        Self(self.0.exp())
     }
 
-    fn exp2(&self) -> PyDual {
-        PyDual(self.0.exp2())
+    fn exp2(&self) -> Self {
+        Self(self.0.exp2())
     }
 
-    fn ln(&self) -> PyDual {
-        PyDual(self.0.ln())
+    fn ln(&self) -> Self {
+        Self(self.0.ln())
     }
 
-    fn log2(&self) -> PyDual {
-        PyDual(self.0.log2())
+    fn log2(&self) -> Self {
+        Self(self.0.log2())
     }
 
-    fn log10(&self) -> PyDual {
-        PyDual(self.0.log10())
+    fn log10(&self) -> Self {
+        Self(self.0.log10())
     }
 
-    fn sqrt(&self) -> PyDual {
-        PyDual(self.0.sqrt())
+    fn sqrt(&self) -> Self {
+        Self(self.0.sqrt())
     }
 
-    fn cbrt(&self) -> PyDual {
-        PyDual(self.0.cbrt())
+    fn cbrt(&self) -> Self {
+        Self(self.0.cbrt())
     }
 
-    fn abs(&self) -> PyDual {
-        PyDual(self.0.abs())
+    fn abs(&self) -> Self {
+        Self(self.0.abs())
     }
 
-    fn powf(&self, other: &PyDual) -> PyDual {
-        PyDual(self.0.powf(other.0))
+    fn powf(&self, other: &Self) -> Self {
+        Self(self.0.powf(other.0))
     }
 
-    fn powi(&self, n: i32) -> PyDual {
-        PyDual(self.0.powi(n))
+    fn powi(&self, n: i32) -> Self {
+        Self(self.0.powi(n))
     }
 
     // Inverse hyperbolic functions
-    fn asinh(&self) -> PyDual {
-        PyDual(self.0.asinh())
+    fn asinh(&self) -> Self {
+        Self(self.0.asinh())
     }
 
-    fn acosh(&self) -> PyDual {
-        PyDual(self.0.acosh())
+    fn acosh(&self) -> Self {
+        Self(self.0.acosh())
     }
 
-    fn atanh(&self) -> PyDual {
-        PyDual(self.0.atanh())
+    fn atanh(&self) -> Self {
+        Self(self.0.atanh())
     }
 
     // Special functions
     /// Error function
-    fn erf(&self) -> PyDual {
-        PyDual(self.0.erf())
+    fn erf(&self) -> Self {
+        Self(self.0.erf())
     }
 
     /// Complementary error function
-    fn erfc(&self) -> PyDual {
-        PyDual(self.0.erfc())
+    fn erfc(&self) -> Self {
+        Self(self.0.erfc())
     }
 
     /// Gamma function
-    fn gamma(&self) -> PyResult<PyDual> {
+    fn gamma(&self) -> PyResult<Self> {
         self.0.gamma().map(PyDual).ok_or_else(|| {
             PyErr::new::<pyo3::exceptions::PyValueError, _>(
                 "Gamma function undefined for this value",
@@ -1206,7 +1200,7 @@ impl PyDual {
     }
 
     /// Digamma function (logarithmic derivative of gamma)
-    fn digamma(&self) -> PyResult<PyDual> {
+    fn digamma(&self) -> PyResult<Self> {
         self.0.digamma().map(PyDual).ok_or_else(|| {
             PyErr::new::<pyo3::exceptions::PyValueError, _>(
                 "Digamma function undefined for this value",
@@ -1215,7 +1209,7 @@ impl PyDual {
     }
 
     /// Trigamma function
-    fn trigamma(&self) -> PyResult<PyDual> {
+    fn trigamma(&self) -> PyResult<Self> {
         self.0.trigamma().map(PyDual).ok_or_else(|| {
             PyErr::new::<pyo3::exceptions::PyValueError, _>(
                 "Trigamma function undefined for this value",
@@ -1224,7 +1218,7 @@ impl PyDual {
     }
 
     /// Polygamma function
-    fn polygamma(&self, n: i32) -> PyResult<PyDual> {
+    fn polygamma(&self, n: i32) -> PyResult<Self> {
         self.0.polygamma(n).map(PyDual).ok_or_else(|| {
             PyErr::new::<pyo3::exceptions::PyValueError, _>(
                 "Polygamma function undefined for this value",
@@ -1233,7 +1227,7 @@ impl PyDual {
     }
 
     /// Riemann zeta function
-    fn zeta(&self) -> PyResult<PyDual> {
+    fn zeta(&self) -> PyResult<Self> {
         self.0.zeta().map(PyDual).ok_or_else(|| {
             PyErr::new::<pyo3::exceptions::PyValueError, _>(
                 "Zeta function undefined for this value",
@@ -1242,7 +1236,7 @@ impl PyDual {
     }
 
     /// Lambert W function
-    fn lambert_w(&self) -> PyResult<PyDual> {
+    fn lambert_w(&self) -> PyResult<Self> {
         self.0.lambert_w().map(PyDual).ok_or_else(|| {
             PyErr::new::<pyo3::exceptions::PyValueError, _>(
                 "Lambert W function undefined for this value",
@@ -1251,7 +1245,7 @@ impl PyDual {
     }
 
     /// Bessel function of the first kind
-    fn bessel_j(&self, n: i32) -> PyResult<PyDual> {
+    fn bessel_j(&self, n: i32) -> PyResult<Self> {
         self.0.bessel_j(n).map(PyDual).ok_or_else(|| {
             PyErr::new::<pyo3::exceptions::PyValueError, _>(
                 "Bessel J function undefined for this value",
@@ -1260,17 +1254,17 @@ impl PyDual {
     }
 
     /// Sinc function: sin(x)/x
-    fn sinc(&self) -> PyDual {
-        PyDual(self.0.sinc())
+    fn sinc(&self) -> Self {
+        Self(self.0.sinc())
     }
 
     /// Sign function
-    fn sign(&self) -> PyDual {
-        PyDual(self.0.sign())
+    fn sign(&self) -> Self {
+        Self(self.0.sign())
     }
 
     /// Elliptic integral of the first kind
-    fn elliptic_k(&self) -> PyResult<PyDual> {
+    fn elliptic_k(&self) -> PyResult<Self> {
         self.0.elliptic_k().map(PyDual).ok_or_else(|| {
             PyErr::new::<pyo3::exceptions::PyValueError, _>(
                 "Elliptic K function undefined for this value",
@@ -1279,7 +1273,7 @@ impl PyDual {
     }
 
     /// Elliptic integral of the second kind
-    fn elliptic_e(&self) -> PyResult<PyDual> {
+    fn elliptic_e(&self) -> PyResult<Self> {
         self.0.elliptic_e().map(PyDual).ok_or_else(|| {
             PyErr::new::<pyo3::exceptions::PyValueError, _>(
                 "Elliptic E function undefined for this value",
@@ -1288,7 +1282,7 @@ impl PyDual {
     }
 
     /// Beta function: B(a, b) = Γ(a)Γ(b)/Γ(a+b)
-    fn beta(&self, b: &PyDual) -> PyResult<PyDual> {
+    fn beta(&self, b: &Self) -> PyResult<Self> {
         self.0.beta(b.0).map(PyDual).ok_or_else(|| {
             PyErr::new::<pyo3::exceptions::PyValueError, _>(
                 "Beta function undefined for these values",
@@ -1297,52 +1291,52 @@ impl PyDual {
     }
 
     // Additional Float trait methods
-    fn signum(&self) -> PyDual {
-        PyDual(self.0.signum())
+    fn signum(&self) -> Self {
+        Self(self.0.signum())
     }
 
-    fn floor(&self) -> PyDual {
-        PyDual(self.0.floor())
+    fn floor(&self) -> Self {
+        Self(self.0.floor())
     }
 
-    fn ceil(&self) -> PyDual {
-        PyDual(self.0.ceil())
+    fn ceil(&self) -> Self {
+        Self(self.0.ceil())
     }
 
-    fn round(&self) -> PyDual {
-        PyDual(self.0.round())
+    fn round(&self) -> Self {
+        Self(self.0.round())
     }
 
-    fn trunc(&self) -> PyDual {
-        PyDual(self.0.trunc())
+    fn trunc(&self) -> Self {
+        Self(self.0.trunc())
     }
 
-    fn fract(&self) -> PyDual {
-        PyDual(self.0.fract())
+    fn fract(&self) -> Self {
+        Self(self.0.fract())
     }
 
-    fn recip(&self) -> PyDual {
-        PyDual(self.0.recip())
+    fn recip(&self) -> Self {
+        Self(self.0.recip())
     }
 
-    fn exp_m1(&self) -> PyDual {
-        PyDual(self.0.exp_m1())
+    fn exp_m1(&self) -> Self {
+        Self(self.0.exp_m1())
     }
 
-    fn ln_1p(&self) -> PyDual {
-        PyDual(self.0.ln_1p())
+    fn ln_1p(&self) -> Self {
+        Self(self.0.ln_1p())
     }
 
-    fn hypot(&self, other: &PyDual) -> PyDual {
-        PyDual(self.0.hypot(other.0))
+    fn hypot(&self, other: &Self) -> Self {
+        Self(self.0.hypot(other.0))
     }
 
-    fn atan2(&self, other: &PyDual) -> PyDual {
-        PyDual(self.0.atan2(other.0))
+    fn atan2(&self, other: &Self) -> Self {
+        Self(self.0.atan2(other.0))
     }
 
-    fn log(&self, base: &PyDual) -> PyDual {
-        PyDual(self.0.log(base.0))
+    fn log(&self, base: &Self) -> Self {
+        Self(self.0.log(base.0))
     }
 }
 
@@ -1356,7 +1350,7 @@ struct PyDiff {
 impl PyDiff {
     #[new]
     fn new() -> Self {
-        PyDiff {
+        Self {
             inner: builder::Diff::new(),
         }
     }
@@ -1371,9 +1365,9 @@ impl PyDiff {
         var: &Bound<'_, PyAny>,
     ) -> PyResult<PyRefMut<'a, Self>> {
         if let Ok(s) = var.extract::<String>() {
-            self_.inner = self_.inner.clone().fixed_var(s);
+            self_.inner = self_.inner.clone().fixed_var(&s);
         } else if let Ok(sym) = var.extract::<PySymbol>() {
-            self_.inner = self_.inner.clone().fixed_var(sym.0);
+            self_.inner = self_.inner.clone().fixed_var(&sym.0);
         } else {
             return Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
                 "fixed_var requires a string or Symbol object.",
@@ -1388,9 +1382,9 @@ impl PyDiff {
     ) -> PyResult<PyRefMut<'a, Self>> {
         for var in vars {
             if let Ok(s) = var.extract::<String>() {
-                self_.inner = self_.inner.clone().fixed_var(s);
+                self_.inner = self_.inner.clone().fixed_var(&s);
             } else if let Ok(sym) = var.extract::<PySymbol>() {
-                self_.inner = self_.inner.clone().fixed_var(sym.0);
+                self_.inner = self_.inner.clone().fixed_var(&sym.0);
             } else {
                 return Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
                     "fixed_vars requires a list of strings or Symbol objects.",
@@ -1457,23 +1451,19 @@ impl PyDiff {
             let body_fn: BodyFn = Arc::new(move |args: &[Arc<RustExpr>]| -> RustExpr {
                 Python::attach(|py| {
                     let py_args: Vec<PyExpr> = args.iter().map(|a| PyExpr((**a).clone())).collect();
-                    let py_list = match py_args.into_pyobject(py) {
-                        Ok(list) => list,
-                        Err(_) => return RustExpr::number(0.0),
+                    let Ok(py_list) = py_args.into_pyobject(py) else {
+                        return RustExpr::number(0.0);
                     };
 
                     let result = callback.call1(py, (py_list,));
 
-                    match result {
-                        Ok(res) => {
-                            if let Ok(py_expr) = res.extract::<PyExpr>(py) {
-                                py_expr.0
-                            } else {
-                                RustExpr::number(0.0)
-                            }
-                        }
-                        Err(_) => RustExpr::number(0.0),
-                    }
+                    result.map_or_else(
+                        |_| RustExpr::number(0.0),
+                        |res| {
+                            res.extract::<PyExpr>(py)
+                                .map_or_else(|_| RustExpr::number(0.0), |py_expr| py_expr.0)
+                        },
+                    )
                 })
             });
             user_fn = user_fn.body_arc(body_fn);
@@ -1487,28 +1477,24 @@ impl PyDiff {
                         Python::attach(|py| {
                             let py_args: Vec<PyExpr> =
                                 args.iter().map(|a| PyExpr((**a).clone())).collect();
-                            let py_list = match py_args.into_pyobject(py) {
-                                Ok(list) => list,
-                                Err(_) => return RustExpr::number(0.0),
+                            let Ok(py_list) = py_args.into_pyobject(py) else {
+                                return RustExpr::number(0.0);
                             };
 
                             let result = callback.call1(py, (py_list,));
 
-                            match result {
-                                Ok(res) => {
-                                    if let Ok(py_expr) = res.extract::<PyExpr>(py) {
-                                        py_expr.0
-                                    } else {
-                                        RustExpr::number(0.0)
-                                    }
-                                }
-                                Err(_) => RustExpr::number(0.0),
-                            }
+                            result.map_or_else(
+                                |_| RustExpr::number(0.0),
+                                |res| {
+                                    res.extract::<PyExpr>(py)
+                                        .map_or_else(|_| RustExpr::number(0.0), |py_expr| py_expr.0)
+                                },
+                            )
                         })
                     });
 
                 user_fn = user_fn.partial_arc(i, partial_fn).map_err(|e| {
-                    PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e))
+                    PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{e:?}"))
                 })?;
             }
         }
@@ -1520,7 +1506,7 @@ impl PyDiff {
     fn diff_str(&self, formula: &str, var: &str) -> PyResult<String> {
         self.inner
             .diff_str(formula, var, &[])
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e)))
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{e:?}")))
     }
 
     fn differentiate(&self, expr: &Bound<'_, PyAny>, var: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
@@ -1538,7 +1524,7 @@ impl PyDiff {
         self.inner
             .differentiate(&rust_expr, &sym)
             .map(PyExpr)
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e)))
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{e:?}")))
     }
 }
 
@@ -1552,7 +1538,7 @@ struct PySimplify {
 impl PySimplify {
     #[new]
     fn new() -> Self {
-        PySimplify {
+        Self {
             inner: builder::Simplify::new(),
         }
     }
@@ -1567,9 +1553,9 @@ impl PySimplify {
         var: &Bound<'_, PyAny>,
     ) -> PyResult<PyRefMut<'a, Self>> {
         if let Ok(s) = var.extract::<String>() {
-            self_.inner = self_.inner.clone().fixed_var(s);
+            self_.inner = self_.inner.clone().fixed_var(&s);
         } else if let Ok(sym) = var.extract::<PySymbol>() {
-            self_.inner = self_.inner.clone().fixed_var(sym.0);
+            self_.inner = self_.inner.clone().fixed_var(&sym.0);
         } else {
             return Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
                 "fixed_var requires a string or Symbol object.",
@@ -1584,9 +1570,9 @@ impl PySimplify {
     ) -> PyResult<PyRefMut<'a, Self>> {
         for var in vars {
             if let Ok(s) = var.extract::<String>() {
-                self_.inner = self_.inner.clone().fixed_var(s);
+                self_.inner = self_.inner.clone().fixed_var(&s);
             } else if let Ok(sym) = var.extract::<PySymbol>() {
-                self_.inner = self_.inner.clone().fixed_var(sym.0);
+                self_.inner = self_.inner.clone().fixed_var(&sym.0);
             } else {
                 return Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
                     "fixed_vars requires a list of strings or Symbol objects.",
@@ -1619,13 +1605,13 @@ impl PySimplify {
         self.inner
             .simplify(&rust_expr)
             .map(PyExpr)
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e)))
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{e:?}")))
     }
 
     fn simplify_str(&self, formula: &str) -> PyResult<String> {
         self.inner
             .simplify_str(formula, &[])
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e)))
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{e:?}")))
     }
 }
 
@@ -1634,13 +1620,15 @@ impl PySimplify {
 /// Args:
 ///     formula: Mathematical expression string to differentiate
 ///     var: Variable to differentiate with respect to
-///     known_symbols: Optional list of multi-character symbols
-///     custom_functions: Optional list of user-defined function names
+///     `known_symbols`: Optional list of multi-character symbols
+///     `custom_functions`: Optional list of user-defined function names
 ///
 /// Returns:
 ///     The derivative as a string
 ///
-/// For Expr input, use Diff().differentiate() instead.
+/// For Expr input, use `Diff().differentiate()` instead.
+// PyO3 requires owned types for Python function arguments
+#[allow(clippy::needless_pass_by_value)]
 #[pyfunction]
 #[pyo3(signature = (formula, var, known_symbols=None, custom_functions=None))]
 fn diff(
@@ -1651,27 +1639,29 @@ fn diff(
 ) -> PyResult<String> {
     let known_strs: Vec<&str> = known_symbols
         .as_ref()
-        .map(|v| v.iter().map(|s| s.as_str()).collect())
+        .map(|v| v.iter().map(std::string::String::as_str).collect())
         .unwrap_or_default();
     let custom_strs: Option<Vec<&str>> = custom_functions
         .as_ref()
-        .map(|v| v.iter().map(|s| s.as_str()).collect());
+        .map(|v| v.iter().map(std::string::String::as_str).collect());
 
     crate::diff(formula, var, &known_strs, custom_strs.as_deref())
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e)))
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{e:?}")))
 }
 
 /// Simplify a mathematical expression string.
 ///
 /// Args:
 ///     formula: Mathematical expression string to simplify
-///     known_symbols: Optional list of multi-character symbols
-///     custom_functions: Optional list of user-defined function names
+///     `known_symbols`: Optional list of multi-character symbols
+///     `custom_functions`: Optional list of user-defined function names
 ///
 /// Returns:
 ///     The simplified expression as a string
 ///
-/// For Expr input, use Simplify().simplify() instead.
+/// For Expr input, use `Simplify().simplify()` instead.
+// PyO3 requires owned types for Python function arguments
+#[allow(clippy::needless_pass_by_value)]
 #[pyfunction]
 #[pyo3(signature = (formula, known_symbols=None, custom_functions=None))]
 fn simplify(
@@ -1681,14 +1671,14 @@ fn simplify(
 ) -> PyResult<String> {
     let known_strs: Vec<&str> = known_symbols
         .as_ref()
-        .map(|v| v.iter().map(|s| s.as_str()).collect())
+        .map(|v| v.iter().map(std::string::String::as_str).collect())
         .unwrap_or_default();
     let custom_strs: Option<Vec<&str>> = custom_functions
         .as_ref()
-        .map(|v| v.iter().map(|s| s.as_str()).collect());
+        .map(|v| v.iter().map(std::string::String::as_str).collect());
 
     crate::simplify(formula, &known_strs, custom_strs.as_deref())
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e)))
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{e:?}")))
 }
 
 /// Parse a mathematical expression and return the expression object.
@@ -1708,7 +1698,7 @@ fn parse(
 
     crate::parser::parse(formula, &known, &custom, None)
         .map(PyExpr)
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e)))
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{e:?}")))
 }
 
 /// Compute the gradient of a scalar Expr.
@@ -1720,14 +1710,16 @@ fn parse(
 /// Returns:
 ///     List of partial derivative Expr objects [∂f/∂x₁, ∂f/∂x₂, ...]
 ///
-/// For string input, use gradient_str() instead.
+/// For string input, use `gradient_str()` instead.
+// PyO3 requires owned types for Python function arguments
+#[allow(clippy::needless_pass_by_value)]
 #[pyfunction]
 fn gradient(expr: PyExpr, vars: Vec<String>) -> PyResult<Vec<PyExpr>> {
     let symbols: Vec<RustSymbol> = vars.iter().map(|s| crate::symb(s)).collect();
     let sym_refs: Vec<&RustSymbol> = symbols.iter().collect();
 
     let res = crate::gradient(&expr.0, &sym_refs)
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e)))?;
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{e:?}")))?;
     Ok(res.into_iter().map(PyExpr).collect())
 }
 
@@ -1739,11 +1731,13 @@ fn gradient(expr: PyExpr, vars: Vec<String>) -> PyResult<Vec<PyExpr>> {
 ///
 /// Returns:
 ///     List of partial derivative strings [∂f/∂x₁, ∂f/∂x₂, ...]
+// PyO3 requires owned types for Python function arguments
+#[allow(clippy::needless_pass_by_value)]
 #[pyfunction]
 fn gradient_str(formula: &str, vars: Vec<String>) -> PyResult<Vec<String>> {
-    let var_strs: Vec<&str> = vars.iter().map(|s| s.as_str()).collect();
+    let var_strs: Vec<&str> = vars.iter().map(std::string::String::as_str).collect();
     crate::gradient_str(formula, &var_strs)
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e)))
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{e:?}")))
 }
 
 /// Compute the Hessian matrix of a scalar Expr.
@@ -1755,14 +1749,16 @@ fn gradient_str(formula: &str, vars: Vec<String>) -> PyResult<Vec<String>> {
 /// Returns:
 ///     2D list of second partial derivative Expr objects
 ///
-/// For string input, use hessian_str() instead.
+/// For string input, use `hessian_str()` instead.
+// PyO3 requires owned types for Python function arguments
+#[allow(clippy::needless_pass_by_value)]
 #[pyfunction]
 fn hessian(expr: PyExpr, vars: Vec<String>) -> PyResult<Vec<Vec<PyExpr>>> {
     let symbols: Vec<RustSymbol> = vars.iter().map(|s| crate::symb(s)).collect();
     let sym_refs: Vec<&RustSymbol> = symbols.iter().collect();
 
     let res = crate::hessian(&expr.0, &sym_refs)
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e)))?;
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{e:?}")))?;
     Ok(res
         .into_iter()
         .map(|row| row.into_iter().map(PyExpr).collect())
@@ -1777,11 +1773,13 @@ fn hessian(expr: PyExpr, vars: Vec<String>) -> PyResult<Vec<Vec<PyExpr>>> {
 ///
 /// Returns:
 ///     2D list of second partial derivative strings
+// PyO3 requires owned types for Python function arguments
+#[allow(clippy::needless_pass_by_value)]
 #[pyfunction]
 fn hessian_str(formula: &str, vars: Vec<String>) -> PyResult<Vec<Vec<String>>> {
-    let var_strs: Vec<&str> = vars.iter().map(|s| s.as_str()).collect();
+    let var_strs: Vec<&str> = vars.iter().map(std::string::String::as_str).collect();
     crate::hessian_str(formula, &var_strs)
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e)))
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{e:?}")))
 }
 
 /// Compute the Jacobian matrix of a vector of Expr objects.
@@ -1793,7 +1791,9 @@ fn hessian_str(formula: &str, vars: Vec<String>) -> PyResult<Vec<Vec<String>>> {
 /// Returns:
 ///     2D list where J[i][j] = ∂fᵢ/∂xⱼ as Expr objects
 ///
-/// For string input, use jacobian_str() instead.
+/// For string input, use `jacobian_str()` instead.
+// PyO3 requires owned types for Python function arguments
+#[allow(clippy::needless_pass_by_value)]
 #[pyfunction]
 fn jacobian(exprs: Vec<PyExpr>, vars: Vec<String>) -> PyResult<Vec<Vec<PyExpr>>> {
     let rust_exprs: Vec<RustExpr> = exprs.into_iter().map(|e| e.0).collect();
@@ -1801,7 +1801,7 @@ fn jacobian(exprs: Vec<PyExpr>, vars: Vec<String>) -> PyResult<Vec<Vec<PyExpr>>>
     let sym_refs: Vec<&RustSymbol> = symbols.iter().collect();
 
     let res = crate::jacobian(&rust_exprs, &sym_refs)
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e)))?;
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{e:?}")))?;
     Ok(res
         .into_iter()
         .map(|row| row.into_iter().map(PyExpr).collect())
@@ -1816,12 +1816,14 @@ fn jacobian(exprs: Vec<PyExpr>, vars: Vec<String>) -> PyResult<Vec<Vec<PyExpr>>>
 ///
 /// Returns:
 ///     2D list where J[i][j] = ∂fᵢ/∂xⱼ as strings
+// PyO3 requires owned types for Python function arguments
+#[allow(clippy::needless_pass_by_value)]
 #[pyfunction]
 fn jacobian_str(formulas: Vec<String>, vars: Vec<String>) -> PyResult<Vec<Vec<String>>> {
-    let f_strs: Vec<&str> = formulas.iter().map(|s| s.as_str()).collect();
-    let var_strs: Vec<&str> = vars.iter().map(|s| s.as_str()).collect();
+    let f_strs: Vec<&str> = formulas.iter().map(std::string::String::as_str).collect();
+    let var_strs: Vec<&str> = vars.iter().map(std::string::String::as_str).collect();
     crate::jacobian_str(&f_strs, &var_strs)
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e)))
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{e:?}")))
 }
 
 /// Evaluate an Expr with given variable values.
@@ -1833,7 +1835,9 @@ fn jacobian_str(formulas: Vec<String>, vars: Vec<String>) -> PyResult<Vec<Vec<St
 /// Returns:
 ///     Evaluated Expr (may be numeric or symbolic if variables remain)
 ///
-/// For string input, use evaluate_str() instead.
+/// For string input, use `evaluate_str()` instead.
+// PyO3 requires owned types for Python function arguments
+#[allow(clippy::needless_pass_by_value)]
 #[pyfunction]
 fn evaluate(expr: PyExpr, vars: Vec<(String, f64)>) -> PyExpr {
     let var_map: HashMap<&str, f64> = vars.iter().map(|(k, v)| (k.as_str(), *v)).collect();
@@ -1850,11 +1854,13 @@ fn evaluate(expr: PyExpr, vars: Vec<(String, f64)>) -> PyExpr {
 ///
 /// Returns:
 ///     Evaluated expression as string
+// PyO3 requires owned types for Python function arguments
+#[allow(clippy::needless_pass_by_value)]
 #[pyfunction]
 fn evaluate_str(formula: &str, vars: Vec<(String, f64)>) -> PyResult<String> {
     let var_tuples: Vec<(&str, f64)> = vars.iter().map(|(k, v)| (k.as_str(), *v)).collect();
     crate::evaluate_str(formula, &var_tuples)
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e)))
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{e:?}")))
 }
 
 /// Compute uncertainty propagation for an expression.
@@ -1863,16 +1869,18 @@ fn evaluate_str(formula: &str, vars: Vec<(String, f64)>) -> PyResult<String> {
 ///     formula: Expression string or Expr object
 ///     variables: List of variable names to propagate uncertainty for
 ///     variances: Optional list of variance values (σ²) for each variable.
-///                If None, uses symbolic variances σ_x², σ_y², etc.
+///                If None, uses symbolic variances `σ_x²`, `σ_y²`, etc.
 ///
 /// Returns:
-///     String representation of the uncertainty expression σ_f
+///     String representation of the uncertainty expression `σ_f`
 ///
 /// Example:
-///     >>> uncertainty_propagation("x + y", ["x", "y"])
-///     "sqrt(sigma_x^2 + sigma_y^2)"
-///     >>> uncertainty_propagation("x * y", ["x", "y"], [0.01, 0.04])
+///     >>> `uncertainty_propagation("x` + y", ["x", "y"])
+///     "`sqrt(sigma_x^2` + `sigma_y^2`)"
+///     >>> `uncertainty_propagation("x` * y", ["x", "y"], [0.01, 0.04])
 ///     "sqrt(0.04*x^2 + 0.01*y^2)"
+// PyO3 requires owned types for Python function arguments
+#[allow(clippy::needless_pass_by_value)]
 #[pyfunction]
 #[pyo3(name = "uncertainty_propagation", signature = (formula, variables, variances=None))]
 fn uncertainty_propagation_py(
@@ -1883,23 +1891,23 @@ fn uncertainty_propagation_py(
     // 1. Get the Expr (either parsed from string or extracted directly)
     let expr = if let Ok(s) = formula.extract::<String>() {
         crate::parser::parse(&s, &HashSet::new(), &HashSet::new(), None)
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e)))?
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{e:?}")))?
     } else if let Ok(e) = formula.extract::<PyExpr>() {
-        e.0.clone()
+        e.0
     } else {
         return Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
             "Argument `formula` must be str or Expr",
         ));
     };
 
-    let var_strs: Vec<&str> = variables.iter().map(|s| s.as_str()).collect();
+    let var_strs: Vec<&str> = variables.iter().map(std::string::String::as_str).collect();
 
     let cov = variances
         .map(|vars| CovarianceMatrix::diagonal(vars.into_iter().map(CovEntry::Num).collect()));
 
     crate::uncertainty_propagation(&expr, &var_strs, cov.as_ref())
         .map(|e| e.to_string())
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e)))
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{e:?}")))
 }
 
 /// Compute relative uncertainty for an expression.
@@ -1910,7 +1918,9 @@ fn uncertainty_propagation_py(
 ///     variances: Optional list of variance values (σ²) for each variable
 ///
 /// Returns:
-///     String representation of σ_f / |f|
+///     String representation of `σ_f` / |f|
+// PyO3 requires owned types for Python function arguments
+#[allow(clippy::needless_pass_by_value)]
 #[pyfunction]
 #[pyo3(name = "relative_uncertainty", signature = (formula, variables, variances=None))]
 fn relative_uncertainty_py(
@@ -1921,23 +1931,23 @@ fn relative_uncertainty_py(
     // 1. Get the Expr
     let expr = if let Ok(s) = formula.extract::<String>() {
         crate::parser::parse(&s, &HashSet::new(), &HashSet::new(), None)
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e)))?
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{e:?}")))?
     } else if let Ok(e) = formula.extract::<PyExpr>() {
-        e.0.clone()
+        e.0
     } else {
         return Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
             "Argument `formula` must be str or Expr",
         ));
     };
 
-    let var_strs: Vec<&str> = variables.iter().map(|s| s.as_str()).collect();
+    let var_strs: Vec<&str> = variables.iter().map(std::string::String::as_str).collect();
 
     let cov = variances
         .map(|vars| CovarianceMatrix::diagonal(vars.into_iter().map(CovEntry::Num).collect()));
 
     crate::relative_uncertainty(&expr, &var_strs, cov.as_ref())
         .map(|e| e.to_string())
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e)))
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{e:?}")))
 }
 
 /// Parallel evaluation of multiple expressions at multiple points.
@@ -1946,7 +1956,7 @@ fn relative_uncertainty_py(
 ///     expressions: List of expression strings OR Expr objects
 ///     variables: List of variable name lists, one per expression
 ///     values: 3D list/array of values: [expr_idx][var_idx][point_idx]
-///             Accepts Python lists or NumPy arrays (f64)
+///             Accepts Python lists or `NumPy` arrays (f64)
 ///             Use None for a value to keep it symbolic (SKIP)
 ///
 /// Returns:
@@ -1955,9 +1965,9 @@ fn relative_uncertainty_py(
 ///     - If input was Expr: returns float (numeric) or Expr (symbolic)
 ///
 /// Example:
-///     >>> evaluate_parallel(
-///     ...     ["x^2", "x + y"],
-///     ...     [["x"], ["x", "y"]],
+///     >>> `evaluate_parallel`(
+///     ...     `["x^2", "x + y"]`,
+///     ...     `[["x"], ["x", "y"]]`,
 ///     ...     [[[1.0, 2.0, 3.0]], [[1.0, 2.0], [3.0, 4.0]]]
 ///     ... )
 ///     [[1.0, 4.0, 9.0], [4.0, 6.0]]
@@ -2004,7 +2014,7 @@ fn evaluate_parallel_py(
     let mut is_fully_numeric: Vec<bool> = Vec::with_capacity(values.len());
 
     // Convert values - supports both lists and NumPy arrays
-    let vals: Vec<Vec<Vec<Value>>> = values
+    let converted_values: Vec<Vec<Vec<Value>>> = values
         .into_iter()
         .map(|expr_vals| {
             let mut expr_is_numeric = true;
@@ -2021,9 +2031,12 @@ fn evaluate_parallel_py(
                     if let Ok(list) = var_vals.extract::<Vec<Option<f64>>>() {
                         return list
                             .into_iter()
-                            .map(|v| match v {
-                                Some(n) => Value::Num(n),
-                                None => {
+                            .map(|v| {
+                                // Side-effect in else branch makes map_or_else unsuitable
+                                #[allow(clippy::option_if_let_else)]
+                                if let Some(n) = v {
+                                    Value::Num(n)
+                                } else {
                                     expr_is_numeric = false;
                                     Value::Skip
                                 }
@@ -2045,7 +2058,7 @@ fn evaluate_parallel_py(
         .collect();
 
     // Use the hint-based version to skip double-scan
-    parallel::evaluate_parallel_with_hint(exprs, vars, vals, Some(is_fully_numeric))
+    parallel::evaluate_parallel_with_hint(exprs, vars, converted_values, Some(is_fully_numeric))
         .map(|results| {
             results
                 .into_iter()
@@ -2055,7 +2068,8 @@ fn evaluate_parallel_py(
                         .into_iter()
                         .map(|r| match r {
                             parallel::EvalResult::String(s) => {
-                                // Input was string
+                                // Input was string; Result::map_or_else is better than this pattern
+                                #[allow(clippy::option_if_let_else)]
                                 if let Ok(n) = s.parse::<f64>() {
                                     // Numeric result → float
                                     n.into_pyobject(py).unwrap().into_any().unbind()
@@ -2081,7 +2095,7 @@ fn evaluate_parallel_py(
                 })
                 .collect()
         })
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e)))
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{e:?}")))
 }
 
 // ============================================================================
@@ -2097,7 +2111,7 @@ struct PySymbol(RustSymbol);
 impl PySymbol {
     #[new]
     fn new(name: &str) -> Self {
-        PySymbol(symb(name))
+        Self(symb(name))
     }
 
     fn __str__(&self) -> String {
@@ -2109,13 +2123,15 @@ impl PySymbol {
     }
 
     fn __eq__(&self, other: &Bound<'_, PyAny>) -> bool {
-        if let Ok(other_sym) = other.extract::<PySymbol>() {
+        if let Ok(other_sym) = other.extract::<Self>() {
             return self.0 == other_sym.0;
         }
         false
     }
 
-    fn __hash__(&self) -> isize {
+    // u64->isize: Python __hash__ requires isize, wrap is expected
+    #[allow(clippy::cast_possible_wrap)]
+    const fn __hash__(&self) -> isize {
         self.0.id() as isize
     }
 
@@ -2125,7 +2141,7 @@ impl PySymbol {
     }
 
     /// Get the symbol's unique ID
-    fn id(&self) -> u64 {
+    const fn id(&self) -> u64 {
         self.0.id()
     }
 
@@ -2376,25 +2392,25 @@ impl PySymbol {
         Ok(PyExpr(self.0.beta(other_expr)))
     }
 
-    /// Bessel function of the first kind: J_n(x)
+    /// Bessel function of the first kind: `J_n(x)`
     fn besselj(&self, n: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
         let n_expr = extract_to_expr(n)?;
         Ok(PyExpr(self.0.besselj(n_expr)))
     }
 
-    /// Bessel function of the second kind: Y_n(x)
+    /// Bessel function of the second kind: `Y_n(x)`
     fn bessely(&self, n: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
         let n_expr = extract_to_expr(n)?;
         Ok(PyExpr(self.0.bessely(n_expr)))
     }
 
-    /// Modified Bessel function of the first kind: I_n(x)
+    /// Modified Bessel function of the first kind: `I_n(x)`
     fn besseli(&self, n: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
         let n_expr = extract_to_expr(n)?;
         Ok(PyExpr(self.0.besseli(n_expr)))
     }
 
-    /// Modified Bessel function of the second kind: K_n(x)
+    /// Modified Bessel function of the second kind: `K_n(x)`
     fn besselk(&self, n: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
         let n_expr = extract_to_expr(n)?;
         Ok(PyExpr(self.0.besselk(n_expr)))
@@ -2409,7 +2425,7 @@ impl PySymbol {
         )))
     }
 
-    /// Hermite polynomial H_n(self)
+    /// Hermite polynomial `H_n(self)`
     fn hermite(&self, n: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
         let n_expr = extract_to_expr(n)?;
         Ok(PyExpr(RustExpr::func_multi(
@@ -2418,7 +2434,7 @@ impl PySymbol {
         )))
     }
 
-    /// Associated Legendre polynomial P_l^m(self)
+    /// Associated Legendre polynomial `P_l^m(self)`
     fn assoc_legendre(&self, l: &Bound<'_, PyAny>, m: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
         let l_expr = extract_to_expr(l)?;
         let m_expr = extract_to_expr(m)?;
@@ -2428,7 +2444,7 @@ impl PySymbol {
         )))
     }
 
-    /// Spherical harmonic Y_l^m(theta, phi) where self is theta
+    /// Spherical harmonic `Y_l^m(theta`, phi) where self is theta
     fn spherical_harmonic(
         &self,
         l: &Bound<'_, PyAny>,
@@ -2444,7 +2460,7 @@ impl PySymbol {
         )))
     }
 
-    /// Alternative spherical harmonic notation Y_l^m(theta, phi)
+    /// Alternative spherical harmonic notation `Y_l^m(theta`, phi)
     fn ynm(
         &self,
         l: &Bound<'_, PyAny>,
@@ -2483,7 +2499,7 @@ fn py_symb(name: &str) -> PySymbol {
 fn py_symb_new(name: &str) -> PyResult<PySymbol> {
     symb_new(name)
         .map(PySymbol)
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e)))
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{e:?}")))
 }
 
 /// Get an existing symbol (fails if not found)
@@ -2492,7 +2508,7 @@ fn py_symb_new(name: &str) -> PyResult<PySymbol> {
 fn py_symb_get(name: &str) -> PyResult<PySymbol> {
     symb_get(name)
         .map(PySymbol)
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e)))
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{e:?}")))
 }
 
 /// Check if a symbol exists
@@ -2527,7 +2543,7 @@ fn py_remove_symbol(name: &str) -> bool {
 #[pyfunction]
 #[pyo3(name = "clear_symbols")]
 fn py_clear_symbols() {
-    clear_symbols()
+    clear_symbols();
 }
 
 // ============================================================================
@@ -2543,6 +2559,8 @@ struct PyCompiledEvaluator {
 #[pymethods]
 impl PyCompiledEvaluator {
     /// Compile an expression with specified parameter order and optional context.
+    // PyO3 requires owned types; if-let pattern clearer than map_or_else here
+    #[allow(clippy::needless_pass_by_value, clippy::option_if_let_else)]
     #[new]
     #[pyo3(signature = (expr, params=None, context=None))]
     fn new(
@@ -2554,29 +2572,33 @@ impl PyCompiledEvaluator {
         let rust_context = context.map(|c| &c.inner);
 
         let evaluator = if let Some(p) = &params {
-            param_refs = p.iter().map(|s| s.as_str()).collect();
+            param_refs = p.iter().map(std::string::String::as_str).collect();
             CompiledEvaluator::compile(&expr.0, &param_refs, rust_context)
         } else {
             CompiledEvaluator::compile_auto(&expr.0, rust_context)
         };
 
         evaluator
-            .map(|e| PyCompiledEvaluator { evaluator: e })
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e)))
+            .map(|e| Self { evaluator: e })
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{e:?}")))
     }
 
     /// Evaluate at a single point
-    /// Evaluate at a single point (Zero-Copy NumPy or List)
-    fn evaluate<'py>(&self, input: Bound<'py, PyAny>) -> PyResult<f64> {
+    /// Evaluate at a single point (Zero-Copy `NumPy` or List)
+    // PyO3 requires Bound<'_, PyAny> by value for flexible input types
+    #[allow(clippy::needless_pass_by_value)]
+    fn evaluate(&self, input: Bound<'_, PyAny>) -> PyResult<f64> {
         let data = extract_data_input(&input)?;
         let slice = data.as_slice()?;
         Ok(self.evaluator.evaluate(slice))
     }
 
     /// Batch evaluate at multiple points (columnar data)
-    /// columns[var_idx][point_idx] -> f64
+    /// columns[`var_idx`][point_idx] -> f64
     ///
-    /// Accepts NumPy arrays (Zero-Copy) or Python Lists (fallback).
+    /// Accepts `NumPy` arrays (Zero-Copy) or Python Lists (fallback).
+    // PyO3 requires owned Vec for Python list arguments
+    #[allow(clippy::needless_pass_by_value)]
     fn eval_batch<'py>(
         &self,
         py: Python<'py>,
@@ -2605,7 +2627,7 @@ impl PyCompiledEvaluator {
         let mut output = vec![0.0; n_points];
         self.evaluator
             .eval_batch(&col_refs, &mut output, None)
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e)))?;
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{e:?}")))?;
 
         if use_numpy {
             // Return NumPy array (this copies the result, but input was zero-copy)
@@ -2632,7 +2654,7 @@ impl PyCompiledEvaluator {
     }
 
     /// Get required stack size
-    fn stack_size(&self) -> usize {
+    const fn stack_size(&self) -> usize {
         self.evaluator.stack_size()
     }
 }
@@ -2644,7 +2666,7 @@ impl PyCompiledEvaluator {
 /// Custom function context for tracking custom function names.
 ///
 /// This tracks custom function names for parsing. For full custom function
-/// support with evaluation and derivatives, use the Diff.custom_derivative API.
+/// support with evaluation and derivatives, use the `Diff.custom_derivative` API.
 #[pyclass(unsendable, name = "FunctionContext")]
 struct PyFunctionContext {
     /// Set of registered custom function names
@@ -2655,14 +2677,14 @@ struct PyFunctionContext {
 impl PyFunctionContext {
     #[new]
     fn new() -> Self {
-        PyFunctionContext {
+        Self {
             functions: std::collections::HashSet::new(),
         }
     }
 
     /// Register a custom function name (for parsing support).
     ///
-    /// For actual evaluation/differentiation, use Diff.custom_derivative().
+    /// For actual evaluation/differentiation, use `Diff.custom_derivative()`.
     ///
     /// Args:
     ///     name: Function name to register
@@ -2692,7 +2714,7 @@ impl PyFunctionContext {
 
     /// Clear all functions
     fn clear(&mut self) {
-        self.functions.clear()
+        self.functions.clear();
     }
 }
 
@@ -2702,7 +2724,7 @@ impl PyFunctionContext {
 /// Use this to create isolated environments for symbols and functions.
 ///
 /// Example:
-///     ctx = Context()
+///     ctx = `Context()`
 ///     x = ctx.symb("x")  # Creates 'x' in this context only
 #[pyclass(unsendable, name = "Context")]
 struct PyContext {
@@ -2714,7 +2736,7 @@ impl PyContext {
     /// Create a new empty context
     #[new]
     fn new() -> Self {
-        PyContext {
+        Self {
             inner: RustContext::new(),
         }
     }
@@ -2728,8 +2750,7 @@ impl PyContext {
     fn symb_new(&self, name: &str) -> PyResult<PySymbol> {
         if self.inner.contains_symbol(name) {
             Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                "Symbol '{}' already exists in this context",
-                name
+                "Symbol '{name}' already exists in this context"
             )))
         } else {
             Ok(PySymbol(self.inner.symb(name)))
@@ -2762,7 +2783,7 @@ impl PyContext {
     }
 
     /// Get the context's unique ID
-    fn id(&self) -> u64 {
+    const fn id(&self) -> u64 {
         self.inner.id()
     }
 
@@ -2773,10 +2794,12 @@ impl PyContext {
 
     /// Clear all symbols and functions from the context
     fn clear_all(&mut self) {
-        self.inner.clear_all()
+        self.inner.clear_all();
     }
 
     /// Register a user function with optional body and partial derivatives.
+    // PyO3 requires owned String for name parameter
+    #[allow(clippy::needless_pass_by_value)]
     #[pyo3(signature = (name, arity, body_callback=None, partials=None))]
     fn with_function(
         mut self_: PyRefMut<'_, Self>,
@@ -2795,23 +2818,19 @@ impl PyContext {
             let body_fn: BodyFn = Arc::new(move |args: &[Arc<RustExpr>]| -> RustExpr {
                 Python::attach(|py| {
                     let py_args: Vec<PyExpr> = args.iter().map(|a| PyExpr((**a).clone())).collect();
-                    let py_list = match py_args.into_pyobject(py) {
-                        Ok(list) => list,
-                        Err(_) => return RustExpr::number(0.0),
+                    let Ok(py_list) = py_args.into_pyobject(py) else {
+                        return RustExpr::number(0.0);
                     };
 
                     let result = callback.call1(py, (py_list,));
 
-                    match result {
-                        Ok(res) => {
-                            if let Ok(py_expr) = res.extract::<PyExpr>(py) {
-                                py_expr.0
-                            } else {
-                                RustExpr::number(0.0)
-                            }
-                        }
-                        Err(_) => RustExpr::number(0.0),
-                    }
+                    result.map_or_else(
+                        |_| RustExpr::number(0.0),
+                        |res| {
+                            res.extract::<PyExpr>(py)
+                                .map_or_else(|_| RustExpr::number(0.0), |py_expr| py_expr.0)
+                        },
+                    )
                 })
             });
             user_fn = user_fn.body_arc(body_fn);
@@ -2825,28 +2844,24 @@ impl PyContext {
                         Python::attach(|py| {
                             let py_args: Vec<PyExpr> =
                                 args.iter().map(|a| PyExpr((**a).clone())).collect();
-                            let py_list = match py_args.into_pyobject(py) {
-                                Ok(list) => list,
-                                Err(_) => return RustExpr::number(0.0),
+                            let Ok(py_list) = py_args.into_pyobject(py) else {
+                                return RustExpr::number(0.0);
                             };
 
                             let result = callback.call1(py, (py_list,));
 
-                            match result {
-                                Ok(res) => {
-                                    if let Ok(py_expr) = res.extract::<PyExpr>(py) {
-                                        py_expr.0
-                                    } else {
-                                        RustExpr::number(0.0)
-                                    }
-                                }
-                                Err(_) => RustExpr::number(0.0),
-                            }
+                            result.map_or_else(
+                                |_| RustExpr::number(0.0),
+                                |res| {
+                                    res.extract::<PyExpr>(py)
+                                        .map_or_else(|_| RustExpr::number(0.0), |py_expr| py_expr.0)
+                                },
+                            )
                         })
                     });
 
                 user_fn = user_fn.partial_arc(i, partial_fn).map_err(|e| {
-                    PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e))
+                    PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{e:?}"))
                 })?;
             }
         }
@@ -2909,12 +2924,14 @@ fn collect_variables(expr: &PyExpr) -> std::collections::HashSet<String> {
 ///
 /// Args:
 ///     expressions: List of Expr objects
-///     var_names: List of variable name lists, one per expression
+///     `var_names`: List of variable name lists, one per expression
 ///     data: 3D list of values: data[expr_idx][var_idx] = [values...]
 ///
 /// Returns:
 ///     2D list of results: result[expr_idx][point_idx]
 #[cfg(feature = "parallel")]
+// PyO3 requires owned Vec for Python list arguments
+#[allow(clippy::needless_pass_by_value)]
 #[pyfunction]
 #[pyo3(name = "eval_f64")]
 fn eval_f64_py<'py>(
@@ -2928,9 +2945,9 @@ fn eval_f64_py<'py>(
     // Convert var_names to the required format
     let var_refs: Vec<Vec<&str>> = var_names
         .iter()
-        .map(|vs| vs.iter().map(|s| s.as_str()).collect())
+        .map(|vs| vs.iter().map(std::string::String::as_str).collect())
         .collect();
-    let var_slice_refs: Vec<&[&str]> = var_refs.iter().map(|v| v.as_slice()).collect();
+    let var_slice_refs: Vec<&[&str]> = var_refs.iter().map(std::vec::Vec::as_slice).collect();
 
     // Convert data to the required format (Zero-Copy or List)
     // We need to keep DataInput alive to hold the borrows/ownership
@@ -2959,10 +2976,10 @@ fn eval_f64_py<'py>(
                 .collect::<PyResult<Vec<_>>>()
         })
         .collect::<PyResult<Vec<_>>>()?;
-    let data_slice_refs: Vec<&[&[f64]]> = data_refs.iter().map(|d| d.as_slice()).collect();
+    let data_slice_refs: Vec<&[&[f64]]> = data_refs.iter().map(std::vec::Vec::as_slice).collect();
 
     let results = rust_eval_f64(&expr_refs, &var_slice_refs, &data_slice_refs)
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{:?}", e)))?;
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{e:?}")))?;
 
     if use_numpy {
         // Convert Vec<Vec<f64>> to 2D NumPy array
@@ -2984,8 +3001,7 @@ fn eval_f64_py<'py>(
             .reshape([n_exprs, n_points])
             .map_err(|e| {
                 PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                    "Failed to reshape output: {:?}",
-                    e
+                    "Failed to reshape output: {e:?}"
                 ))
             })?;
 

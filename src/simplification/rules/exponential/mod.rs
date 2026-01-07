@@ -329,7 +329,7 @@ rule_with_helpers!(LogCombinationRule, "log_combination", 85, Exponential, &[Exp
 );
 
 /// Get all exponential/logarithmic rules in priority order
-pub(crate) fn get_exponential_rules() -> Vec<Arc<dyn Rule + Send + Sync>> {
+pub fn get_exponential_rules() -> Vec<Arc<dyn Rule + Send + Sync>> {
     vec![
         Arc::new(LnOneRule),
         Arc::new(LnERule),

@@ -1,9 +1,9 @@
-/// API Showcase: Complete SymbAnaFis Feature Demonstration (Rust)
+/// API Showcase: Complete `SymbAnaFis` Feature Demonstration (Rust)
 ///
-/// This example demonstrates ALL the capabilities of SymbAnaFis from Rust,
+/// This example demonstrates ALL the capabilities of `SymbAnaFis` from Rust,
 /// following the structure of the API Reference documentation.
 ///
-/// Run with: cargo run --example api_showcase
+/// Run with: cargo run --example `api_showcase`
 use num_traits::Float;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -65,13 +65,13 @@ fn section_quick_start() {
     println!("  1.1 Differentiation");
     println!("      Input:  diff(\"x^3 + sin(x)\", \"x\")");
     let result = diff("x^3 + sin(x)", "x", &[], None).unwrap();
-    println!("      Output: {}\n", result);
+    println!("      Output: {result}\n");
 
     // 1.2 Simplification
     println!("  1.2 Simplification");
     println!("      Input:  simplify(\"sin(x)^2 + cos(x)^2\")");
     let result = simplify("sin(x)^2 + cos(x)^2", &[], None).unwrap();
-    println!("      Output: {}\n", result);
+    println!("      Output: {result}\n");
 }
 
 // =============================================================================
@@ -137,19 +137,19 @@ fn section_core_functions() {
     println!("  3.1 diff(formula, var)");
     println!("      Differentiate x^2 + 2*x + 1 with respect to x");
     let result = diff("x^2 + 2*x + 1", "x", &[], None).unwrap();
-    println!("      Result: {}\n", result);
+    println!("      Result: {result}\n");
 
     // 3.2 simplify(formula)
     println!("  3.2 simplify(formula)");
     println!("      Simplify x^2 + 2*x + 1");
     let result = simplify("x^2 + 2*x + 1", &[], None).unwrap();
-    println!("      Result: {}\n", result);
+    println!("      Result: {result}\n");
 
     // 3.3 parse(formula)
     println!("  3.3 parse(formula)");
     println!("      parse(\"x^2 + sin(x)\")");
     let expr = parse("x^2 + sin(x)", &HashSet::new(), &HashSet::new(), None).unwrap();
-    println!("      Result: {}", expr);
+    println!("      Result: {expr}");
     println!("      Type: Expr\n");
 
     // 3.3 Type-Safe Expressions (Object-based API)
@@ -158,7 +158,7 @@ fn section_core_functions() {
     let expr = x.pow(2.0) + x.sin(); // x² + sin(x)
     println!("      let x = symb(\"x\");");
     println!("      let expr = x.pow(2.0) + x.sin();");
-    println!("      Result: {}\n", expr);
+    println!("      Result: {expr}\n");
 }
 
 // =============================================================================
@@ -176,7 +176,7 @@ fn section_builder_pattern_api() {
         .domain_safe(true)
         .diff_str("a*x^2 + x", "x", &["a"])
         .unwrap();
-    println!("      d/dx [ax² + x] with a as constant: {}\n", result);
+    println!("      d/dx [ax² + x] with a as constant: {result}\n");
 
     // 4.2 Diff Builder Options
     println!("  4.2 Diff Builder Options");
@@ -185,7 +185,7 @@ fn section_builder_pattern_api() {
         .max_nodes(1000)
         .diff_str("x^3", "x", &[])
         .unwrap();
-    println!("      With max_depth=100, max_nodes=1000: {}\n", result);
+    println!("      With max_depth=100, max_nodes=1000: {result}\n");
 
     // 4.3 Simplify Builder
     println!("  4.3 Simplify Builder");
@@ -195,21 +195,21 @@ fn section_builder_pattern_api() {
         .fixed_vars(&[&symb("x"), &symb("y")])
         .simplify_str("k*x + k*y", &["k"])
         .unwrap();
-    println!("      Simplify k*x + k*y: {}\n", result);
+    println!("      Simplify k*x + k*y: {result}\n");
 
     // 4.4 Differentiating Expression Objects
     println!("  4.4 Differentiating Expression Objects");
     let x = symb("x");
     let f = x.pow(3.0) + x.sin() + 1.0;
     let df = Diff::new().differentiate(&f, &x).unwrap();
-    println!("      f(x) = {}", f);
-    println!("      f'(x) = {}\n", df);
+    println!("      f(x) = {f}");
+    println!("      f'(x) = {df}\n");
 
     // 4.5 Expression Inspection
     println!("  4.5 Expression Inspection");
     let y = symb("y");
     let complex_expr = x.pow(2.0) + y.sin();
-    println!("      Expression: {}", complex_expr);
+    println!("      Expression: {complex_expr}");
     println!("      Node count: {}", complex_expr.node_count());
     println!("      Max depth:  {}\n", complex_expr.max_depth());
 }
@@ -243,7 +243,7 @@ fn section_expression_output() {
     // 5.3 Standard Display
     println!("  5.3 Standard Display: Display trait");
     let expr4 = x.sin() + y.cos();
-    println!("      sin(x) + cos(y) → {}\n", expr4);
+    println!("      sin(x) + cos(y) → {expr4}\n");
 }
 
 // =============================================================================
@@ -262,8 +262,8 @@ fn section_uncertainty_propagation() {
     let expr = x + y;
     println!("      f = x + y");
     match uncertainty_propagation(&expr, &["x", "y"], None) {
-        Ok(sigma) => println!("      σ_f = {}\n", sigma),
-        Err(e) => println!("      Error: {:?}\n", e),
+        Ok(sigma) => println!("      σ_f = {sigma}\n"),
+        Err(e) => println!("      Error: {e:?}\n"),
     }
 
     // 6.2 Product Formula Uncertainty
@@ -271,8 +271,8 @@ fn section_uncertainty_propagation() {
     let expr2 = x * y;
     println!("      f = x * y");
     match uncertainty_propagation(&expr2, &["x", "y"], None) {
-        Ok(sigma) => println!("      σ_f = {}\n", sigma),
-        Err(e) => println!("      Error: {:?}\n", e),
+        Ok(sigma) => println!("      σ_f = {sigma}\n"),
+        Err(e) => println!("      Error: {e:?}\n"),
     }
 
     // 6.3 Numeric Covariance
@@ -283,8 +283,8 @@ fn section_uncertainty_propagation() {
         CovEntry::Num(0.04), // σ_y² = 0.04 (σ_y = 0.2)
     ]);
     match uncertainty_propagation(&expr2, &["x", "y"], Some(&cov)) {
-        Ok(sigma) => println!("      σ_f = {}\n", sigma),
-        Err(e) => println!("      Error: {:?}\n", e),
+        Ok(sigma) => println!("      σ_f = {sigma}\n"),
+        Err(e) => println!("      Error: {e:?}\n"),
     }
 
     // 6.4 Relative Uncertainty
@@ -292,8 +292,8 @@ fn section_uncertainty_propagation() {
     let expr3 = x.pow(2.0);
     println!("      f = x²");
     match relative_uncertainty(&expr3, &["x"], None) {
-        Ok(rel) => println!("      σ_f/|f| = {}\n", rel),
-        Err(e) => println!("      Error: {:?}\n", e),
+        Ok(rel) => println!("      σ_f/|f| = {rel}\n"),
+        Err(e) => println!("      Error: {e:?}\n"),
     }
 }
 
@@ -322,7 +322,7 @@ fn section_custom_functions() {
 
     // Test the custom derivative
     let result = custom_diff.diff_str("my_func(x^2)", "x", &[]).unwrap();
-    println!("      d/dx[my_func(x²)] = {}", result);
+    println!("      d/dx[my_func(x²)] = {result}");
     println!("      Chain rule: 2u · u' = 2(x²) · 2x = 4x³\n");
 
     // 7.2 Custom Function with Body (for evaluation)
@@ -338,7 +338,7 @@ fn section_custom_functions() {
 
     let sq_diff = Diff::new().user_fn("sq", sq_fn);
     let result = sq_diff.diff_str("sq(x)", "x", &[]).unwrap();
-    println!("      d/dx[sq(x)] = {}\n", result);
+    println!("      d/dx[sq(x)] = {result}\n");
 }
 
 // =============================================================================
@@ -352,12 +352,12 @@ fn section_evaluation() {
     // 8.1 evaluate_str() (full evaluation)
     println!("  8.1 evaluate_str() (full evaluation)");
     let result = evaluate_str("x * y + 1", &[("x", 3.0), ("y", 2.0)]).unwrap();
-    println!("      x*y + 1 with x=3, y=2 → {} (expected: 7)\n", result);
+    println!("      x*y + 1 with x=3, y=2 → {result} (expected: 7)\n");
 
     // 8.2 evaluate_str() (partial evaluation)
     println!("  8.2 evaluate_str() (partial evaluation)");
     let result = evaluate_str("x * y + 1", &[("x", 3.0)]).unwrap();
-    println!("      x*y + 1 with x=3 → {}\n", result);
+    println!("      x*y + 1 with x=3 → {result}\n");
 
     // 8.3 Expr.evaluate()
     println!("  8.3 Expr.evaluate()");
@@ -372,7 +372,7 @@ fn section_evaluation() {
     let result = expr.evaluate(&vars, &HashMap::new());
     println!("      x² + y² at (x=3, y=4)");
     if let Some(n) = result.as_number() {
-        println!("      Result: {} (expected: 25)\n", n);
+        println!("      Result: {n} (expected: 25)\n");
     }
 }
 
@@ -487,13 +487,13 @@ fn section_compilation_and_performance() {
     println!("  12.1 Compile Expression");
     let x = symb("x");
     let expr = x.sin() * x.pow(2.0) + Expr::number(1.0);
-    println!("      Expression: {}", expr);
+    println!("      Expression: {expr}");
 
     let compiled = CompiledEvaluator::compile(&expr, &["x"], None).unwrap();
 
     let val = 2.0;
     let result = compiled.evaluate(&[val]);
-    println!("      Result at x={}: {}", val, result);
+    println!("      Result at x={val}: {result}");
     println!("      Instructions: {}\n", compiled.instruction_count());
 
     // 12.2 Batch Evaluation
@@ -503,8 +503,8 @@ fn section_compilation_and_performance() {
     compiled
         .eval_batch(&[&inputs], &mut batch_result, None)
         .unwrap();
-    println!("      Inputs: {:?}", inputs);
-    println!("      Results: {:?}\n", batch_result);
+    println!("      Inputs: {inputs:?}");
+    println!("      Results: {batch_result:?}\n");
 
     // 12.3 Compilation with Context (Custom Functions)
     println!("  12.3 Compilation with Custom Functions");
@@ -514,13 +514,13 @@ fn section_compilation_and_performance() {
     );
 
     let expr_custom = Expr::func("my_sq", x.to_expr()) + Expr::number(5.0);
-    println!("      Expression: {}", expr_custom);
+    println!("      Expression: {expr_custom}");
 
     let compiled_ctx = CompiledEvaluator::compile(&expr_custom, &["x"], Some(&ctx))
         .expect("Compilation with context failed");
 
     let res = compiled_ctx.evaluate(&[3.0]);
-    println!("      my_sq(3) + 5 = {}\n", res);
+    println!("      my_sq(3) + 5 = {res}\n");
 }
 
 // =============================================================================
@@ -575,7 +575,7 @@ fn section_builtin_functions() {
     ];
     for (expr, var) in examples {
         let result = diff(expr, var, &[], None).unwrap();
-        println!("    d/d{} [{}] = {}", var, expr, result);
+        println!("    d/d{var} [{expr}] = {result}");
     }
     println!();
 }
@@ -615,7 +615,7 @@ fn section_expression_syntax() {
     ];
     for expr in examples {
         let result = simplify(expr, &[], None).unwrap();
-        println!("    {:20} → {}", expr, result);
+        println!("    {expr:20} → {result}");
     }
     println!();
 }
@@ -636,39 +636,39 @@ fn section_error_handling() {
     // Example 1: Empty formula
     println!("  1. Empty Formula:");
     match diff("", "x", &[], None) {
-        Ok(result) => println!("     Result: {}", result),
+        Ok(result) => println!("     Result: {result}"),
         Err(DiffError::EmptyFormula) => println!("     Error: EmptyFormula"),
-        Err(e) => println!("     Error: {:?}", e),
+        Err(e) => println!("     Error: {e:?}"),
     }
 
     // Example 2: Invalid syntax
     println!("  2. Invalid Syntax:");
     match diff("((", "x", &[], None) {
-        Ok(result) => println!("     Result: {}", result),
+        Ok(result) => println!("     Result: {result}"),
         Err(DiffError::InvalidSyntax { msg, .. }) => {
-            println!("     Error: InvalidSyntax - {}", msg)
+            println!("     Error: InvalidSyntax - {msg}");
         }
-        Err(e) => println!("     Error: {:?}", e),
+        Err(e) => println!("     Error: {e:?}"),
     }
 
     // Example 3: Invalid number
     println!("  3. Invalid Number:");
     match diff("x^abc", "x", &[], None) {
-        Ok(result) => println!("     Result: {}", result),
+        Ok(result) => println!("     Result: {result}"),
         Err(DiffError::InvalidNumber { value, .. }) => {
-            println!("     Error: InvalidNumber - '{}'", value)
+            println!("     Error: InvalidNumber - '{value}'");
         }
-        Err(e) => println!("     Error: {:?}", e),
+        Err(e) => println!("     Error: {e:?}"),
     }
 
     // Example 4: Variable in both fixed and diff
     println!("  4. Variable Conflict:");
     match Diff::new().diff_str("x^2", "x", &["x"]) {
-        Ok(result) => println!("     Result: {}", result),
+        Ok(result) => println!("     Result: {result}"),
         Err(DiffError::VariableInBothFixedAndDiff { var }) => {
-            println!("     Error: VariableInBothFixedAndDiff - '{}'", var)
+            println!("     Error: VariableInBothFixedAndDiff - '{var}'");
         }
-        Err(e) => println!("     Error: {:?}", e),
+        Err(e) => println!("     Error: {e:?}"),
     }
 
     println!();

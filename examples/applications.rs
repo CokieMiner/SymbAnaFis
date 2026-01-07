@@ -12,9 +12,9 @@ fn main() {
     let velocity = diff(position, "t", &[], None).unwrap();
     let acceleration = diff(&velocity, "t", &[], None).unwrap();
 
-    println!("Position:     x(t) = {}", position);
-    println!("Velocity:     v(t) = dx/dt = {}", velocity);
-    println!("Acceleration: a(t) = dv/dt = {}", acceleration);
+    println!("Position:     x(t) = {position}");
+    println!("Velocity:     v(t) = dx/dt = {velocity}");
+    println!("Acceleration: a(t) = dv/dt = {acceleration}");
 
     println!("\n2. ELECTRICITY - RC Circuit Voltage");
     println!("----------------------------------");
@@ -23,8 +23,8 @@ fn main() {
     let voltage = "V0 * exp(-t / (R * C))";
     let current = diff(voltage, "t", &["V0", "R", "C"], None).unwrap();
 
-    println!("Voltage: V(t) = {}", voltage);
-    println!("Current: I(t) = dV/dt = {}", current);
+    println!("Voltage: V(t) = {voltage}");
+    println!("Current: I(t) = dV/dt = {current}");
 
     println!("\n3. THERMODYNAMICS - Heat Conduction");
     println!("----------------------------------");
@@ -33,8 +33,8 @@ fn main() {
     let temperature = "T0 * erf(x / (2 * sqrt(alpha * t)))";
     let heat_flux = diff(temperature, "x", &["T0", "alpha", "t"], None).unwrap();
 
-    println!("Temperature: T(x,t) = {}", temperature);
-    println!("Heat flux:   q(x,t) = -k*dT/dx = -k*{}", heat_flux);
+    println!("Temperature: T(x,t) = {temperature}");
+    println!("Heat flux:   q(x,t) = -k*dT/dx = -k*{heat_flux}");
 
     println!("\n4. QUANTUM MECHANICS - Wave Function");
     println!("-----------------------------------");
@@ -42,12 +42,12 @@ fn main() {
     // Gaussian wave packet: ψ(x,t) = (1/√(σ√π)) * exp(-x²/(4σ²)) * exp(i*k*x - i*E*t/ℏ)
     // For simplicity, just the real part
     let wave_function = "exp(-x^2 / (4 * sigma^2)) / sqrt(sigma * sqrt(pi))";
-    let probability_density = format!("({})^2", wave_function);
+    let probability_density = format!("({wave_function})^2");
     let prob_derivative = diff(&probability_density, "x", &["sigma"], None).unwrap();
 
-    println!("Wave function: ψ(x) = {}", wave_function);
-    println!("Probability:   |ψ|² = {}", probability_density);
-    println!("d|ψ|²/dx = {}", prob_derivative);
+    println!("Wave function: ψ(x) = {wave_function}");
+    println!("Probability:   |ψ|² = {probability_density}");
+    println!("d|ψ|²/dx = {prob_derivative}");
 
     println!("\n5. FLUID DYNAMICS - Velocity Profile (Poiseuille Flow)");
     println!("----------------------------------------------------");
@@ -56,8 +56,8 @@ fn main() {
     let velocity = "deltaP / (4 * mu * L) * (R^2 - r^2)";
     let shear_stress = diff(velocity, "r", &["deltaP", "mu", "L", "R"], None).unwrap();
 
-    println!("Velocity:    u(r) = {}", velocity);
-    println!("Shear rate: du/dr = {}", shear_stress);
+    println!("Velocity:    u(r) = {velocity}");
+    println!("Shear rate: du/dr = {shear_stress}");
 
     println!("\n6. OPTICS - Lens Formula");
     println!("-----------------------");
@@ -67,8 +67,8 @@ fn main() {
     let magnification = "di / do"; // M = hi/ho = -di/do for thin lenses
     let mag_sensitivity = diff(magnification, "do", &["di"], None).unwrap();
 
-    println!("Magnification: M = {}", magnification);
-    println!("dM/ddo = {}", mag_sensitivity);
+    println!("Magnification: M = {magnification}");
+    println!("dM/ddo = {mag_sensitivity}");
 
     println!("\n7. CONTROL SYSTEMS - Transfer Function");
     println!("------------------------------------");
@@ -78,8 +78,8 @@ fn main() {
     let denominator = "s^2 + 2*zeta*omega_n*s + omega_n^2";
     let denom_derivative = diff(denominator, "s", &["zeta", "omega_n"], None).unwrap();
 
-    println!("Characteristic equation: {}", denominator);
-    println!("d(denom)/ds = {}", denom_derivative);
+    println!("Characteristic equation: {denominator}");
+    println!("d(denom)/ds = {denom_derivative}");
 
     println!("\n8. STATISTICS - Normal Distribution");
     println!("---------------------------------");
@@ -88,8 +88,8 @@ fn main() {
     let normal_pdf = "exp(-(x - mu)^2 / (2 * sigma^2)) / sqrt(2 * pi * sigma^2)";
     let pdf_derivative = diff(normal_pdf, "x", &["mu", "sigma"], None).unwrap();
 
-    println!("Normal PDF: f(x) = {}", normal_pdf);
-    println!("df/dx = {}", pdf_derivative);
+    println!("Normal PDF: f(x) = {normal_pdf}");
+    println!("df/dx = {pdf_derivative}");
 
     println!("\n9. CHEMICAL KINETICS - Reaction Rate");
     println!("----------------------------------");
@@ -99,11 +99,11 @@ fn main() {
     let reaction_rate = diff(concentration, "t", &["A0", "k"], None).unwrap();
 
     // Negate the derivative to get -d[A]/dt (rate of consumption)
-    let negated_rate = format!("-1 * ({})", reaction_rate);
+    let negated_rate = format!("-1 * ({reaction_rate})");
     let consumption_rate = symb_anafis::simplify(&negated_rate, &["A0", "k"], None).unwrap();
 
-    println!("Concentration: [A](t) = {}", concentration);
-    println!("Rate:         -d[A]/dt = {}", consumption_rate);
+    println!("Concentration: [A](t) = {concentration}");
+    println!("Rate:         -d[A]/dt = {consumption_rate}");
 
     println!("\n10. ACOUSTICS - Sound Wave");
     println!("-------------------------");
@@ -112,10 +112,9 @@ fn main() {
     let pressure = "p0 * sin(k * x - omega * t)";
     let particle_velocity = diff(pressure, "x", &["p0", "k", "omega", "t"], None).unwrap();
 
-    println!("Pressure:     p(x,t) = {}", pressure);
+    println!("Pressure:     p(x,t) = {pressure}");
     println!(
-        "Velocity:     u(x,t) = (1/ρ) * dp/dx = (1/ρ) * {}",
-        particle_velocity
+        "Velocity:     u(x,t) = (1/ρ) * dp/dx = (1/ρ) * {particle_velocity}"
     );
 
     println!("\n11. CALCULUS - Related Rates");
@@ -127,7 +126,7 @@ fn main() {
     let rate_equation = diff(constraint, "t", &[], None).unwrap();
 
     println!("Constraint: x² + y² = L²");
-    println!("Rate:      2x dx/dt + 2y dy/dt = {}", rate_equation);
+    println!("Rate:      2x dx/dt + 2y dy/dt = {rate_equation}");
 
     println!("\n12. OPTIMIZATION - Maximum Volume");
     println!("-------------------------------");
@@ -136,8 +135,8 @@ fn main() {
     let volume = "x * y * z";
     let volume_grad_x = diff(volume, "x", &["y", "z"], None).unwrap();
 
-    println!("Volume: V = {}", volume);
-    println!("∂V/∂x = {}", volume_grad_x);
+    println!("Volume: V = {volume}");
+    println!("∂V/∂x = {volume_grad_x}");
 
     println!("\n13. TAYLOR SERIES");
     println!("----------------");
@@ -146,8 +145,8 @@ fn main() {
     let function = "sin(x)";
     let f1 = diff(function, "x", &[], None).unwrap();
 
-    println!("Function: f(x) = {}", function);
-    println!("f'(x) = {}", f1);
+    println!("Function: f(x) = {function}");
+    println!("f'(x) = {f1}");
 
     println!("\n14. ARC LENGTH");
     println!("-------------");
@@ -159,16 +158,15 @@ fn main() {
     let dy_dt = diff(y_parametric, "t", &[], None).unwrap();
 
     println!(
-        "Parametric: x(t) = {}, y(t) = {}",
-        x_parametric, y_parametric
+        "Parametric: x(t) = {x_parametric}, y(t) = {y_parametric}"
     );
-    println!("dx/dt = {}", dx_dt);
-    println!("dy/dt = {}", dy_dt);
-    let ds_squared = format!("({})^2 + ({})^2", dx_dt, dy_dt);
+    println!("dx/dt = {dx_dt}");
+    println!("dy/dt = {dy_dt}");
+    let ds_squared = format!("({dx_dt})^2 + ({dy_dt})^2");
     let ds_inner = symb_anafis::simplify(&ds_squared, &[], None).unwrap();
-    let ds = format!("sqrt({})", ds_inner);
+    let ds = format!("sqrt({ds_inner})");
     let ds_simplified = symb_anafis::simplify(&ds, &[], None).unwrap();
-    println!("Arc length element: ds = {} dt", ds_simplified);
+    println!("Arc length element: ds = {ds_simplified} dt");
     println!("\n15. MECHANICS - Harmonic Oscillator");
     println!("----------------------------------");
 
@@ -177,9 +175,9 @@ fn main() {
     let velocity = diff(displacement, "t", &["A", "omega", "phi"], None).unwrap();
     let acceleration = diff(&velocity, "t", &["A", "omega", "phi"], None).unwrap();
 
-    println!("Displacement: x(t) = {}", displacement);
-    println!("Velocity:     v(t) = {}", velocity);
-    println!("Acceleration: a(t) = {}", acceleration);
+    println!("Displacement: x(t) = {displacement}");
+    println!("Velocity:     v(t) = {velocity}");
+    println!("Acceleration: a(t) = {acceleration}");
 
     println!("\n16. ELECTROMAGNETISM - Maxwell's Equations");
     println!("-----------------------------------------");
@@ -190,11 +188,11 @@ fn main() {
     let emf = diff(magnetic_field, "t", &["B0", "tau"], None).unwrap();
 
     // Negate for Faraday's law: EMF = -dB/dt
-    let negated_emf = format!("-1 * ({})", emf);
+    let negated_emf = format!("-1 * ({emf})");
     let induced_emf = symb_anafis::simplify(&negated_emf, &["B0", "tau"], None).unwrap();
 
-    println!("Magnetic field: B(t) = {}", magnetic_field);
-    println!("EMF:           ε = -dB/dt = {}", induced_emf);
+    println!("Magnetic field: B(t) = {magnetic_field}");
+    println!("EMF:           ε = -dB/dt = {induced_emf}");
 
     println!("\n17. THERMODYNAMICS - Entropy");
     println!("---------------------------");
@@ -204,8 +202,8 @@ fn main() {
     let entropy = "Cv * ln(T) + R * ln(V)";
     let entropy_temp_deriv = diff(entropy, "T", &["Cv", "R", "V"], None).unwrap();
 
-    println!("Entropy: S = {}", entropy);
-    println!("∂S/∂T = {}", entropy_temp_deriv);
+    println!("Entropy: S = {entropy}");
+    println!("∂S/∂T = {entropy_temp_deriv}");
 
     println!("\n18. QUANTUM PHYSICS - Schrödinger Equation");
     println!("-----------------------------------------");
@@ -214,8 +212,8 @@ fn main() {
     let wave_function = "psi0 * exp(-i * E * t / hbar)";
     let time_derivative = diff(wave_function, "t", &["psi0", "E", "hbar"], None).unwrap();
 
-    println!("Wave function: ψ(x,t) = {}", wave_function);
-    println!("∂ψ/∂t = {}", time_derivative);
+    println!("Wave function: ψ(x,t) = {wave_function}");
+    println!("∂ψ/∂t = {time_derivative}");
 
     println!("\n19. RELATIVITY - Time Dilation");
     println!("-----------------------------");
@@ -224,8 +222,8 @@ fn main() {
     let proper_time = "t * sqrt(1 - v^2 / c^2)";
     let time_dilation_deriv = diff(proper_time, "v", &["t", "c"], None).unwrap();
 
-    println!("Proper time: τ = {}", proper_time);
-    println!("dτ/dv = {}", time_dilation_deriv);
+    println!("Proper time: τ = {proper_time}");
+    println!("dτ/dv = {time_dilation_deriv}");
 
     println!("\n20. ASTROPHYSICS - Orbital Mechanics");
     println!("-----------------------------------");
@@ -235,6 +233,6 @@ fn main() {
     let radius = "a * (1 - ecc^2) / (1 + ecc * cos(theta))";
     let angular_momentum = diff(radius, "theta", &["a", "ecc"], None).unwrap();
 
-    println!("Orbital radius: r(θ) = {}", radius);
-    println!("dr/dθ = {}", angular_momentum);
+    println!("Orbital radius: r(θ) = {radius}");
+    println!("dr/dθ = {angular_momentum}");
 }

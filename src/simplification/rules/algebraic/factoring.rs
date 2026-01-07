@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 /// Rule for cancelling common terms in fractions: (a*b)/(a*c) -> b/c
 /// Also handles powers: x^a / x^b -> x^(a-b)
-pub(crate) struct FractionCancellationRule;
+pub struct FractionCancellationRule;
 
 impl Rule for FractionCancellationRule {
     fn name(&self) -> &'static str {
@@ -25,6 +25,8 @@ impl Rule for FractionCancellationRule {
         &[ExprKind::Div, ExprKind::Product]
     }
 
+    // Fraction cancellation handles many expression patterns, length is justified
+    #[allow(clippy::too_many_lines)]
     fn apply(&self, expr: &Arc<Expr>, context: &RuleContext) -> Option<Arc<Expr>> {
         // For Product expressions, check if there's a Div nested inside
         if let AstKind::Product(factors) = &expr.kind {
@@ -54,6 +56,34 @@ impl Rule for FractionCancellationRule {
         }
 
         if let AstKind::Div(u, v) = &expr.kind {
+            // Helper to get base and exponent
+            fn get_base_exp(e: &Arc<Expr>) -> (Arc<Expr>, Arc<Expr>) {
+                match &e.kind {
+                    AstKind::Pow(b, exp) => (b.clone(), exp.clone()),
+                    AstKind::FunctionCall { name, args } if args.len() == 1 => {
+                        // Use ID validation via known_symbols
+                        if name.id() == *SQRT {
+                            (args[0].clone(), Arc::new(Expr::number(0.5)))
+                        } else if name.id() == *CBRT {
+                            (
+                                args[0].clone(),
+                                Arc::new(Expr::div_expr(Expr::number(1.0), Expr::number(3.0))),
+                            )
+                        } else {
+                            (e.clone(), Arc::new(Expr::number(1.0)))
+                        }
+                    }
+                    _ => (e.clone(), Arc::new(Expr::number(1.0))),
+                }
+            }
+
+            fn is_safe_to_cancel(base: &Expr) -> bool {
+                match &base.kind {
+                    AstKind::Number(n) => n.abs() > 1e-10,
+                    _ => false,
+                }
+            }
+
             // Get factors from numerator and denominator
             let num_factors = get_factors_arcs(u);
             let den_factors = get_factors_arcs(v);
@@ -97,34 +127,6 @@ impl Rule for FractionCancellationRule {
                 } else {
                     num_coeff = 1.0;
                     den_coeff = inv;
-                }
-            }
-
-            // Helper to get base and exponent
-            fn get_base_exp(e: &Arc<Expr>) -> (Arc<Expr>, Arc<Expr>) {
-                match &e.kind {
-                    AstKind::Pow(b, exp) => (b.clone(), exp.clone()),
-                    AstKind::FunctionCall { name, args } if args.len() == 1 => {
-                        // Use ID validation via known_symbols
-                        if name.id() == *SQRT {
-                            (args[0].clone(), Arc::new(Expr::number(0.5)))
-                        } else if name.id() == *CBRT {
-                            (
-                                args[0].clone(),
-                                Arc::new(Expr::div_expr(Expr::number(1.0), Expr::number(3.0))),
-                            )
-                        } else {
-                            (e.clone(), Arc::new(Expr::number(1.0)))
-                        }
-                    }
-                    _ => (e.clone(), Arc::new(Expr::number(1.0))),
-                }
-            }
-
-            fn is_safe_to_cancel(base: &Expr) -> bool {
-                match &base.kind {
-                    AstKind::Number(n) => n.abs() > 1e-10,
-                    _ => false,
                 }
             }
 
@@ -173,8 +175,6 @@ impl Rule for FractionCancellationRule {
                                     ));
                                 }
                                 new_den_factors.remove(j);
-                                matched = true;
-                                break;
                             } else {
                                 new_num_factors.remove(i);
                                 let pos_n = -n;
@@ -186,18 +186,17 @@ impl Rule for FractionCancellationRule {
                                         Arc::new(Expr::number(pos_n)),
                                     ));
                                 }
-                                matched = true;
-                                break;
                             }
-                        } else {
-                            new_num_factors[i] = Arc::new(Expr::pow_from_arcs(
-                                base_i.clone(),
-                                Arc::new(simplified_exp),
-                            ));
-                            new_den_factors.remove(j);
                             matched = true;
                             break;
                         }
+                        new_num_factors[i] = Arc::new(Expr::pow_from_arcs(
+                            base_i.clone(),
+                            Arc::new(simplified_exp),
+                        ));
+                        new_den_factors.remove(j);
+                        matched = true;
+                        break;
                     }
                 }
 
@@ -256,7 +255,7 @@ fn get_factors_arcs(expr: &Arc<Expr>) -> Vec<Arc<Expr>> {
 }
 
 /// Rule for perfect squares: a^2 + 2ab + b^2 -> (a+b)^2
-pub(crate) struct PerfectSquareRule;
+pub struct PerfectSquareRule;
 
 impl Rule for PerfectSquareRule {
     fn name(&self) -> &'static str {
@@ -275,15 +274,35 @@ impl Rule for PerfectSquareRule {
         &[ExprKind::Sum, ExprKind::Poly]
     }
 
+    #[allow(clippy::too_many_lines)]
     fn apply(&self, expr: &Arc<Expr>, _context: &RuleContext) -> Option<Arc<Expr>> {
         fn apply_inner(expr: &Arc<Expr>) -> Option<Arc<Expr>> {
+            fn extract_coeff_and_factors(term: &Arc<Expr>) -> (f64, Vec<Arc<Expr>>) {
+                match &term.kind {
+                    AstKind::Product(factors) => {
+                        let mut coeff = 1.0;
+                        let mut non_numeric: Vec<Arc<Expr>> = Vec::new();
+                        for f in factors {
+                            if let AstKind::Number(n) = &f.kind {
+                                coeff *= n;
+                            } else {
+                                non_numeric.push(f.clone());
+                            }
+                        }
+                        (coeff, non_numeric)
+                    }
+                    AstKind::Number(n) => (*n, vec![]),
+                    _ => (1.0, vec![term.clone()]),
+                }
+            }
+
             // Extract terms from Sum or Poly, handling Sum([constant, Poly]) case
             let terms_vec: Vec<Arc<Expr>> = match &expr.kind {
                 AstKind::Sum(terms) if terms.len() == 3 => terms.clone(),
                 AstKind::Sum(terms) if terms.len() == 2 => {
                     // Check for Sum([constant, Poly]) pattern - flatten to 3 terms
                     let mut flat_terms = Vec::new();
-                    for t in terms.iter() {
+                    for t in terms {
                         if let AstKind::Poly(poly) = &t.kind {
                             flat_terms.extend(poly.to_expr_terms().into_iter().map(Arc::new));
                         } else {
@@ -305,25 +324,6 @@ impl Rule for PerfectSquareRule {
 
             let mut square_terms: Vec<(f64, Arc<Expr>)> = Vec::new();
             let mut linear_terms: Vec<(f64, Arc<Expr>, Arc<Expr>)> = Vec::new();
-
-            fn extract_coeff_and_factors(term: &Arc<Expr>) -> (f64, Vec<Arc<Expr>>) {
-                match &term.kind {
-                    AstKind::Product(factors) => {
-                        let mut coeff = 1.0;
-                        let mut non_numeric: Vec<Arc<Expr>> = Vec::new();
-                        for f in factors.iter() {
-                            if let AstKind::Number(n) = &f.kind {
-                                coeff *= n;
-                            } else {
-                                non_numeric.push(f.clone());
-                            }
-                        }
-                        (coeff, non_numeric)
-                    }
-                    AstKind::Number(n) => (*n, vec![]),
-                    _ => (1.0, vec![term.clone()]),
-                }
-            }
 
             for term in &terms_vec {
                 match &term.kind {
@@ -482,35 +482,35 @@ rule_arc!(
             None
         }
 
+        // Check if term is -1 * (something^2) i.e., Product([-1, x^2])
+        // OR just a negative number -c
+        fn extract_negated_square(term: &Arc<Expr>) -> Option<Arc<Expr>> {
+            if let AstKind::Product(factors) = &term.kind {
+                if factors.len() == 2
+                    && let AstKind::Number(n) = &factors[0].kind
+                    && (*n + 1.0).abs() < 1e-10
+                {
+                    // Note: rules passed to rule! get &Expr, but here we work with Arcs
+                    // We need get_square_root_form to take &Arc<Expr>
+                    return get_square_root_form(&factors[1]);
+                }
+            } else if let AstKind::Number(n) = &term.kind
+                && *n < 0.0
+            {
+                let pos_n = -n;
+                let sqrt_n = pos_n.sqrt();
+                if (sqrt_n - sqrt_n.round()).abs() < 1e-10 {
+                    return Some(Arc::new(Expr::number(sqrt_n.round())));
+                }
+            }
+            None
+        }
+
         if let AstKind::Sum(terms) = &expr.kind
             && terms.len() == 2
         {
             let t1 = &terms[0];
             let t2 = &terms[1];
-
-            // Check if term is -1 * (something^2) i.e., Product([-1, x^2])
-            // OR just a negative number -c
-            fn extract_negated_square(term: &Arc<Expr>) -> Option<Arc<Expr>> {
-                if let AstKind::Product(factors) = &term.kind {
-                    if factors.len() == 2
-                        && let AstKind::Number(n) = &factors[0].kind
-                        && (*n + 1.0).abs() < 1e-10
-                    {
-                        // Note: rules passed to rule! get &Expr, but here we work with Arcs
-                        // We need get_square_root_form to take &Arc<Expr>
-                        return get_square_root_form(&factors[1]);
-                    }
-                } else if let AstKind::Number(n) = &term.kind
-                    && *n < 0.0
-                {
-                    let pos_n = -n;
-                    let sqrt_n = pos_n.sqrt();
-                    if (sqrt_n - sqrt_n.round()).abs() < 1e-10 {
-                        return Some(Arc::new(Expr::number(sqrt_n.round())));
-                    }
-                }
-                None
-            }
 
             // Try t1 = a^2, t2 = -b^2
             if let (Some(sqrt_a), Some(sqrt_b)) =
@@ -574,7 +574,7 @@ rule_arc!(
                     AstKind::Product(factors) => {
                         let mut coeff = 1.0;
                         let mut non_numeric: Vec<Arc<Expr>> = Vec::new();
-                        for f in factors.iter() {
+                        for f in factors {
                             if let AstKind::Number(n) = &f.kind {
                                 coeff *= n;
                             } else {
@@ -619,10 +619,14 @@ rule_arc!(
             }
 
             // Factor out the GCD
+            // i64->f64: GCD values in symbolic math are typically small integers
+            #[allow(clippy::cast_precision_loss)]
             let gcd_expr = Arc::new(Expr::number(gcd as f64));
             let mut new_terms = Vec::new();
 
             for (coeff, term) in coeffs_and_terms {
+                // i64->f64: GCD values in symbolic math are typically small integers
+                #[allow(clippy::cast_precision_loss)]
                 let new_coeff = coeff / (gcd as f64);
                 if (new_coeff - 1.0).abs() < 1e-10 {
                     new_terms.push(term);
@@ -675,7 +679,7 @@ rule_arc!(
                 _ => vec![terms[0].clone()],
             };
 
-            for factor in first_factors.iter() {
+            for factor in &first_factors {
                 // Check if this factor appears in all other terms
                 let mut all_have_factor = true;
                 for term in &terms[1..] {
@@ -776,7 +780,7 @@ rule_arc!(
             for exp_terms in base_exponents.values() {
                 if exp_terms.len() == terms.len() && exp_terms.len() >= 2 {
                     let exponents: Vec<f64> = exp_terms.iter().map(|(e, _)| *e).collect();
-                    let min_exp = exponents.iter().cloned().fold(f64::INFINITY, f64::min);
+                    let min_exp = exponents.iter().copied().fold(f64::INFINITY, f64::min);
 
                     if exponents.iter().all(|e| (*e - min_exp).abs() < 1e-10) {
                         continue;
@@ -921,8 +925,8 @@ rule_arc!(
             if let (Some(a), Some(b)) = (get_cube_root(t1), get_cube_root(t2)) {
                 let sum = Expr::sum_from_arcs(vec![a.clone(), b.clone()]);
                 let a2 = Arc::new(Expr::pow_from_arcs(a.clone(), Arc::new(Expr::number(2.0))));
-                let ab = Arc::new(Expr::product_from_arcs(vec![a.clone(), b.clone()]));
-                let b2 = Arc::new(Expr::pow_from_arcs(b.clone(), Arc::new(Expr::number(2.0))));
+                let ab = Arc::new(Expr::product_from_arcs(vec![a, b.clone()]));
+                let b2 = Arc::new(Expr::pow_from_arcs(b, Arc::new(Expr::number(2.0))));
                 let neg_ab = Arc::new(Expr::product_from_arcs(vec![
                     Arc::new(Expr::number(-1.0)),
                     ab,
@@ -944,8 +948,8 @@ rule_arc!(
                 ]));
                 let diff = Expr::sum_from_arcs(vec![a.clone(), neg_b]);
                 let a2 = Arc::new(Expr::pow_from_arcs(a.clone(), Arc::new(Expr::number(2.0))));
-                let ab = Arc::new(Expr::product_from_arcs(vec![a.clone(), b.clone()]));
-                let b2 = Arc::new(Expr::pow_from_arcs(b.clone(), Arc::new(Expr::number(2.0))));
+                let ab = Arc::new(Expr::product_from_arcs(vec![a, b.clone()]));
+                let b2 = Arc::new(Expr::pow_from_arcs(b, Arc::new(Expr::number(2.0))));
                 let trinomial = Expr::sum_from_arcs(vec![a2, ab, b2]);
                 return Some(Arc::new(Expr::product_from_arcs(vec![
                     Arc::new(diff),
@@ -963,7 +967,7 @@ rule_arc!(
 
 /// Rule for simplifying fractions using polynomial GCD
 /// Handles cases like (x²-1)/(x-1) → x+1
-pub(crate) struct PolyGcdSimplifyRule;
+pub struct PolyGcdSimplifyRule;
 
 impl Rule for PolyGcdSimplifyRule {
     fn name(&self) -> &'static str {

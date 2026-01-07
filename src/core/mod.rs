@@ -30,15 +30,15 @@
 // Internal Modules
 // ============================================================================
 
-pub(crate) mod display; // Display implementations for Expr
-pub(crate) mod error; // Error types (DiffError, Span)
-pub(crate) mod evaluator; // Compiled evaluator for fast numeric evaluation
-pub(crate) mod expr; // Expression AST (Expr, ExprKind)
-pub(crate) mod known_symbols; // Well-known symbol IDs (pi, e, etc.)
-pub(crate) mod poly; // Polynomial representation (internal)
-pub(crate) mod symbol; // Symbol interning system
+pub mod display; // Display implementations for Expr
+pub mod error; // Error types (DiffError, Span)
+pub mod evaluator; // Compiled evaluator for fast numeric evaluation
+pub mod expr; // Expression AST (Expr, ExprKind)
+pub mod known_symbols; // Well-known symbol IDs (pi, e, etc.)
+pub mod poly; // Polynomial representation (internal)
+pub mod symbol; // Symbol interning system
 pub mod traits; // Common traits (MathScalar, epsilon helpers)
-pub(crate) mod unified_context; // Unified context for symbols and functions
+pub mod unified_context; // Unified context for symbols and functions
 
 // ============================================================================
 // Public Modules

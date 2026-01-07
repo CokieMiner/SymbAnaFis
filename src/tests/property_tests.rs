@@ -1304,14 +1304,14 @@ mod power_property_tests {
             let rhs = parser::parse(&rhs_expr, &fixed, &custom, None);
 
             if let (Ok(lhs_e), Ok(rhs_e)) = (lhs, rhs) {
-                let vars: HashMap<&str, f64> = [("x", x_val)].iter().cloned().collect();
+                let vars: HashMap<&str, f64> = [("x", x_val)].iter().copied().collect();
                 if let (ExprKind::Number(l), ExprKind::Number(r)) = (
                     &lhs_e.evaluate(&vars, &HashMap::new()).kind,
                     &rhs_e.evaluate(&vars, &HashMap::new()).kind,
-                ) {
-                    if l.is_finite() && r.is_finite() {
-                        return TestResult::from_bool(approx_eq(*l, *r));
-                    }
+                ) && l.is_finite()
+                    && r.is_finite()
+                {
+                    return TestResult::from_bool(approx_eq(*l, *r));
                 }
             }
             TestResult::discard()
@@ -1342,14 +1342,14 @@ mod power_property_tests {
             let rhs = parser::parse(&rhs_expr, &fixed, &custom, None);
 
             if let (Ok(lhs_e), Ok(rhs_e)) = (lhs, rhs) {
-                let vars: HashMap<&str, f64> = [("x", x_val)].iter().cloned().collect();
+                let vars: HashMap<&str, f64> = [("x", x_val)].iter().copied().collect();
                 if let (ExprKind::Number(l), ExprKind::Number(r)) = (
                     &lhs_e.evaluate(&vars, &HashMap::new()).kind,
                     &rhs_e.evaluate(&vars, &HashMap::new()).kind,
-                ) {
-                    if l.is_finite() && r.is_finite() {
-                        return TestResult::from_bool(approx_eq(*l, *r));
-                    }
+                ) && l.is_finite()
+                    && r.is_finite()
+                {
+                    return TestResult::from_bool(approx_eq(*l, *r));
                 }
             }
             TestResult::discard()
@@ -1381,14 +1381,14 @@ mod power_property_tests {
 
             if let (Ok(lhs_e), Ok(rhs_e)) = (lhs, rhs) {
                 let vars: HashMap<&str, f64> =
-                    [("x", x_val), ("y", y_val)].iter().cloned().collect();
+                    [("x", x_val), ("y", y_val)].iter().copied().collect();
                 if let (ExprKind::Number(l), ExprKind::Number(r)) = (
                     &lhs_e.evaluate(&vars, &HashMap::new()).kind,
                     &rhs_e.evaluate(&vars, &HashMap::new()).kind,
-                ) {
-                    if l.is_finite() && r.is_finite() {
-                        return TestResult::from_bool(approx_eq(*l, *r));
-                    }
+                ) && l.is_finite()
+                    && r.is_finite()
+                {
+                    return TestResult::from_bool(approx_eq(*l, *r));
                 }
             }
             TestResult::discard()
@@ -1541,7 +1541,7 @@ mod special_function_property_tests {
     #[test]
     fn test_sqrt_square_identity() {
         fn prop_sqrt_sq(x_val: f64) -> TestResult {
-            if !x_val.is_finite() || x_val < 0.01 || x_val > 1000.0 {
+            if !x_val.is_finite() || !(0.01..=1000.0).contains(&x_val) {
                 return TestResult::discard();
             }
 

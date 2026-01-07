@@ -1,6 +1,6 @@
 //! Simplification framework - reduces expressions
-pub(crate) mod engine;
-pub(crate) mod helpers;
+pub mod engine;
+pub mod helpers;
 mod patterns;
 mod rules;
 
@@ -10,7 +10,7 @@ use crate::core::unified_context::{BodyFn, Context};
 use std::collections::{HashMap, HashSet};
 
 /// Type alias for custom body function map (symbolic expansion)
-pub(crate) type CustomBodyMap = HashMap<String, BodyFn>;
+pub type CustomBodyMap = HashMap<String, BodyFn>;
 
 /// Simplify an expression with user-specified options
 ///
@@ -22,7 +22,7 @@ pub(crate) type CustomBodyMap = HashMap<String, BodyFn>;
 /// - `max_iterations`: maximum simplification iterations (None = use default 1000)
 /// - `context`: optional unified Context (merges its function bodies)
 /// - `domain_safe`: if true, avoids transformations that can change expression domain
-pub(crate) fn simplify_expr(
+pub fn simplify_expr(
     expr: Expr,
     known_symbols: HashSet<String>,
     mut custom_bodies: CustomBodyMap,

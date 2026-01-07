@@ -15,10 +15,11 @@
 //!
 //! 3. **Sequence Resolution**: Documented priority order and tradeoffs
 //!    - Implicit multiplication (e.g., "xsin(y)" → "x * sin(y)") is heuristic-based
-//!    - Users can disambiguate by using explicit operators or declaring fixed_vars
+//!    - Users can disambiguate by using explicit operators or declaring `fixed_vars`
 //
 use crate::DiffError;
 use crate::parser::tokens::{Operator, Token};
+use std::cmp::Ordering;
 use std::collections::HashSet;
 
 // DESIGN NOTE: BUILTINS vs Operator enum
@@ -97,7 +98,7 @@ const BUILTINS: &[&str] = &[
 
 use std::sync::OnceLock;
 
-/// Static HashSet for O(1) builtin function lookup
+/// Static `HashSet` for O(1) builtin function lookup
 /// Initialized once on first access
 static BUILTINS_SET: OnceLock<HashSet<&'static str>> = OnceLock::new();
 
@@ -119,11 +120,10 @@ fn is_identifier_continue(c: char) -> bool {
 }
 
 /// Balance parentheses in the input string
-pub(crate) fn balance_parentheses(input: &str) -> String {
+pub fn balance_parentheses(input: &str) -> String {
     let open_count = input.chars().filter(|&c| c == '(').count();
     let close_count = input.chars().filter(|&c| c == ')').count();
 
-    use std::cmp::Ordering;
     match open_count.cmp(&close_count) {
         Ordering::Greater => {
             // More ( than ) → append ) at end
@@ -145,7 +145,7 @@ pub(crate) fn balance_parentheses(input: &str) -> String {
                     depth -= 1;
                     if depth < 0 {
                         // Closing before opening
-                        return format!("({})", input);
+                        return format!("({input})");
                     }
                 }
             }
@@ -169,16 +169,14 @@ fn parse_number(s: &str) -> Result<f64, DiffError> {
 
     if dot_count > 1 {
         return Err(DiffError::invalid_number(format!(
-            "'{}' (multiple decimal points found)",
-            s
+            "'{s}' (multiple decimal points found)"
         )));
     }
 
     // Parse with f64 (handles scientific notation automatically)
     s.parse::<f64>().map_err(|_| {
         DiffError::invalid_number(format!(
-            "'{}' (use dot as decimal separator, e.g., '3.14' not '3,14')",
-            s
+            "'{s}' (use dot as decimal separator, e.g., '3.14' not '3,14')"
         ))
     })
 }
@@ -253,8 +251,7 @@ fn scan_derivative_notation(
     // Basic validation: derivative notation should contain more than just '∂'
     if seq.len() <= 1 {
         return Err(DiffError::invalid_token(format!(
-            "Incomplete derivative notation: {}",
-            seq
+            "Incomplete derivative notation: {seq}"
         )));
     }
 
@@ -263,6 +260,7 @@ fn scan_derivative_notation(
 
 /// Pass 1: Scan characters and create raw tokens
 /// Now tracks byte positions for better error reporting
+#[allow(clippy::too_many_lines)]
 fn scan_characters(input: &str) -> Result<Vec<RawToken>, DiffError> {
     // Estimate capacity: rough heuristic (input.len() / 2) to minimize reallocations
     let mut tokens = Vec::with_capacity(input.len() / 2);
@@ -384,8 +382,7 @@ fn scan_characters(input: &str) -> Result<Vec<RawToken>, DiffError> {
             _ if input[pos..]
                 .chars()
                 .next()
-                .map(|c| c.is_alphabetic() || c == '_')
-                .unwrap_or(false) =>
+                .is_some_and(|c| c.is_alphabetic() || c == '_') =>
             {
                 let mut seq = String::new();
                 for ch in input[pos..].chars() {
@@ -413,10 +410,10 @@ fn scan_characters(input: &str) -> Result<Vec<RawToken>, DiffError> {
 }
 
 /// Pass 2: Resolve sequences into tokens using context
-pub(crate) fn lex(
+pub fn lex<S: std::hash::BuildHasher>(
     input: &str,
-    fixed_vars: &HashSet<String>,
-    custom_functions: &HashSet<String>,
+    fixed_vars: &HashSet<String, S>,
+    custom_functions: &HashSet<String, S>,
 ) -> Result<Vec<Token>, DiffError> {
     let raw_tokens = scan_characters(input)?;
     // Optimization: Pre-allocate capacity roughly matching raw tokens count
@@ -444,7 +441,7 @@ pub(crate) fn lex(
             RawToken::Derivative(deriv_str) => {
                 match parse_derivative_notation(deriv_str, fixed_vars, custom_functions) {
                     Ok(deriv_token) => tokens.push(deriv_token),
-                    Err(_) => return Err(DiffError::invalid_token(deriv_str.to_string())),
+                    Err(_) => return Err(DiffError::invalid_token(deriv_str.clone())),
                 }
             }
 
@@ -479,10 +476,10 @@ pub(crate) fn lex(
 /// but introduces potential ambiguity. Users can resolve ambiguity by:
 /// - Declaring multi-char variables in `fixed_vars`
 /// - Using explicit multiplication: `x*sin(y)`
-fn resolve_sequence(
+fn resolve_sequence<S: std::hash::BuildHasher>(
     seq: &str,
-    fixed_vars: &HashSet<String>,
-    custom_functions: &HashSet<String>,
+    fixed_vars: &HashSet<String, S>,
+    custom_functions: &HashSet<String, S>,
     next_is_paren: bool,
 ) -> Vec<Token> {
     // Priority 1: Check if entire sequence is in fixed_vars
@@ -589,20 +586,19 @@ fn resolve_sequence(
         .collect()
 }
 
-/// Parse derivative notation like ∂^1_f(x)/∂_x^1
+/// Parse derivative notation like ∂^`1_f(x)`/∂_x^1
 ///
 /// **Safety**: Validates format before recursively lexing arguments to prevent
 /// infinite recursion on malformed input.
-fn parse_derivative_notation(
+fn parse_derivative_notation<S: std::hash::BuildHasher>(
     s: &str,
-    fixed_vars: &HashSet<String>,
-    custom_functions: &HashSet<String>,
+    fixed_vars: &HashSet<String, S>,
+    custom_functions: &HashSet<String, S>,
 ) -> Result<Token, DiffError> {
     // Format: ∂^order_func(args)/∂_var^order
     if !s.starts_with("∂") || !s.contains("/∂_") {
         return Err(DiffError::invalid_token(format!(
-            "Invalid derivative notation '{}': must start with '∂' and contain '/∂_'",
-            s
+            "Invalid derivative notation '{s}': must start with '∂' and contain '/∂_'"
         )));
     }
 
@@ -622,8 +618,7 @@ fn parse_derivative_notation(
     let left_parts: Vec<&str> = left.split('_').collect();
     if left_parts.len() < 2 {
         return Err(DiffError::invalid_token(format!(
-            "Invalid derivative notation '{}': left side must contain underscore separator",
-            s
+            "Invalid derivative notation '{s}': left side must contain underscore separator"
         )));
     }
 
@@ -636,23 +631,20 @@ fn parse_derivative_notation(
         "1"
     } else {
         return Err(DiffError::invalid_token(format!(
-            "Invalid derivative notation '{}': expected '∂' or '∂^order'",
-            s
+            "Invalid derivative notation '{s}': expected '∂' or '∂^order'"
         )));
     };
 
     let order = order_str.parse::<u32>().map_err(|_| {
         DiffError::invalid_token(format!(
-            "Invalid derivative notation '{}': order '{}' is not a valid number",
-            s, order_str
+            "Invalid derivative notation '{s}': order '{order_str}' is not a valid number"
         ))
     })?;
 
     // Safety check: prevent unreasonably high derivative orders
     if order > 100 {
         return Err(DiffError::invalid_token(format!(
-            "Invalid derivative notation '{}': order {} exceeds maximum (100)",
-            s, order
+            "Invalid derivative notation '{s}': order {order} exceeds maximum (100)"
         )));
     }
 
@@ -672,8 +664,7 @@ fn parse_derivative_notation(
                 let nested_depth = args_body.matches("/∂_").count();
                 if nested_depth > 3 {
                     return Err(DiffError::invalid_token(format!(
-                        "Invalid derivative notation '{}': nested derivative depth exceeds limit",
-                        s
+                        "Invalid derivative notation '{s}': nested derivative depth exceeds limit"
                     )));
                 }
             }
@@ -683,8 +674,7 @@ fn parse_derivative_notation(
             (name, tokens)
         } else {
             return Err(DiffError::invalid_token(format!(
-                "Invalid derivative notation '{}': unmatched parentheses in function arguments",
-                s
+                "Invalid derivative notation '{s}': unmatched parentheses in function arguments"
             )));
         }
     } else {

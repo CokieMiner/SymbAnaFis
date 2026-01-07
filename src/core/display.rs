@@ -35,7 +35,7 @@ use std::sync::Arc;
 // =============================================================================
 
 /// Check if an expression is negative (has a negative leading coefficient)
-/// Returns Some(positive_equivalent) if the expression has a negative sign
+/// Returns `Some(positive_equivalent)` if the expression has a negative sign
 fn extract_negative(expr: &Expr) -> Option<Expr> {
     match &expr.kind {
         ExprKind::Product(factors) => {
@@ -49,17 +49,15 @@ fn extract_negative(expr: &Expr) -> Option<Expr> {
                     // Exactly -1: just remove it
                     if factors.len() == 2 {
                         return Some((*factors[1]).clone());
-                    } else {
-                        let remaining: Vec<Arc<Expr>> = factors[1..].to_vec();
-                        return Some(Expr::product_from_arcs(remaining));
                     }
-                } else {
-                    // Other negative coefficient like -2, -3.5: replace with positive
-                    let mut new_factors: Vec<Arc<Expr>> = Vec::with_capacity(factors.len());
-                    new_factors.push(Arc::new(Expr::number(abs_coeff)));
-                    new_factors.extend(factors[1..].iter().cloned());
-                    return Some(Expr::product_from_arcs(new_factors));
+                    let remaining: Vec<Arc<Expr>> = factors[1..].to_vec();
+                    return Some(Expr::product_from_arcs(remaining));
                 }
+                // Other negative coefficient like -2, -3.5: replace with positive
+                let mut new_factors: Vec<Arc<Expr>> = Vec::with_capacity(factors.len());
+                new_factors.push(Arc::new(Expr::number(abs_coeff)));
+                new_factors.extend(factors[1..].iter().cloned());
+                return Some(Expr::product_from_arcs(new_factors));
             }
         }
         ExprKind::Number(n) => {
@@ -86,7 +84,7 @@ fn extract_negative(expr: &Expr) -> Option<Expr> {
 }
 
 /// Check if expression needs parentheses when displayed in a product
-fn needs_parens_in_product(expr: &Expr) -> bool {
+const fn needs_parens_in_product(expr: &Expr) -> bool {
     matches!(expr.kind, ExprKind::Sum(_) | ExprKind::Poly(_))
 }
 
@@ -102,23 +100,23 @@ fn needs_parens_as_base(expr: &Expr) -> bool {
 /// Format a single factor for display in a product chain
 fn format_factor(expr: &Expr) -> String {
     if needs_parens_in_product(expr) {
-        format!("({})", expr)
+        format!("({expr})")
     } else {
-        format!("{}", expr)
+        format!("{expr}")
     }
 }
 
 /// Format a single term for display in a sum chain
 fn format_sum_term(expr: &Expr) -> String {
     if needs_parens_in_sum(expr) {
-        format!("({})", expr)
+        format!("({expr})")
     } else {
-        format!("{}", expr)
+        format!("{expr}")
     }
 }
 
 /// Check if expression needs parentheses when displayed as a sum term
-fn needs_parens_in_sum(expr: &Expr) -> bool {
+const fn needs_parens_in_sum(expr: &Expr) -> bool {
     matches!(expr.kind, ExprKind::Sum(_) | ExprKind::Poly(_))
 }
 
@@ -179,6 +177,7 @@ fn greek_to_unicode(name: &str) -> Option<&'static str> {
 // =============================================================================
 
 impl fmt::Display for Expr {
+    #[allow(clippy::too_many_lines)]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.kind {
             ExprKind::Number(n) => {
@@ -193,17 +192,17 @@ impl fmt::Display for Expr {
                 } else if n.trunc() == *n && n.abs() < 1e10 {
                     write!(f, "{}", *n as i64)
                 } else {
-                    write!(f, "{}", n)
+                    write!(f, "{n}")
                 }
             }
 
-            ExprKind::Symbol(s) => write!(f, "{}", s),
+            ExprKind::Symbol(s) => write!(f, "{s}"),
 
             ExprKind::FunctionCall { name, args } => {
                 if args.is_empty() {
-                    write!(f, "{}()", name)
+                    write!(f, "{name}()")
                 } else {
-                    let args_str: Vec<String> = args.iter().map(|arg| format!("{}", arg)).collect();
+                    let args_str: Vec<String> = args.iter().map(|arg| format!("{arg}")).collect();
                     write!(f, "{}({})", name, args_str.join(", "))
                 }
             }
@@ -252,11 +251,10 @@ impl fmt::Display for Expr {
                         return write!(f, "-1");
                     } else if factors.len() == 2 {
                         return write!(f, "-{}", format_factor(&factors[1]));
-                    } else {
-                        let remaining: Vec<Arc<Expr>> = factors[1..].to_vec();
-                        let rest = Expr::product_from_arcs(remaining);
-                        return write!(f, "-{}", format_factor(&rest));
                     }
+                    let remaining: Vec<Arc<Self>> = factors[1..].to_vec();
+                    let rest = Self::product_from_arcs(remaining);
+                    return write!(f, "-{}", format_factor(&rest));
                 }
 
                 // Display factors with explicit * separator - write directly to avoid Vec<String>
@@ -272,12 +270,12 @@ impl fmt::Display for Expr {
             }
 
             ExprKind::Div(u, v) => {
-                let num_str = format!("{}", u);
-                let denom_str = format!("{}", v);
+                let num_str = format!("{u}");
+                let denom_str = format!("{v}");
 
                 // Parenthesize numerator if it's a sum
                 let formatted_num = if matches!(u.kind, ExprKind::Sum(_)) {
-                    format!("({})", num_str)
+                    format!("({num_str})")
                 } else {
                     num_str
                 };
@@ -288,10 +286,10 @@ impl fmt::Display for Expr {
                     | ExprKind::Number(_)
                     | ExprKind::Pow(_, _)
                     | ExprKind::FunctionCall { .. } => denom_str,
-                    _ => format!("({})", denom_str),
+                    _ => format!("({denom_str})"),
                 };
 
-                write!(f, "{}/{}", formatted_num, formatted_denom)
+                write!(f, "{formatted_num}/{formatted_denom}")
             }
 
             ExprKind::Pow(u, v) => {
@@ -299,33 +297,33 @@ impl fmt::Display for Expr {
                 if let ExprKind::Symbol(s) = &u.kind
                     && s.id() == *E
                 {
-                    return write!(f, "exp({})", v);
+                    return write!(f, "exp({v})");
                 }
 
-                let base_str = format!("{}", u);
-                let exp_str = format!("{}", v);
+                let base_str = format!("{u}");
+                let exp_str = format!("{v}");
 
                 let formatted_base = if needs_parens_as_base(u) {
-                    format!("({})", base_str)
+                    format!("({base_str})")
                 } else {
                     base_str
                 };
 
                 let formatted_exp = match &v.kind {
                     ExprKind::Number(_) | ExprKind::Symbol(_) => exp_str,
-                    _ => format!("({})", exp_str),
+                    _ => format!("({exp_str})"),
                 };
 
-                write!(f, "{}^{}", formatted_base, formatted_exp)
+                write!(f, "{formatted_base}^{formatted_exp}")
             }
 
             ExprKind::Derivative { inner, var, order } => {
-                write!(f, "∂^{}_{}/∂_{}^{}", order, inner, var, order)
+                write!(f, "∂^{order}_{inner}/∂_{var}^{order}")
             }
 
             // Poly: display inline using Polynomial's Display
             ExprKind::Poly(poly) => {
-                write!(f, "{}", poly)
+                write!(f, "{poly}")
             }
         }
     }
@@ -335,7 +333,7 @@ impl fmt::Display for Expr {
 // LATEX FORMATTER
 // =============================================================================
 
-pub(crate) struct LatexFormatter<'a>(pub(crate) &'a Expr);
+pub struct LatexFormatter<'a>(pub(crate) &'a Expr);
 
 impl fmt::Display for LatexFormatter<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -343,6 +341,8 @@ impl fmt::Display for LatexFormatter<'_> {
     }
 }
 
+// Display format functions are naturally lengthy due to many expression kinds
+#[allow(clippy::too_many_lines)]
 fn format_latex(expr: &Expr, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match &expr.kind {
         ExprKind::Number(n) => {
@@ -357,16 +357,16 @@ fn format_latex(expr: &Expr, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             } else if n.trunc() == *n && n.abs() < 1e10 {
                 write!(f, "{}", *n as i64)
             } else {
-                write!(f, "{}", n)
+                write!(f, "{n}")
             }
         }
 
         ExprKind::Symbol(s) => {
             let name = s.as_ref();
             if let Some(greek) = greek_to_latex(name) {
-                write!(f, "{}", greek)
+                write!(f, "{greek}")
             } else {
-                write!(f, "{}", name)
+                write!(f, "{name}")
             }
         }
 
@@ -528,16 +528,8 @@ fn format_latex(expr: &Expr, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             // Standard function name LaTeX mappings
             let latex_name = match name.as_str() {
                 // Trigonometric
-                "sin" | "cos" | "tan" | "cot" | "sec" | "csc" => format!(r"\{}", name),
-                // Inverse trigonometric
-                "asin" => r"\arcsin".to_string(),
-                "acos" => r"\arccos".to_string(),
-                "atan" => r"\arctan".to_string(),
-                "acot" => r"\operatorname{arccot}".to_string(),
-                "asec" => r"\operatorname{arcsec}".to_string(),
-                "acsc" => r"\operatorname{arccsc}".to_string(),
-                // Hyperbolic
-                "sinh" | "cosh" | "tanh" | "coth" => format!(r"\{}", name),
+                "sin" | "cos" | "tan" | "cot" | "sec" | "csc" | "sinh" | "cosh" | "tanh"
+                | "coth" => format!(r"\{name}"),
                 "sech" => r"\operatorname{sech}".to_string(),
                 "csch" => r"\operatorname{csch}".to_string(),
                 // Inverse hyperbolic
@@ -562,11 +554,11 @@ fn format_latex(expr: &Expr, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 "sinc" => r"\operatorname{sinc}".to_string(),
                 "round" => r"\operatorname{round}".to_string(),
                 // Default: wrap in \text{}
-                _ => format!(r"\text{{{}}}", name),
+                _ => format!(r"\text{{{name}}}"),
             };
 
             if args.is_empty() {
-                write!(f, r"{}\left(\right)", latex_name)
+                write!(f, r"{latex_name}\left(\right)")
             } else {
                 let args_str: Vec<String> = args
                     .iter()
@@ -675,7 +667,7 @@ fn format_latex(expr: &Expr, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         }
 
         // Poly: display inline in LaTeX
-        ExprKind::Poly(poly) => write!(f, "{}", poly),
+        ExprKind::Poly(poly) => write!(f, "{poly}"),
     }
 }
 
@@ -691,7 +683,7 @@ fn latex_factor(expr: &Expr) -> String {
 // UNICODE FORMATTER
 // =============================================================================
 
-pub(crate) struct UnicodeFormatter<'a>(pub(crate) &'a Expr);
+pub struct UnicodeFormatter<'a>(pub(crate) &'a Expr);
 
 impl fmt::Display for UnicodeFormatter<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -700,7 +692,7 @@ impl fmt::Display for UnicodeFormatter<'_> {
 }
 
 #[inline]
-fn to_superscript(c: char) -> char {
+const fn to_superscript(c: char) -> char {
     match c {
         '0' => '⁰',
         '1' => '¹',
@@ -728,10 +720,12 @@ fn num_to_superscript(n: f64) -> String {
             .map(to_superscript)
             .collect()
     } else {
-        format!("^{}", n)
+        format!("^{n}")
     }
 }
 
+// Display format functions are naturally lengthy due to many expression kinds
+#[allow(clippy::too_many_lines)]
 fn format_unicode(expr: &Expr, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match &expr.kind {
         ExprKind::Number(n) => {
@@ -742,22 +736,22 @@ fn format_unicode(expr: &Expr, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             } else if n.trunc() == *n && n.abs() < 1e10 {
                 write!(f, "{}", *n as i64)
             } else {
-                write!(f, "{}", n)
+                write!(f, "{n}")
             }
         }
 
         ExprKind::Symbol(s) => {
             let name = s.as_ref();
             if let Some(greek) = greek_to_unicode(name) {
-                write!(f, "{}", greek)
+                write!(f, "{greek}")
             } else {
-                write!(f, "{}", name)
+                write!(f, "{name}")
             }
         }
 
         ExprKind::FunctionCall { name, args } => {
             if args.is_empty() {
-                write!(f, "{}()", name)
+                write!(f, "{name}()")
             } else {
                 let args_str: Vec<String> = args
                     .iter()
@@ -829,7 +823,7 @@ fn format_unicode(expr: &Expr, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 | ExprKind::FunctionCall { .. } => format!("{}", UnicodeFormatter(v)),
                 _ => format!("({})", UnicodeFormatter(v)),
             };
-            write!(f, "{}/{}", num, denom)
+            write!(f, "{num}/{denom}")
         }
 
         ExprKind::Pow(u, v) => {
@@ -853,12 +847,12 @@ fn format_unicode(expr: &Expr, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         }
 
         ExprKind::Derivative { inner, var, order } => {
-            let sup = num_to_superscript(*order as f64);
+            let sup = num_to_superscript(f64::from(*order));
             write!(f, "∂{}({})/∂{}{}", sup, UnicodeFormatter(inner), var, sup)
         }
 
         // Poly: display inline in unicode
-        ExprKind::Poly(poly) => write!(f, "{}", poly),
+        ExprKind::Poly(poly) => write!(f, "{poly}"),
     }
 }
 
@@ -878,6 +872,7 @@ impl Expr {
     /// Convert the expression to LaTeX format.
     ///
     /// Returns a string suitable for rendering in LaTeX math environments.
+    #[must_use]
     pub fn to_latex(&self) -> String {
         format!("{}", LatexFormatter(self))
     }
@@ -885,6 +880,7 @@ impl Expr {
     /// Convert the expression to Unicode format.
     ///
     /// Returns a string with Unicode superscripts and Greek letters for display.
+    #[must_use]
     pub fn to_unicode(&self) -> String {
         format!("{}", UnicodeFormatter(self))
     }

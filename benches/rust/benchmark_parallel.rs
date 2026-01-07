@@ -2,10 +2,10 @@
 //!
 //! Compares evaluation methods in the `parallel` feature:
 //! - `eval_f64` (high-perf batch, columnar data)
-//! - `eval_batch` (low-level CompiledEvaluator method)
+//! - `eval_batch` (low-level `CompiledEvaluator` method)
 //! - `evaluate` loop (baseline, single-point calls)
 //!
-//! Run with: cargo bench --bench benchmark_parallel --features parallel
+//! Run with: cargo bench --bench `benchmark_parallel` --features parallel
 
 mod expressions;
 
@@ -24,7 +24,7 @@ fn bench_eval_methods(c: &mut Criterion) {
     let empty = HashSet::new();
 
     // Generate 1000 test points
-    let test_points: Vec<f64> = (0..1000).map(|i| 0.1 + i as f64 * 0.01).collect();
+    let test_points: Vec<f64> = (0..1000).map(|i| f64::from(i).mul_add(0.01, 0.1)).collect();
 
     for (name, expr_str, var, fixed) in ALL_EXPRESSIONS {
         // Get simplified derivative
@@ -34,7 +34,7 @@ fn bench_eval_methods(c: &mut Criterion) {
         // Use compile_auto to include all variables
         let evaluator = CompiledEvaluator::compile_auto(&diff_expr, None);
         if evaluator.is_err() {
-            eprintln!("Skipping {} - compile error", name);
+            eprintln!("Skipping {name} - compile error");
             continue;
         }
         let evaluator = evaluator.unwrap();
@@ -43,7 +43,7 @@ fn bench_eval_methods(c: &mut Criterion) {
         // Build parameter array with fixed values for all except the main var
         let var_idx = var_names.iter().position(|v| v == var);
         if var_idx.is_none() {
-            eprintln!("Skipping {} - main var not found in compiled vars", name);
+            eprintln!("Skipping {name} - main var not found in compiled vars");
             continue;
         }
         let var_idx = var_idx.unwrap();
@@ -74,7 +74,7 @@ fn bench_eval_methods(c: &mut Criterion) {
                             .unwrap_or(0.0);
                     }
                     black_box(sum)
-                })
+                });
             },
         );
 
@@ -93,7 +93,7 @@ fn bench_eval_methods(c: &mut Criterion) {
                         sum += evaluator.evaluate(&values);
                     }
                     black_box(sum)
-                })
+                });
             },
         );
 
@@ -112,7 +112,7 @@ fn bench_eval_methods(c: &mut Criterion) {
                     b.iter(|| {
                         evaluator.eval_batch(&columns, &mut output, None).unwrap();
                         black_box(output.iter().sum::<f64>())
-                    })
+                    });
                 },
             );
         }
@@ -143,7 +143,7 @@ fn bench_eval_scaling(c: &mut Criterion) {
     for n in point_counts {
         // Keep v values in valid range (|v| < 1)
         let test_points: Vec<f64> = (0..n)
-            .map(|i| 0.01 + 0.98 * (i as f64) / (n as f64))
+            .map(|i| 0.01 + 0.98 * f64::from(i) / f64::from(n))
             .collect();
 
         // Loop evaluate
@@ -157,7 +157,7 @@ fn bench_eval_scaling(c: &mut Criterion) {
                         sum += evaluator.evaluate(&[x]);
                     }
                     sum
-                })
+                });
             },
         );
 
@@ -171,7 +171,7 @@ fn bench_eval_scaling(c: &mut Criterion) {
                 b.iter(|| {
                     evaluator.eval_batch(&columns, &mut output, None).unwrap();
                     black_box(output.iter().sum::<f64>())
-                })
+                });
             },
         );
     }
@@ -213,11 +213,11 @@ fn bench_multi_expr(c: &mut Criterion) {
             let data: Vec<f64> = if *var == "v" {
                 // Lorentz: |v| < 1
                 (0..n_points)
-                    .map(|i| 0.01 + 0.98 * (i as f64 / n_points as f64))
+                    .map(|i| 0.98f64.mul_add(i as f64 / n_points as f64, 0.01))
                     .collect()
             } else {
                 // General: 0.1 to 10.1
-                (0..n_points).map(|i| 0.1 + i as f64 * 0.01).collect()
+                (0..n_points).map(|i| (i as f64).mul_add(0.01, 0.1)).collect()
             };
             test_data.push(data);
         }
@@ -239,7 +239,7 @@ fn bench_multi_expr(c: &mut Criterion) {
                 }
             }
             black_box(total)
-        })
+        });
     });
 
     // Benchmark: eval_batch per expression
@@ -254,7 +254,7 @@ fn bench_multi_expr(c: &mut Criterion) {
                 total += outputs[i].iter().sum::<f64>();
             }
             black_box(total)
-        })
+        });
     });
 
     // Benchmark: eval_f64 for each expression individually
@@ -269,7 +269,7 @@ fn bench_multi_expr(c: &mut Criterion) {
                 total += result[0].iter().sum::<f64>();
             }
             black_box(total)
-        })
+        });
     });
 
     group.finish();
@@ -293,7 +293,7 @@ fn bench_eval_apis(c: &mut Criterion) {
     // Generate 10000 test points in valid domain
     let n_points = 10000;
     let test_points: Vec<f64> = (0..n_points)
-        .map(|i| 0.01 + 0.98 * (i as f64 / n_points as f64))
+        .map(|i| 0.98f64.mul_add(f64::from(i) / f64::from(n_points), 0.01))
         .collect();
 
     // ---------------------------------------------------------------------
@@ -304,7 +304,7 @@ fn bench_eval_apis(c: &mut Criterion) {
             let result =
                 symb_anafis::eval_f64(&[&diff_expr], &[&[var]], &[&[&test_points[..]]]).unwrap();
             black_box(result[0].iter().sum::<f64>())
-        })
+        });
     });
 
     // ---------------------------------------------------------------------
@@ -332,7 +332,7 @@ fn bench_eval_apis(c: &mut Criterion) {
                 })
                 .sum();
             black_box(sum)
-        })
+        });
     });
 
     group.finish();

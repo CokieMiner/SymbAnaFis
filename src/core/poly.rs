@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 /// Univariate polynomial in a single base expression
 ///
-/// Represents: Σ coeff_i * base^pow_i
+/// Represents: Σ `coeff_i` * `base^pow_i`
 ///
 /// Example: 3*sin(x)² + 2*sin(x) + 1 is stored as:
 /// - base: sin(x)
@@ -32,7 +32,7 @@ fn format_coeff(n: f64) -> String {
     if n.trunc() == n && n.abs() < 1e10 {
         format!("{}", n as i64)
     } else {
-        format!("{}", n)
+        format!("{n}")
     }
 }
 
@@ -92,8 +92,8 @@ impl Polynomial {
     // =========================================================================
 
     /// Create a zero polynomial with given base
-    pub fn zero(base: Arc<Expr>) -> Self {
-        Polynomial {
+    pub const fn zero(base: Arc<Expr>) -> Self {
+        Self {
             base,
             terms: Vec::new(),
         }
@@ -103,12 +103,12 @@ impl Polynomial {
     pub fn constant(c: f64) -> Self {
         if c.abs() < EPSILON {
             // Zero polynomial - use dummy base
-            Polynomial {
+            Self {
                 base: Arc::new(Expr::number(1.0)),
                 terms: Vec::new(),
             }
         } else {
-            Polynomial {
+            Self {
                 base: Arc::new(Expr::number(1.0)),
                 terms: vec![(0, c)],
             }
@@ -117,7 +117,7 @@ impl Polynomial {
 
     /// Create polynomial for a simple expression: base^1
     pub fn from_base(base: Expr) -> Self {
-        Polynomial {
+        Self {
             base: Arc::new(base),
             terms: vec![(1, 1.0)],
         }
@@ -126,9 +126,9 @@ impl Polynomial {
     /// Create polynomial: coeff * base^pow
     pub fn term(base: Arc<Expr>, pow: u32, coeff: f64) -> Self {
         if coeff.abs() < EPSILON {
-            Polynomial::zero(base)
+            Self::zero(base)
         } else {
-            Polynomial {
+            Self {
                 base,
                 terms: vec![(pow, coeff)],
             }
@@ -153,7 +153,7 @@ impl Polynomial {
 
     /// Check if polynomial is zero
     #[inline]
-    pub fn is_zero(&self) -> bool {
+    pub const fn is_zero(&self) -> bool {
         self.terms.is_empty()
     }
 
@@ -176,11 +176,11 @@ impl Polynomial {
     /// Get the degree (highest power)
     #[inline]
     pub fn degree(&self) -> u32 {
-        self.terms.last().map(|(p, _)| *p).unwrap_or(0)
+        self.terms.last().map_or(0, |(p, _)| *p)
     }
 
     /// Number of terms
-    pub fn term_count(&self) -> usize {
+    pub const fn term_count(&self) -> usize {
         self.terms.len()
     }
 
@@ -194,7 +194,7 @@ impl Polynomial {
 
     /// Get leading coefficient (highest power term)
     pub fn leading_coeff(&self) -> f64 {
-        self.terms.last().map(|(_, c)| *c).unwrap_or(0.0)
+        self.terms.last().map_or(0.0, |(_, c)| *c)
     }
 
     // =========================================================================
@@ -221,7 +221,7 @@ impl Polynomial {
 
     /// Try to add another polynomial to this one (in-place)
     /// Returns true if successful (compatible bases), false otherwise
-    pub(crate) fn try_add_assign(&mut self, other: &Polynomial) -> bool {
+    pub(crate) fn try_add_assign(&mut self, other: &Self) -> bool {
         // Same base (by pointer or value): simple merge
         if Arc::ptr_eq(&self.base, &other.base) || self.base == other.base {
             for &(pow, coeff) in &other.terms {
@@ -252,14 +252,14 @@ impl Polynomial {
     }
 
     /// Add two polynomials (must have same base)
-    pub fn add(&self, other: &Polynomial) -> Polynomial {
+    pub fn add(&self, other: &Self) -> Self {
         debug_assert!(
             Arc::ptr_eq(&self.base, &other.base) || self.base == other.base,
             "Cannot add polynomials with different bases"
         );
 
         // Pre-allocate with combined capacity
-        let mut result = Polynomial {
+        let mut result = Self {
             base: self.base.clone(),
             terms: Vec::with_capacity(self.terms.len() + other.terms.len()),
         };
@@ -271,27 +271,27 @@ impl Polynomial {
     }
 
     /// Subtract polynomials
-    pub fn sub(&self, other: &Polynomial) -> Polynomial {
+    pub fn sub(&self, other: &Self) -> Self {
         self.add(&other.negate())
     }
 
     /// Negate polynomial
-    pub fn negate(&self) -> Polynomial {
-        Polynomial {
+    pub fn negate(&self) -> Self {
+        Self {
             base: self.base.clone(),
             terms: self.terms.iter().map(|&(p, c)| (p, -c)).collect(),
         }
     }
 
     /// Multiply two polynomials (convolution)
-    pub fn mul(&self, other: &Polynomial) -> Polynomial {
+    pub fn mul(&self, other: &Self) -> Self {
         debug_assert!(
             Arc::ptr_eq(&self.base, &other.base) || self.base == other.base,
             "Cannot multiply polynomials with different bases"
         );
 
         if self.is_zero() || other.is_zero() {
-            return Polynomial::zero(self.base.clone());
+            return Self::zero(self.base.clone());
         }
 
         // Efficient multiplication: Collect all terms then sort and merge
@@ -327,18 +327,18 @@ impl Polynomial {
             }
         }
 
-        Polynomial {
+        Self {
             base: self.base.clone(),
             terms: merged_terms,
         }
     }
 
     /// Multiply by a scalar
-    pub fn scale(&self, scalar: f64) -> Polynomial {
+    pub fn scale(&self, scalar: f64) -> Self {
         if scalar.abs() < EPSILON {
-            return Polynomial::zero(self.base.clone());
+            return Self::zero(self.base.clone());
         }
-        Polynomial {
+        Self {
             base: self.base.clone(),
             terms: self.terms.iter().map(|&(p, c)| (p, c * scalar)).collect(),
         }
@@ -346,18 +346,18 @@ impl Polynomial {
 
     /// Differentiate polynomial: d/d(base)
     /// Each term c*base^n becomes n*c*base^(n-1)
-    pub fn derivative(&self) -> Polynomial {
-        let mut result = Polynomial::zero(self.base.clone());
+    pub fn derivative(&self) -> Self {
+        let mut result = Self::zero(self.base.clone());
         for &(pow, coeff) in &self.terms {
             if pow > 0 {
-                result.add_term(pow - 1, coeff * pow as f64);
+                result.add_term(pow - 1, coeff * f64::from(pow));
             }
         }
         result
     }
 
     /// Make polynomial monic (leading coefficient = 1)
-    pub fn make_monic(&self) -> Polynomial {
+    pub fn make_monic(&self) -> Self {
         let lc = self.leading_coeff();
         if lc.abs() < EPSILON || (lc - 1.0).abs() < EPSILON {
             return self.clone();
@@ -370,7 +370,7 @@ impl Polynomial {
     // =========================================================================
 
     /// Polynomial division: self / other = (quotient, remainder)
-    pub fn div_rem(&self, other: &Polynomial) -> Option<(Polynomial, Polynomial)> {
+    pub fn div_rem(&self, other: &Self) -> Option<(Self, Self)> {
         if other.is_zero() {
             return None;
         }
@@ -378,7 +378,7 @@ impl Polynomial {
         let div_deg = other.degree();
         let div_lc = other.leading_coeff();
 
-        let mut quotient = Polynomial::zero(self.base.clone());
+        let mut quotient = Self::zero(self.base.clone());
         let mut remainder = self.clone();
 
         loop {
@@ -407,7 +407,7 @@ impl Polynomial {
 
     /// GCD using Euclidean algorithm
     /// Returns None if polynomials have different bases (cannot compute GCD)
-    pub fn gcd(&self, other: &Polynomial) -> Option<Polynomial> {
+    pub fn gcd(&self, other: &Self) -> Option<Self> {
         // GCD only makes sense for polynomials with same base
         if !Arc::ptr_eq(&self.base, &other.base) && self.base != other.base {
             return None;
@@ -436,26 +436,23 @@ impl Polynomial {
     pub fn try_from_expr(expr: &Expr) -> Option<Self> {
         match &expr.kind {
             // Constants
-            ExprKind::Number(n) => Some(Polynomial::constant(*n)),
+            ExprKind::Number(n) => Some(Self::constant(*n)),
 
-            // Symbols become base^1
-            ExprKind::Symbol(_) => Some(Polynomial::from_base(expr.clone())),
-
-            // Function calls become base^1 (opaque)
-            ExprKind::FunctionCall { .. } => Some(Polynomial::from_base(expr.clone())),
-
-            // Sum: convert each term and add
+            // Symbols, function calls, or derivatives become base^1
+            ExprKind::Symbol(_) | ExprKind::FunctionCall { .. } | ExprKind::Derivative { .. } => {
+                Some(Self::from_base(expr.clone()))
+            }
             ExprKind::Sum(terms) => {
                 if terms.is_empty() {
-                    return Some(Polynomial::constant(0.0));
+                    return Some(Self::constant(0.0));
                 }
 
                 // Convert first term to establish base
-                let mut result = Polynomial::try_from_expr(&terms[0])?;
+                let mut result = Self::try_from_expr(&terms[0])?;
 
                 // Add remaining terms (must have compatible bases)
                 for term in terms.iter().skip(1) {
-                    let term_poly = Polynomial::try_from_expr(term)?;
+                    let term_poly = Self::try_from_expr(term)?;
                     if !result.try_add_assign(&term_poly) {
                         return None;
                     }
@@ -467,15 +464,15 @@ impl Polynomial {
             // Product: convert each factor and multiply
             ExprKind::Product(factors) => {
                 if factors.is_empty() {
-                    return Some(Polynomial::constant(1.0));
+                    return Some(Self::constant(1.0));
                 }
 
                 // Convert first factor
-                let mut result = Polynomial::try_from_expr(&factors[0])?;
+                let mut result = Self::try_from_expr(&factors[0])?;
 
                 // Multiply remaining factors
                 for factor in factors.iter().skip(1) {
-                    let factor_poly = Polynomial::try_from_expr(factor)?;
+                    let factor_poly = Self::try_from_expr(factor)?;
                     result = Self::try_mul(&result, &factor_poly)?;
                 }
 
@@ -488,15 +485,16 @@ impl Polynomial {
                     && *n >= 0.0
                     && n.fract().abs() < EPSILON
                 {
+                    #[allow(clippy::cast_sign_loss)]
                     let pow = *n as u32;
                     // Reuse existing Arc instead of deep cloning
-                    return Some(Polynomial {
+                    return Some(Self {
                         base: Arc::clone(base_expr),
                         terms: vec![(pow, 1.0)],
                     });
                 }
                 // Non-integer power: treat entire expression as base
-                Some(Polynomial::from_base(expr.clone()))
+                Some(Self::from_base(expr.clone()))
             }
 
             // Division by constant
@@ -504,16 +502,13 @@ impl Polynomial {
                 if let ExprKind::Number(d) = &den.kind
                     && d.abs() > EPSILON
                 {
-                    let mut result = Polynomial::try_from_expr(num)?;
+                    let mut result = Self::try_from_expr(num)?;
                     result = result.scale(1.0 / d);
                     return Some(result);
                 }
                 // Non-constant divisor: treat as opaque
-                Some(Polynomial::from_base(expr.clone()))
+                Some(Self::from_base(expr.clone()))
             }
-
-            // Derivative: treat as opaque
-            ExprKind::Derivative { .. } => Some(Polynomial::from_base(expr.clone())),
 
             // Already a polynomial: extract
             ExprKind::Poly(poly) => Some(poly.clone()),
@@ -521,7 +516,7 @@ impl Polynomial {
     }
 
     /// Try to multiply two polynomials, handling base compatibility
-    fn try_mul(a: &Polynomial, b: &Polynomial) -> Option<Polynomial> {
+    fn try_mul(a: &Self, b: &Self) -> Option<Self> {
         // Multiply by constant
         if a.is_constant() {
             return Some(b.scale(a.as_constant().unwrap_or(0.0)));
@@ -566,7 +561,10 @@ impl Polynomial {
         let base_pow = if pow == 1 {
             Expr::unwrap_arc(Arc::clone(&self.base))
         } else {
-            Expr::pow_from_arcs(Arc::clone(&self.base), Arc::new(Expr::number(pow as f64)))
+            Expr::pow_from_arcs(
+                Arc::clone(&self.base),
+                Arc::new(Expr::number(f64::from(pow))),
+            )
         };
 
         if (coeff - 1.0).abs() < EPSILON {
@@ -579,7 +577,7 @@ impl Polynomial {
     }
 
     /// Differentiate with respect to a variable (chain rule)
-    pub fn derivative_expr(&self, diff_var: &str) -> Option<Expr> {
+    pub fn derivative_expr(&self, diff_var: &str) -> Expr {
         // Get polynomial derivative
         let poly_deriv = self.derivative();
         let poly_expr = poly_deriv.to_expr();
@@ -590,15 +588,15 @@ impl Polynomial {
             let u_prime = self.base.derive_raw(diff_var);
 
             if u_prime.is_zero_num() {
-                Some(Expr::number(0.0))
+                Expr::number(0.0)
             } else if u_prime.is_one_num() {
-                Some(poly_expr)
+                poly_expr
             } else {
-                Some(Expr::product(vec![poly_expr, u_prime]))
+                Expr::product(vec![poly_expr, u_prime])
             }
         } else {
             // Base doesn't contain diff_var, derivative is 0
-            Some(Expr::number(0.0))
+            Expr::number(0.0)
         }
     }
 
@@ -618,13 +616,13 @@ impl Polynomial {
 
     /// Negate a specific term's coefficient (for display purposes)
     /// Returns a new polynomial with the negated term
-    pub fn with_negated_first(&self) -> Polynomial {
+    pub fn with_negated_first(&self) -> Self {
         if self.terms.is_empty() {
             return self.clone();
         }
         let mut new_terms = self.terms.clone();
         new_terms[0].1 = -new_terms[0].1;
-        Polynomial {
+        Self {
             base: self.base.clone(),
             terms: new_terms,
         }
@@ -633,7 +631,7 @@ impl Polynomial {
 
 impl Default for Polynomial {
     fn default() -> Self {
-        Polynomial::constant(0.0)
+        Self::constant(0.0)
     }
 }
 

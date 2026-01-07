@@ -46,25 +46,25 @@ pub enum ExprInput {
 
 impl From<Expr> for ExprInput {
     fn from(e: Expr) -> Self {
-        ExprInput::Parsed(e)
+        Self::Parsed(e)
     }
 }
 
 impl From<&Expr> for ExprInput {
     fn from(e: &Expr) -> Self {
-        ExprInput::Parsed(e.clone())
+        Self::Parsed(e.clone())
     }
 }
 
 impl From<&str> for ExprInput {
     fn from(s: &str) -> Self {
-        ExprInput::String(s.to_string())
+        Self::String(s.to_string())
     }
 }
 
 impl From<String> for ExprInput {
     fn from(s: String) -> Self {
-        ExprInput::String(s)
+        Self::String(s)
     }
 }
 
@@ -81,12 +81,14 @@ pub struct VarInput {
 impl VarInput {
     /// Get the symbol ID for O(1) comparison
     #[inline]
-    pub fn id(&self) -> u64 {
+    #[must_use]
+    pub const fn id(&self) -> u64 {
         self.id
     }
 
     /// Get the variable name as &str
     #[inline]
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.name
     }
@@ -96,7 +98,7 @@ impl From<&str> for VarInput {
     fn from(s: &str) -> Self {
         // Intern the symbol to get a stable ID
         let sym = crate::symb(s);
-        VarInput {
+        Self {
             id: sym.id(),
             name: std::sync::Arc::from(s),
         }
@@ -106,7 +108,7 @@ impl From<&str> for VarInput {
 impl From<String> for VarInput {
     fn from(s: String) -> Self {
         let sym = crate::symb(&s);
-        VarInput {
+        Self {
             id: sym.id(),
             name: std::sync::Arc::from(s.as_str()),
         }
@@ -115,7 +117,7 @@ impl From<String> for VarInput {
 
 impl From<&crate::Symbol> for VarInput {
     fn from(s: &crate::Symbol) -> Self {
-        VarInput {
+        Self {
             id: s.id(),
             name: std::sync::Arc::from(s.name().unwrap_or_default().as_str()),
         }
@@ -124,7 +126,7 @@ impl From<&crate::Symbol> for VarInput {
 
 impl From<crate::Symbol> for VarInput {
     fn from(s: crate::Symbol) -> Self {
-        VarInput {
+        Self {
             id: s.id(),
             name: std::sync::Arc::from(s.name().unwrap_or_default().as_str()),
         }
@@ -147,31 +149,33 @@ pub const SKIP: Value = Value::Skip;
 
 impl From<f64> for Value {
     fn from(n: f64) -> Self {
-        Value::Num(n)
+        Self::Num(n)
     }
 }
 
 impl From<i32> for Value {
     fn from(n: i32) -> Self {
-        Value::Num(n as f64)
+        Self::Num(f64::from(n))
     }
 }
 
 impl From<i64> for Value {
     fn from(n: i64) -> Self {
-        Value::Num(n as f64)
+        // i64->f64: Python integers map naturally to floats
+        #[allow(clippy::cast_precision_loss)]
+        Self::Num(n as f64)
     }
 }
 
 impl From<Expr> for Value {
     fn from(e: Expr) -> Self {
-        Value::Expr(e)
+        Self::Expr(e)
     }
 }
 
 impl From<&Expr> for Value {
     fn from(e: &Expr) -> Self {
-        Value::Expr(e.clone())
+        Self::Expr(e.clone())
     }
 }
 
@@ -192,36 +196,49 @@ impl EvalResult {
     // Note: Use .to_string() from Display trait (auto-implemented via ToString)
 
     /// Get result as Expr (parses if needed)
+    ///
+    /// # Errors
+    /// Returns `DiffError` if the string result cannot be parsed.
     pub fn to_expr(&self) -> Result<Expr, DiffError> {
         match self {
-            EvalResult::Expr(e) => Ok(e.clone()),
-            EvalResult::String(s) => parser::parse(s, &HashSet::new(), &HashSet::new(), None),
+            Self::Expr(e) => Ok(e.clone()),
+            Self::String(s) => parser::parse(s, &HashSet::new(), &HashSet::new(), None),
         }
     }
 
     /// Check if this is a string result
-    pub fn is_string(&self) -> bool {
-        matches!(self, EvalResult::String(_))
+    #[must_use]
+    pub const fn is_string(&self) -> bool {
+        matches!(self, Self::String(_))
     }
 
     /// Check if this is an Expr result
-    pub fn is_expr(&self) -> bool {
-        matches!(self, EvalResult::Expr(_))
+    #[must_use]
+    pub const fn is_expr(&self) -> bool {
+        matches!(self, Self::Expr(_))
     }
 
     /// Unwrap as string, panics if Expr
+    ///
+    /// # Panics
+    /// Panics if `self` is `EvalResult::Expr`.
+    #[must_use]
     pub fn unwrap_string(self) -> String {
         match self {
-            EvalResult::String(s) => s,
-            EvalResult::Expr(_) => panic!("Expected String, got Expr"),
+            Self::String(s) => s,
+            Self::Expr(_) => panic!("Expected String, got Expr"),
         }
     }
 
     /// Unwrap as Expr, panics if String
+    ///
+    /// # Panics
+    /// Panics if `self` is `EvalResult::String`.
+    #[must_use]
     pub fn unwrap_expr(self) -> Expr {
         match self {
-            EvalResult::Expr(e) => e,
-            EvalResult::String(_) => panic!("Expected Expr, got String"),
+            Self::Expr(e) => e,
+            Self::String(_) => panic!("Expected Expr, got String"),
         }
     }
 }
@@ -229,8 +246,8 @@ impl EvalResult {
 impl std::fmt::Display for EvalResult {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            EvalResult::String(s) => write!(f, "{}", s),
-            EvalResult::Expr(e) => write!(f, "{}", e),
+            Self::String(s) => write!(f, "{s}"),
+            Self::Expr(e) => write!(f, "{e}"),
         }
     }
 }
@@ -252,6 +269,11 @@ impl std::fmt::Display for EvalResult {
 /// For each expression, a Vec of `EvalResult` at each point.
 /// Output type matches input type (string→String, Expr→Expr).
 /// Didn't want to have wrapper in my lib but this one as to stay >:|
+///
+/// # Errors
+/// Returns `DiffError` if:
+/// - Dimensions of inputs are mismatched
+/// - String expressions fail to parse
 pub fn evaluate_parallel(
     exprs: Vec<ExprInput>,
     var_names: Vec<Vec<VarInput>>,
@@ -276,6 +298,8 @@ pub fn evaluate_parallel(
 ///
 /// # Returns
 /// For each expression, a Vec of `EvalResult` at each point.
+// Parallel evaluation handles complex dispatch logic, length is justified
+#[allow(clippy::too_many_lines, clippy::needless_pass_by_value)]
 #[inline]
 pub(crate) fn evaluate_parallel_with_hint(
     exprs: Vec<ExprInput>,
@@ -307,11 +331,11 @@ pub(crate) fn evaluate_parallel_with_hint(
         .into_par_iter()
         .map(|expr_idx| {
             let (expr, was_string) = &parsed[expr_idx];
-            let vars: Vec<&str> = var_names[expr_idx].iter().map(|v| v.as_str()).collect();
-            let vals = &values[expr_idx];
+            let vars: Vec<&str> = var_names[expr_idx].iter().map(VarInput::as_str).collect();
+            let expr_values = &values[expr_idx];
 
             // Validate dimensions
-            if vars.len() != vals.len() {
+            if vars.len() != expr_values.len() {
                 return vec![];
             }
 
@@ -326,7 +350,11 @@ pub(crate) fn evaluate_parallel_with_hint(
             }
 
             // Find max points across all variables
-            let n_points = vals.iter().map(|v| v.len()).max().unwrap_or(0);
+            let n_points = expr_values
+                .iter()
+                .map(std::vec::Vec::len)
+                .max()
+                .unwrap_or(0);
             if n_points == 0 {
                 return vec![];
             }
@@ -335,26 +363,21 @@ pub(crate) fn evaluate_parallel_with_hint(
             // OPTIMIZATION: Attempt to compile for fast evaluation
             // =========================================================
 
-            let mut evaluator = None;
-
             // We ignore all_values_numeric check here - we'll check per-point
             // We also rely on compile() to check that all variables are bound
-            if let Ok(compiled) =
-                crate::core::evaluator::CompiledEvaluator::compile(expr, &vars, None)
-            {
-                evaluator = Some(compiled);
-            }
+            let evaluator =
+                crate::core::evaluator::CompiledEvaluator::compile(expr, &vars, None).ok();
 
             if let Some(evaluator) = evaluator {
                 // OPTIMIZATION: Use pre-computed hint if available, otherwise compute
-                let globally_numeric = is_fully_numeric
-                    .as_ref()
-                    .map(|hints| hints.get(expr_idx).copied().unwrap_or(false))
-                    .unwrap_or_else(|| {
-                        // Fallback: compute if no hint provided
-                        vals.iter()
-                            .all(|col| col.iter().all(|v| matches!(v, Value::Num(_))))
-                    });
+                // map_or default is lazy and computed only when None; clippy is incorrect here
+                #[allow(clippy::or_fun_call)]
+                let globally_numeric = is_fully_numeric.as_ref().map_or(
+                    expr_values
+                        .iter()
+                        .all(|col| col.iter().all(|v| matches!(v, Value::Num(_)))),
+                    |hints| hints.get(expr_idx).copied().unwrap_or(false),
+                );
 
                 if globally_numeric {
                     // ULTRA-FAST PATH: Chunked SIMD evaluation with thread-local buffers
@@ -375,7 +398,7 @@ pub(crate) fn evaluate_parallel_with_hint(
 
                                 // 1. Unpack columns for this chunk
                                 let mut chunk_cols: Vec<Vec<f64>> = Vec::with_capacity(n_vars);
-                                for var_vals in vals.iter().take(n_vars) {
+                                for var_vals in expr_values.iter().take(n_vars) {
                                     let mut col = Vec::with_capacity(len);
                                     for i in start..end {
                                         let val = if i < var_vals.len() {
@@ -394,7 +417,7 @@ pub(crate) fn evaluate_parallel_with_hint(
                                 }
 
                                 let col_refs: Vec<&[f64]> =
-                                    chunk_cols.iter().map(|c| c.as_slice()).collect();
+                                    chunk_cols.iter().map(std::vec::Vec::as_slice).collect();
                                 let mut chunk_out = vec![0.0; len];
 
                                 // 2. SIMD Batch Eval with thread-local buffer reuse
@@ -437,7 +460,7 @@ pub(crate) fn evaluate_parallel_with_hint(
                             // Check if this specific point has all numeric inputs
                             let mut all_numeric = true;
                             // fast check
-                            for var_vals in vals.iter().take(n_vars) {
+                            for var_vals in expr_values.iter().take(n_vars) {
                                 // Bounds check + type check
                                 if point_idx >= var_vals.len() {
                                     // Last value check
@@ -460,7 +483,7 @@ pub(crate) fn evaluate_parallel_with_hint(
                             if all_numeric {
                                 // FAST PATH: Run compiled code
                                 params.clear();
-                                for var_vals in vals.iter().take(n_vars) {
+                                for var_vals in expr_values.iter().take(n_vars) {
                                     let val = if point_idx < var_vals.len() {
                                         &var_vals[point_idx]
                                     } else {
@@ -485,7 +508,13 @@ pub(crate) fn evaluate_parallel_with_hint(
                                 }
                             } else {
                                 // SLOW PATH: Fallback for this point (symbolic inputs/skips)
-                                evaluate_slow_point(expr, &vars, vals, point_idx, *was_string)
+                                evaluate_slow_point(
+                                    expr,
+                                    &vars,
+                                    expr_values,
+                                    point_idx,
+                                    *was_string,
+                                )
                             }
                         },
                     )
@@ -495,7 +524,9 @@ pub(crate) fn evaluate_parallel_with_hint(
                 // Evaluate entirely using substitution
                 (0..n_points)
                     .into_par_iter()
-                    .map(|point_idx| evaluate_slow_point(expr, &vars, vals, point_idx, *was_string))
+                    .map(|point_idx| {
+                        evaluate_slow_point(expr, &vars, expr_values, point_idx, *was_string)
+                    })
                     .collect()
             }
         })
@@ -508,7 +539,7 @@ pub(crate) fn evaluate_parallel_with_hint(
 fn evaluate_slow_point(
     expr: &Expr,
     vars: &[&str],
-    vals: &[Vec<Value>],
+    var_values: &[Vec<Value>],
     point_idx: usize,
     was_string: bool,
 ) -> EvalResult {
@@ -517,10 +548,10 @@ fn evaluate_slow_point(
     let mut expr_subs: Vec<(&str, &Expr)> = Vec::with_capacity(n_vars);
 
     for var_idx in 0..n_vars {
-        let val = if point_idx < vals[var_idx].len() {
-            &vals[var_idx][point_idx]
+        let val = if point_idx < var_values[var_idx].len() {
+            &var_values[var_idx][point_idx]
         } else {
-            match vals[var_idx].last() {
+            match var_values[var_idx].last() {
                 Some(v) => v,
                 None => {
                     return if was_string {
@@ -569,7 +600,7 @@ fn format_float(n: f64) -> String {
         format!("{}", n as i64)
     } else {
         // Use default float formatting
-        format!("{}", n)
+        format!("{n}")
     }
 }
 

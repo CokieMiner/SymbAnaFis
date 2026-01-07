@@ -152,7 +152,7 @@ rule_with_helpers_arc!(FractionToEndRule, "fraction_to_end", 50, Algebraic, &[Ex
         fn extract_factors(e: &Expr, numerators: &mut Vec<Arc<Expr>>, denominators: &mut Vec<Arc<Expr>>) {
             match &e.kind {
                 AstKind::Product(factors) => {
-                    for f in factors.iter() {
+                    for f in factors {
                         extract_factors(f, numerators, denominators);
                     }
                 }

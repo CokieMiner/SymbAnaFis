@@ -1,7 +1,9 @@
 //! Abstract Syntax Tree for mathematical expressions.
 //!
-//! This module defines the core [`Expr`] and [`ExprKind`] types that represent
-//! mathematical expressions as an Abstract Syntax Tree (AST).
+//! This module defines:
+//! - `Expr` - The central AST node type
+//! - `ExprKind` - The variants of expression nodes (Number, Symbol, Function, etc.)
+//! - Formatting and display traits (Display, LaTeX, etc.)
 //!
 //! # Architecture
 //!
@@ -49,7 +51,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use crate::core::symbol::{InternedSymbol, symb_interned};
 
 /// Type alias for custom evaluation functions map
-pub(crate) type CustomEvalMap =
+pub type CustomEvalMap =
     std::collections::HashMap<String, std::sync::Arc<dyn Fn(&[f64]) -> Option<f64> + Send + Sync>>;
 
 // Re-export EPSILON from traits for backward compatibility
@@ -148,7 +150,7 @@ pub enum ExprKind {
     Number(f64),
 
     /// Variable or constant symbol (e.g., "x", "a", "pi")
-    /// Uses InternedSymbol for O(1) equality comparisons
+    /// Uses `InternedSymbol` for O(1) equality comparisons
     Symbol(InternedSymbol),
 
     /// Function call (built-in or custom).
@@ -197,30 +199,30 @@ pub enum ExprKind {
 // EXPR CONSTRUCTORS AND METHODS
 // =============================================================================
 
-/// Compute structural hash for an ExprKind (Phase 7b optimization).
-/// Unlike get_term_hash in helpers.rs (which ignores numeric coefficients for
+/// Compute structural hash for an `ExprKind` (Phase 7b optimization).
+/// Unlike `get_term_hash` in helpers.rs (which ignores numeric coefficients for
 /// like-term grouping), this hashes ALL content for true structural equality.
 fn compute_expr_hash(kind: &ExprKind) -> u64 {
     // FNV-1a constants
-    const FNV_OFFSET: u64 = 14695981039346656037;
-    const FNV_PRIME: u64 = 1099511628211;
+    const FNV_OFFSET: u64 = 14_695_981_039_346_656_037;
+    const FNV_PRIME: u64 = 1_099_511_628_211;
 
-    #[inline(always)]
+    #[inline]
     fn hash_u64(mut hash: u64, n: u64) -> u64 {
         for byte in n.to_le_bytes() {
-            hash ^= byte as u64;
+            hash ^= u64::from(byte);
             hash = hash.wrapping_mul(FNV_PRIME);
         }
         hash
     }
 
-    #[inline(always)]
+    #[inline]
     fn hash_f64(hash: u64, n: f64) -> u64 {
         hash_u64(hash, n.to_bits())
     }
 
-    #[inline(always)]
-    fn hash_byte(mut hash: u64, b: u8) -> u64 {
+    #[inline]
+    const fn hash_byte(mut hash: u64, b: u8) -> u64 {
         hash ^= b as u64;
         hash.wrapping_mul(FNV_PRIME)
     }
@@ -284,7 +286,7 @@ fn compute_expr_hash(kind: &ExprKind) -> u64 {
             ExprKind::Derivative { inner, var, order } => {
                 let h = hash_byte(hash, b'D');
                 let h = hash_u64(h, var.id()); // Use symbol ID directly
-                let h = hash_u64(h, *order as u64);
+                let h = hash_u64(h, u64::from(*order));
                 hash_u64(h, inner.hash)
             }
 
@@ -296,7 +298,7 @@ fn compute_expr_hash(kind: &ExprKind) -> u64 {
                 // Hash each term (power, coeff) - commutative, so sum hashes
                 let mut acc: u64 = 0;
                 for &(pow, coeff) in poly.terms() {
-                    let term_hash = hash_u64(hash_f64(0, coeff), pow as u64);
+                    let term_hash = hash_u64(hash_f64(0, coeff), u64::from(pow));
                     acc = acc.wrapping_add(term_hash);
                 }
                 hash_u64(h, acc)
@@ -309,9 +311,10 @@ fn compute_expr_hash(kind: &ExprKind) -> u64 {
 
 impl Expr {
     /// Create a new expression with fresh ID
+    #[must_use]
     pub fn new(kind: ExprKind) -> Self {
         let hash = compute_expr_hash(&kind);
-        Expr {
+        Self {
             id: next_id(),
             hash,
             kind,
@@ -320,18 +323,21 @@ impl Expr {
 
     /// Get the unique ID of the expression
     #[inline]
-    pub fn id(&self) -> u64 {
+    #[must_use]
+    pub const fn id(&self) -> u64 {
         self.id
     }
 
     /// Get the structural hash of the expression
     #[inline]
-    pub fn hash(&self) -> u64 {
+    #[must_use]
+    pub const fn hash(&self) -> u64 {
         self.hash
     }
 
     /// Consume the expression and return its kind
     #[inline]
+    #[must_use]
     pub fn into_kind(self) -> ExprKind {
         self.kind
     }
@@ -342,7 +348,8 @@ impl Expr {
 
     /// Check if expression is a constant number and return its value
     #[inline]
-    pub fn as_number(&self) -> Option<f64> {
+    #[must_use]
+    pub const fn as_number(&self) -> Option<f64> {
         match &self.kind {
             ExprKind::Number(n) => Some(*n),
             _ => None,
@@ -372,39 +379,41 @@ impl Expr {
     // -------------------------------------------------------------------------
 
     /// Create a number expression
+    #[must_use]
     pub fn number(n: f64) -> Self {
-        Expr::new(ExprKind::Number(n))
+        Self::new(ExprKind::Number(n))
     }
 
     /// Create a symbol expression (auto-interned)
     pub fn symbol(s: impl AsRef<str>) -> Self {
-        Expr::new(ExprKind::Symbol(symb_interned(s.as_ref())))
+        Self::new(ExprKind::Symbol(symb_interned(s.as_ref())))
     }
 
     /// Create from an already-interned symbol
     pub(crate) fn from_interned(interned: InternedSymbol) -> Self {
-        Expr::new(ExprKind::Symbol(interned))
+        Self::new(ExprKind::Symbol(interned))
     }
 
     /// Create a function call from an already-interned symbol (single argument)
-    pub(crate) fn func_symbol(name: InternedSymbol, arg: Expr) -> Self {
-        Expr::new(ExprKind::FunctionCall {
+    pub(crate) fn func_symbol(name: InternedSymbol, arg: Self) -> Self {
+        Self::new(ExprKind::FunctionCall {
             name,
             args: vec![Arc::new(arg)],
         })
     }
 
     /// Create a polynomial expression directly
+    #[must_use]
     pub fn poly(p: super::poly::Polynomial) -> Self {
         // Empty polynomial is 0
         if p.terms().is_empty() {
-            return Expr::number(0.0);
+            return Self::number(0.0);
         }
         // Single constant term (pow=0) is just a number
         if p.terms().len() == 1 && p.terms()[0].0 == 0 {
-            return Expr::number(p.terms()[0].1);
+            return Self::number(p.terms()[0].1);
         }
-        Expr::new(ExprKind::Poly(p))
+        Self::new(ExprKind::Poly(p))
     }
 
     // -------------------------------------------------------------------------
@@ -418,11 +427,8 @@ impl Expr {
 /// Returns None if term is not polynomial-like.
 fn get_poly_base_hash(expr: &Expr) -> Option<u64> {
     match &expr.kind {
-        // Symbol x → use its structural hash
-        ExprKind::Symbol(_) => Some(expr.hash),
-
-        // FunctionCall like sin(x) → use its structural hash as base
-        ExprKind::FunctionCall { .. } => Some(expr.hash),
+        // Symbol x or FunctionCall like sin(x) → use its structural hash
+        ExprKind::Symbol(_) | ExprKind::FunctionCall { .. } => Some(expr.hash),
 
         // base^n where n is a positive integer → base's hash
         ExprKind::Pow(base, exp) => {
@@ -438,7 +444,7 @@ fn get_poly_base_hash(expr: &Expr) -> Option<u64> {
         // c*base or c*base^n → extract the non-numeric base's hash
         ExprKind::Product(factors) => {
             let mut base_hash = None;
-            for f in factors.iter() {
+            for f in factors {
                 match &f.kind {
                     ExprKind::Number(_) => {} // Skip coefficients
                     ExprKind::Symbol(_) | ExprKind::FunctionCall { .. } => {
@@ -480,15 +486,19 @@ impl Expr {
     ///
     /// Auto-optimization: If 3+ terms form a pure polynomial (only numbers, symbols,
     /// products of coeff*symbol^n), converts to Poly for O(N) differentiation.
-    pub fn sum(terms: Vec<Expr>) -> Self {
+    ///
+    /// # Panics
+    /// Panics only if internal invariants are violated (never in normal use).
+    #[must_use]
+    pub fn sum(terms: Vec<Self>) -> Self {
         if terms.is_empty() {
-            return Expr::number(0.0);
+            return Self::number(0.0);
         }
         if terms.len() == 1 {
             return terms.into_iter().next().unwrap();
         }
 
-        let mut flat: Vec<Arc<Expr>> = Vec::with_capacity(terms.len());
+        let mut flat: Vec<Arc<Self>> = Vec::with_capacity(terms.len());
         let mut numeric_sum: f64 = 0.0;
 
         for t in terms {
@@ -509,7 +519,7 @@ impl Expr {
         // Build new vector with capacity to avoid O(n) insert
         let flat = if numeric_sum.abs() > EPSILON {
             let mut with_num = Vec::with_capacity(flat.len() + 1);
-            with_num.push(Arc::new(Expr::number(numeric_sum)));
+            with_num.push(Arc::new(Self::number(numeric_sum)));
             with_num.extend(flat);
             with_num
         } else {
@@ -517,7 +527,7 @@ impl Expr {
         };
 
         if flat.is_empty() {
-            return Expr::number(0.0);
+            return Self::number(0.0);
         }
         if flat.len() == 1 {
             return Arc::try_unwrap(flat.into_iter().next().unwrap())
@@ -527,10 +537,10 @@ impl Expr {
         // Streaming incremental Poly building: if term has same base as last, combine into Poly
         // Since terms are canonically sorted, same-base terms are always adjacent
         if flat.len() >= 2 {
-            let mut result: Vec<Arc<Expr>> = Vec::new();
+            let mut result: Vec<Arc<Self>> = Vec::new();
             let mut last_base: Option<u64> = None;
 
-            for term in flat.into_iter() {
+            for term in flat {
                 let current_base = get_poly_base_hash(&term);
 
                 if current_base.is_some() && current_base == last_base && !result.is_empty() {
@@ -558,7 +568,7 @@ impl Expr {
                             // Create new Poly from last
                             let mut new_poly = dest_poly; // Move
                             if new_poly.try_add_assign(&term_poly) {
-                                result.push(Arc::new(Expr::poly(new_poly)));
+                                result.push(Arc::new(Self::poly(new_poly)));
                                 continue;
                             }
                         }
@@ -567,27 +577,28 @@ impl Expr {
                     // Fallback: could not merge. Push both separately.
                     // (Should not happen if get_poly_base_hash is correct)
                     result.push(Arc::new(last_expr));
-                    result.push(term);
-                } else {
-                    // Different base - just add
-                    result.push(term);
                 }
+                result.push(term);
                 last_base = current_base;
             }
 
             if result.len() == 1 {
                 return Arc::try_unwrap(result.pop().unwrap()).unwrap_or_else(|arc| (*arc).clone());
             }
-            return Expr::new(ExprKind::Sum(result));
+            return Self::new(ExprKind::Sum(result));
         }
 
-        Expr::new(ExprKind::Sum(flat))
+        Self::new(ExprKind::Sum(flat))
     }
 
     /// Create sum from Arc terms (flattens only, sorting deferred to simplification)
-    pub fn sum_from_arcs(terms: Vec<Arc<Expr>>) -> Self {
+    ///
+    /// # Panics
+    /// Panics only if internal invariants are violated (never in normal use).
+    #[must_use]
+    pub fn sum_from_arcs(terms: Vec<Arc<Self>>) -> Self {
         if terms.is_empty() {
-            return Expr::number(0.0);
+            return Self::number(0.0);
         }
         if terms.len() == 1 {
             return Arc::try_unwrap(terms.into_iter().next().unwrap())
@@ -595,7 +606,7 @@ impl Expr {
         }
 
         // Flatten nested sums and combine numbers
-        let mut flat: Vec<Arc<Expr>> = Vec::with_capacity(terms.len());
+        let mut flat: Vec<Arc<Self>> = Vec::with_capacity(terms.len());
         let mut numeric_sum: f64 = 0.0;
 
         for t in terms {
@@ -631,7 +642,7 @@ impl Expr {
         // Build new vector with capacity to avoid O(n) insert
         let flat = if numeric_sum.abs() > EPSILON {
             let mut with_num = Vec::with_capacity(flat.len() + 1);
-            with_num.push(Arc::new(Expr::number(numeric_sum)));
+            with_num.push(Arc::new(Self::number(numeric_sum)));
             with_num.extend(flat);
             with_num
         } else {
@@ -639,14 +650,14 @@ impl Expr {
         };
 
         if flat.is_empty() {
-            return Expr::number(0.0);
+            return Self::number(0.0);
         }
         if flat.len() == 1 {
             return Arc::try_unwrap(flat.into_iter().next().unwrap())
                 .unwrap_or_else(|arc| (*arc).clone());
         }
 
-        Expr::new(ExprKind::Sum(flat))
+        Self::new(ExprKind::Sum(flat))
     }
 
     // -------------------------------------------------------------------------
@@ -655,15 +666,19 @@ impl Expr {
 
     /// Create a product expression from factors.
     /// Flattens nested products. Sorting deferred to simplification.
-    pub fn product(factors: Vec<Expr>) -> Self {
+    ///
+    /// # Panics
+    /// Panics only if internal invariants are violated (never in normal use).
+    #[must_use]
+    pub fn product(factors: Vec<Self>) -> Self {
         if factors.is_empty() {
-            return Expr::number(1.0);
+            return Self::number(1.0);
         }
         if factors.len() == 1 {
             return factors.into_iter().next().unwrap();
         }
 
-        let mut flat: Vec<Arc<Expr>> = Vec::with_capacity(factors.len());
+        let mut flat: Vec<Arc<Self>> = Vec::with_capacity(factors.len());
         let mut numeric_prod: f64 = 1.0;
 
         for f in factors {
@@ -671,7 +686,7 @@ impl Expr {
                 ExprKind::Product(inner) => flat.extend(inner),
                 ExprKind::Number(n) => {
                     if n == 0.0 {
-                        return Expr::number(0.0); // Early exit for zero
+                        return Self::number(0.0); // Early exit for zero
                     }
                     numeric_prod *= n;
                 }
@@ -683,7 +698,7 @@ impl Expr {
         // Build new vector with capacity to avoid O(n) insert
         let flat = if (numeric_prod - 1.0).abs() > EPSILON {
             let mut with_coeff = Vec::with_capacity(flat.len() + 1);
-            with_coeff.push(Arc::new(Expr::number(numeric_prod)));
+            with_coeff.push(Arc::new(Self::number(numeric_prod)));
             with_coeff.extend(flat);
             with_coeff
         } else {
@@ -691,20 +706,24 @@ impl Expr {
         };
 
         if flat.is_empty() {
-            return Expr::number(1.0);
+            return Self::number(1.0);
         }
         if flat.len() == 1 {
             return Arc::try_unwrap(flat.into_iter().next().unwrap())
                 .unwrap_or_else(|arc| (*arc).clone());
         }
 
-        Expr::new(ExprKind::Product(flat))
+        Self::new(ExprKind::Product(flat))
     }
 
     /// Create product from Arc factors (flattens and sorts for canonical form)
-    pub fn product_from_arcs(factors: Vec<Arc<Expr>>) -> Self {
+    ///
+    /// # Panics
+    /// Panics only if internal invariants are violated (never in normal use).
+    #[must_use]
+    pub fn product_from_arcs(factors: Vec<Arc<Self>>) -> Self {
         if factors.is_empty() {
-            return Expr::number(1.0);
+            return Self::number(1.0);
         }
         if factors.len() == 1 {
             return Arc::try_unwrap(factors.into_iter().next().unwrap())
@@ -712,7 +731,7 @@ impl Expr {
         }
 
         // Flatten nested products
-        let mut flat: Vec<Arc<Expr>> = Vec::with_capacity(factors.len());
+        let mut flat: Vec<Arc<Self>> = Vec::with_capacity(factors.len());
         for f in factors {
             match &f.kind {
                 ExprKind::Product(inner) => flat.extend(inner.clone()),
@@ -726,7 +745,7 @@ impl Expr {
 
         // Sort for canonical form
         flat.sort_by(|a, b| expr_cmp(a, b));
-        Expr::new(ExprKind::Product(flat))
+        Self::new(ExprKind::Product(flat))
     }
 
     // -------------------------------------------------------------------------
@@ -734,23 +753,26 @@ impl Expr {
     // -------------------------------------------------------------------------
 
     /// Create addition: a + b → Sum([a, b])
-    pub fn add_expr(left: Expr, right: Expr) -> Self {
-        Expr::sum(vec![left, right])
+    #[must_use]
+    pub fn add_expr(left: Self, right: Self) -> Self {
+        Self::sum(vec![left, right])
     }
 
     /// Create subtraction: a - b → Sum([a, Product([-1, b])])
-    pub fn sub_expr(left: Expr, right: Expr) -> Self {
-        let neg_right = Expr::product(vec![Expr::number(-1.0), right]);
-        Expr::sum(vec![left, neg_right])
+    #[must_use]
+    pub fn sub_expr(left: Self, right: Self) -> Self {
+        let neg_right = Self::product(vec![Self::number(-1.0), right]);
+        Self::sum(vec![left, neg_right])
     }
 
     /// Create multiplication: a * b → Product([a, b])
     ///
     /// Optimization: If both operands are Poly with same base, use fast O(N*M) polynomial multiplication
-    pub fn mul_expr(left: Expr, right: Expr) -> Self {
+    #[must_use]
+    pub fn mul_expr(left: Self, right: Self) -> Self {
         // Optimization: 0 * x = 0, x * 0 = 0
         if left.is_zero_num() || right.is_zero_num() {
-            return Expr::number(0.0);
+            return Self::number(0.0);
         }
         // Optimization: 1 * x = x, x * 1 = x
         if left.is_one_num() {
@@ -765,86 +787,92 @@ impl Expr {
             // Only use polynomial mul if bases match
             if p1.base() == p2.base() {
                 let result = p1.mul(p2);
-                return Expr::poly(result);
+                return Self::poly(result);
             }
             // Different bases: fall through to Product
         }
 
-        Expr::product(vec![left, right])
+        Self::product(vec![left, right])
     }
 
     /// Create multiplication from Arc operands (avoids Expr cloning)
-    pub fn mul_from_arcs(factors: Vec<Arc<Expr>>) -> Self {
-        Expr::product_from_arcs(factors)
+    #[must_use]
+    pub fn mul_from_arcs(factors: Vec<Arc<Self>>) -> Self {
+        Self::product_from_arcs(factors)
     }
 
     /// Unwrap an `Arc<Expr>` without cloning if refcount is 1
     #[inline]
-    pub fn unwrap_arc(arc: Arc<Expr>) -> Expr {
+    #[must_use]
+    pub fn unwrap_arc(arc: Arc<Self>) -> Self {
         Arc::try_unwrap(arc).unwrap_or_else(|a| (*a).clone())
     }
 
     /// Create division
-    pub fn div_expr(left: Expr, right: Expr) -> Self {
-        Expr::new(ExprKind::Div(Arc::new(left), Arc::new(right)))
+    #[must_use]
+    pub fn div_expr(left: Self, right: Self) -> Self {
+        Self::new(ExprKind::Div(Arc::new(left), Arc::new(right)))
     }
 
     /// Create division from Arc operands (avoids cloning if Arc ref count is 1)
-    pub fn div_from_arcs(left: Arc<Expr>, right: Arc<Expr>) -> Self {
-        Expr::new(ExprKind::Div(left, right))
+    #[must_use]
+    pub fn div_from_arcs(left: Arc<Self>, right: Arc<Self>) -> Self {
+        Self::new(ExprKind::Div(left, right))
     }
 
     /// Create power expression (static constructor form)
     ///
     /// For the method form `expr.pow(exp)`, see the `pow` method on Expr.
-    pub fn pow_static(base: Expr, exponent: Expr) -> Self {
-        Expr::new(ExprKind::Pow(Arc::new(base), Arc::new(exponent)))
+    #[must_use]
+    pub fn pow_static(base: Self, exponent: Self) -> Self {
+        Self::new(ExprKind::Pow(Arc::new(base), Arc::new(exponent)))
     }
 
     /// Create power from Arc operands (avoids cloning if Arc ref count is 1)
-    pub fn pow_from_arcs(base: Arc<Expr>, exponent: Arc<Expr>) -> Self {
-        Expr::new(ExprKind::Pow(base, exponent))
+    #[must_use]
+    pub fn pow_from_arcs(base: Arc<Self>, exponent: Arc<Self>) -> Self {
+        Self::new(ExprKind::Pow(base, exponent))
     }
 
     /// Create a function call expression (single argument)
     ///
     /// Accepts `Expr`, `Arc<Expr>`, or `&Arc<Expr>` as the content parameter.
-    pub fn func(name: impl AsRef<str>, content: impl Into<Expr>) -> Self {
-        Expr::new(ExprKind::FunctionCall {
+    pub fn func(name: impl AsRef<str>, content: impl Into<Self>) -> Self {
+        Self::new(ExprKind::FunctionCall {
             name: symb_interned(name.as_ref()),
             args: vec![Arc::new(content.into())],
         })
     }
 
     /// Create a multi-argument function call
-    pub fn func_multi(name: impl AsRef<str>, args: Vec<Expr>) -> Self {
-        Expr::new(ExprKind::FunctionCall {
+    pub fn func_multi(name: impl AsRef<str>, args: Vec<Self>) -> Self {
+        Self::new(ExprKind::FunctionCall {
             name: symb_interned(name.as_ref()),
             args: args.into_iter().map(Arc::new).collect(),
         })
     }
 
     /// Create a function call from Arc arguments (avoids cloning)
-    pub fn func_multi_from_arcs(name: impl AsRef<str>, args: Vec<Arc<Expr>>) -> Self {
-        Expr::new(ExprKind::FunctionCall {
+    pub fn func_multi_from_arcs(name: impl AsRef<str>, args: Vec<Arc<Self>>) -> Self {
+        Self::new(ExprKind::FunctionCall {
             name: symb_interned(name.as_ref()),
             args,
         })
     }
 
-    /// Create a function call from Arc arguments using InternedSymbol (most efficient)
-    pub(crate) fn func_multi_from_arcs_symbol(name: InternedSymbol, args: Vec<Arc<Expr>>) -> Self {
-        Expr::new(ExprKind::FunctionCall { name, args })
+    /// Create a function call from Arc arguments using `InternedSymbol` (most efficient)
+    pub(crate) fn func_multi_from_arcs_symbol(name: InternedSymbol, args: Vec<Arc<Self>>) -> Self {
+        Self::new(ExprKind::FunctionCall { name, args })
     }
 
     /// Create a function call with explicit arguments using array syntax
-    pub fn call<const N: usize>(name: impl AsRef<str>, args: [Expr; N]) -> Self {
-        Expr::func_multi(name, args.into())
+    pub fn call<const N: usize>(name: impl AsRef<str>, args: [Self; N]) -> Self {
+        Self::func_multi(name, args.into())
     }
 
     /// Create a partial derivative expression
-    pub fn derivative(inner: Expr, var: impl AsRef<str>, order: u32) -> Self {
-        Expr::new(ExprKind::Derivative {
+    pub fn derivative(inner: Self, var: impl AsRef<str>, order: u32) -> Self {
+        Self::new(ExprKind::Derivative {
             inner: Arc::new(inner),
             var: symb_interned(var.as_ref()),
             order,
@@ -852,8 +880,8 @@ impl Expr {
     }
 
     /// Create a partial derivative expression with an already-interned symbol
-    pub(crate) fn derivative_interned(inner: Expr, var: InternedSymbol, order: u32) -> Self {
-        Expr::new(ExprKind::Derivative {
+    pub(crate) fn derivative_interned(inner: Self, var: InternedSymbol, order: u32) -> Self {
+        Self::new(ExprKind::Derivative {
             inner: Arc::new(inner),
             var,
             order,
@@ -865,8 +893,9 @@ impl Expr {
     // -------------------------------------------------------------------------
 
     /// Negate this expression: -x = Product([-1, x])
+    #[must_use]
     pub fn negate(self) -> Self {
-        Expr::product(vec![Expr::number(-1.0), self])
+        Self::product(vec![Self::number(-1.0), self])
     }
 
     // -------------------------------------------------------------------------
@@ -874,6 +903,7 @@ impl Expr {
     // -------------------------------------------------------------------------
 
     /// Count the total number of nodes in the AST
+    #[must_use]
     pub fn node_count(&self) -> usize {
         match &self.kind {
             ExprKind::Number(_) | ExprKind::Symbol(_) => 1,
@@ -890,6 +920,7 @@ impl Expr {
     }
 
     /// Get the maximum nesting depth of the AST
+    #[must_use]
     pub fn max_depth(&self) -> usize {
         match &self.kind {
             ExprKind::Number(_) | ExprKind::Symbol(_) => 1,
@@ -907,6 +938,7 @@ impl Expr {
     }
 
     /// Check if the expression contains a specific variable (by symbol ID)
+    #[must_use]
     pub fn contains_var_id(&self, var_id: u64) -> bool {
         match &self.kind {
             ExprKind::Number(_) => false,
@@ -927,14 +959,13 @@ impl Expr {
 
     /// Check if the expression contains a specific variable (by name)
     /// Uses ID comparison when possible, falls back to string matching
+    #[must_use]
     pub fn contains_var(&self, var: &str) -> bool {
         // Try to look up the symbol ID first for O(1) comparison
-        if let Ok(sym) = crate::core::symbol::symb_get(var) {
-            self.contains_var_id(sym.id())
-        } else {
-            // Symbol not in global context - fall back to string matching
-            self.contains_var_str(var)
-        }
+        crate::core::symbol::symb_get(var).map_or_else(
+            |_| self.contains_var_str(var),
+            |sym| self.contains_var_id(sym.id()),
+        )
     }
 
     /// Check if the expression contains a specific variable (by name string match)
@@ -957,6 +988,7 @@ impl Expr {
     }
 
     /// Check if the expression contains any free variables
+    #[must_use]
     pub fn has_free_variables(&self, excluded: &std::collections::HashSet<String>) -> bool {
         match &self.kind {
             ExprKind::Number(_) => false,
@@ -978,6 +1010,7 @@ impl Expr {
     }
 
     /// Collect all variables in the expression
+    #[must_use]
     pub fn variables(&self) -> std::collections::HashSet<String> {
         let mut vars = std::collections::HashSet::new();
         self.collect_variables(&mut vars);
@@ -1023,38 +1056,39 @@ impl Expr {
     }
 
     /// Create a deep clone (with new IDs)
-    pub fn deep_clone(&self) -> Expr {
+    #[must_use]
+    pub fn deep_clone(&self) -> Self {
         match &self.kind {
-            ExprKind::Number(n) => Expr::number(*n),
-            ExprKind::Symbol(s) => Expr::from_interned(s.clone()),
-            ExprKind::FunctionCall { name, args } => Expr::new(ExprKind::FunctionCall {
+            ExprKind::Number(n) => Self::number(*n),
+            ExprKind::Symbol(s) => Self::from_interned(s.clone()),
+            ExprKind::FunctionCall { name, args } => Self::new(ExprKind::FunctionCall {
                 name: name.clone(),
                 args: args.iter().map(|arg| Arc::new(arg.deep_clone())).collect(),
             }),
             ExprKind::Sum(terms) => {
-                let cloned: Vec<Arc<Expr>> = terms
+                let cloned: Vec<Arc<Self>> = terms
                     .iter()
                     .map(|t| Arc::new(t.as_ref().deep_clone()))
                     .collect();
-                Expr::new(ExprKind::Sum(cloned))
+                Self::new(ExprKind::Sum(cloned))
             }
             ExprKind::Product(factors) => {
-                let cloned: Vec<Arc<Expr>> = factors
+                let cloned: Vec<Arc<Self>> = factors
                     .iter()
                     .map(|f| Arc::new(f.as_ref().deep_clone()))
                     .collect();
-                Expr::new(ExprKind::Product(cloned))
+                Self::new(ExprKind::Product(cloned))
             }
-            ExprKind::Div(a, b) => Expr::div_expr(a.as_ref().deep_clone(), b.as_ref().deep_clone()),
+            ExprKind::Div(a, b) => Self::div_expr(a.as_ref().deep_clone(), b.as_ref().deep_clone()),
             ExprKind::Pow(a, b) => {
-                Expr::pow_static(a.as_ref().deep_clone(), b.as_ref().deep_clone())
+                Self::pow_static(a.as_ref().deep_clone(), b.as_ref().deep_clone())
             }
             ExprKind::Derivative { inner, var, order } => {
-                Expr::derivative(inner.as_ref().deep_clone(), var.clone(), *order)
+                Self::derivative(inner.as_ref().deep_clone(), var.clone(), *order)
             }
             ExprKind::Poly(poly) => {
                 // Poly is expensive to deep clone, so we just clone it
-                Expr::new(ExprKind::Poly(poly.clone()))
+                Self::new(ExprKind::Poly(poly.clone()))
             }
         }
     }
@@ -1064,12 +1098,18 @@ impl Expr {
     // -------------------------------------------------------------------------
 
     /// Differentiate with respect to a variable
-    pub fn diff(&self, var: &str) -> Result<Expr, crate::DiffError> {
+    ///
+    /// # Errors
+    /// Returns `DiffError` if differentiation fails (e.g., unsupported operation).
+    pub fn diff(&self, var: &str) -> Result<Self, crate::DiffError> {
         crate::Diff::new().differentiate(self, &crate::symb(var))
     }
 
     /// Simplify this expression
-    pub fn simplified(&self) -> Result<Expr, crate::DiffError> {
+    ///
+    /// # Errors
+    /// Returns `DiffError` if simplification fails.
+    pub fn simplified(&self) -> Result<Self, crate::DiffError> {
         crate::Simplify::new().simplify(self)
     }
 
@@ -1090,6 +1130,9 @@ impl Expr {
     /// let result_at_3 = evaluator.evaluate(&[3.0]); // 3^2 + 2*3 = 15
     /// assert!((result_at_3 - 15.0).abs() < 1e-10);
     /// ```
+    ///
+    /// # Errors
+    /// Returns `DiffError` if the expression cannot be compiled.
     pub fn compile(&self) -> Result<crate::core::evaluator::CompiledEvaluator, crate::DiffError> {
         crate::core::evaluator::CompiledEvaluator::compile_auto(self, None)
     }
@@ -1112,6 +1155,9 @@ impl Expr {
     /// // Using symbols
     /// let compiled = expr.compile_with_params(&[&x, &y]).unwrap();
     /// ```
+    ///
+    /// # Errors
+    /// Returns `DiffError` if the expression cannot be compiled.
     pub fn compile_with_params<P: crate::core::evaluator::ToParamName>(
         &self,
         param_order: &[P],
@@ -1122,11 +1168,11 @@ impl Expr {
     /// Fold over the expression tree (pre-order)
     pub fn fold<T, F>(&self, init: T, f: F) -> T
     where
-        F: Fn(T, &Expr) -> T + Copy,
+        F: Fn(T, &Self) -> T + Copy,
     {
         let acc = f(init, self);
         match &self.kind {
-            ExprKind::Number(_) | ExprKind::Symbol(_) => acc,
+            ExprKind::Number(_) | ExprKind::Symbol(_) | ExprKind::Poly(_) => acc, // Poly is opaque for folding
             ExprKind::FunctionCall { args, .. } => args.iter().fold(acc, |a, arg| arg.fold(a, f)),
             ExprKind::Sum(terms) => terms.iter().fold(acc, |a, t| t.fold(a, f)),
             ExprKind::Product(factors) => factors.iter().fold(acc, |a, f_| f_.fold(a, f)),
@@ -1135,48 +1181,49 @@ impl Expr {
                 r.fold(acc, f)
             }
             ExprKind::Derivative { inner, .. } => inner.fold(acc, f),
-            ExprKind::Poly(_) => acc, // Poly is opaque for folding
         }
     }
 
     /// Transform the expression tree (post-order)
-    pub fn map<F>(&self, f: F) -> Expr
+    #[must_use]
+    pub fn map<F>(&self, f: F) -> Self
     where
-        F: Fn(&Expr) -> Expr + Copy,
+        F: Fn(&Self) -> Self + Copy,
     {
         let transformed = match &self.kind {
             ExprKind::Number(_) | ExprKind::Symbol(_) => self.clone(),
-            ExprKind::FunctionCall { name, args } => Expr::new(ExprKind::FunctionCall {
+            ExprKind::FunctionCall { name, args } => Self::new(ExprKind::FunctionCall {
                 name: name.clone(),
                 args: args.iter().map(|arg| Arc::new(arg.map(f))).collect(),
             }),
             ExprKind::Sum(terms) => {
-                let mapped: Vec<Arc<Expr>> =
+                let mapped: Vec<Arc<Self>> =
                     terms.iter().map(|t| Arc::new(t.as_ref().map(f))).collect();
-                Expr::new(ExprKind::Sum(mapped))
+                Self::new(ExprKind::Sum(mapped))
             }
             ExprKind::Product(factors) => {
-                let mapped: Vec<Arc<Expr>> = factors
+                let mapped: Vec<Arc<Self>> = factors
                     .iter()
                     .map(|fac| Arc::new(fac.as_ref().map(f)))
                     .collect();
-                Expr::new(ExprKind::Product(mapped))
+                Self::new(ExprKind::Product(mapped))
             }
-            ExprKind::Div(a, b) => Expr::div_expr(a.map(f), b.map(f)),
-            ExprKind::Pow(a, b) => Expr::pow_static(a.map(f), b.map(f)),
+            ExprKind::Div(a, b) => Self::div_expr(a.map(f), b.map(f)),
+            ExprKind::Pow(a, b) => Self::pow_static(a.map(f), b.map(f)),
             ExprKind::Derivative { inner, var, order } => {
-                Expr::derivative(inner.map(f), var.clone(), *order)
+                Self::derivative(inner.map(f), var.clone(), *order)
             }
             ExprKind::Poly(poly) => {
                 // Poly is opaque for mapping - just clone
-                Expr::new(ExprKind::Poly(poly.clone()))
+                Self::new(ExprKind::Poly(poly.clone()))
             }
         };
         f(&transformed)
     }
 
     /// Substitute a variable with another expression
-    pub fn substitute(&self, var: &str, replacement: &Expr) -> Expr {
+    #[must_use]
+    pub fn substitute(&self, var: &str, replacement: &Self) -> Self {
         self.map(|node| {
             if let ExprKind::Symbol(s) = &node.kind
                 && s.as_str() == var
@@ -1199,6 +1246,9 @@ impl Expr {
     /// * `vars` - Map of variable names to their numeric values
     /// * `custom_evals` - Optional custom evaluation functions for user-defined functions
     ///
+    /// # Panics
+    /// Panics only if internal invariants are violated (never in normal use).
+    ///
     /// # Example
     /// ```
     /// use symb_anafis::{symb, Expr};
@@ -1218,52 +1268,55 @@ impl Expr {
     /// let result = expr.evaluate(&vars, &HashMap::new());  // 5.0 as Expr
     /// assert_eq!(result.as_number(), Some(5.0));
     /// ```
+    #[must_use]
+    // Expression evaluation handles many expression kinds, length is justified
+    #[allow(clippy::too_many_lines)]
     pub fn evaluate(
         &self,
         vars: &std::collections::HashMap<&str, f64>,
         custom_evals: &CustomEvalMap,
-    ) -> Expr {
+    ) -> Self {
         match &self.kind {
-            ExprKind::Number(n) => Expr::number(*n),
+            ExprKind::Number(n) => Self::number(*n),
             ExprKind::Symbol(s) => {
                 // First check if it's a user-provided variable value
                 if let Some(name) = s.name()
                     && let Some(&val) = vars.get(name)
                 {
-                    return Expr::number(val);
+                    return Self::number(val);
                 }
                 // Check for mathematical constants using centralized helper
                 if let Some(name) = s.name()
                     && let Some(value) = crate::core::known_symbols::get_constant_value(name)
                 {
-                    return Expr::number(value);
+                    return Self::number(value);
                 }
                 self.clone()
             }
             ExprKind::FunctionCall { name, args } => {
-                let eval_args: Vec<Expr> = args
+                let eval_args: Vec<Self> = args
                     .iter()
                     .map(|a| a.evaluate(vars, custom_evals))
                     .collect();
 
                 let numeric_args: Option<Vec<f64>> =
-                    eval_args.iter().map(|e| e.as_number()).collect();
+                    eval_args.iter().map(Self::as_number).collect();
 
                 if let Some(args_vec) = numeric_args {
                     if let Some(custom_eval) = custom_evals.get(name.as_str())
                         && let Some(result) = custom_eval(&args_vec)
                     {
-                        return Expr::number(result);
+                        return Self::number(result);
                     }
                     if let Some(func_def) =
                         crate::functions::registry::Registry::get_by_symbol(name)
                         && let Some(result) = (func_def.eval)(&args_vec)
                     {
-                        return Expr::number(result);
+                        return Self::number(result);
                     }
                 }
 
-                Expr::new(ExprKind::FunctionCall {
+                Self::new(ExprKind::FunctionCall {
                     name: name.clone(),
                     args: eval_args.into_iter().map(Arc::new).collect(),
                 })
@@ -1272,7 +1325,7 @@ impl Expr {
                 // Optimized: single-pass accumulation with lazy Vec allocation
                 let mut num_sum: f64 = 0.0;
                 // Only allocate when we encounter first non-numeric term
-                let mut others: Option<Vec<Expr>> = None;
+                let mut others: Option<Vec<Self>> = None;
 
                 for t in terms {
                     let eval_t = t.evaluate(vars, custom_evals);
@@ -1283,31 +1336,31 @@ impl Expr {
                     }
                 }
 
-                match others {
-                    None => Expr::number(num_sum),
-                    Some(mut v) => {
+                others.map_or_else(
+                    || Self::number(num_sum),
+                    |mut v| {
                         if num_sum != 0.0 {
-                            v.push(Expr::number(num_sum));
+                            v.push(Self::number(num_sum));
                         }
                         if v.len() == 1 {
                             v.pop().unwrap()
                         } else {
-                            Expr::sum(v)
+                            Self::sum(v)
                         }
-                    }
-                }
+                    },
+                )
             }
             ExprKind::Product(factors) => {
                 // Optimized: single-pass accumulation with early zero exit and lazy Vec
                 let mut num_prod: f64 = 1.0;
                 // Only allocate when we encounter first non-numeric factor
-                let mut others: Option<Vec<Expr>> = None;
+                let mut others: Option<Vec<Self>> = None;
 
                 for f in factors {
                     let eval_f = f.evaluate(vars, custom_evals);
                     if let ExprKind::Number(n) = eval_f.kind {
                         if n == 0.0 {
-                            return Expr::number(0.0); // Early exit
+                            return Self::number(0.0); // Early exit
                         }
                         num_prod *= n;
                     } else {
@@ -1315,38 +1368,38 @@ impl Expr {
                     }
                 }
 
-                match others {
-                    None => Expr::number(num_prod),
-                    Some(mut v) => {
+                others.map_or_else(
+                    || Self::number(num_prod),
+                    |mut v| {
                         if num_prod != 1.0 {
-                            v.insert(0, Expr::number(num_prod));
+                            v.insert(0, Self::number(num_prod));
                         }
                         if v.len() == 1 {
                             v.pop().unwrap()
                         } else {
-                            Expr::product(v)
+                            Self::product(v)
                         }
-                    }
-                }
+                    },
+                )
             }
             ExprKind::Div(a, b) => {
                 let ea = a.evaluate(vars, custom_evals);
                 let eb = b.evaluate(vars, custom_evals);
                 match (&ea.kind, &eb.kind) {
-                    (ExprKind::Number(x), ExprKind::Number(y)) if *y != 0.0 => Expr::number(x / y),
-                    _ => Expr::div_expr(ea, eb),
+                    (ExprKind::Number(x), ExprKind::Number(y)) if *y != 0.0 => Self::number(x / y),
+                    _ => Self::div_expr(ea, eb),
                 }
             }
             ExprKind::Pow(a, b) => {
                 let ea = a.evaluate(vars, custom_evals);
                 let eb = b.evaluate(vars, custom_evals);
                 match (&ea.kind, &eb.kind) {
-                    (ExprKind::Number(x), ExprKind::Number(y)) => Expr::number(x.powf(*y)),
-                    _ => Expr::pow_static(ea, eb),
+                    (ExprKind::Number(x), ExprKind::Number(y)) => Self::number(x.powf(*y)),
+                    _ => Self::pow_static(ea, eb),
                 }
             }
             ExprKind::Derivative { inner, var, order } => {
-                Expr::derivative(inner.evaluate(vars, custom_evals), var.clone(), *order)
+                Self::derivative(inner.evaluate(vars, custom_evals), var.clone(), *order)
             }
             ExprKind::Poly(poly) => {
                 // Polynomial evaluation: evaluate P(base) where base is evaluated first
@@ -1355,9 +1408,15 @@ impl Expr {
                 if let ExprKind::Number(base_val) = &base_result.kind {
                     let mut total = 0.0;
                     for &(pow, coeff) in poly.terms() {
-                        total += coeff * base_val.powi(pow as i32);
+                        {
+                            // u32->i32: polynomial powers are small positive integers
+                            #[allow(clippy::cast_possible_wrap)]
+                            {
+                                total += coeff * base_val.powi(pow as i32);
+                            }
+                        }
                     }
-                    Expr::number(total)
+                    Self::number(total)
                 } else {
                     // Can't fully evaluate, return as-is
                     self.clone()
@@ -1374,18 +1433,7 @@ impl Expr {
 /// Compare expressions for canonical ordering.
 /// Order: Numbers < Symbols (alphabetical) < Functions < Sum < Product < Div < Pow
 fn expr_cmp(a: &Expr, b: &Expr) -> CmpOrdering {
-    use ExprKind::*;
-
-    // 1. Numbers always come first
-    if let (Number(x), Number(y)) = (&a.kind, &b.kind) {
-        return x.partial_cmp(y).unwrap_or(CmpOrdering::Equal);
-    }
-    if matches!(a.kind, Number(_)) {
-        return CmpOrdering::Less;
-    }
-    if matches!(b.kind, Number(_)) {
-        return CmpOrdering::Greater;
-    }
+    use ExprKind::{Number, Pow, Product};
 
     // Helper: Extract sort key (Base, Exponent, Coefficient)
     // Returns: (Base, Exponent, Coefficient, IsAtomic)
@@ -1406,6 +1454,17 @@ fn expr_cmp(a: &Expr, b: &Expr) -> CmpOrdering {
             // Case: x -> Base x, Exp 1, Coeff 1
             _ => (e, None, 1.0, true),
         }
+    }
+
+    // 1. Numbers always come first
+    if let (Number(x), Number(y)) = (&a.kind, &b.kind) {
+        return x.partial_cmp(y).unwrap_or(CmpOrdering::Equal);
+    }
+    if matches!(a.kind, Number(_)) {
+        return CmpOrdering::Less;
+    }
+    if matches!(b.kind, Number(_)) {
+        return CmpOrdering::Greater;
     }
 
     let (base_a, exp_a, coeff_a, atomic_a) = extract_key(a);
@@ -1462,7 +1521,7 @@ fn expr_cmp(a: &Expr, b: &Expr) -> CmpOrdering {
 
 // Fallback: Original strict type comparisons for atomic terms
 fn expr_cmp_type_strict(a: &Expr, b: &Expr) -> CmpOrdering {
-    use ExprKind::*;
+    use ExprKind::{Derivative, Div, FunctionCall, Pow, Product, Sum, Symbol};
     match (&a.kind, &b.kind) {
         (Symbol(x), Symbol(y)) => x.as_ref().cmp(y.as_ref()),
         (Symbol(_), _) => CmpOrdering::Less,
@@ -1472,7 +1531,7 @@ fn expr_cmp_type_strict(a: &Expr, b: &Expr) -> CmpOrdering {
             n1.cmp(n2).then_with(|| {
                 for (x, y) in a1.iter().zip(a2.iter()) {
                     match expr_cmp(x, y) {
-                        CmpOrdering::Equal => continue,
+                        CmpOrdering::Equal => {}
                         other => return other,
                     }
                 }
@@ -1485,7 +1544,7 @@ fn expr_cmp_type_strict(a: &Expr, b: &Expr) -> CmpOrdering {
         (Sum(t1), Sum(t2)) => t1.len().cmp(&t2.len()).then_with(|| {
             for (x, y) in t1.iter().zip(t2.iter()) {
                 match expr_cmp(x, y) {
-                    CmpOrdering::Equal => continue,
+                    CmpOrdering::Equal => {}
                     other => return other,
                 }
             }
@@ -1498,7 +1557,7 @@ fn expr_cmp_type_strict(a: &Expr, b: &Expr) -> CmpOrdering {
         (Product(f1), Product(f2)) => f1.len().cmp(&f2.len()).then_with(|| {
             for (x, y) in f1.iter().zip(f2.iter()) {
                 match expr_cmp(x, y) {
-                    CmpOrdering::Equal => continue,
+                    CmpOrdering::Equal => {}
                     other => return other,
                 }
             }
@@ -1543,34 +1602,34 @@ impl std::hash::Hash for ExprKind {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         std::mem::discriminant(self).hash(state);
         match self {
-            ExprKind::Number(n) => n.to_bits().hash(state),
-            ExprKind::Symbol(s) => s.hash(state),
-            ExprKind::FunctionCall { name, args } => {
+            Self::Number(n) => n.to_bits().hash(state),
+            Self::Symbol(s) => s.hash(state),
+            Self::FunctionCall { name, args } => {
                 name.hash(state);
                 args.hash(state);
             }
-            ExprKind::Sum(terms) => {
+            Self::Sum(terms) => {
                 terms.len().hash(state);
                 for t in terms {
                     t.hash(state);
                 }
             }
-            ExprKind::Product(factors) => {
+            Self::Product(factors) => {
                 factors.len().hash(state);
                 for f in factors {
                     f.hash(state);
                 }
             }
-            ExprKind::Div(l, r) | ExprKind::Pow(l, r) => {
+            Self::Div(l, r) | Self::Pow(l, r) => {
                 l.hash(state);
                 r.hash(state);
             }
-            ExprKind::Derivative { inner, var, order } => {
+            Self::Derivative { inner, var, order } => {
                 inner.hash(state);
                 var.hash(state);
                 order.hash(state);
             }
-            ExprKind::Poly(poly) => {
+            Self::Poly(poly) => {
                 // Hash polynomial: base hash + terms
                 poly.base().hash.hash(state);
                 poly.terms().len().hash(state);

@@ -136,9 +136,8 @@ rule_arc!(
                 return Some(Arc::new(Expr::number(1.0)));
             } else if *n < 0.0 {
                 return Some(Arc::new(Expr::number(-1.0)));
-            } else {
-                return Some(Arc::new(Expr::number(0.0)));
             }
+            return Some(Arc::new(Expr::number(0.0)));
         }
         None
     }
@@ -231,9 +230,8 @@ rule_arc!(
                             new_factors.push(args1[0].clone());
                             if new_factors.len() == 1 {
                                 return Some(new_factors.into_iter().next().unwrap());
-                            } else {
-                                return Some(Arc::new(Expr::product_from_arcs(new_factors)));
                             }
+                            return Some(Arc::new(Expr::product_from_arcs(new_factors)));
                         }
                     }
                 }

@@ -16,8 +16,8 @@ fn main() {
     // Initialize Symbolica license key if present in environment
     if let Ok(key) = env::var("SYMBOLICA_LICENSE") {
         match LicenseManager::set_license_key(&key) {
-            Ok(_) => println!("Symbolica license key applied successfully."),
-            Err(e) => eprintln!("Warning: Failed to set Symbolica license key: {}", e),
+            Ok(()) => println!("Symbolica license key applied successfully."),
+            Err(e) => eprintln!("Warning: Failed to set Symbolica license key: {e}"),
         }
     }
 
@@ -57,23 +57,23 @@ fn main() {
     ];
 
     for (name, expr_str, var) in expressions {
-        println!("\n--- {} (d/d{}) ---", name, var);
-        println!("Input: {}", expr_str);
+        println!("\n--- {name} (d/d{var}) ---");
+        println!("Input: {expr_str}");
 
         // SymbAnaFis - Raw Differentiation (No Simplification)
         match Diff::new()
             .skip_simplification(true)
             .diff_str(expr_str, var, &[])
         {
-            Ok(s) => println!("SymbAnaFis (Raw):        {}", s),
-            Err(e) => println!("SymbAnaFis (Raw):        Error: {:?}", e),
-        };
+            Ok(s) => println!("SymbAnaFis (Raw):        {s}"),
+            Err(e) => println!("SymbAnaFis (Raw):        Error: {e:?}"),
+        }
 
         // SymbAnaFis - Simplified Differentiation (Default)
         match Diff::new().diff_str(expr_str, var, &[]) {
-            Ok(s) => println!("SymbAnaFis (Simplified): {}", s),
-            Err(e) => println!("SymbAnaFis (Simplified): Error: {:?}", e),
-        };
+            Ok(s) => println!("SymbAnaFis (Simplified): {s}"),
+            Err(e) => println!("SymbAnaFis (Simplified): Error: {e:?}"),
+        }
 
         // Symbolica Differentiation
         let symbolica_out = {
@@ -86,14 +86,14 @@ fn main() {
                                 let diff_atom = atom.derivative(indet);
                                 diff_atom.to_string()
                             }
-                            Err(_) => format!("'{}' is not an indeterminate", var),
+                            Err(_) => format!("'{var}' is not an indeterminate"),
                         }
                     }
-                    Err(e) => format!("Var Parse Error: {}", e),
+                    Err(e) => format!("Var Parse Error: {e}"),
                 },
-                Err(e) => format!("Expr Parse Error: {}", e),
+                Err(e) => format!("Expr Parse Error: {e}"),
             }
         };
-        println!("Symbolica:               {}", symbolica_out);
+        println!("Symbolica:               {symbolica_out}");
     }
 }

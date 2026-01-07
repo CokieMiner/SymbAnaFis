@@ -33,13 +33,13 @@ use std::sync::{Arc, RwLock};
 // ============================================================================
 
 /// Global counter for symbol IDs (shared across modules)
-pub(crate) static NEXT_SYMBOL_ID: AtomicU64 = AtomicU64::new(1);
+pub static NEXT_SYMBOL_ID: AtomicU64 = AtomicU64::new(1);
 
-/// Global symbol registry: name -> InternedSymbol
+/// Global symbol registry: name -> `InternedSymbol`
 static SYMBOL_REGISTRY: std::sync::LazyLock<RwLock<HashMap<String, InternedSymbol>>> =
     std::sync::LazyLock::new(|| RwLock::new(HashMap::new()));
 
-/// Reverse lookup: ID -> InternedSymbol (for Copy Symbol to find its data)
+/// Reverse lookup: ID -> `InternedSymbol` (for Copy Symbol to find its data)
 static ID_REGISTRY: std::sync::LazyLock<RwLock<HashMap<u64, InternedSymbol>>> =
     std::sync::LazyLock::new(|| RwLock::new(HashMap::new()));
 
@@ -68,14 +68,14 @@ where
     f(&mut registry, &mut id_registry)
 }
 
-/// Look up InternedSymbol by ID (for Symbol -> Expr conversion and known_symbols)
-pub(crate) fn lookup_by_id(id: u64) -> Option<InternedSymbol> {
+/// Look up `InternedSymbol` by ID (for Symbol -> Expr conversion and `known_symbols`)
+pub fn lookup_by_id(id: u64) -> Option<InternedSymbol> {
     let guard = get_id_registry_read();
     guard.get(&id).cloned()
 }
 
-/// Register an InternedSymbol in the ID registry (for Context integration)
-pub(crate) fn register_in_id_registry(id: u64, interned: InternedSymbol) {
+/// Register an `InternedSymbol` in the ID registry (for Context integration)
+pub fn register_in_id_registry(id: u64, interned: InternedSymbol) {
     let mut id_registry = get_id_registry_mut();
     id_registry.insert(id, interned);
 }
@@ -96,18 +96,16 @@ pub enum SymbolError {
 impl std::fmt::Display for SymbolError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SymbolError::DuplicateName(name) => {
+            Self::DuplicateName(name) => {
                 write!(
                     f,
-                    "Symbol '{}' is already registered. Use symb_get() to retrieve it.",
-                    name
+                    "Symbol '{name}' is already registered. Use symb_get() to retrieve it."
                 )
             }
-            SymbolError::NotFound(name) => {
+            Self::NotFound(name) => {
                 write!(
                     f,
-                    "Symbol '{}' not found. Use symb() to create it first.",
-                    name
+                    "Symbol '{name}' not found. Use symb() to create it first."
                 )
             }
         }
@@ -124,7 +122,7 @@ impl std::error::Error for SymbolError {}
 ///
 /// This is Clone-cheap because it only contains a u64 and an Arc.
 #[derive(Debug, Clone)]
-pub(crate) struct InternedSymbol {
+pub struct InternedSymbol {
     id: u64,
     name: Option<Arc<str>>,
 }
@@ -132,7 +130,7 @@ pub(crate) struct InternedSymbol {
 impl InternedSymbol {
     /// Create a new named interned symbol
     fn new_named(name: &str) -> Self {
-        InternedSymbol {
+        Self {
             id: NEXT_SYMBOL_ID.fetch_add(1, Ordering::Relaxed),
             name: Some(Arc::from(name)),
         }
@@ -140,7 +138,7 @@ impl InternedSymbol {
 
     /// Create a new anonymous interned symbol
     fn new_anon() -> Self {
-        InternedSymbol {
+        Self {
             id: NEXT_SYMBOL_ID.fetch_add(1, Ordering::Relaxed),
             name: None,
         }
@@ -148,7 +146,7 @@ impl InternedSymbol {
 
     /// Create a new named symbol for Context (uses external counter for isolation).
     pub(crate) fn new_named_for_context(name: &str, counter: &AtomicU64) -> Self {
-        InternedSymbol {
+        Self {
             id: counter.fetch_add(1, Ordering::Relaxed),
             name: Some(Arc::from(name)),
         }
@@ -156,7 +154,7 @@ impl InternedSymbol {
 
     /// Get the symbol's unique ID
     #[inline]
-    pub fn id(&self) -> u64 {
+    pub const fn id(&self) -> u64 {
         self.id
     }
 
@@ -193,7 +191,7 @@ impl std::hash::Hash for InternedSymbol {
 impl std::fmt::Display for InternedSymbol {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.name {
-            Some(n) => write!(f, "{}", n),
+            Some(n) => write!(f, "{n}"),
             None => write!(f, "${}", self.id),
         }
     }
@@ -249,14 +247,15 @@ impl Symbol {
     ///
     /// This is used by Context to create symbols from its isolated registry.
     #[inline]
-    pub(crate) fn from_id(id: u64) -> Self {
-        Symbol(id)
+    pub(crate) const fn from_id(id: u64) -> Self {
+        Self(id)
     }
 
     /// Create a new anonymous symbol (always succeeds)
     ///
     /// Anonymous symbols have a unique ID but no string name.
     /// They cannot be retrieved by name and are useful for intermediate computations.
+    #[must_use] 
     pub fn anon() -> Self {
         let interned = InternedSymbol::new_anon();
         // Optimization: Don't register anonymous symbols in the global registry.
@@ -266,40 +265,38 @@ impl Symbol {
         //
         // Symbol::to_expr() and name() handle missing registry entries gracefully
         // by assuming they are anonymous.
-        Symbol(interned.id())
+        Self(interned.id())
     }
 
     /// Get the symbol's unique ID
     #[inline]
-    pub fn id(&self) -> u64 {
+    #[must_use] 
+    pub const fn id(&self) -> u64 {
         self.0
     }
 
     /// Get the name of the symbol (None for anonymous symbols)
     ///
-    /// Note: This clones the name string. For frequent access, consider name_arc().
+    /// Note: This clones the name string. For frequent access, consider `name_arc()`.
+    #[must_use] 
     pub fn name(&self) -> Option<String> {
         self.name_arc().map(|arc| arc.to_string())
     }
 
     /// Get the name as an `Arc<str>` (avoiding String allocation)
+    #[must_use] 
     pub fn name_arc(&self) -> Option<Arc<str>> {
         lookup_by_id(self.0).and_then(|s| s.name)
     }
 
     /// Convert to an Expr
+    #[must_use] 
     pub fn to_expr(&self) -> Expr {
         // Look up the InternedSymbol from registry
-        if let Some(interned) = lookup_by_id(self.0) {
-            Expr::from_interned(interned)
-        } else {
-            // Optimization: If not found, it's an anonymous symbol (unregistered)
-            // Reconstruct it on the fly to avoid registry lookup requirement
-            Expr::from_interned(InternedSymbol {
-                id: self.0,
-                name: None,
-            })
-        }
+        lookup_by_id(self.0).map_or_else(|| Expr::from_interned(InternedSymbol {
+            id: self.0,
+            name: None,
+        }), Expr::from_interned)
     }
 
     /// Raise to a power (Copy means no clone needed)
@@ -320,22 +317,22 @@ impl Symbol {
         Expr::func_multi("beta", vec![self.to_expr(), other.into()])
     }
 
-    /// Bessel function of the first kind: J_n(x)
+    /// Bessel function of the first kind: `J_n(x)`
     pub fn besselj(&self, n: impl Into<Expr>) -> Expr {
         Expr::func_multi("besselj", vec![n.into(), self.to_expr()])
     }
 
-    /// Bessel function of the second kind: Y_n(x)
+    /// Bessel function of the second kind: `Y_n(x)`
     pub fn bessely(&self, n: impl Into<Expr>) -> Expr {
         Expr::func_multi("bessely", vec![n.into(), self.to_expr()])
     }
 
-    /// Modified Bessel function of the first kind: I_n(x)
+    /// Modified Bessel function of the first kind: `I_n(x)`
     pub fn besseli(&self, n: impl Into<Expr>) -> Expr {
         Expr::func_multi("besseli", vec![n.into(), self.to_expr()])
     }
 
-    /// Modified Bessel function of the second kind: K_n(x)
+    /// Modified Bessel function of the second kind: `K_n(x)`
     pub fn besselk(&self, n: impl Into<Expr>) -> Expr {
         Expr::func_multi("besselk", vec![n.into(), self.to_expr()])
     }
@@ -358,17 +355,17 @@ impl Symbol {
         Expr::func_multi("atan2", vec![self.to_expr(), x.into()])
     }
 
-    /// Hermite polynomial H_n(self)
+    /// Hermite polynomial `H_n(self)`
     pub fn hermite(&self, n: impl Into<Expr>) -> Expr {
         Expr::func_multi("hermite", vec![n.into(), self.to_expr()])
     }
 
-    /// Associated Legendre polynomial P_l^m(self)
+    /// Associated Legendre polynomial `P_l^m(self)`
     pub fn assoc_legendre(&self, l: impl Into<Expr>, m: impl Into<Expr>) -> Expr {
         Expr::func_multi("assoc_legendre", vec![l.into(), m.into(), self.to_expr()])
     }
 
-    /// Spherical harmonic Y_l^m(theta, phi) where self is theta
+    /// Spherical harmonic `Y_l^m(theta`, phi) where self is theta
     pub fn spherical_harmonic(
         &self,
         l: impl Into<Expr>,
@@ -381,7 +378,7 @@ impl Symbol {
         )
     }
 
-    /// Alternative spherical harmonic notation Y_l^m(theta, phi)
+    /// Alternative spherical harmonic notation `Y_l^m(theta`, phi)
     pub fn ynm(&self, l: impl Into<Expr>, m: impl Into<Expr>, phi: impl Into<Expr>) -> Expr {
         Expr::func_multi("ynm", vec![l.into(), m.into(), self.to_expr(), phi.into()])
     }
@@ -412,6 +409,9 @@ impl Symbol {
 ///     assert!(format!("{}", expr).contains("symb_new_doc"));
 /// }
 /// ```
+///
+/// # Errors
+/// Returns `SymbolError::DuplicateName` if a symbol with this name already exists.
 pub fn symb_new(name: &str) -> Result<Symbol, SymbolError> {
     with_registry_mut(|registry, id_registry| {
         if registry.contains_key(name) {
@@ -437,15 +437,16 @@ pub fn symb_new(name: &str) -> Result<Symbol, SymbolError> {
 /// let x2 = symb_get("symb_get_doc_x").unwrap();
 /// assert_eq!(x.id(), x2.id());  // Same symbol!
 /// ```
+///
+/// # Errors
+/// Returns `SymbolError::NotFound` if no symbol with this name exists.
 pub fn symb_get(name: &str) -> Result<Symbol, SymbolError> {
     let guard = get_registry_read();
-    match guard.get(name) {
-        Some(interned) => Ok(Symbol(interned.id())),
-        None => Err(SymbolError::NotFound(name.to_string())),
-    }
+    guard.get(name).map_or_else(|| Err(SymbolError::NotFound(name.to_string())), |interned| Ok(Symbol(interned.id())))
 }
 
 /// Check if a symbol name is already registered
+#[must_use] 
 pub fn symbol_exists(name: &str) -> bool {
     let guard = get_registry_read();
     guard.contains_key(name)
@@ -460,6 +461,7 @@ pub fn symbol_exists(name: &str) -> bool {
 /// symb("symbol_count_doc_y");
 /// assert!(symbol_count() >= 2);
 /// ```
+#[must_use] 
 pub fn symbol_count() -> usize {
     let guard = get_registry_read();
     guard.len()
@@ -474,6 +476,7 @@ pub fn symbol_count() -> usize {
 /// let names = symbol_names();
 /// assert!(names.contains(&"symbol_names_doc_x".to_string()));
 /// ```
+#[must_use] 
 pub fn symbol_names() -> Vec<String> {
     let guard = get_registry_read();
     guard.keys().cloned().collect()
@@ -484,10 +487,8 @@ pub fn symbol_names() -> Vec<String> {
 /// This resets the symbol table. Use with caution - any existing Symbol
 /// instances will still work but won't match newly created ones by name lookup.
 pub fn clear_symbols() {
-    let mut guard = get_registry_mut();
-    let mut id_guard = get_id_registry_mut();
-    guard.clear();
-    id_guard.clear();
+    get_registry_mut().clear();
+    get_id_registry_mut().clear();
 }
 
 /// Remove a specific symbol from the registry
@@ -515,15 +516,14 @@ pub fn clear_symbols() {
 /// remove_symbol("remove_symbol_doc_x");
 /// assert!(!symbol_exists("remove_symbol_doc_x"));
 /// ```
+#[must_use] 
 pub fn remove_symbol(name: &str) -> bool {
     with_registry_mut(|name_registry, id_registry| {
-        if let Some(interned) = name_registry.remove(name) {
+        name_registry.remove(name).is_some_and(|interned| {
             // Also remove from ID registry to prevent inconsistent state
             id_registry.remove(&interned.id());
             true
-        } else {
-            false
-        }
+        })
     })
 }
 
@@ -539,6 +539,7 @@ pub fn remove_symbol(name: &str) -> bool {
 /// let y = symb("y");
 /// let expr = x + y;
 /// ```
+#[must_use] 
 pub fn symb(name: &str) -> Symbol {
     let interned = symb_interned(name);
     Symbol(interned.id())
@@ -548,7 +549,7 @@ pub fn symb(name: &str) -> Symbol {
 ///
 /// Unlike `symb()`, this does NOT error on duplicates - it returns the existing symbol.
 /// This is used by the parser to ensure parsed expressions use the same symbols.
-pub(crate) fn symb_interned(name: &str) -> InternedSymbol {
+pub fn symb_interned(name: &str) -> InternedSymbol {
     with_registry_mut(|registry, id_registry| {
         if let Some(existing) = registry.get(name) {
             return existing.clone();
@@ -585,6 +586,7 @@ macro_rules! impl_math_functions_owned {
         impl $type {
             $(
                 #[doc = concat!("Apply the `", $func_str, "` function to this expression.")]
+                #[must_use]
                 pub fn $fn_name(self) -> Expr {
                     Expr::func($func_str, $converter(self))
                 }
@@ -675,14 +677,14 @@ impl From<Symbol> for Expr {
 // Convert f64 to Expr
 impl From<f64> for Expr {
     fn from(n: f64) -> Self {
-        Expr::number(n)
+        Self::number(n)
     }
 }
 
 // Convert i32 to Expr
 impl From<i32> for Expr {
     fn from(n: i32) -> Self {
-        Expr::number(n as f64)
+        Self::number(f64::from(n))
     }
 }
 
@@ -905,46 +907,46 @@ impl Div<&Symbol> for f64 {
 // =============================================================================
 
 // Symbol + i32
-impl_binary_ops!(symbol_ops Symbol, i32, |s: Symbol| s.to_expr(), |r: i32| Expr::number(r as f64));
+impl_binary_ops!(symbol_ops Symbol, i32, |s: Symbol| s.to_expr(), |r: i32| Expr::number(f64::from(r)));
 impl_binary_ops!(
     symbol_ops & Symbol,
     i32,
     |s: &Symbol| s.to_expr(),
-    |r: i32| Expr::number(r as f64)
+    |r: i32| Expr::number(f64::from(r))
 );
 
 // Expr + i32
-impl_binary_ops!(symbol_ops Expr, i32, |s: Expr| s, |r: i32| Expr::number(r as f64));
+impl_binary_ops!(symbol_ops Expr, i32, |s: Expr| s, |r: i32| Expr::number(f64::from(r)));
 impl_binary_ops!(symbol_ops & Expr, i32, |e: &Expr| e.clone(), |r: i32| {
-    Expr::number(r as f64)
+    Expr::number(f64::from(r))
 });
 
 // i32 on left side with Symbol
 impl Add<Symbol> for i32 {
     type Output = Expr;
     fn add(self, rhs: Symbol) -> Expr {
-        Expr::add_expr(Expr::number(self as f64), rhs.to_expr())
+        Expr::add_expr(Expr::number(f64::from(self)), rhs.to_expr())
     }
 }
 
 impl Sub<Symbol> for i32 {
     type Output = Expr;
     fn sub(self, rhs: Symbol) -> Expr {
-        Expr::sub_expr(Expr::number(self as f64), rhs.to_expr())
+        Expr::sub_expr(Expr::number(f64::from(self)), rhs.to_expr())
     }
 }
 
 impl Mul<Symbol> for i32 {
     type Output = Expr;
     fn mul(self, rhs: Symbol) -> Expr {
-        Expr::mul_expr(Expr::number(self as f64), rhs.to_expr())
+        Expr::mul_expr(Expr::number(f64::from(self)), rhs.to_expr())
     }
 }
 
 impl Div<Symbol> for i32 {
     type Output = Expr;
     fn div(self, rhs: Symbol) -> Expr {
-        Expr::div_expr(Expr::number(self as f64), rhs.to_expr())
+        Expr::div_expr(Expr::number(f64::from(self)), rhs.to_expr())
     }
 }
 
@@ -952,28 +954,28 @@ impl Div<Symbol> for i32 {
 impl Add<Expr> for i32 {
     type Output = Expr;
     fn add(self, rhs: Expr) -> Expr {
-        Expr::add_expr(Expr::number(self as f64), rhs)
+        Expr::add_expr(Expr::number(f64::from(self)), rhs)
     }
 }
 
 impl Sub<Expr> for i32 {
     type Output = Expr;
     fn sub(self, rhs: Expr) -> Expr {
-        Expr::sub_expr(Expr::number(self as f64), rhs)
+        Expr::sub_expr(Expr::number(f64::from(self)), rhs)
     }
 }
 
 impl Mul<Expr> for i32 {
     type Output = Expr;
     fn mul(self, rhs: Expr) -> Expr {
-        Expr::mul_expr(Expr::number(self as f64), rhs)
+        Expr::mul_expr(Expr::number(f64::from(self)), rhs)
     }
 }
 
 impl Div<Expr> for i32 {
     type Output = Expr;
     fn div(self, rhs: Expr) -> Expr {
-        Expr::div_expr(Expr::number(self as f64), rhs)
+        Expr::div_expr(Expr::number(f64::from(self)), rhs)
     }
 }
 
@@ -981,28 +983,28 @@ impl Div<Expr> for i32 {
 impl Add<&Expr> for i32 {
     type Output = Expr;
     fn add(self, rhs: &Expr) -> Expr {
-        Expr::add_expr(Expr::number(self as f64), rhs.clone())
+        Expr::add_expr(Expr::number(f64::from(self)), rhs.clone())
     }
 }
 
 impl Sub<&Expr> for i32 {
     type Output = Expr;
     fn sub(self, rhs: &Expr) -> Expr {
-        Expr::sub_expr(Expr::number(self as f64), rhs.clone())
+        Expr::sub_expr(Expr::number(f64::from(self)), rhs.clone())
     }
 }
 
 impl Mul<&Expr> for i32 {
     type Output = Expr;
     fn mul(self, rhs: &Expr) -> Expr {
-        Expr::mul_expr(Expr::number(self as f64), rhs.clone())
+        Expr::mul_expr(Expr::number(f64::from(self)), rhs.clone())
     }
 }
 
 impl Div<&Expr> for i32 {
     type Output = Expr;
     fn div(self, rhs: &Expr) -> Expr {
-        Expr::div_expr(Expr::number(self as f64), rhs.clone())
+        Expr::div_expr(Expr::number(f64::from(self)), rhs.clone())
     }
 }
 
@@ -1010,14 +1012,14 @@ impl Div<&Expr> for i32 {
 // Arc<Expr> conversions (for CustomFn partials ergonomics)
 // =============================================================================
 
-impl From<Arc<Expr>> for Expr {
-    fn from(arc: Arc<Expr>) -> Self {
+impl From<Arc<Self>> for Expr {
+    fn from(arc: Arc<Self>) -> Self {
         Arc::try_unwrap(arc).unwrap_or_else(|arc| (*arc).clone())
     }
 }
 
-impl From<&Arc<Expr>> for Expr {
-    fn from(arc: &Arc<Expr>) -> Self {
+impl From<&Arc<Self>> for Expr {
+    fn from(arc: &Arc<Self>) -> Self {
         (**arc).clone()
     }
 }
@@ -1331,59 +1333,59 @@ impl ArcExprExt for Arc<Expr> {
 }
 
 // --- Expr with Arc<Expr> (Expr on left side works due to local type) ---
-impl Add<Arc<Expr>> for Expr {
-    type Output = Expr;
-    fn add(self, rhs: Arc<Expr>) -> Expr {
-        Expr::add_expr(self, Expr::from(rhs))
+impl Add<Arc<Self>> for Expr {
+    type Output = Self;
+    fn add(self, rhs: Arc<Self>) -> Self {
+        Self::add_expr(self, Self::from(rhs))
     }
 }
 
-impl Add<&Arc<Expr>> for Expr {
-    type Output = Expr;
-    fn add(self, rhs: &Arc<Expr>) -> Expr {
-        Expr::add_expr(self, Expr::from(rhs))
+impl Add<&Arc<Self>> for Expr {
+    type Output = Self;
+    fn add(self, rhs: &Arc<Self>) -> Self {
+        Self::add_expr(self, Self::from(rhs))
     }
 }
 
-impl Sub<Arc<Expr>> for Expr {
-    type Output = Expr;
-    fn sub(self, rhs: Arc<Expr>) -> Expr {
-        Expr::sub_expr(self, Expr::from(rhs))
+impl Sub<Arc<Self>> for Expr {
+    type Output = Self;
+    fn sub(self, rhs: Arc<Self>) -> Self {
+        Self::sub_expr(self, Self::from(rhs))
     }
 }
 
-impl Sub<&Arc<Expr>> for Expr {
-    type Output = Expr;
-    fn sub(self, rhs: &Arc<Expr>) -> Expr {
-        Expr::sub_expr(self, Expr::from(rhs))
+impl Sub<&Arc<Self>> for Expr {
+    type Output = Self;
+    fn sub(self, rhs: &Arc<Self>) -> Self {
+        Self::sub_expr(self, Self::from(rhs))
     }
 }
 
-impl Mul<Arc<Expr>> for Expr {
-    type Output = Expr;
-    fn mul(self, rhs: Arc<Expr>) -> Expr {
-        Expr::mul_expr(self, Expr::from(rhs))
+impl Mul<Arc<Self>> for Expr {
+    type Output = Self;
+    fn mul(self, rhs: Arc<Self>) -> Self {
+        Self::mul_expr(self, Self::from(rhs))
     }
 }
 
-impl Mul<&Arc<Expr>> for Expr {
-    type Output = Expr;
-    fn mul(self, rhs: &Arc<Expr>) -> Expr {
-        Expr::mul_expr(self, Expr::from(rhs))
+impl Mul<&Arc<Self>> for Expr {
+    type Output = Self;
+    fn mul(self, rhs: &Arc<Self>) -> Self {
+        Self::mul_expr(self, Self::from(rhs))
     }
 }
 
-impl Div<Arc<Expr>> for Expr {
-    type Output = Expr;
-    fn div(self, rhs: Arc<Expr>) -> Expr {
-        Expr::div_expr(self, Expr::from(rhs))
+impl Div<Arc<Self>> for Expr {
+    type Output = Self;
+    fn div(self, rhs: Arc<Self>) -> Self {
+        Self::div_expr(self, Self::from(rhs))
     }
 }
 
-impl Div<&Arc<Expr>> for Expr {
-    type Output = Expr;
-    fn div(self, rhs: &Arc<Expr>) -> Expr {
-        Expr::div_expr(self, Expr::from(rhs))
+impl Div<&Arc<Self>> for Expr {
+    type Output = Self;
+    fn div(self, rhs: &Arc<Self>) -> Self {
+        Self::div_expr(self, Self::from(rhs))
     }
 }
 
@@ -1395,9 +1397,9 @@ impl Neg for Symbol {
 }
 
 impl Neg for Expr {
-    type Output = Expr;
-    fn neg(self) -> Expr {
-        Expr::mul_expr(Expr::number(-1.0), self)
+    type Output = Self;
+    fn neg(self) -> Self {
+        Self::mul_expr(Self::number(-1.0), self)
     }
 }
 
@@ -1433,45 +1435,53 @@ impl Expr {
     /// assert_eq!(format!("{}", expr), "sin(pow_method_x)^2");
     /// ```
     #[inline]
-    pub fn pow(self, exp: impl Into<Expr>) -> Expr {
-        Expr::pow_static(self, exp.into())
+    #[must_use]
+    pub fn pow(self, exp: impl Into<Self>) -> Self {
+        Self::pow_static(self, exp.into())
     }
 
     // === Parametric special functions ===
 
     /// Polygamma function: ψ^(n)(x)
-    pub fn polygamma(self, n: impl Into<Expr>) -> Expr {
-        Expr::func_multi("polygamma", vec![n.into(), self])
+    #[must_use]
+    pub fn polygamma(self, n: impl Into<Self>) -> Self {
+        Self::func_multi("polygamma", vec![n.into(), self])
     }
 
     /// Beta function: B(a, b)
-    pub fn beta(self, other: impl Into<Expr>) -> Expr {
-        Expr::func_multi("beta", vec![self, other.into()])
+    #[must_use]
+    pub fn beta(self, other: impl Into<Self>) -> Self {
+        Self::func_multi("beta", vec![self, other.into()])
     }
 
-    /// Bessel function of the first kind: J_n(x)
-    pub fn besselj(self, n: impl Into<Expr>) -> Expr {
-        Expr::func_multi("besselj", vec![n.into(), self])
+    /// Bessel function of the first kind: `J_n(x)`
+    #[must_use]
+    pub fn besselj(self, n: impl Into<Self>) -> Self {
+        Self::func_multi("besselj", vec![n.into(), self])
     }
 
-    /// Bessel function of the second kind: Y_n(x)
-    pub fn bessely(self, n: impl Into<Expr>) -> Expr {
-        Expr::func_multi("bessely", vec![n.into(), self])
+    /// Bessel function of the second kind: `Y_n(x)`
+    #[must_use]
+    pub fn bessely(self, n: impl Into<Self>) -> Self {
+        Self::func_multi("bessely", vec![n.into(), self])
     }
 
-    /// Modified Bessel function of the first kind: I_n(x)
-    pub fn besseli(self, n: impl Into<Expr>) -> Expr {
-        Expr::func_multi("besseli", vec![n.into(), self])
+    /// Modified Bessel function of the first kind: `I_n(x)`
+    #[must_use]
+    pub fn besseli(self, n: impl Into<Self>) -> Self {
+        Self::func_multi("besseli", vec![n.into(), self])
     }
 
-    /// Modified Bessel function of the second kind: K_n(x)
-    pub fn besselk(self, n: impl Into<Expr>) -> Expr {
-        Expr::func_multi("besselk", vec![n.into(), self])
+    /// Modified Bessel function of the second kind: `K_n(x)`
+    #[must_use]
+    pub fn besselk(self, n: impl Into<Self>) -> Self {
+        Self::func_multi("besselk", vec![n.into(), self])
     }
 
     /// Derivative of Riemann zeta function: ζ^(n)(self)
-    pub fn zeta_deriv(self, n: impl Into<Expr>) -> Expr {
-        Expr::func_multi("zeta_deriv", vec![n.into(), self])
+    #[must_use]
+    pub fn zeta_deriv(self, n: impl Into<Self>) -> Self {
+        Self::func_multi("zeta_deriv", vec![n.into(), self])
     }
 
     /// Logarithm with arbitrary base: `x.log(base)` → `log(base, x)`
@@ -1484,36 +1494,41 @@ impl Expr {
     /// let log_base_10 = expr.log(10.0);  // log(10, sin(x) + 1)
     /// assert!(format!("{}", log_base_10).contains("log"));
     /// ```
-    pub fn log(self, base: impl Into<Expr>) -> Expr {
-        Expr::func_multi("log", vec![base.into(), self])
+    #[must_use]
+    pub fn log(self, base: impl Into<Self>) -> Self {
+        Self::func_multi("log", vec![base.into(), self])
     }
 
-    /// Hermite polynomial H_n(self)
-    pub fn hermite(self, n: impl Into<Expr>) -> Expr {
-        Expr::func_multi("hermite", vec![n.into(), self])
+    /// Hermite polynomial `H_n(self)`
+    #[must_use]
+    pub fn hermite(self, n: impl Into<Self>) -> Self {
+        Self::func_multi("hermite", vec![n.into(), self])
     }
 
-    /// Associated Legendre polynomial P_l^m(self)
-    pub fn assoc_legendre(self, l: impl Into<Expr>, m: impl Into<Expr>) -> Expr {
-        Expr::func_multi("assoc_legendre", vec![l.into(), m.into(), self])
+    /// Associated Legendre polynomial `P_l^m(self)`
+    #[must_use]
+    pub fn assoc_legendre(self, l: impl Into<Self>, m: impl Into<Self>) -> Self {
+        Self::func_multi("assoc_legendre", vec![l.into(), m.into(), self])
     }
 
-    /// Spherical harmonic Y_l^m(theta, phi) where self is theta
+    /// Spherical harmonic `Y_l^m(theta`, phi) where self is theta
+    #[must_use]
     pub fn spherical_harmonic(
         self,
-        l: impl Into<Expr>,
-        m: impl Into<Expr>,
-        phi: impl Into<Expr>,
-    ) -> Expr {
-        Expr::func_multi(
+        l: impl Into<Self>,
+        m: impl Into<Self>,
+        phi: impl Into<Self>,
+    ) -> Self {
+        Self::func_multi(
             "spherical_harmonic",
             vec![l.into(), m.into(), self, phi.into()],
         )
     }
 
-    /// Alternative spherical harmonic notation Y_l^m(theta, phi)
-    pub fn ynm(self, l: impl Into<Expr>, m: impl Into<Expr>, phi: impl Into<Expr>) -> Expr {
-        Expr::func_multi("ynm", vec![l.into(), m.into(), self, phi.into()])
+    /// Alternative spherical harmonic notation `Y_l^m(theta`, phi)
+    #[must_use]
+    pub fn ynm(self, l: impl Into<Self>, m: impl Into<Self>, phi: impl Into<Self>) -> Self {
+        Self::func_multi("ynm", vec![l.into(), m.into(), self, phi.into()])
     }
 }
 

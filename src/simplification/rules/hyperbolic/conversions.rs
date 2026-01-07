@@ -1,4 +1,8 @@
-use super::helpers::*;
+use super::helpers::{
+    ExpTerm, extract_negated_term, is_double_of, match_alt_cosh_pattern, match_alt_sech_pattern,
+    match_alt_sinh_pattern, match_cosh_pattern, match_e2x_minus_1_direct,
+    match_e2x_minus_1_factored, match_e2x_plus_1, match_sinh_pattern_sub,
+};
 use crate::core::expr::{Expr, ExprKind as AstKind};
 use crate::simplification::rules::{ExprKind, Rule, RuleCategory, RuleContext};
 
@@ -78,11 +82,7 @@ rule!(
             // Check for (e^x - e^(-x)) / (e^x + e^(-x)) pattern
             let num_arg = if let AstKind::Sum(terms) = &numerator.kind {
                 if terms.len() == 2 {
-                    if let Some(negated) = extract_negated_term(&terms[1]) {
-                        match_sinh_pattern_sub(&terms[0], &negated)
-                    } else {
-                        None
-                    }
+                    extract_negated_term(&terms[1]).and_then(|negated| match_sinh_pattern_sub(&terms[0], &negated))
                 } else {
                     None
                 }
@@ -235,11 +235,8 @@ rule!(
 
             let den_arg = if let AstKind::Sum(terms) = &denominator.kind {
                 if terms.len() == 2 {
-                    if let Some(negated) = extract_negated_term(&terms[1]) {
-                        match_sinh_pattern_sub(&terms[0], &negated)
-                    } else {
-                        None
-                    }
+                    extract_negated_term(&terms[1])
+                        .and_then(|negated| match_sinh_pattern_sub(&terms[0], &negated))
                 } else {
                     None
                 }

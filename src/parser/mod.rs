@@ -38,10 +38,16 @@ use std::collections::HashSet;
 /// # Note
 /// For most use cases, prefer the higher-level `diff()` or `simplify()` functions,
 /// or the `Diff`/`Simplify` builders which handle parsing automatically.
-pub fn parse(
+///
+/// # Errors
+/// Returns `DiffError` if:
+/// - The input is empty
+/// - The input contains invalid syntax
+/// - Parentheses are unbalanced
+pub fn parse<S: std::hash::BuildHasher + Clone>(
     input: &str,
-    known_symbols: &HashSet<String>,
-    custom_functions: &HashSet<String>,
+    known_symbols: &HashSet<String, S>,
+    custom_functions: &HashSet<String, S>,
     context: Option<&crate::core::unified_context::Context>,
 ) -> Result<Expr, DiffError> {
     // Merge known_symbols and custom_functions from context if provided

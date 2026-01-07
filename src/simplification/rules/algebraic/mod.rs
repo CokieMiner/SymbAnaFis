@@ -1,18 +1,18 @@
 use crate::simplification::rules::Rule;
 use std::sync::Arc;
 
-pub(crate) mod abs_sign;
-pub(crate) mod canonicalization;
-pub(crate) mod combination;
-pub(crate) mod expansion;
-pub(crate) mod factoring;
-pub(crate) mod fractions;
+pub mod abs_sign;
+pub mod canonicalization;
+pub mod combination;
+pub mod expansion;
+pub mod factoring;
+pub mod fractions;
 /// Algebraic simplification rules
-pub(crate) mod identities;
-pub(crate) mod powers;
+pub mod identities;
+pub mod powers;
 
 /// Get all algebraic rules in priority order
-pub(crate) fn get_algebraic_rules() -> Vec<Arc<dyn Rule + Send + Sync>> {
+pub fn get_algebraic_rules() -> Vec<Arc<dyn Rule + Send + Sync>> {
     vec![
         // Exponential/logarithmic identities
         Arc::new(identities::ExpLnRule),

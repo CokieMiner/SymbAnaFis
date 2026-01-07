@@ -225,9 +225,6 @@ rule!(
         if let AstKind::Sum(terms) = &expr.kind
             && terms.len() == 2
         {
-            let u = &terms[0];
-            let v = &terms[1];
-
             // Helper to extract negated term
             fn extract_negated(term: &Expr) -> Option<Expr> {
                 if let AstKind::Product(factors) = &term.kind
@@ -239,6 +236,9 @@ rule!(
                 }
                 None
             }
+
+            let u = &terms[0];
+            let v = &terms[1];
 
             // cosh^2(x) + (-sinh^2(x)) = 1
             if let Some((name1, arg1)) = get_hyperbolic_power(u, 2.0)
@@ -439,8 +439,8 @@ rule!(
             let v = &terms[1];
 
             if let (Some((c1, arg1, p1)), Some((c2, arg2, p2))) = (
-                parse_fn_term(u, get_symbol(&SINH)),
-                parse_fn_term(v, get_symbol(&SINH)),
+                parse_fn_term(u, &get_symbol(&SINH)),
+                parse_fn_term(v, &get_symbol(&SINH)),
             ) && arg1 == arg2
                 && ((c1 - 4.0).abs() < eps && p1 == 3.0 && c2 == 3.0 && p2 == 1.0
                     || (c2 - 4.0).abs() < eps && p2 == 3.0 && c1 == 3.0 && p1 == 1.0)
@@ -452,8 +452,8 @@ rule!(
             }
 
             // 4*cosh(x)^3 + (-3*cosh(x)) -> cosh(3x) (subtraction represented as sum with negated term)
-            if let Some((c1, arg1, p1)) = parse_fn_term(u, get_symbol(&COSH))
-                && let Some((c2, arg2, p2)) = parse_fn_term(v, get_symbol(&COSH))
+            if let Some((c1, arg1, p1)) = parse_fn_term(u, &get_symbol(&COSH))
+                && let Some((c2, arg2, p2)) = parse_fn_term(v, &get_symbol(&COSH))
                 && arg1 == arg2
             {
                 // 4*cosh^3(x) - 3*cosh(x) -> cosh(3x)
@@ -471,11 +471,11 @@ rule!(
 
 fn parse_fn_term(
     expr: &Expr,
-    func_name: crate::core::symbol::InternedSymbol,
+    func_name: &crate::core::symbol::InternedSymbol,
 ) -> Option<(f64, Expr, f64)> {
     // Direct function call: func(x) -> (1.0, x, 1.0)
     if let AstKind::FunctionCall { name, args } = &expr.kind
-        && *name == func_name
+        && name.id() == func_name.id()
         && args.len() == 1
     {
         return Some((1.0, (*args[0]).clone(), 1.0));
@@ -485,7 +485,7 @@ fn parse_fn_term(
     if let AstKind::Pow(base, exp) = &expr.kind
         && let AstKind::Number(p) = &exp.kind
         && let AstKind::FunctionCall { name, args } = &base.kind
-        && *name == func_name
+        && name.id() == func_name.id()
         && args.len() == 1
     {
         return Some((1.0, (*args[0]).clone(), *p));
@@ -498,7 +498,7 @@ fn parse_fn_term(
     {
         // c * func(x)
         if let AstKind::FunctionCall { name, args } = &factors[1].kind
-            && *name == func_name
+            && name.id() == func_name.id()
             && args.len() == 1
         {
             return Some((*c, (*args[0]).clone(), 1.0));
@@ -507,7 +507,7 @@ fn parse_fn_term(
         if let AstKind::Pow(base, exp) = &factors[1].kind
             && let AstKind::Number(p) = &exp.kind
             && let AstKind::FunctionCall { name, args } = &base.kind
-            && *name == func_name
+            && name.id() == func_name.id()
             && args.len() == 1
         {
             return Some((*c, (*args[0]).clone(), *p));

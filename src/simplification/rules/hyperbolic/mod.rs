@@ -1,17 +1,17 @@
 use crate::simplification::rules::Rule;
 use std::sync::Arc;
 
-pub(crate) mod conversions;
+pub mod conversions;
 mod helpers;
-pub(crate) mod identities;
-pub(crate) mod ratios;
+pub mod identities;
+pub mod ratios;
 
-pub(crate) use conversions::*;
-pub(crate) use identities::*;
-pub(crate) use ratios::*;
+pub use conversions::*;
+pub use identities::*;
+pub use ratios::*;
 
 /// Get all hyperbolic rules in priority order
-pub(crate) fn get_hyperbolic_rules() -> Vec<Arc<dyn Rule + Send + Sync>> {
+pub fn get_hyperbolic_rules() -> Vec<Arc<dyn Rule + Send + Sync>> {
     vec![
         // High priority rules first
         Arc::new(SinhZeroRule),

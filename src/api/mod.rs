@@ -5,7 +5,7 @@
 //! - `Simplify` - Simplification builder
 //! - Helper functions (gradient, jacobian, hessian)
 
-pub(crate) mod builder;
+pub mod builder;
 mod helpers;
 
 pub use builder::{Diff, Simplify};

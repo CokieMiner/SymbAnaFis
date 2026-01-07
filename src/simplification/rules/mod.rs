@@ -14,7 +14,7 @@ use std::sync::Arc;
 /// Supports 4 forms:
 /// - Basic: `rule!(Name, "name", priority, Category, &[ExprKind::...], |expr, ctx| { ... })`
 /// - With targets: `rule!(Name, "name", priority, Category, &[ExprKind::...], targets: &["fn"], |expr, ctx| { ... })`
-/// - With alters_domain: `rule!(Name, "name", priority, Category, &[ExprKind::...], alters_domain: true, |expr, ctx| { ... })`
+/// - With `alters_domain`: `rule!(Name, "name", priority, Category, &[ExprKind::...], alters_domain: true, |expr, ctx| { ... })`
 /// - Both: `rule!(Name, "name", priority, Category, &[ExprKind::...], alters_domain: true, targets: &["fn"], |expr, ctx| { ... })`
 #[macro_export]
 macro_rules! rule {
@@ -333,7 +333,7 @@ macro_rules! rule_with_helpers {
 /// Expression kind for fast rule filtering
 /// Rules declare which expression kinds they can apply to
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub(crate) enum ExprKind {
+pub enum ExprKind {
     Number,
     Symbol,
     Sum,     // N-ary addition
@@ -348,23 +348,23 @@ pub(crate) enum ExprKind {
 impl ExprKind {
     /// Get the kind of an expression (cheap O(1) operation)
     #[inline]
-    pub fn of(expr: &Expr) -> Self {
+    pub const fn of(expr: &Expr) -> Self {
         match &expr.kind {
-            AstKind::Number(_) => ExprKind::Number,
-            AstKind::Symbol(_) => ExprKind::Symbol,
-            AstKind::Sum(_) => ExprKind::Sum,
-            AstKind::Product(_) => ExprKind::Product,
-            AstKind::Div(_, _) => ExprKind::Div,
-            AstKind::Pow(_, _) => ExprKind::Pow,
-            AstKind::FunctionCall { .. } => ExprKind::Function,
-            AstKind::Derivative { .. } => ExprKind::Derivative,
-            AstKind::Poly(_) => ExprKind::Poly, // Poly has its own rules, don't trigger Sum rules
+            AstKind::Number(_) => Self::Number,
+            AstKind::Symbol(_) => Self::Symbol,
+            AstKind::Sum(_) => Self::Sum,
+            AstKind::Product(_) => Self::Product,
+            AstKind::Div(_, _) => Self::Div,
+            AstKind::Pow(_, _) => Self::Pow,
+            AstKind::FunctionCall { .. } => Self::Function,
+            AstKind::Derivative { .. } => Self::Derivative,
+            AstKind::Poly(_) => Self::Poly, // Poly has its own rules, don't trigger Sum rules
         }
     }
 }
 
 /// Core trait for all simplification rules
-pub(crate) trait Rule {
+pub trait Rule {
     fn name(&self) -> &'static str;
     fn priority(&self) -> i32;
     #[allow(dead_code)]
@@ -382,21 +382,21 @@ pub(crate) trait Rule {
     }
 
     /// Optimized Dispatch: List of function names this rule targets.
-    /// If non-empty, the rule is ONLY checked for FunctionCall nodes with these names.
-    /// If empty, it is checked for ALL FunctionCall nodes (generic rules).
+    /// If non-empty, the rule is ONLY checked for `FunctionCall` nodes with these names.
+    /// If empty, it is checked for ALL `FunctionCall` nodes (generic rules).
     fn target_functions(&self) -> &'static [&'static str] {
         &[]
     }
 
-    /// Apply this rule to an expression. Returns Some(new_expr) if transformation applied.
-    /// Takes &`Arc<Expr>` for efficient sub-expression cloning (Arc::clone is cheap).
+    /// Apply this rule to an expression. Returns `Some(new_expr)` if transformation applied.
+    /// Takes &`Arc<Expr>` for efficient sub-expression cloning (`Arc::clone` is cheap).
     fn apply(&self, expr: &Arc<Expr>, context: &RuleContext) -> Option<Arc<Expr>>;
 }
 
 /// Categories of simplification rules
 #[allow(dead_code)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum RuleCategory {
+pub enum RuleCategory {
     Numeric,   // Constant folding, identities
     Algebraic, // General algebraic rules
     Trigonometric,
@@ -406,7 +406,7 @@ pub(crate) enum RuleCategory {
 }
 
 /// All expression kinds - used as default for rules
-pub(crate) const ALL_EXPR_KINDS: &[ExprKind] = &[
+pub const ALL_EXPR_KINDS: &[ExprKind] = &[
     ExprKind::Number,
     ExprKind::Symbol,
     ExprKind::Sum,
@@ -427,7 +427,7 @@ pub(crate) const ALL_EXPR_KINDS: &[ExprKind] = &[
 /// Context passed to rules during application
 /// Uses `Arc<HashSet>` for cheap cloning (context is cloned per-node)
 #[derive(Clone, Default)]
-pub(crate) struct RuleContext {
+pub struct RuleContext {
     pub depth: usize,
     pub variables: Arc<HashSet<String>>,
     pub known_symbols: Arc<HashSet<String>>, // User-specified known symbols (parsing hints)
@@ -453,7 +453,7 @@ impl std::fmt::Debug for RuleContext {
 impl RuleContext {
     /// Set depth by mutable reference (avoids clone)
     #[inline]
-    pub fn set_depth(&mut self, depth: usize) {
+    pub const fn set_depth(&mut self, depth: usize) {
         self.depth = depth;
     }
 
@@ -474,25 +474,25 @@ impl RuleContext {
 }
 
 /// Numeric simplification rules
-pub(crate) mod numeric;
+pub mod numeric;
 
 /// Algebraic simplification rules
-pub(crate) mod algebraic;
+pub mod algebraic;
 
 /// Trigonometric simplification rules
-pub(crate) mod trigonometric;
+pub mod trigonometric;
 
 /// Exponential and logarithmic simplification rules
-pub(crate) mod exponential;
+pub mod exponential;
 
 /// Root simplification rules
-pub(crate) mod root;
+pub mod root;
 
 /// Hyperbolic function simplification rules
-pub(crate) mod hyperbolic;
+pub mod hyperbolic;
 
 /// Rule Registry for dynamic loading and dependency management
-pub(crate) struct RuleRegistry {
+pub struct RuleRegistry {
     pub(crate) rules: Vec<Arc<dyn Rule + Send + Sync>>,
     /// Rules indexed by expression kind for fast lookup
     rules_by_kind: HashMap<ExprKind, Vec<Arc<dyn Rule + Send + Sync>>>,
@@ -575,16 +575,14 @@ impl RuleRegistry {
     pub fn get_rules_for_kind(&self, kind: ExprKind) -> &[Arc<dyn Rule + Send + Sync>] {
         self.rules_by_kind
             .get(&kind)
-            .map(|v| v.as_slice())
-            .unwrap_or(&[])
+            .map_or(&[], std::vec::Vec::as_slice)
     }
 
     #[inline]
     pub fn get_specific_func_rules(&self, func_id: u64) -> &[Arc<dyn Rule + Send + Sync>] {
         self.rules_by_func
             .get(&func_id)
-            .map(|v| v.as_slice())
-            .unwrap_or(&[])
+            .map_or(&[], std::vec::Vec::as_slice)
     }
 
     #[inline]

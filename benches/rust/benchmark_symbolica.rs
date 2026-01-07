@@ -37,7 +37,7 @@ fn bench_parse(c: &mut Criterion) {
 
     for (name, expr, _, _) in ALL_EXPRESSIONS {
         group.bench_with_input(BenchmarkId::new("symbolica", name), expr, |b, expr| {
-            b.iter(|| Atom::parse(wrap_input!(black_box(expr)), ParseSettings::default()))
+            b.iter(|| Atom::parse(wrap_input!(black_box(expr)), ParseSettings::default()));
         });
     }
 
@@ -60,7 +60,7 @@ fn bench_diff(c: &mut Criterion) {
 
         // Symbolica: diff only (auto light-simplifies)
         group.bench_with_input(BenchmarkId::new("symbolica", name), &expr, |b, expr| {
-            b.iter(|| black_box(expr.derivative(var_indet.clone())))
+            b.iter(|| black_box(expr.derivative(var_indet.clone())));
         });
     }
 
@@ -117,7 +117,7 @@ fn bench_compile(c: &mut Criterion) {
                     black_box(OptimizationSettings::default()),
                 )
                 .expect("Failed to create evaluator")
-            })
+            });
         });
     }
     group.finish();
@@ -130,7 +130,7 @@ fn bench_compile(c: &mut Criterion) {
 fn bench_eval(c: &mut Criterion) {
     setup_license();
     let mut group = c.benchmark_group("6_eval_1000pts");
-    let test_points: Vec<f64> = (0..1000).map(|i| 0.1 + i as f64 * 0.01).collect();
+    let test_points: Vec<f64> = (0..1000).map(|i| f64::from(i).mul_add(0.01, 0.1)).collect();
 
     for (name, expr_str, var, fixed_vars) in ALL_EXPRESSIONS {
         // Symbolica evaluator lacks explicit besselj support out-of-the-box or requires custom registration
@@ -164,7 +164,7 @@ fn bench_eval(c: &mut Criterion) {
         let mut evaluator = expr
             .evaluator(&func_map, &params, settings)
             .expect("Failed to create evaluator")
-            .map_coeff(&|c| c.to_real().map(|x| x.into()).unwrap_or(1.0));
+            .map_coeff(&|c| c.to_real().map_or(1.0, std::convert::Into::into));
 
         // Prepare constants (1.0 for all fixed vars)
         let fixed_vals: Vec<f64> = vec![1.0; all_fixed_vars.len()];
@@ -186,7 +186,7 @@ fn bench_eval(c: &mut Criterion) {
                         sum += evaluator.evaluate_single(&input);
                     }
                     sum
-                })
+                });
             },
         );
     }
@@ -201,7 +201,7 @@ fn bench_full_pipeline(c: &mut Criterion) {
     setup_license();
     let mut group = c.benchmark_group("7_full_pipeline");
 
-    let test_points: Vec<f64> = (0..1000).map(|i| 0.1 + i as f64 * 0.01).collect();
+    let test_points: Vec<f64> = (0..1000).map(|i| f64::from(i).mul_add(0.01, 0.1)).collect();
 
     for (name, expr_str, var, fixed_vars) in ALL_EXPRESSIONS {
         if *name == "Bessel Wave" {
@@ -248,7 +248,7 @@ fn bench_full_pipeline(c: &mut Criterion) {
                     let mut evaluator = diff
                         .evaluator(&func_map, &params, settings)
                         .expect("Failed to create evaluator")
-                        .map_coeff(&|c| c.to_real().map(|x| x.into()).unwrap_or(1.0));
+                        .map_coeff(&|c| c.to_real().map_or(1.0, std::convert::Into::into));
 
                     // 4. Evaluate (1000 points)
                     let fixed_vals: Vec<f64> = vec![1.0; all_fixed_vars.len()];
@@ -261,7 +261,7 @@ fn bench_full_pipeline(c: &mut Criterion) {
                         sum += evaluator.evaluate_single(&input);
                     }
                     sum
-                })
+                });
             },
         );
     }

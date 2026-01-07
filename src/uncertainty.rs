@@ -1,10 +1,10 @@
 //! Uncertainty propagation for symbolic expressions
 //!
 //! Computes uncertainty propagation formulas using the standard GUM formula:
-//! σ_f² = Σᵢ Σⱼ (∂f/∂xᵢ)(∂f/∂xⱼ) Cov(xᵢ, xⱼ)
+//! `σ_f²` = Σᵢ Σⱼ (∂f/∂xᵢ)(∂f/∂xⱼ) Cov(xᵢ, xⱼ)
 //!
 //! For uncorrelated variables, this simplifies to:
-//! σ_f² = Σᵢ (∂f/∂xᵢ)² σᵢ²
+//! `σ_f²` = Σᵢ (∂f/∂xᵢ)² σᵢ²
 //!
 //! # Reference
 //!
@@ -20,47 +20,49 @@ use crate::{Diff, DiffError, Expr};
 pub enum CovEntry {
     /// A numeric covariance value
     Num(f64),
-    /// A symbolic covariance expression (e.g., ρ_xy * σ_x * σ_y)
+    /// A symbolic covariance expression (e.g., `ρ_xy` * `σ_x` * `σ_y`)
     Symbolic(Expr),
 }
 
 impl CovEntry {
     /// Convert the entry to an Expr
     #[inline]
+    #[must_use] 
     pub fn to_expr(&self) -> Expr {
         match self {
-            CovEntry::Num(n) => Expr::number(*n),
-            CovEntry::Symbolic(e) => e.clone(),
+            Self::Num(n) => Expr::number(*n),
+            Self::Symbolic(e) => e.clone(),
         }
     }
 
     /// Check if the entry is zero
     #[inline]
+    #[must_use] 
     pub fn is_zero(&self) -> bool {
         match self {
-            CovEntry::Num(n) => n.abs() < EPSILON,
-            CovEntry::Symbolic(e) => e.is_zero_num(), // Also check symbolic zero
+            Self::Num(n) => n.abs() < EPSILON,
+            Self::Symbolic(e) => e.is_zero_num(), // Also check symbolic zero
         }
     }
 }
 
 impl From<f64> for CovEntry {
     fn from(n: f64) -> Self {
-        CovEntry::Num(n)
+        Self::Num(n)
     }
 }
 
 impl From<Expr> for CovEntry {
     fn from(e: Expr) -> Self {
-        CovEntry::Symbolic(e)
+        Self::Symbolic(e)
     }
 }
 
 /// Covariance matrix for uncertainty propagation
 ///
 /// The matrix `Cov[i][j]` represents Cov(xᵢ, xⱼ).
-/// For correlated variables: Cov(x, y) = ρ_xy * σ_x * σ_y
-/// The diagonal elements are the variances: Cov(x, x) = σ_x²
+/// For correlated variables: Cov(x, y) = `ρ_xy` * `σ_x` * `σ_y`
+/// The diagonal elements are the variances: Cov(x, x) = `σ_x²`
 #[derive(Debug, Clone)]
 pub struct CovarianceMatrix {
     entries: Vec<Vec<CovEntry>>,
@@ -85,23 +87,23 @@ impl CovarianceMatrix {
             }
         }
         // Validate symmetry for numeric entries
-        for i in 0..n {
-            for j in (i + 1)..n {
-                if let (CovEntry::Num(a), CovEntry::Num(b)) = (&entries[i][j], &entries[j][i])
+        for (i, row_i) in entries.iter().enumerate() {
+            for (j, entry_ij) in row_i.iter().enumerate().skip(i + 1) {
+                if let (CovEntry::Num(a), CovEntry::Num(b)) = (entry_ij, &entries[j][i])
                     && (a - b).abs() >= EPSILON
                 {
                     return Err(DiffError::UnsupportedOperation(format!(
-                        "Covariance matrix must be symmetric: Cov[{}][{}]={} != Cov[{}][{}]={}",
-                        i, j, a, j, i, b
+                        "Covariance matrix must be symmetric: Cov[{i}][{j}]={a} != Cov[{j}][{i}]={b}"
                     )));
                 }
             }
         }
-        Ok(CovarianceMatrix { entries })
+        Ok(Self { entries })
     }
 
     /// Create a diagonal covariance matrix (uncorrelated variables)
-    /// from variance expressions σ_i²
+    /// from variance expressions `σ_i²`
+    #[must_use] 
     pub fn diagonal(variances: Vec<CovEntry>) -> Self {
         let n = variances.len();
         let mut entries = vec![vec![CovEntry::Num(0.0); n]; n];
@@ -109,33 +111,36 @@ impl CovarianceMatrix {
             entries[i][i] = var;
         }
         // Skip validation for diagonal (guaranteed symmetric)
-        CovarianceMatrix { entries }
+        Self { entries }
     }
 
     /// Create a diagonal covariance matrix from symbolic variance names
-    /// (e.g., ["x", "y"] creates σ_x² and σ_y² on diagonal)
+    /// (e.g., `["x", "y"]` creates `σ_x²` and `σ_y²` on diagonal)
+    #[must_use] 
     pub fn diagonal_symbolic(var_names: &[&str]) -> Self {
         let n = var_names.len();
         let mut entries = vec![vec![CovEntry::Num(0.0); n]; n];
         for (i, name) in var_names.iter().enumerate() {
             // Create σ² symbol for each variable
             let sigma_sq =
-                Expr::pow_static(Expr::symbol(format!("sigma_{}", name)), Expr::number(2.0));
+                Expr::pow_static(Expr::symbol(format!("sigma_{name}")), Expr::number(2.0));
             entries[i][i] = CovEntry::Symbolic(sigma_sq);
         }
         // Skip validation for diagonal (guaranteed symmetric)
-        CovarianceMatrix { entries }
+        Self { entries }
     }
 
     /// Get the covariance entry at (i, j)
     #[inline]
+    #[must_use] 
     pub fn get(&self, i: usize, j: usize) -> Option<&CovEntry> {
         self.entries.get(i).and_then(|row| row.get(j))
     }
 
     /// Get the dimension of the matrix
     #[inline]
-    pub fn dim(&self) -> usize {
+    #[must_use] 
+    pub const fn dim(&self) -> usize {
         self.entries.len()
     }
 }
@@ -143,7 +148,7 @@ impl CovarianceMatrix {
 impl Default for CovarianceMatrix {
     /// Creates an empty 0x0 covariance matrix
     fn default() -> Self {
-        CovarianceMatrix {
+        Self {
             entries: Vec::new(),
         }
     }
@@ -151,7 +156,7 @@ impl Default for CovarianceMatrix {
 
 /// Compute the uncertainty propagation expression
 ///
-/// Returns σ_f = sqrt(Σᵢ Σⱼ (∂f/∂xᵢ)(∂f/∂xⱼ) Cov(xᵢ, xⱼ))
+/// Returns `σ_f` = sqrt(Σᵢ Σⱼ (∂f/∂xᵢ)(∂f/∂xⱼ) Cov(xᵢ, xⱼ))
 ///
 /// # Arguments
 /// * `expr` - The expression f(x₁, x₂, ..., xₙ)
@@ -159,7 +164,13 @@ impl Default for CovarianceMatrix {
 /// * `covariance` - Optional covariance matrix. If None, creates symbolic diagonal matrix.
 ///
 /// # Returns
-/// The symbolic expression for σ_f (standard deviation of f)
+/// The symbolic expression for `σ_f` (standard deviation of f)
+///
+/// # Errors
+/// Returns `DiffError` if:
+/// - Differentiation of the expression fails
+/// - Covariance matrix dimension doesn't match number of variables
+/// - Covariance matrix is not square or symmetric
 ///
 /// # Example
 /// ```
@@ -200,22 +211,19 @@ pub fn uncertainty_propagation(
 
     // Get or create covariance matrix
     let default_cov;
-    let cov = match covariance {
-        Some(c) => {
-            if c.dim() != n {
-                return Err(DiffError::UnsupportedOperation(format!(
-                    "Covariance matrix dimension ({}) doesn't match number of variables ({})",
-                    c.dim(),
-                    n
-                )));
-            }
-            c
+    let cov = if let Some(c) = covariance {
+        if c.dim() != n {
+            return Err(DiffError::UnsupportedOperation(format!(
+                "Covariance matrix dimension ({}) doesn't match number of variables ({})",
+                c.dim(),
+                n
+            )));
         }
-        None => {
-            // Create default symbolic diagonal covariance matrix
-            default_cov = CovarianceMatrix::diagonal_symbolic(variables);
-            &default_cov
-        }
+        c
+    } else {
+        // Create default symbolic diagonal covariance matrix
+        default_cov = CovarianceMatrix::diagonal_symbolic(variables);
+        &default_cov
     };
 
     // Build the uncertainty expression: Σᵢ (∂f/∂xᵢ)² σᵢ² + 2 Σᵢ<ⱼ (∂f/∂xᵢ)(∂f/∂xⱼ) Cov(xᵢ, xⱼ)
@@ -264,13 +272,16 @@ pub fn uncertainty_propagation(
     std_dev.simplified()
 }
 
-/// Compute relative uncertainty expression: σ_f / |f|
+/// Compute relative uncertainty expression: `σ_f` / |f|
 ///
 /// Returns the symbolic expression for the relative uncertainty.
 ///
 /// # Warning
 /// Returns undefined/infinity when the expression `f` evaluates to zero.
 /// The caller should ensure `f` is non-zero at the evaluation point.
+///
+/// # Errors
+/// Returns `DiffError` if uncertainty propagation fails (see `uncertainty_propagation`).
 pub fn relative_uncertainty(
     expr: &Expr,
     variables: &[&str],

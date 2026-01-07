@@ -13,7 +13,7 @@ use std::ops::{
     Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
 };
 
-#[derive(Copy, Clone, Debug, PartialEq, PartialOrd)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd)]
 /// Dual number for automatic differentiation
 ///
 /// A dual number `a + bε` represents both a value (`a`) and its derivative (`b`),
@@ -57,7 +57,7 @@ impl<T: MathScalar> Dual<T> {
     /// let x = Dual::new(2.0, 1.0);  // Represents x + ε
     /// ```
     #[inline]
-    pub fn new(val: T, eps: T) -> Self {
+    pub const fn new(val: T, eps: T) -> Self {
         Self { val, eps }
     }
 
@@ -432,16 +432,17 @@ impl<T: MathScalar + Float> Float for Dual<T> {
         Self::new(self.val.ln(), self.eps / self.val)
     }
 
+    #[allow(clippy::suboptimal_flops)]
     fn log(self, base: Self) -> Self {
         self.ln() / base.ln()
     }
 
     fn log2(self) -> Self {
-        self.ln() / Self::constant(T::LN_2())
+        Self::new(self.val.log2(), self.eps / (self.val * T::LN_2()))
     }
 
     fn log10(self) -> Self {
-        self.ln() / Self::constant(T::LN_10())
+        Self::new(self.val.log10(), self.eps / (self.val * T::LN_10()))
     }
 
     fn max(self, other: Self) -> Self {
@@ -569,6 +570,10 @@ impl<T: MathScalar + Float> Float for Dual<T> {
 impl<T: MathScalar> Dual<T> {
     /// Error function: erf(x) = (2/√π) ∫₀ˣ e^(-t²) dt
     /// d/dx erf(x) = (2/√π) * e^(-x²)
+    ///
+    /// # Panics
+    /// Panics only if internal invariants are violated (never in normal use with f64).
+    #[must_use]
     pub fn erf(self) -> Self {
         let val = crate::math::eval_erf(self.val);
         let two = T::from(2.0).unwrap();
@@ -579,6 +584,7 @@ impl<T: MathScalar> Dual<T> {
 
     /// Complementary error function: erfc(x) = 1 - erf(x)
     /// d/dx erfc(x) = -d/dx erf(x) = -(2/√π) * e^(-x²)
+    #[must_use]
     pub fn erfc(self) -> Self {
         let erf_result = self.erf();
         Self::new(T::one() - erf_result.val, -erf_result.eps)
@@ -618,7 +624,7 @@ impl<T: MathScalar> Dual<T> {
     }
 
     /// Riemann zeta function: ζ(x)
-    /// d/dx ζ(x) = ζ'(x) (computed via eval_zeta_deriv)
+    /// d/dx ζ(x) = ζ'(x) (computed via `eval_zeta_deriv`)
     pub fn zeta(self) -> Option<Self> {
         let val = crate::math::eval_zeta(self.val)?;
         let deriv = crate::math::eval_zeta_deriv(1, self.val)?;
@@ -627,6 +633,9 @@ impl<T: MathScalar> Dual<T> {
 
     /// Lambert W function: W(x) where W(x) * e^W(x) = x
     /// d/dx W(x) = W(x) / (x * (1 + W(x)))
+    ///
+    /// # Panics
+    /// Panics only if internal invariants are violated (never in normal use with f64).
     pub fn lambert_w(self) -> Option<Self> {
         let w = crate::math::eval_lambert_w(self.val)?;
         // d/dx W(x) = W(x) / (x * (1 + W(x))) = 1 / (e^W(x) * (1 + W(x)))
@@ -639,8 +648,11 @@ impl<T: MathScalar> Dual<T> {
         Some(Self::new(w, self.eps * deriv))
     }
 
-    /// Bessel function of the first kind: J_n(x)
-    /// d/dx J_n(x) = (J_{n-1}(x) - J_{n+1}(x)) / 2
+    /// Bessel function of the first kind: `J_n(x)`
+    /// d/dx `J_n(x)` = (J_{n-1}(x) - J_{n+1}(x)) / 2
+    ///
+    /// # Panics
+    /// Panics only if internal invariants are violated (never in normal use with f64).
     pub fn bessel_j(self, n: i32) -> Option<Self> {
         let val = crate::math::bessel_j(n, self.val)?;
         let jn_minus_1 = crate::math::bessel_j(n - 1, self.val)?;
@@ -652,6 +664,10 @@ impl<T: MathScalar> Dual<T> {
 
     /// Sinc function: sinc(x) = sin(x)/x (with sinc(0) = 1)
     /// d/dx sinc(x) = (x*cos(x) - sin(x)) / x²
+    ///
+    /// # Panics
+    /// Panics only if internal invariants are violated (never in normal use with f64).
+    #[must_use]
     pub fn sinc(self) -> Self {
         let threshold = T::from(1e-10).unwrap();
         if self.val.abs() < threshold {
@@ -668,12 +684,16 @@ impl<T: MathScalar> Dual<T> {
 
     /// Sign function: sign(x) = x/|x| for x ≠ 0
     /// d/dx sign(x) = 0 (almost everywhere, undefined at 0)
+    #[must_use]
     pub fn sign(self) -> Self {
         Self::new(self.val.signum(), T::zero())
     }
 
     /// Elliptic integral of the first kind: K(k)
     /// Uses numerical differentiation since analytical is complex
+    ///
+    /// # Panics
+    /// Panics only if internal invariants are violated (never in normal use with f64).
     pub fn elliptic_k(self) -> Option<Self> {
         let val = crate::math::eval_elliptic_k(self.val)?;
         // Numerical derivative via finite difference
@@ -687,6 +707,9 @@ impl<T: MathScalar> Dual<T> {
 
     /// Elliptic integral of the second kind: E(k)
     /// Uses numerical differentiation since analytical is complex
+    ///
+    /// # Panics
+    /// Panics only if internal invariants are violated (never in normal use with f64).
     pub fn elliptic_e(self) -> Option<Self> {
         let val = crate::math::eval_elliptic_e(self.val)?;
         // Numerical derivative via finite difference
@@ -703,17 +726,17 @@ impl<T: MathScalar> Dual<T> {
     pub fn beta(self, b: Self) -> Option<Self> {
         let gamma_a = crate::math::eval_gamma(self.val)?;
         let gamma_b = crate::math::eval_gamma(b.val)?;
-        let gamma_ab = crate::math::eval_gamma(self.val + b.val)?;
-        let val = gamma_a * gamma_b / gamma_ab;
+        let gamma_sum = crate::math::eval_gamma(self.val + b.val)?;
+        let val = gamma_a * gamma_b / gamma_sum;
 
         let psi_a = crate::math::eval_digamma(self.val)?;
         let psi_b = crate::math::eval_digamma(b.val)?;
-        let psi_ab = crate::math::eval_digamma(self.val + b.val)?;
+        let psi_sum = crate::math::eval_digamma(self.val + b.val)?;
 
         // d/da B(a,b) = B(a,b) * (ψ(a) - ψ(a+b))
         // d/db B(a,b) = B(a,b) * (ψ(b) - ψ(a+b))
-        let deriv_a = val * (psi_a - psi_ab);
-        let deriv_b = val * (psi_b - psi_ab);
+        let deriv_a = val * (psi_a - psi_sum);
+        let deriv_b = val * (psi_b - psi_sum);
 
         Some(Self::new(val, self.eps * deriv_a + b.eps * deriv_b))
     }
