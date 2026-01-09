@@ -89,7 +89,7 @@ fn eval_single_expr_chunked<V: ToParamName>(
         let chunk_indices: Vec<usize> = (0..n_points).step_by(CHUNK_SIZE).collect();
 
         // Process chunks in parallel, collecting results
-        let chunk_results: Vec<(usize, Vec<f64>)> = chunk_indices
+        let chunk_results: Result<Vec<(usize, Vec<f64>)>, DiffError> = chunk_indices
             .into_par_iter()
             .map_init(
                 || Vec::with_capacity(evaluator.stack_size()),
@@ -99,16 +99,14 @@ fn eval_single_expr_chunked<V: ToParamName>(
                     let col_slices: Vec<&[f64]> =
                         columns.iter().map(|col| &col[start..end]).collect();
                     let mut chunk_out = vec![0.0; len];
-                    evaluator
-                        .eval_batch(&col_slices, &mut chunk_out, Some(simd_buffer))
-                        .expect("eval_batch failed in parallel chunk");
-                    (start, chunk_out)
+                    evaluator.eval_batch(&col_slices, &mut chunk_out, Some(simd_buffer))?;
+                    Ok((start, chunk_out))
                 },
             )
             .collect();
 
         // Copy results back to output buffer (maintains order)
-        for (start, chunk_out) in chunk_results {
+        for (start, chunk_out) in chunk_results? {
             output[start..start + chunk_out.len()].copy_from_slice(&chunk_out);
         }
     }

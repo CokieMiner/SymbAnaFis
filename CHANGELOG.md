@@ -2,6 +2,19 @@
 
 All notable changes to SymbAnaFis will be documented in this file.
 
+## [unreleased]
+
+### Added
+- **Developer Documentation**: Added detailed guides for extending the library:
+  - `CONTRIBUTING.md`: Comprehensive checklists for adding new mathematical functions (12+ locations) and simplification rules (2-3 locations).
+  - `.agent/workflows/add-function.md`: Automated workflow for agentic AI assistance when adding functions.
+  - `.agent/workflows/add-simplification-rule.md`: Automated workflow for adding simplification rules.
+
+### Code Quality
+- **Removed debug prints from library code**: Replaced `eprintln!` calls in `evaluator.rs` and `engine.rs` with proper `debug_assert!` or opt-in `trace_log!` macro (controlled by `SYMB_TRACE` env var).
+- **Fixed `expect()` calls in library code**: Replaced `.expect()` with proper error propagation using `?` operator in `eval_f64.rs` parallel evaluation path.
+- **Safer SIMD fallback**: Unhandled SIMD instructions now use `debug_assert!` in debug builds and poison with NaN in release builds (no panics).
+
 ## [0.6.0] - 2026-01-9
 
 ### Added

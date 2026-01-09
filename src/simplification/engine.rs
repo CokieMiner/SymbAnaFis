@@ -6,16 +6,13 @@
 use super::rules::{ExprKind, RuleContext, RuleRegistry};
 use crate::{Expr, ExprKind as AstKind};
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
-/// Macro for warning messages that respects library usage.
-/// Silent by default - only outputs when `SYMB_TRACE` env var is enabled.
-/// This prevents polluting stderr when used as a library.
-macro_rules! warn_once {
+/// Macro for trace logging (opt-in via `SYMB_TRACE=1` env var).
+/// Silent by default - only outputs when explicitly requested.
+macro_rules! trace_log {
     ($($arg:tt)*) => {
-        // Silent by default in library mode - use SYMB_TRACE for debug output
         if trace_enabled() {
             #[allow(clippy::print_stderr)]
             {
@@ -132,32 +129,22 @@ impl Simplifier {
             if let Some(timeout) = self.timeout
                 && start_time.elapsed() > timeout
             {
-                warn_once!("Warning: Simplification timed out after {:?}", timeout);
                 break;
             }
 
             if iterations >= self.max_iterations {
-                warn_once!(
-                    "Warning: Simplification exceeded maximum iterations ({})",
-                    self.max_iterations
-                );
                 break;
             }
 
             let original = Arc::clone(&current);
             current = self.apply_rules_bottom_up(current, 0);
 
-            if trace_enabled() {
-                #[allow(clippy::print_stderr)]
-                {
-                    eprintln!("[DEBUG] Iteration {iterations}: {original} -> {current}");
-                }
-            }
-
             // Use structural equality to check if expression changed
             if *current == *original {
                 break; // No changes
             }
+
+            trace_log!("[DEBUG] Iteration {iterations}: {original} -> {current}");
 
             // After a full pass of all rules, check if we've seen this structural hash before
             // The hash field is a structural hash - same hash means structurally identical expression
@@ -166,12 +153,7 @@ impl Simplifier {
                 // Cycle detected! Return the CURRENT (last) expression as it's the most canonicalized.
                 // Canonicalization rules run last (low priority), so the latest iteration
                 // has the most canonical form (e.g., sorted products).
-                if trace_enabled() {
-                    #[allow(clippy::print_stderr)]
-                    {
-                        eprintln!("[DEBUG] Cycle detected, returning last (most canonical) form");
-                    }
-                }
+                trace_log!("[DEBUG] Cycle detected, returning last (most canonical) form");
                 return Arc::try_unwrap(current).unwrap_or_else(|rc| (*rc).clone());
             }
             // Add AFTER checking, so first iteration's result doesn't trigger false positive
@@ -301,9 +283,7 @@ impl Simplifier {
                 }
 
                 if let Some(new_expr) = $rule.apply(&current, &self.context) {
-                    if trace_enabled() {
-                        eprintln!("[TRACE] {} : {} => {}", rule_name, current, new_expr);
-                    }
+                    trace_log!("[TRACE] {} : {} => {}", rule_name, current, new_expr);
                     cache.insert(original_id, Some(Arc::clone(&new_expr)));
                     current = new_expr;
                 } else {

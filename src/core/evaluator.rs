@@ -1929,15 +1929,22 @@ impl CompiledEvaluator {
                 // This should only be reached for LoadConst, LoadParam, Add, Mul, Div, Pow,
                 // Neg, Sin, Cos, Tan, Sqrt, Exp, Ln, Abs, Square, Cube, Recip
                 // which are all handled in simd_batch_fast_path macro.
-                // If we get here, it's a bug - log a warning in debug builds
-                #[cfg(debug_assertions)]
-                #[allow(clippy::print_stderr, clippy::use_debug)]
-                // Debug warning for unhandled SIMD instruction
-                {
-                    eprintln!("Warning: Unhandled SIMD instruction {instr:?}, returning NaN");
+                // If we get here, it's a bug - panic in debug builds, propagate NaN in release.
+                debug_assert!(
+                    false,
+                    "Unhandled SIMD instruction {instr:?} - this is a bug, please report it"
+                );
+
+                // Poison value - NaN will infect all downstream calculations
+                let poison = f64x4::new([f64::NAN, f64::NAN, f64::NAN, f64::NAN]);
+
+                // If stack has values, poison the top. If empty (e.g., was a Load), push poison.
+                // This ensures zero panics in release builds.
+                if let Some(top) = stack.last_mut() {
+                    *top = poison;
+                } else {
+                    stack.push(poison);
                 }
-                let top = stack.last_mut().expect("Stack must not be empty");
-                *top = f64x4::new([f64::NAN, f64::NAN, f64::NAN, f64::NAN]);
             }
         }
     }
