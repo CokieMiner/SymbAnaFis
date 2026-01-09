@@ -1,103 +1,428 @@
-# SymbAnaFis Roadmap
+# AnaFis Ecosystem Roadmap
 
-## v0.7.0 - The "Symbolic Solver" Update
+> **AnaFis**: Advanced Numerical Analysis and Fitting Interface System  
+> A "No-Compromise" Statistical Engine for Experimental Physics (SOTA 2025)
 
-**Focus**: Equation solving and domain analysis for complete singularity handling
+## Philosophy: "Neural & Rigorous Metrology"
 
-### Symbolic Solver (Core)
-- [ ] **Linear Equation Solver**: Gaussian elimination on symbolic matrix.
-- [ ] **Polynomial Root Finding**: Analytical solutions for degrees ≤4.
-- [ ] **Variable Isolation**: Basic `solve(y = f(x), x)` functionality.
-
-### Domain Analysis & Singularities
-- [ ] **Full Domain Analysis**: Detect where expressions are undefined at compile time.
-- [ ] **Conditional Bytecode**: Generate branches for singularity handling (L'Hôpital fallbacks).
-- [ ] **Series Expansion**: Taylor/Laurent series for limit computation (`series(sin(x)/x, x, 0)`).
-
-### JIT Compilation (Optional Feature)
-- [ ] **Cranelift Backend**: `features = ["jit"]` - translate `Expr` to native machine code (x86/ARM).
-    - *Goal*: Surpass Stack VM for expressions evaluated >1M times.
+- **Classical-Neural Hybrid**: AnaFis doesn't discard classical statistics (GUM/JCGM) but augments it with modern ML (Variational Inference, PINNs, Neural Estimators) where analytics fail.
+- **Uncertainty First**: `UncertaintyTensor` is the source of truth. Methods that don't propagate uncertainty are banned or wrapped in probabilistic layers.
+- **Compliance**: JCGM 101/102 as foundation, extended to modern "Uncertainty Quantification" (UQ) frontiers.
 
 ---
 
-## v0.8.0 - The "Extended Capabilities" Update
+## Phase 0: Foundation (Current State ✓)
 
-**Focus**: Rounding out the symbolic manipulation toolkit
-
-### Extended Bytecode
-- [ ] **Special Functions in VM**: Native OpCodes for:
-    - [ ] Factorial, DoubleFactorial
-    - [ ] Exponential integrals (Ei, Li)
-    - [ ] Trigonometric integrals (Si, Ci)
-
-### Input/Output
-- [ ] **LaTeX Parsing**: Parse LaTeX strings into expressions (`parse(r"\frac{1}{2}x^2")`).
-- [ ] **Pretty Printing**: Improved display formatting options.
-
-### Advanced (Stretch Goals)
-- [ ] **Indefinite Integration**: Heuristic approach for common patterns.
-- [ ] **Tensor/Matrix Expressions**: First-class Matrix * Vector symbolic operations.
+### `symb_anafis` - Symbolic Engine
+- [x] Pratt parser with implicit multiplication
+- [x] Symbolic differentiation engine  
+- [x] Registry of 70+ functions with derivatives
+- [x] Compiled bytecode evaluator with SIMD
+- [x] Uncertainty propagation via dual numbers
+- [x] Python bindings (PyO3)
 
 ---
 
-## Documentation & Ecosystem (Ongoing)
+## Phase 1: Core `symb_anafis` Enhancements
 
-**Focus**: Fixing the "Palace Entry" problem.
+### 1.1 Symbolic Solver (`symb_anafis::solver`)
+> v0.7.0 - Equation solving and domain analysis
 
-- [ ] **Cookbook / Examples**:
-    - [ ] "Discovering Physical Laws from Data" (Symbolic Regression demo).
-    - [ ] "Neural ODE Training with SymbAnaFis".
-    - [ ] "Solving Heat Equation via JIT Compilation".
-- [ ] **Interactive Web Demo**: WASM compilation for "Try it now" page.
+| Milestone | Description                                           |
+| --------- | ----------------------------------------------------- |
+| v0.1      | Linear system solver (Gaussian elimination on Expr)   |
+| v0.2      | Polynomial root finding (analytical, degrees ≤4)      |
+| v0.3      | Variable isolation: `solve(y = f(x), x)`              |
+| v0.4      | Transcendental pattern matching (sin(x) = 0 → x = nπ) |
+
+### 1.2 Domain Analysis (`symb_anafis::domain`)
+> v0.7.0 - Singularity detection and handling
+
+| Milestone | Description                                            |
+| --------- | ------------------------------------------------------ |
+| v0.1      | Detect division by zero patterns at compile time       |
+| v0.2      | Conditional bytecode with L'Hôpital fallbacks          |
+| v0.3      | Series expansion for limits (`series(sin(x)/x, x, 0)`) |
+| v0.4      | Full domain inference (log domain, sqrt domain, etc.)  |
+
+### 1.3 JIT Compilation (`symb_anafis::jit`)
+> v0.7.0 - Native machine code for hot paths
+
+| Milestone | Description                                       |
+| --------- | ------------------------------------------------- |
+| v0.1      | Cranelift backend: basic arithmetic ops           |
+| v0.2      | Trig/exp/log function calls                       |
+| v0.3      | SIMD vectorization in JIT                         |
+| v0.4      | Benchmarks: target > Stack VM for >1M evaluations |
+
+### 1.4 Extended Functions (`symb_anafis::special`)
+> v0.8.0 - Complete special function coverage
+
+| Milestone | Description                         |
+| --------- | ----------------------------------- |
+| v0.1      | Factorial, DoubleFactorial bytecode |
+| v0.2      | Exponential integrals (Ei, Li)      |
+| v0.3      | Trigonometric integrals (Si, Ci)    |
+| v0.4      | Fresnel integrals (S, C)            |
+
+### 1.5 Input/Output (`symb_anafis::io`)
+> v0.8.0 - Format interoperability
+
+| Milestone | Description                               |
+| --------- | ----------------------------------------- |
+| v0.1      | LaTeX parsing: `parse(r"\frac{1}{2}x^2")` |
+| v0.2      | MathML output                             |
+| v0.3      | Pretty printing with precedence           |
+| v0.4      | Jupyter display integration               |
+
+### 1.6 Tensor/Matrix Support (`symb_anafis::tensor`)
+> v0.8.0+ - First-class symbolic tensors
+
+| Milestone | Description                                |
+| --------- | ------------------------------------------ |
+| v0.1      | `Expr::Matrix` variant with shape tracking |
+| v0.2      | Element-wise operations                    |
+| v0.3      | Matrix multiplication differentiation      |
+| v0.4      | Einstein notation parsing                  |
+
+### 1.7 Integration (`symb_anafis::integrate`)
+> Stretch goal - Symbolic integration
+
+| Milestone | Description                         |
+| --------- | ----------------------------------- |
+| v0.1      | Table lookup for common patterns    |
+| v0.2      | Polynomial integration              |
+| v0.3      | Heuristic Risch algorithm (partial) |
+| v0.4      | Numerical fallback with uncertainty |
+
+---
+
+## Phase 2: Core Infrastructure Crates
+
+### `core-anafis` - Shared Data Types
+
+| Milestone | Description                                           |
+| --------- | ----------------------------------------------------- |
+| v0.1      | `UncertaintyTensor<T>`: value + σ + correlation       |
+| v0.2      | Trait `Measurable`: anything with uncertainty         |
+| v0.3      | `from_gum_type_a()`, `from_gum_type_b()` constructors |
+| v0.4      | `#[derive(Measurable)]` proc macro                    |
+| v0.5      | Arrow/ndarray interop                                 |
+
+### `utils-anafis` - Shared Utilities
+
+| Milestone | Description                                            |
+| --------- | ------------------------------------------------------ |
+| v0.1      | `kernels.rs`: KD-tree (kiddo) + Gaussian kernels       |
+| v0.2      | `optimization.rs`: argmin wrapper (LBFGS, constraints) |
+| v0.3      | `neural.rs`: burn/candle abstraction layer             |
+| v0.4      | `persistence.rs`: rusqlite result caching              |
+
+---
+
+## Phase 3: Statistical Module Crates
+
+### `power-anafis` - Experimental Design
+> Simulation-Based Power Analysis + Bayesian Optimization
+
+| Milestone | Description                                  |
+| --------- | -------------------------------------------- |
+| v0.1      | Grid-based power simulation (naive)          |
+| v0.2      | GP surrogate for β(N) curve                  |
+| v0.3      | Bayesian optimization (Expected Improvement) |
+| v0.4      | Multi-objective: power vs cost tradeoff      |
+
+### `correlation-anafis` - Information Theory
+> KSG + Neural MI Estimation
+
+| Milestone | Description                              |
+| --------- | ---------------------------------------- |
+| v0.1      | Basic KSG (k=3 neighbors)                |
+| v0.2      | Error-convolved KSG (physics robustness) |
+| v0.3      | Partial MI / conditional independence    |
+| v0.4      | MINE/InfoNCE neural estimator (high-dim) |
+
+### `exploration-anafis` - Latent Variable Models
+> Heteroscedastic PPCA
+
+| Milestone | Description                                          |
+| --------- | ---------------------------------------------------- |
+| v0.1      | Homoscedastic PPCA via EM                            |
+| v0.2      | Heteroscedastic: Ψ = diag(σ²) from UncertaintyTensor |
+| v0.3      | Confidence intervals on loadings                     |
+| v0.4      | Factor rotation (varimax, promax)                    |
+
+### `propagator-anafis` - Uncertainty Propagation
+> Hybrid Auto-Diff + MCM
+
+| Milestone | Description                                            |
+| --------- | ------------------------------------------------------ |
+| v0.1      | Dual-number propagation (linear/1st-order, GUM Type B) |
+| v0.2      | Non-linearity detection via Hessian threshold          |
+| v0.3      | MCM fallback with adaptive sampling (JCGM 101)         |
+| v0.4      | Correlated inputs handling (covariance matrix)         |
+
+### `outliers-anafis` - Robust Detection
+> FastMCD with uncertainty-weighted distance
+
+| Milestone | Description                                 |
+| --------- | ------------------------------------------- |
+| v0.1      | Basic MCD with fixed covariance             |
+| v0.2      | Uncertainty-weighted Mahalanobis distance   |
+| v0.3      | Iterative refinement with convergence check |
+| v0.4      | Multivariate outlier visualization          |
+
+### `imputation-anafis` - Missing Data
+> GPR with uncertainty-scaled kernel
+
+| Milestone | Description                                    |
+| --------- | ---------------------------------------------- |
+| v0.1      | Basic GPR (RBF + WhiteNoise)                   |
+| v0.2      | Noise scaled by known σ from UncertaintyTensor |
+| v0.3      | Batch imputation with covariance propagation   |
+| v0.4      | Multiple imputation for downstream uncertainty |
+
+### `signal-anafis` - Signal Processing
+> Wavelets + PINN Smoothing
+
+| Milestone | Description                                    |
+| --------- | ---------------------------------------------- |
+| v0.1      | DWT with hard thresholding                     |
+| v0.2      | CWT + ridge detection (peak finding)           |
+| v0.3      | Adaptive threshold (SureShrink)                |
+| v0.4      | PINN smoother with physics constraint          |
+| v0.5      | Baseline correction (asymmetric least squares) |
+
+### `regression-anafis` - Model Fitting
+> Generalized ODR + SINDy
+
+| Milestone | Description                                          |
+| --------- | ---------------------------------------------------- |
+| v0.1      | Basic ODR with known σ_x, σ_y (current `odr_anafis`) |
+| v0.2      | Symbolic Jacobian from symb_anafis                   |
+| v0.3      | Parameter uncertainty via exact Hessian              |
+| v0.4      | Constrained optimization (physical bounds)           |
+| v0.5      | SINDy: sparse identification of dynamics             |
+| v0.6      | Model selection (AIC, BIC, cross-validation)         |
+
+### `hypothesis-anafis` - Bayesian Testing
+> Bayes Factors via Bridge Sampling
+
+| Milestone | Description                                   |
+| --------- | --------------------------------------------- |
+| v0.1      | Laplace approximation for marginal likelihood |
+| v0.2      | Bridge sampling (more accurate)               |
+| v0.3      | Nuisance parameter marginalization (Type B)   |
+| v0.4      | Savage-Dickey density ratio                   |
+
+---
+
+## Phase 4: ML & Advanced Crates
+
+### `opt-anafis` - Optimization
+> General-purpose optimization with symbolic gradients
+
+| Milestone | Description                                      |
+| --------- | ------------------------------------------------ |
+| v0.1      | Gradient descent (SGD, momentum)                 |
+| v0.2      | Adam, AdaGrad optimizers                         |
+| v0.3      | Newton's method (symbolic Hessian)               |
+| v0.4      | L-BFGS for large-scale                           |
+| v0.5      | Constrained optimization (barriers, projections) |
+
+### `fit-anafis` - General Fitting
+> High-level fitting API
+
+| Milestone | Description                                         |
+| --------- | --------------------------------------------------- |
+| v0.1      | Nonlinear Least Squares (Levenberg-Marquardt)       |
+| v0.2      | Weighted Least Squares                              |
+| v0.3      | Model builders (polynomial, exponential, power law) |
+| v0.4      | Residual analysis and diagnostics                   |
+| v0.5      | Confidence/prediction bands                         |
+
+### `kan-anafis` - Kolmogorov-Arnold Networks
+> Symbolic KAN with interpretable basis
+
+| Milestone | Description                              |
+| --------- | ---------------------------------------- |
+| v0.1      | Basic KAN layer (B-spline basis)         |
+| v0.2      | Training loop with symbolic output       |
+| v0.3      | Spline-to-symbolic conversion            |
+| v0.4      | Pruning and simplification               |
+| v0.5      | Physics-informed KAN (conservation laws) |
+
+### `symreg-anafis` - Symbolic Regression
+> Genetic programming for equation discovery
+
+| Milestone | Description                           |
+| --------- | ------------------------------------- |
+| v0.1      | Expression tree genome                |
+| v0.2      | Crossover and mutation operators      |
+| v0.3      | Fitness with complexity penalty       |
+| v0.4      | Pareto front (accuracy vs simplicity) |
+| v0.5      | Constants optimization (CMA-ES)       |
+
+### `pinn-anafis` - Physics-Informed Neural Networks
+> Neural networks constrained by PDEs
+
+| Milestone | Description                                    |
+| --------- | ---------------------------------------------- |
+| v0.1      | Basic PINN architecture (burn backend)         |
+| v0.2      | PDE residual loss from symb_anafis expressions |
+| v0.3      | Boundary condition handling                    |
+| v0.4      | Inverse problems (parameter estimation)        |
+| v0.5      | Uncertainty quantification (ensemble/dropout)  |
+
+### `phys-anafis` - Physics Utilities
+> ODE/PDE tools and mechanics
+
+| Milestone | Description                                 |
+| --------- | ------------------------------------------- |
+| v0.1      | ODE integrators (RK4, adaptive step)        |
+| v0.2      | Sensitivity analysis (forward/adjoint)      |
+| v0.3      | Lagrangian → Euler-Lagrange derivation      |
+| v0.4      | Hamiltonian mechanics helpers               |
+| v0.5      | Noether's theorem (symmetry → conservation) |
+
+### `geo-anafis` - Geometry & Graphics
+> Curves, surfaces, and ray-marching
+
+| Milestone | Description                                     |
+| --------- | ----------------------------------------------- |
+| v0.1      | Implicit surface utilities (normals, curvature) |
+| v0.2      | Ray-marching with symbolic SDF                  |
+| v0.3      | Parametric curve/surface tools                  |
+| v0.4      | Curve fitting with symbolic gradients           |
+| v0.5      | CSG operations                                  |
+
+---
+
+## Phase 5: Integration & GUI
+
+### `reporting-anafis` - Output Generation
+> Reports and visualization
+
+| Milestone | Description                               |
+| --------- | ----------------------------------------- |
+| v0.1      | Markdown report generator                 |
+| v0.2      | LaTeX report with GUM tables              |
+| v0.3      | Plot generation (gnuplot/plotly bindings) |
+| v0.4      | Jupyter notebook export                   |
+
+### `anafis-tauri` - Lab Companion GUI
+> Desktop application for lab work
+
+| Milestone | Description                           |
+| --------- | ------------------------------------- |
+| v0.1      | GUI framework setup (Tauri) done      |
+| v0.2      | Data import (CSV, SQLite, Excel) done |
+| v0.3      | Module workflow orchestration         |
+| v0.4      | Interactive plots with error bars     |
+| v0.5      | Real-time sensor data streaming       |
 
 ---
 
 ## Ideas / Backlog (Long Term)
 
-- [ ] **GPU Acceleration**: OpenCL/CUDA backends for `eval_batch` on massive datasets (>100M points).
-- [ ] **Complex Number Support**: First-class complex arithmetic.
-- [ ] **Interval Arithmetic**: Rigorous bounds computation.
+| Feature             | Notes                                   |
+| ------------------- | --------------------------------------- |
+| GPU Acceleration    | OpenCL/CUDA for eval_batch >100M points |
+| Complex Numbers     | First-class complex arithmetic          |
+| Interval Arithmetic | Rigorous bounds computation             |
+| WASM Demo           | Interactive "Try it now" web page       |
 
 ---
 
-## AnaFis Ecosystem - Companion Crates
+## Documentation & Examples
 
-**Focus**: Domain-specific libraries built on `symb_anafis` core.
+| Topic                                     | Status                       |
+| ----------------------------------------- | ---------------------------- |
+| "Discovering Physical Laws from Data"     | [ ] Symbolic Regression demo |
+| "Neural ODE Training with SymbAnaFis"     | [ ] PINN + ODE tutorial      |
+| "Solving Heat Equation via JIT"           | [ ] JIT performance demo     |
+| "Uncertainty Propagation for Lab Reports" | [ ] GUM workflow tutorial    |
+| "ODR Fitting with Error Bars"             | [ ] Physics lab example      |
 
-### `opt-anafis` - Optimization
-- [ ] Gradient descent (SGD, momentum, Adam)
-- [ ] Newton's method (using symbolic Hessian)
-- [ ] Line search utilities
-- [ ] L-BFGS for large-scale problems
+---
 
-### `fit-anafis` - Fitting & Regression
-- [ ] Nonlinear Least Squares (Levenberg-Marquardt)
-- [ ] Orthogonal Distance Regression (ODR)
-- [ ] Weighted Least Squares
-- [ ] Model builders and residual generators
+## Dependency Graph
 
-### `ml-anafis` - Machine Learning
-- [ ] Symbolic KAN (Kolmogorov-Arnold Networks)
-- [ ] Symbolic Regression (genetic programming operators)
-- [ ] PINN templates (Physics-Informed Neural Networks)
-- [ ] Loss function builders
+```mermaid
+graph TD
+    subgraph "Core"
+        SA[symb_anafis ✓]
+        CORE[core-anafis]
+        UTILS[utils-anafis]
+    end
+    
+    subgraph "symb_anafis Modules"
+        SA --> SOLVER[solver]
+        SA --> DOMAIN[domain]
+        SA --> JIT[jit]
+        SA --> TENSOR[tensor]
+        SA --> INTEGRATE[integrate]
+    end
+    
+    subgraph "Statistics"
+        CORE --> PROP[propagator-anafis]
+        CORE --> OUT[outliers-anafis]
+        CORE --> IMP[imputation-anafis]
+        CORE --> EXP[exploration-anafis]
+        UTILS --> CORR[correlation-anafis]
+        UTILS --> POW[power-anafis]
+    end
+    
+    subgraph "Regression & Hypothesis"
+        SA --> REG[regression-anafis]
+        CORE --> REG
+        REG --> HYP[hypothesis-anafis]
+        PROP --> HYP
+    end
+    
+    subgraph "ML & Advanced"
+        SA --> OPT[opt-anafis]
+        SA --> FIT[fit-anafis]
+        SA --> KAN[kan-anafis]
+        SA --> SYMREG[symreg-anafis]
+        SA --> PINN[pinn-anafis]
+        SA --> PHYS[phys-anafis]
+        SA --> GEO[geo-anafis]
+    end
+    
+    subgraph "Signal"
+        UTILS --> SIG[signal-anafis]
+    end
+    
+    subgraph "Frontend"
+        REG --> REPORT[reporting-anafis]
+        REPORT --> GUI[anafis-tauri]
+    end
+```
 
-### `phys-anafis` - Physics & Scientific
-- [ ] ODE integrators (RK4, adaptive step)
-- [ ] Lagrangian/Hamiltonian mechanics helpers
-- [ ] Equation of motion derivation
-- [ ] Sensitivity analysis utilities
+---
 
-### `geo-anafis` - Geometry & Graphics
-- [ ] Implicit surface utilities (normals, ray-marching)
-- [ ] Parametric curve/surface tools
-- [ ] Curve fitting with symbolic gradients
+## Technology Stack
+
+| Component     | Crate              | Notes                  |
+| ------------- | ------------------ | ---------------------- |
+| Core          | ndarray, arrow     | Numeric foundation     |
+| Optimization  | argmin             | LBFGS, constraints     |
+| JIT           | cranelift          | Native code generation |
+| Kernels       | kiddo              | KD-tree for KSG        |
+| Distributions | statrs             | PDFs                   |
+| FFT           | rustfft            | Spectral/wavelets      |
+| GP            | linfa-gp or custom | Imputation             |
+| Neural        | burn / candle      | MINE, PINNs, KANs      |
+| Persistence   | rusqlite           | Heavy result caching   |
+| GUI           | tauri + egui       | Desktop app            |
 
 ---
 
 ## Contributing
 
-Contributions welcome! Priority areas:
-1.  **Beta Testers**: Users applying the library to ML/Physics problems to report edge cases.
-2.  **Special Functions**: Implementation of numeric traits for obscure physics functions.
-3.  **Docs**: Writing "How-to" guides for beginners.
+Priority areas:
+1. **Beta Testers**: Users applying to ML/Physics problems to report edge cases
+2. **Special Functions**: Numeric implementations for obscure physics functions
+3. **Docs**: "How-to" guides for beginners
+4. **KAN Research**: Novel architectures and training methods
