@@ -177,7 +177,7 @@ If you use SymbAnaFis in academic work, please cite:
   title        = {SymbAnaFis: High-Performance Symbolic Mathematics Library},
   year         = {2025},
   url          = {https://github.com/CokieMiner/SymbAnaFis},
-  version      = {0.4.1}
+  version      = {0.6.0}
 }
 ```
 

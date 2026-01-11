@@ -35,7 +35,17 @@
 | v0.3      | Variable isolation: `solve(y = f(x), x)`              |
 | v0.4      | Transcendental pattern matching (sin(x) = 0 → x = nπ) |
 
-### 1.2 Domain Analysis (`symb_anafis::domain`)
+### 1.2 Compiler Optimization Levels (`symb_anafis::config`)
+> v0.7.0 - Flexible compilation strategy (Setup vs Run speed)
+
+| Milestone | Description                                              |
+| --------- | -------------------------------------------------------- |
+| v0.1      | `CompilerConfig` struct with flags for CSE, JIT, SIMD    |
+| v0.2      | **CSE** (Common Subexpression Elimination) pass          |
+| v0.3      | **Safety Checks**: `DivChecked` opcode for singularities |
+| v0.4      | **Profile Presets**: Real-Time, Simulation, HPC, Safe    |
+
+### 1.3 Domain Analysis (`symb_anafis::domain`)
 > v0.7.0 - Singularity detection and handling
 
 | Milestone | Description                                            |
@@ -45,7 +55,7 @@
 | v0.3      | Series expansion for limits (`series(sin(x)/x, x, 0)`) |
 | v0.4      | Full domain inference (log domain, sqrt domain, etc.)  |
 
-### 1.3 JIT Compilation (`symb_anafis::jit`)
+### 1.4 JIT Compilation (`symb_anafis::jit`)
 > v0.7.0 - Native machine code for hot paths
 
 | Milestone | Description                                       |
@@ -55,7 +65,7 @@
 | v0.3      | SIMD vectorization in JIT                         |
 | v0.4      | Benchmarks: target > Stack VM for >1M evaluations |
 
-### 1.4 Extended Functions (`symb_anafis::special`)
+### 1.5 Extended Functions (`symb_anafis::special`)
 > v0.8.0 - Complete special function coverage
 
 | Milestone | Description                         |
@@ -65,7 +75,7 @@
 | v0.3      | Trigonometric integrals (Si, Ci)    |
 | v0.4      | Fresnel integrals (S, C)            |
 
-### 1.5 Input/Output (`symb_anafis::io`)
+### 1.6 Input/Output (`symb_anafis::io`)
 > v0.8.0 - Format interoperability
 
 | Milestone | Description                               |
@@ -75,7 +85,7 @@
 | v0.3      | Pretty printing with precedence           |
 | v0.4      | Jupyter display integration               |
 
-### 1.6 Tensor/Matrix Support (`symb_anafis::tensor`)
+### 1.7 Tensor/Matrix Support (`symb_anafis::tensor`)
 > v0.8.0+ - First-class symbolic tensors
 
 | Milestone | Description                                |
@@ -85,7 +95,7 @@
 | v0.3      | Matrix multiplication differentiation      |
 | v0.4      | Einstein notation parsing                  |
 
-### 1.7 Integration (`symb_anafis::integrate`)
+### 1.8 Integration (`symb_anafis::integrate`)
 > Stretch goal - Symbolic integration
 
 | Milestone | Description                         |

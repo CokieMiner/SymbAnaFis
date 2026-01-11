@@ -4,13 +4,24 @@ This directory contains examples demonstrating SymbAnaFis capabilities.
 
 ## Quick Reference
 
-| Example | Description | Run With |
-|---------|-------------|----------|
-| **quickstart** | Minimal 25-line demo | `cargo run --example quickstart` |
-| **api_showcase** | Complete API tour (15 sections) | `cargo run --example api_showcase` |
-| **dual_autodiff** | Automatic differentiation with dual numbers | `cargo run --example dual_autodiff` |
-| **applications** | Physics & engineering | `cargo run --example applications` |
-| **simplification_comparison** | Compare against Symbolica CAS | `cargo run --example simplification_comparison` |
+| Example                       | Description                                 | Run With                                        |
+| ----------------------------- | ------------------------------------------- | ----------------------------------------------- |
+| **quickstart**                | Minimal 25-line demo                        | `cargo run --example quickstart`                |
+| **api_showcase**              | Complete API tour (15 sections)             | `cargo run --example api_showcase`              |
+| **dual_autodiff**             | Automatic differentiation with dual numbers | `cargo run --example dual_autodiff`             |
+| **applications**              | Physics & engineering                       | `cargo run --example applications`              |
+| **simplification_comparison** | Compare against Symbolica CAS               | `cargo run --example simplification_comparison` |
+
+## Visual Benchmarks
+
+These Python scripts demonstrate high-performance simulation and visualization capabilities.
+
+| Benchmark                        | Description                          | Run With                                       |
+| -------------------------------- | ------------------------------------ | ---------------------------------------------- |
+| **aizawa_flow.py**               | Aizawa Attractor (3D Chaotic System) | `python examples/aizawa_flow.py`               |
+| **clifford_benchmark.py**        | Clifford Attractor (2D Discrete Map) | `python examples/clifford_benchmark.py`        |
+| **double_pendulum_benchmark.py** | Double Pendulum Phase Space (Chaos)  | `python examples/double_pendulum_benchmark.py` |
+| **gradient_descent.py**          | Gradient Descent on Complex Terrain  | `python examples/gradient_descent.py`          |
 
 ## quickstart.rs - Get Started Fast
 
@@ -24,23 +35,23 @@ cargo run --example quickstart
 
 Comprehensive demo of ALL features across 15 sections:
 
-| Section | Feature |
-|---------|---------|
-| 1 | Quick Start |
-| 2 | Symbol Management |
-| 3 | Core Functions |
-| 4 | Builder Pattern API |
-| 5 | Expression Output |
-| 6 | Uncertainty Propagation |
-| 7 | Custom Functions |
-| 8 | Evaluation |
-| 9 | Vector Calculus |
-| 10 | Automatic Differentiation |
-| 11 | Parallel Evaluation |
-| 12 | Compilation & Performance |
-| 13 | Built-in Functions |
-| 14 | Expression Syntax |
-| 15 | Error Handling |
+| Section | Feature                   |
+| ------- | ------------------------- |
+| 1       | Quick Start               |
+| 2       | Symbol Management         |
+| 3       | Core Functions            |
+| 4       | Builder Pattern API       |
+| 5       | Expression Output         |
+| 6       | Uncertainty Propagation   |
+| 7       | Custom Functions          |
+| 8       | Evaluation                |
+| 9       | Vector Calculus           |
+| 10      | Automatic Differentiation |
+| 11      | Parallel Evaluation       |
+| 12      | Compilation & Performance |
+| 13      | Built-in Functions        |
+| 14      | Expression Syntax         |
+| 15      | Error Handling            |
 
 ```bash
 cargo run --example api_showcase
