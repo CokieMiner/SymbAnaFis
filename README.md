@@ -18,6 +18,27 @@ SymbAnaFis provides a robust engine for symbolic differentiation, simplification
 *   **🚀 Parallel Processing**: Optional parallel evaluation engine using Rayon for massive batch operations.
 *   **📦 Python Bindings**: Seamless Python integration via `maturin`, offering the speed of Rust with the ease of Python.
 
+## Visual Benchmarks
+
+SymbAnaFis performance is validated against SymPy and SymEngine using complex physical simulations.
+Each benchmark features a **Quad-View Dashboard** comparing real-time simulations side-by-side.
+
+### Aizawa Attractor
+[Watch Video](videos/aizawa_quad.mp4)
+Simulates 500,000 particles flowing through the Aizawa field, comparing Euler integration throughput.
+
+### Clifford Attractor
+[Watch Video](videos/clifford_quad.mp4)
+Visualizes 1,000,000 particles evolving in the Clifford map, testing discrete map evaluation speed.
+
+### Double Pendulum Matrix
+[Watch Video](videos/double_pendulum_quad.mp4)
+Simulates 50,000 chaotic double pendulums, verifying symbolic differentiation correctness and RK4 integration stability.
+
+### Gradient Descent Avalanche
+[Watch Video](videos/gradient_descent_quad.mp4)
+Massive particle descent on a complex terrain function, showcasing symbolic differentiation of compiled functions.
+
 ## Installation
 
 ```bash

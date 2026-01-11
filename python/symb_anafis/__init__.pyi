@@ -344,26 +344,43 @@ def evaluate_parallel(
     """
     ...
 
-    def eval_f64(
-        expressions: List[Expr],
-        var_names: List[List[str]],
-        data: List[List["List[float] | NDArray[np.float64]"]],
-    ) -> "List[List[float]] | NDArray[np.float64]":
-        """
-        High-performance parallel batch evaluation for multiple expressions.
 
-        Args:
-            expressions: List of Expr objects
-            var_names: List of variable name lists, one per expression
-            data: 3D list/arrays of values: data[expr_idx][var_idx] = [values...]
-                  Accepts Python lists or NumPy arrays (zero-copy for f64 arrays)
+def eval_f64(
+    expressions: List[Expr],
+    var_names: List[List[str]],
+    data: List[List["List[float] | NDArray[np.float64]"]],
+) -> "List[List[float]] | NDArray[np.float64]":
+    """
+    High-performance parallel batch evaluation for multiple expressions.
+    
+    Evaluates multiple expressions at multiple points in parallel using Rayon.
+    This is the fastest way to evaluate expressions when you have pure f64 data.
 
-        Returns:
-            2D results:
-            - If input contains NumPy arrays: returns NDArray[np.float64] (2D)
-            - If input is all lists: returns List[List[float]]
-        """
-        ...
+    Args:
+        expressions: List of Expr objects to evaluate
+        var_names: List of variable name lists, one per expression
+        data: 3D list/arrays of values: data[expr_idx][var_idx] = [values...]
+              Accepts Python lists or NumPy arrays (zero-copy for f64 arrays)
+
+    Returns:
+        2D results where result[expr_idx][point_idx] is the evaluation result:
+        - If input contains NumPy arrays: returns NDArray[np.float64] (2D)
+        - If input is all lists: returns List[List[float]]
+    
+    Example:
+        >>> expr1 = parse("x^2 + y")
+        >>> expr2 = parse("x * y")
+        >>> x_data = [1.0, 2.0, 3.0]
+        >>> y_data = [10.0, 20.0, 30.0]
+        >>> results = eval_f64(
+        ...     [expr1, expr2],
+        ...     [["x", "y"], ["x", "y"]],
+        ...     [[x_data, y_data], [x_data, y_data]]
+        ... )
+        >>> # results[0] = [11.0, 24.0, 39.0]  (x^2 + y)
+        >>> # results[1] = [10.0, 40.0, 90.0]  (x * y)
+    """
+    ...
 
 # =============================================================================
 # Expr Class
