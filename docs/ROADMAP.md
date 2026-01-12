@@ -16,7 +16,7 @@
 ### `symb_anafis` - Symbolic Engine
 - [x] Pratt parser with implicit multiplication
 - [x] Symbolic differentiation engine  
-- [x] Registry of 70+ functions with derivatives
+- [x] Registry of 50+ functions with derivatives
 - [x] Compiled bytecode evaluator with SIMD
 - [x] Uncertainty propagation via dual numbers
 - [x] Python bindings (PyO3)
@@ -36,14 +36,14 @@
 | v0.4      | Transcendental pattern matching (sin(x) = 0 → x = nπ) |
 
 ### 1.2 Compiler Optimization Levels (`symb_anafis::config`)
-> v0.7.0 - Flexible compilation strategy (Setup vs Run speed)
+> v0.6.x - Flexible compilation strategy (Setup vs Run speed)
 
-| Milestone | Description                                              |
-| --------- | -------------------------------------------------------- |
-| v0.1      | `CompilerConfig` struct with flags for CSE, JIT, SIMD    |
-| v0.2      | **CSE** (Common Subexpression Elimination) pass          |
-| v0.3      | **Safety Checks**: `DivChecked` opcode for singularities |
-| v0.4      | **Profile Presets**: Real-Time, Simulation, HPC, Safe    |
+| Milestone | Description                                                  |
+| --------- | ------------------------------------------------------------ |
+| v0.1      | `CompilerConfig` struct with flags for CSE, JIT, SIMD        |
+| v0.2      | **Profile Presets**: Real-Time, Simulation, HPC, Safe        |
+| v0.3      | **CSE** (Common Subexpression Elimination) pass optimization |
+| v0.4      | Integration with JIT and Domain Analysis modules             |
 
 ### 1.3 Domain Analysis (`symb_anafis::domain`)
 > v0.7.0 - Singularity detection and handling
@@ -56,7 +56,7 @@
 | v0.4      | Full domain inference (log domain, sqrt domain, etc.)  |
 
 ### 1.4 JIT Compilation (`symb_anafis::jit`)
-> v0.7.0 - Native machine code for hot paths
+> v0.8.0 - Native machine code for hot paths
 
 | Milestone | Description                                       |
 | --------- | ------------------------------------------------- |
