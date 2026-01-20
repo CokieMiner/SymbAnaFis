@@ -467,10 +467,11 @@ pub(crate) fn evaluate_parallel_with_hint(
                             (
                                 Vec::with_capacity(n_vars),
                                 Vec::with_capacity(evaluator.stack_size()),
+                                vec![0.0_f64; evaluator.cache_size],
                             )
                         },
                         |buffers, point_idx| {
-                            let (params, stack) = buffers;
+                            let (params, stack, cache) = buffers;
 
                             // Check if this specific point has all numeric inputs
                             let mut all_numeric = true;
@@ -518,8 +519,8 @@ pub(crate) fn evaluate_parallel_with_hint(
                                     }
                                 }
 
-                                // Reuse stack buffer
-                                let result = evaluator.evaluate_with_stack(params, stack);
+                                // Reuse stack buffer and cache
+                                let result = evaluator.evaluate_with_cache(params, stack, cache);
 
                                 Ok(if *was_string {
                                     EvalResult::String(format_float(result))

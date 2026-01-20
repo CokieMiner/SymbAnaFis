@@ -1028,7 +1028,31 @@ results = eval_f64(
 
 ## Compilation & Performance
 
-For tight loops or massive repeated evaluation, use the `CompiledEvaluator`. It compiles the expression tree into a flat bytecode that interpreted efficiently, avoiding tree traversal overhead and enabling SIMD optimizations.
+For tight loops or massive repeated evaluation, use the `CompiledEvaluator`. It compiles the expression tree into a flat bytecode that is interpreted efficiently, avoiding tree traversal overhead and enabling SIMD optimizations.
+
+### Common Subexpression Elimination (CSE)
+
+The compiler automatically detects and caches repeated subexpressions using 64-bit structural hashing. This provides up to **28% faster evaluation** for expressions with repeated patterns.
+
+```rust
+// Expression: sin(x)² + sin(x) - repeated subexpression sin(x)
+let expr = x.sin().pow(2.0) + x.sin();
+let compiled = expr.compile()?;
+
+// CSE automatically:
+// 1. Detects sin(x) appears twice (same structural hash)
+// 2. Generates: StoreCached(0) after first sin(x)
+// 3. Uses: LoadCached(0) for second occurrence
+// Result: sin(x) computed once, reused from cache
+```
+
+| CSE Bytecode Instructions | Description                           |
+| ------------------------- | ------------------------------------- |
+| `StoreCached(slot)`       | Pop value from stack, store in cache  |
+| `LoadCached(slot)`        | Push cached value onto stack          |
+
+> [!NOTE]
+> CSE is automatic and requires no configuration. The cache is pre-allocated based on detected subexpressions during compilation.
 
 ### `CompiledEvaluator`
 

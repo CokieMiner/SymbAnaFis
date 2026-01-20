@@ -2,20 +2,57 @@
 
 All notable changes to SymbAnaFis will be documented in this file.
 
-## [unreleased]
+## [0.7.0] - 2026-01-20
 
 ### Added
 - **Developer Documentation**: Added detailed guides for extending the library:
   - `CONTRIBUTING.md`: Comprehensive checklists for adding new mathematical functions (12+ locations) and simplification rules (2-3 locations).
   - `.agent/workflows/add-function.md`: Automated workflow for agentic AI assistance when adding functions.
   - `.agent/workflows/add-simplification-rule.md`: Automated workflow for adding simplification rules.
+- **CSE (Common Subexpression Elimination)**: Bytecode compiler now detects and caches duplicate subexpressions for reuse:
+  - Single-pass detection using 64-bit structural hashing
+  - New bytecode instructions: `StoreCached`, `LoadCached`
+  - SIMD and scalar cache support for batch evaluation
 
-### Code Quality
-- **Removed debug prints from library code**: Replaced `eprintln!` calls in `evaluator.rs` and `engine.rs` with proper `debug_assert!` or opt-in `trace_log!` macro (controlled by `SYMB_TRACE` env var).
-- **Fixed `expect()` calls in library code**: Replaced `.expect()` with proper error propagation using `?` operator in `eval_f64.rs` parallel evaluation path.
-- **Safer SIMD fallback**: Unhandled SIMD instructions now use `debug_assert!` in debug builds and poison with NaN in release builds (no panics).
+### Code Quality - Evaluator Refactoring
+- **Modular Evaluator Architecture**: Split monolithic `evaluator.rs` (3,287 lines) into 7 focused modules:
+  - `mod.rs` (464 lines): Public API and `CompiledEvaluator`
+  - `compiler.rs` (941 lines): Bytecode compilation with CSE and Horner optimization
+  - `execution.rs` (668 lines): Scalar evaluation hot path
+  - `simd.rs` (1,106 lines): SIMD batch evaluation with `f64x4`
+  - `stack.rs` (380 lines): Unsafe stack primitives with safety documentation
+  - `instruction.rs` (615 lines): Bytecode instruction definitions
+  - `tests.rs` (402 lines): Unit tests
 
-## [0.6.0] - 2026-01-9
+### Performance
+- **CSE Compilation**: 5-14% faster compilation due to single-pass optimization
+- **CSE Evaluation**: Up to 28% faster evaluation for expressions with repeated subexpressions
+- **Eliminated 64 `.expect()` calls** in SIMD evaluation paths:
+  - Added `top!()` and `pop!()` macros for unchecked stack access
+  - Added `simd_stack_pop()` unsafe function with debug assertions
+  - All stack operations now use unsafe unchecked access with compile-time validation
+- **Safety Model**: Two-phase stack safety:
+  1. Compiler validates stack depth at compile time
+  2. `debug_assert!` catches bugs in debug builds
+  3. Zero-cost unchecked access in release builds
+
+### Fixed
+- **Visitor Silent Failure**: `walk_expr` now prints warning to stderr when expression tree exceeds maximum depth (1000 levels) instead of silently truncating traversal
+- **Visibility Warnings**: Fixed 7 `redundant_pub_crate` clippy warnings by changing internal module visibility from `pub(crate)` to `mod`
+- **CommonTermFactoringRule Bug**: Fixed incorrect factorization of expressions like `y*y + y`:
+  - **Before (wrong)**: `y*y + y` → `y²*(1 + y)` (factor count not tracked properly)
+  - **After (correct)**: `y*y + y` → `y*(y + 1)`
+  - Root cause: Algorithm counted each factor occurrence in the first term but only checked presence (not count) in other terms
+  - Fix: Now tracks minimum factor count across all terms before factoring
+- **Parallel Evaluation CSE Cache**: Fixed panic in `evaluate_parallel` when CSE was enabled - now properly allocates cache buffer per-thread
+- **Python Example API Call**: Fixed `api_showcase.py` using `x.id()` method call instead of `x.id` property
+
+### Documentation
+- **Safety Documentation**: All unsafe blocks now have comprehensive `// SAFETY:` comments explaining invariants
+- **Module-level docs**: Each evaluator submodule has architecture diagrams and usage examples
+
+
+## [0.6.0] - 2026-01-09
 
 ### Added
 - **Compile-Time Singularity Detection**: Compiler now detects removable singularities and emits safe bytecode:

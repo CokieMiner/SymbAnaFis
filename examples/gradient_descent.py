@@ -340,14 +340,22 @@ def main():
     
     try:
         from matplotlib.animation import FFMpegWriter
+        from pathlib import Path
+        video_dir = Path(__file__).parent.parent / 'videos'
+        video_dir.mkdir(exist_ok=True)
+        out_path = video_dir / 'gradient_descent_quad.mp4'
         writer = FFMpegWriter(fps=30, codec='h264_nvenc', 
                               extra_args=['-preset', 'fast', '-rc', 'vbr', '-cq', '24'])
-        ani.save('../videos/gradient_descent_quad.mp4', writer=writer, dpi=100)
-        print("✨ Saved ../videos/gradient_descent_quad.mp4 (GPU)")
+        ani.save(str(out_path), writer=writer, dpi=100)
+        print(f"✨ Saved {out_path} (GPU)")
     except Exception as e:
+        from pathlib import Path
+        video_dir = Path(__file__).parent.parent / 'videos'
+        video_dir.mkdir(exist_ok=True)
+        out_path = video_dir / 'gradient_descent_quad.mp4'
         print(f"   GPU encoding failed ({e}), using CPU...")
-        ani.save('../videos/gradient_descent_quad.mp4', fps=30, dpi=100)
-        print("✨ Saved ../videos/gradient_descent_quad.mp4 (CPU)")
+        ani.save(str(out_path), fps=30, dpi=100)
+        print(f"✨ Saved {out_path} (CPU)")
 
 if __name__ == "__main__":
     main()

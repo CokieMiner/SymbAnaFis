@@ -73,8 +73,17 @@ fn walk_expr_with_depth<V: ExprVisitor>(expr: &Expr, visitor: &mut V, depth: usi
     const MAX_DEPTH: usize = 1000;
     if depth > MAX_DEPTH {
         // In debug builds, panic to catch issues early
-        debug_assert!(false, "Expression depth exceeds maximum safe limit");
-        // In release builds, skip further traversal to prevent stack overflow
+        debug_assert!(
+            false,
+            "Expression tree too deep (>{MAX_DEPTH} levels). \
+             This may indicate a malformed expression or infinite recursion."
+        );
+        // In release builds, log warning and skip further traversal to prevent stack overflow
+        #[cfg(not(debug_assertions))]
+        eprintln!(
+            "Warning: Expression tree exceeds maximum depth ({MAX_DEPTH}). \
+             Traversal truncated to prevent stack overflow."
+        );
         return;
     }
 
@@ -247,7 +256,7 @@ mod tests {
 
     #[test]
     #[cfg(debug_assertions)]
-    #[should_panic(expected = "Expression depth exceeds maximum safe limit")]
+    #[should_panic(expected = "Expression tree too deep")]
     fn test_depth_limit() {
         // Create a deeply nested expression that exceeds MAX_DEPTH
         let x = symb("x");

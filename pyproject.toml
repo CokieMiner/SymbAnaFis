@@ -4,10 +4,10 @@ build-backend = "maturin"
 
 [project]
 name = "symb_anafis"
-version = "0.6.0"
+version = "0.7.0"
 description = "Fast symbolic differentiation library - Rust-powered Python bindings"
 readme = "README.md"
-license = { text = "MIT" }
+license = { text = "Apache-2.0" }
 authors = [{ name = "CokieMiner" }]
 keywords = [
     "symbolic",
@@ -21,7 +21,7 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache License 2.0",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",

@@ -103,16 +103,6 @@ pub fn is_three_pi_over_two(expr: &Expr) -> bool {
     false
 }
 
-/// Flatten nested multiplication into a list of factors
-/// Returns slice reference to avoid cloning when expr is already a Product
-pub const fn flatten_mul_arcs(expr: &Expr) -> Option<&[Arc<Expr>]> {
-    if let ExprKind::Product(factors) = &expr.kind {
-        Some(factors.as_slice())
-    } else {
-        None
-    }
-}
-
 /// Compare expressions for canonical polynomial ordering
 /// For polynomial form like: ax^n + bx^(n-1) + ... + cx + d
 ///
@@ -500,54 +490,6 @@ pub const fn gcd(a: i64, b: i64) -> i64 {
     #[allow(clippy::cast_possible_wrap)]
     {
         a as i64
-    }
-}
-
-/// Check if an expression contains a specific factor
-pub fn contains_factor(expr: &Expr, factor: &Expr) -> bool {
-    match &expr.kind {
-        ExprKind::Product(factors) => factors.iter().any(|f| &**f == factor),
-        _ => expr == factor,
-    }
-}
-
-/// Remove factors from an expression - removes exactly one occurrence per factor
-/// Uses Vec-based tracking to correctly handle repeated factors like x*x
-/// When removing 'x' from 'x*x', this should leave 'x' (not 1)
-pub fn remove_factors(expr: &Expr, factors_to_remove: &Expr) -> Expr {
-    match &expr.kind {
-        ExprKind::Product(expr_factors) => {
-            // Build a Vec of factors to remove (preserves duplicates)
-            let mut to_remove: Vec<&Expr> = flatten_mul_arcs(factors_to_remove).map_or_else(
-                || vec![factors_to_remove],
-                |factors| factors.iter().map(std::convert::AsRef::as_ref).collect(),
-            );
-
-            // Filter factors - for each matching factor, only remove ONE occurrence
-            let mut remaining_factors: Vec<Arc<Expr>> = Vec::new();
-            for f in expr_factors {
-                // Try to find and remove this factor from to_remove
-                if let Some(pos) = to_remove.iter().position(|&r| r == f.as_ref()) {
-                    to_remove.remove(pos); // Remove only the first match
-                } else {
-                    remaining_factors.push(Arc::clone(f));
-                }
-            }
-
-            match remaining_factors.len() {
-                0 => Expr::number(1.0),
-                1 => (*remaining_factors[0]).clone(),
-                _ => Expr::product_from_arcs(remaining_factors),
-            }
-        }
-        _ => {
-            // If the expression is not a multiplication, check if it matches
-            if expr == factors_to_remove {
-                Expr::number(1.0)
-            } else {
-                expr.clone()
-            }
-        }
     }
 }
 

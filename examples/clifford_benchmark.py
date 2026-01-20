@@ -252,14 +252,23 @@ def main():
     
     try:
         from matplotlib.animation import FFMpegWriter
+        from pathlib import Path
+        video_dir = Path(__file__).parent.parent / 'videos'
+        video_dir.mkdir(exist_ok=True)
+        out_path = video_dir / 'clifford_quad.mp4'
+        
         # Normal FPS again
         writer = FFMpegWriter(fps=30, codec='h264_nvenc', 
                               extra_args=['-preset', 'fast', '-rc', 'vbr', '-cq', '26'])
-        ani.save('../videos/clifford_quad.mp4', writer=writer, dpi=100)
-        print("✨ Saved ../videos/clifford_quad.mp4 (GPU)")
+        ani.save(str(out_path), writer=writer, dpi=100)
+        print(f"✨ Saved {out_path} (GPU)")
     except:
-        ani.save('../videos/clifford_quad.mp4', fps=30, dpi=100)
-        print("✨ Saved ../videos/clifford_quad.mp4 (CPU)")
+        from pathlib import Path
+        video_dir = Path(__file__).parent.parent / 'videos'
+        video_dir.mkdir(exist_ok=True)
+        out_path = video_dir / 'clifford_quad.mp4'
+        ani.save(str(out_path), fps=30, dpi=100)
+        print(f"✨ Saved {out_path} (CPU)")
 
 if __name__ == "__main__":
     main()

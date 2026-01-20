@@ -3,6 +3,15 @@
 > **AnaFis**: Advanced Numerical Analysis and Fitting Interface System  
 > A "No-Compromise" Statistical Engine for Experimental Physics (SOTA 2025)
 
+## Version Release Plan
+
+| Version | Target Features                                                          |
+| ------- | ------------------------------------------------------------------------ |
+| v0.7.0  | ✅ CSE, Modular Evaluator, Property Testing, Developer Docs (CURRENT)    |
+| v0.8.0  | Compiler Config, Domain Analysis, Extended Functions                     |
+| v0.9.0  | Symbolic Solver, LaTeX I/O, Jupyter Integration                          |
+| v1.0.0  | JIT Compilation (Cranelift), Tensor/Matrix Support, Symbolic Integration |
+
 ## Philosophy: "Neural & Rigorous Metrology"
 
 - **Classical-Neural Hybrid**: AnaFis doesn't discard classical statistics (GUM/JCGM) but augments it with modern ML (Variational Inference, PINNs, Neural Estimators) where analytics fail.
@@ -20,13 +29,18 @@
 - [x] Compiled bytecode evaluator with SIMD
 - [x] Uncertainty propagation via dual numbers
 - [x] Python bindings (PyO3)
+- [x] CSE (Common Subexpression Elimination) in compiler
+- [x] Compile-time singularity detection (E/E, sin(E)/E → sinc)
+- [x] Modular evaluator architecture (7 focused modules)
+- [x] Property-based testing (quickcheck)
+- [x] Developer documentation (CONTRIBUTING.md, agentic workflows)
 
 ---
 
 ## Phase 1: Core `symb_anafis` Enhancements
 
 ### 1.1 Symbolic Solver (`symb_anafis::solver`)
-> v0.7.0 - Equation solving and domain analysis
+> **Target: v0.9.0** - Equation solving and domain analysis
 
 | Milestone | Description                                           |
 | --------- | ----------------------------------------------------- |
@@ -36,27 +50,27 @@
 | v0.4      | Transcendental pattern matching (sin(x) = 0 → x = nπ) |
 
 ### 1.2 Compiler Optimization Levels (`symb_anafis::config`)
-> v0.6.x - Flexible compilation strategy (Setup vs Run speed)
+> **Target: v0.8.0** - Flexible compilation strategy (Setup vs Run speed)
 
-| Milestone | Description                                                  |
-| --------- | ------------------------------------------------------------ |
-| v0.1      | `CompilerConfig` struct with flags for CSE, JIT, SIMD        |
-| v0.2      | **Profile Presets**: Real-Time, Simulation, HPC, Safe        |
-| v0.3      | **CSE** (Common Subexpression Elimination) pass optimization |
-| v0.4      | Integration with JIT and Domain Analysis modules             |
+| Milestone | Description                                                  | Status |
+| --------- | ------------------------------------------------------------ | ------ |
+| v0.1      | `CompilerConfig` struct with flags for CSE, JIT, SIMD        | ⏳     |
+| v0.2      | **Profile Presets**: Real-Time, Simulation, HPC, Safe        | ⏳     |
+| v0.3      | **CSE** (Common Subexpression Elimination) pass optimization | ✅     |
+| v0.4      | Integration with JIT and Domain Analysis modules             | ⏳     |
 
 ### 1.3 Domain Analysis (`symb_anafis::domain`)
-> v0.7.0 - Singularity detection and handling
+> **Target: v0.8.0** - Singularity detection and handling
 
-| Milestone | Description                                            |
-| --------- | ------------------------------------------------------ |
-| v0.1      | Detect division by zero patterns at compile time       |
-| v0.2      | Conditional bytecode with L'Hôpital fallbacks          |
-| v0.3      | Series expansion for limits (`series(sin(x)/x, x, 0)`) |
-| v0.4      | Full domain inference (log domain, sqrt domain, etc.)  |
+| Milestone | Description                                            | Status |
+| --------- | ------------------------------------------------------ | ------ |
+| v0.1      | Detect division by zero patterns at compile time       | ⏳     |
+| v0.2      | Conditional bytecode with L'Hôpital fallbacks          | ⏳     |
+| v0.3      | Series expansion for limits (`series(sin(x)/x, x, 0)`) | ⏳     |
+| v0.4      | Full domain inference (log domain, sqrt domain, etc.)  | ⏳     |
 
 ### 1.4 JIT Compilation (`symb_anafis::jit`)
-> v0.8.0 - Native machine code for hot paths
+> **Target: v1.0.0** - Native machine code for hot paths
 
 | Milestone | Description                                       |
 | --------- | ------------------------------------------------- |
@@ -66,7 +80,7 @@
 | v0.4      | Benchmarks: target > Stack VM for >1M evaluations |
 
 ### 1.5 Extended Functions (`symb_anafis::special`)
-> v0.8.0 - Complete special function coverage
+> **Target: v0.8.0** - Complete special function coverage
 
 | Milestone | Description                         |
 | --------- | ----------------------------------- |
@@ -76,7 +90,7 @@
 | v0.4      | Fresnel integrals (S, C)            |
 
 ### 1.6 Input/Output (`symb_anafis::io`)
-> v0.8.0 - Format interoperability
+> **Target: v0.9.0** - Format interoperability
 
 | Milestone | Description                               |
 | --------- | ----------------------------------------- |
@@ -86,7 +100,7 @@
 | v0.4      | Jupyter display integration               |
 
 ### 1.7 Tensor/Matrix Support (`symb_anafis::tensor`)
-> v0.8.0+ - First-class symbolic tensors
+> **Target: v1.0.0+** - First-class symbolic tensors
 
 | Milestone | Description                                |
 | --------- | ------------------------------------------ |
@@ -96,7 +110,7 @@
 | v0.4      | Einstein notation parsing                  |
 
 ### 1.8 Integration (`symb_anafis::integrate`)
-> Stretch goal - Symbolic integration
+> **Target: v1.0.0+** - Symbolic integration (stretch goal)
 
 | Milestone | Description                         |
 | --------- | ----------------------------------- |

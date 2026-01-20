@@ -331,10 +331,12 @@ flowchart TB
 
     subgraph "Bytecode Compiler"
         C1["Traverse expression tree"]
-        C2["Generate Instruction sequence"]
-        C3["Map variable names → indices"]
-        C4["Calculate max stack depth"]
-        C5["Return CompiledEvaluator"]
+        C2["CSE: Detect repeated subexpressions
+        (64-bit structural hash)"]
+        C3["Generate Instruction sequence"]
+        C4["Map variable names → indices"]
+        C5["Calculate max stack depth + cache size"]
+        C6["Return CompiledEvaluator"]
     end
 
     subgraph "Bytecode Instructions"
@@ -343,7 +345,8 @@ flowchart TB
         I3["Add, Mul, Sub, Div, Pow"]
         I4["Sin, Cos, Tan, Exp, Ln..."]
         I5["Square, Cube, Recip (optimized)"]
-        I6["CallExternal{id, arity}"]
+        I6["StoreCached(slot), LoadCached(slot)"]
+        I7["CallExternal{id, arity}"]
     end
 
     subgraph "Stack-Based VM"
@@ -359,9 +362,9 @@ flowchart TB
     E1 --> TW1
     TW1 --> TW2 & TW3 & TW4 & TW5 & TW6 & TW7
 
-    E2 --> C1 --> C2 --> C3 --> C4 --> C5
+    E2 --> C1 --> C2 --> C3 --> C4 --> C5 --> C6
 
-    C2 -.-> I1 & I2 & I3 & I4 & I5 & I6
+    C3 -.-> I1 & I2 & I3 & I4 & I5 & I6 & I7
 
     E3 --> VM1 --> VM2
     VM2 --> VM3 & VM4 & VM5 & VM6 --> VM7
@@ -369,12 +372,12 @@ flowchart TB
 
 ### Compiled vs Tree-Walking Performance
 
-| Operation | Tree-Walking       | Compiled                           |
-| --------- | ------------------ | ---------------------------------- |
-| Setup     | None               | ~1-5 μs compile                    |
-| Per-eval  | ~100-500 ns        | ~10-50 ns                          |
-| Best for  | Single evaluation  | Batch evaluation (1000s of points) |
-| Memory    | O(depth) recursion | Pre-allocated stack                |
+| Operation | Tree-Walking       | Compiled                                    |
+| --------- | ------------------ | ------------------------------------------- |
+| Setup     | None               | ~1-5 μs compile                             |
+| Per-eval  | ~100-500 ns        | ~10-50 ns (up to 28% faster with CSE)       |
+| Best for  | Single evaluation  | Batch evaluation (1000s of points)          |
+| Memory    | O(depth) recursion | Pre-allocated stack + CSE cache             |
 
 ---
 
@@ -525,7 +528,14 @@ src/
 │   ├── expr.rs              # Expr, ExprKind - core expression types (61KB)
 │   ├── symbol.rs            # InternedSymbol, Symbol - Copy symbols (58KB)
 │   ├── known_symbols.rs     # Pre-interned symbols for O(1) lookup
-│   ├── evaluator.rs         # CompiledEvaluator bytecode VM (103KB)
+│   ├── evaluator/           # Modular bytecode evaluation system (v0.7.0)
+│   │   ├── mod.rs           # Public API: CompiledEvaluator (464 lines)
+│   │   ├── compiler.rs      # Bytecode compilation with CSE (941 lines)
+│   │   ├── execution.rs     # Scalar evaluation hot path (668 lines)
+│   │   ├── simd.rs          # SIMD batch evaluation with f64x4 (1106 lines)
+│   │   ├── stack.rs         # Unsafe stack primitives (380 lines)
+│   │   ├── instruction.rs   # Bytecode instruction definitions (615 lines)
+│   │   └── tests.rs         # Unit tests (402 lines)
 │   ├── unified_context.rs   # Context, UserFunction - isolated registries (19KB)
 │   ├── display.rs           # to_string(), to_latex(), to_unicode() (34KB)
 │   ├── error.rs             # DiffError, Span - error types (14KB)
@@ -586,17 +596,17 @@ src/
 
 ### Key File Sizes
 
-| File                        | Size   | Purpose                                           |
-| --------------------------- | ------ | ------------------------------------------------- |
-| `core/evaluator.rs`         | 103 KB | Bytecode VM, CompiledEvaluator, all instructions  |
-| `bindings/python.rs`        | 99 KB  | Full Python API bindings via PyO3                 |
-| `core/expr.rs`              | 61 KB  | Expr, ExprKind, constructors, methods             |
-| `core/symbol.rs`            | 58 KB  | InternedSymbol, Symbol, global registry           |
-| `functions/definitions.rs`  | 55 KB  | All built-in function derivatives/evaluations     |
-| `core/display.rs`           | 34 KB  | LaTeX/Unicode/String formatting                   |
-| `parser/lexer.rs`           | 30 KB  | Tokenizer with edge case handling                 |
-| `simplification/helpers.rs` | 27 KB  | Pattern matching utilities                        |
-| `diff/engine.rs`            | 23 KB  | Core differentiation rules (chain, product, etc.) |
+| File                        | Size   | Purpose                                                  |
+| --------------------------- | ------ | -------------------------------------------------------- |
+| `bindings/python.rs`        | 99 KB  | Full Python API bindings via PyO3                        |
+| `core/expr.rs`              | 61 KB  | Expr, ExprKind, constructors, methods                    |
+| `core/symbol.rs`            | 58 KB  | InternedSymbol, Symbol, global registry                  |
+| `functions/definitions.rs`  | 55 KB  | All built-in function derivatives/evaluations            |
+| `core/evaluator/` (total)   | ~45 KB | Modular bytecode VM (v0.7.0 refactor, 7 modules)         |
+| `core/display.rs`           | 34 KB  | LaTeX/Unicode/String formatting                          |
+| `parser/lexer.rs`           | 30 KB  | Tokenizer with edge case handling                        |
+| `simplification/helpers.rs` | 27 KB  | Pattern matching utilities                               |
+| `diff/engine.rs`            | 23 KB  | Core differentiation rules (chain, product, etc.)        |
 
 ---
 

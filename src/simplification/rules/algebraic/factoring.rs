@@ -718,6 +718,53 @@ rule_arc!(
     }
 );
 
+/// Count how many times a factor appears in an expression
+fn count_factor_occurrences(expr: &Expr, factor: &Expr) -> usize {
+    match &expr.kind {
+        AstKind::Product(factors) => factors.iter().filter(|f| f.as_ref() == factor).count(),
+        _ if expr == factor => 1,
+        _ => 0,
+    }
+}
+
+/// Remove a list of factors from an expression (handles duplicates correctly)
+fn remove_factors_by_list(expr: &Expr, factors_to_remove: &[Arc<Expr>]) -> Expr {
+    match &expr.kind {
+        AstKind::Product(expr_factors) => {
+            // Build a mutable list of factors to remove
+            let mut to_remove: Vec<&Expr> = factors_to_remove.iter().map(AsRef::as_ref).collect();
+
+            // Filter factors - for each matching factor, only remove ONE occurrence
+            let mut remaining_factors: Vec<Arc<Expr>> = Vec::new();
+            for f in expr_factors {
+                if let Some(pos) = to_remove.iter().position(|&r| r == f.as_ref()) {
+                    to_remove.remove(pos); // Remove only the first match
+                } else {
+                    remaining_factors.push(Arc::clone(f));
+                }
+            }
+
+            match remaining_factors.len() {
+                0 => Expr::number(1.0),
+                1 => (*remaining_factors[0]).clone(),
+                _ => Expr::product_from_arcs(remaining_factors),
+            }
+        }
+        _ => {
+            // If the expression is not a multiplication, check if it matches
+            // any single factor in the list
+            if factors_to_remove.len() == 1 && expr == factors_to_remove[0].as_ref() {
+                Expr::number(1.0)
+            } else if factors_to_remove.iter().any(|f| expr == f.as_ref()) {
+                // Remove one matching factor, return 1
+                Expr::number(1.0)
+            } else {
+                expr.clone()
+            }
+        }
+    }
+}
+
 rule_arc!(
     CommonTermFactoringRule,
     "common_term_factoring",
@@ -731,24 +778,44 @@ rule_arc!(
             }
 
             // Find common factors across all terms
-            let mut common_factors = Vec::new();
+            // We need to track factor COUNTS, not just presence
 
-            // Start with factors from first term
+            // Get factors from first term with their counts
             let first_factors: Vec<Arc<Expr>> = match &terms[0].kind {
                 AstKind::Product(factors) => factors.clone(),
                 _ => vec![Arc::clone(&terms[0])],
             };
 
-            for factor in &first_factors {
-                // Check if this factor appears in all other terms
-                let mut all_have_factor = true;
+            // Count occurrences of each factor in first term
+            let mut first_factor_counts: Vec<(Arc<Expr>, usize)> = Vec::new();
+            for f in &first_factors {
+                if let Some(entry) = first_factor_counts
+                    .iter_mut()
+                    .find(|(e, _)| e.as_ref() == f.as_ref())
+                {
+                    entry.1 += 1;
+                } else {
+                    first_factor_counts.push((Arc::clone(f), 1));
+                }
+            }
+
+            // For each unique factor, find the minimum count across all terms
+            let mut common_factors: Vec<Arc<Expr>> = Vec::new();
+
+            for (factor, first_count) in &first_factor_counts {
+                // Find minimum count of this factor across all other terms
+                let mut min_count = *first_count;
+
                 for term in &terms[1..] {
-                    if !crate::simplification::helpers::contains_factor(term, factor) {
-                        all_have_factor = false;
+                    let term_count = count_factor_occurrences(term, factor);
+                    min_count = min_count.min(term_count);
+                    if min_count == 0 {
                         break;
                     }
                 }
-                if all_have_factor {
+
+                // Add this factor `min_count` times to common_factors
+                for _ in 0..min_count {
                     common_factors.push(Arc::clone(factor));
                 }
             }
@@ -770,15 +837,12 @@ rule_arc!(
             let common_part = if common_factors.len() == 1 {
                 Arc::clone(&common_factors[0])
             } else {
-                Arc::new(Expr::product_from_arcs(common_factors))
+                Arc::new(Expr::product_from_arcs(common_factors.clone()))
             };
 
             let mut remaining_terms = Vec::new();
             for term in terms {
-                remaining_terms.push(Arc::new(crate::simplification::helpers::remove_factors(
-                    term,
-                    &common_part,
-                )));
+                remaining_terms.push(Arc::new(remove_factors_by_list(term, &common_factors)));
             }
 
             let remaining_sum = if remaining_terms.len() == 1 {

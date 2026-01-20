@@ -175,9 +175,9 @@ If you use SymbAnaFis in academic work, please cite:
 @software{symbanafis,
   author       = {Martins, Pedro},
   title        = {SymbAnaFis: High-Performance Symbolic Mathematics Library},
-  year         = {2025},
+  year         = {2026},
   url          = {https://github.com/CokieMiner/SymbAnaFis},
-  version      = {0.6.0}
+  version      = {0.7.0}
 }
 ```
 

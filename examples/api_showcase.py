@@ -105,8 +105,8 @@ def section_symbol_management():
     print("      ctx2 = Context()")
     print("      x1 = ctx1.symb('x')")
     print("      x2 = ctx2.symb('x')")
-    print(f"      ctx1 symbol id: {x1.id()}")
-    print(f"      ctx2 symbol id: {x2.id()} (different!)\n")
+    print(f"      ctx1 symbol id: {x1.id}")
+    print(f"      ctx2 symbol id: {x2.id} (different!)\n")
 
     print("  2.3 Context API Methods")
     print(f"      ctx1.is_empty(): {ctx1.is_empty()}")
