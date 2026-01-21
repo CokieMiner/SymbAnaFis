@@ -40,7 +40,7 @@ def setup_sympy():
     t0 = time.perf_counter()
     
     x, y = sp.symbols('x y')
-    h = sp.sin(x) * sp.cos(y) + 0.1 * (x**2 + y**2) - 0.2 * sp.cos(1.5*x - 1.0) * sp.sin(2.0*y) + 0.2 * sp.erf(x/2.0) * sp.erf(y/2.0)
+    h = sp.sin(x) * sp.cos(y) + 0.1 * (x**2 + y**2) - 0.2 * sp.cos(1.5*x - 1.0) * sp.sin(2.0*y) + 0.2 * sp.erf(x/2.0) * sp.erf(y/2.0)  # type: ignore[operator,arg-type]
     
     print(f"   Deriving...")
     diff_t0 = time.perf_counter()
@@ -72,8 +72,9 @@ def setup_symengine():
         print("\n🔧 SymEngine: Setting up...")
         t0 = time.perf_counter()
         
-        x, y = se.symbols('x y')
-        h = se.sin(x) * se.cos(y) + 0.1 * (x**2 + y**2) - 0.2 * se.cos(1.5*x - 1.0) * se.sin(2.0*y) + 0.2 * se.erf(x/2.0) * se.erf(y/2.0)
+        syms = se.symbols('x y')
+        x, y = syms[0], syms[1]  # type: ignore[misc]
+        h = se.sin(x) * se.cos(y) + 0.1 * (x**2 + y**2) - 0.2 * se.cos(1.5*x - 1.0) * se.sin(2.0*y) + 0.2 * se.erf(x/2.0) * se.erf(y/2.0)  # type: ignore[operator,arg-type]
         
         print(f"   Deriving...")
         diff_t0 = time.perf_counter()

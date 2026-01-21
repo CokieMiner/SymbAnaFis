@@ -59,7 +59,8 @@ def setup_symengine():
         print("🔧 SymEngine: Setting up...")
         t0 = time.perf_counter()
         
-        x, y, a, b, c, d = se.symbols('x y a b c d')
+        syms = se.symbols('x y a b c d')
+        x, y, a, b, c, d = syms[0], syms[1], syms[2], syms[3], syms[4], syms[5]  # type: ignore[misc]
         eq_x = se.sin(a*y) + c*se.cos(a*x)
         eq_y = se.sin(b*x) + d*se.cos(b*y)
         
@@ -234,8 +235,8 @@ def main():
             
         for sub in subplots:
             # Current and Next positions
-            x0, y0 = sub['hx'][step_idx], sub['hy'][step_idx]
-            x1, y1 = sub['hx'][next_idx], sub['hy'][next_idx]
+            x0, y0 = sub['hx'][step_idx], sub['hy'][step_idx]  # type: ignore[index]
+            x1, y1 = sub['hx'][next_idx], sub['hy'][next_idx]  # type: ignore[index]
             
             # Linear Interpolation
             # x_vis = x0 * (1-a) + x1 * a

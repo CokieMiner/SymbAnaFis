@@ -41,7 +41,8 @@ def setup_sympy():
         print(f"   ✓ Setup: {setup_time*1000:.1f} ms")
         
         def evaluate(x, y, z):
-            return func(x, y, z)
+            result = func(x, y, z)
+            return tuple(result)  # type: ignore[return-value]
             
         return evaluate, setup_time
     except ImportError: return None, 0
@@ -51,7 +52,8 @@ def setup_symengine():
         import symengine as se
         print("\n🔧 SymEngine: Setting up...")
         t0 = time.perf_counter()
-        x, y, z = se.symbols('x y z')
+        syms = se.symbols('x y z')
+        x, y, z = syms[0], syms[1], syms[2]  # type: ignore[misc]
         dx = (z - B) * x - D * y
         dy = D * x + (z - B) * y
         dz = C + A*z - z**3/3 - (x**2 + y**2) * (1 + E*z) + F * z * x**3
@@ -70,7 +72,7 @@ def setup_symengine():
             # Stack for SymEngine
             inp = np.column_stack((x, y, z))
             out = func(inp)
-            return out[:,0], out[:,1], out[:,2]
+            return out[:,0], out[:,1], out[:,2]  # type: ignore[return-value]
             
         return evaluate, setup_time
     except ImportError: return None, 0
@@ -144,11 +146,11 @@ def main():
         for i in range(N_STEPS):
             hx[i], hy[i], hz[i] = x[vis_idx], y[vis_idx], z[vis_idx]
             
-            dx, dy, dz = fn(x, y, z)
+            dx, dy, dz = fn(x, y, z)  # type: ignore[misc]
             # x += dx * dt
-            x += dx * dt
-            y += dy * dt
-            z += dz * dt
+            x += dx * dt  # type: ignore[assignment,operator]
+            y += dy * dt  # type: ignore[assignment,operator]
+            z += dz * dt  # type: ignore[assignment,operator]
             
         run_time = time.perf_counter() - t0
         print(f"   ✓ Time: {run_time:.4f}s")
@@ -215,12 +217,12 @@ def main():
     def update(frame):
         for sub in subplots:
             frame_idx = min(frame, N_STEPS-1)
-            x = sub['hx'][frame_idx]
-            y = sub['hy'][frame_idx]
-            z = sub['hz'][frame_idx]
+            x = sub['hx'][frame_idx]  # type: ignore[index]
+            y = sub['hy'][frame_idx]  # type: ignore[index]
+            z = sub['hz'][frame_idx]  # type: ignore[index]
             
-            sub['scat']._offsets3d = (x, y, z)
-            sub['ax'].view_init(elev=30, azim=frame)
+            sub['scat']._offsets3d = (x, y, z)  # type: ignore[attr-defined]
+            sub['ax'].view_init(elev=30, azim=frame)  # type: ignore[index]
             
         return []
         

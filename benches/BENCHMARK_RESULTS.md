@@ -281,20 +281,3 @@
 | **Evaluation** (small expr)             | Symbolica         | **1.3x - 1.7x** faster   |
 | **Evaluation** (large expr, simplified) | SymbAnaFis        | **1.02x - 1.18x** faster |
 | **Full Pipeline** (small)               | Symbolica         | **1.06x - 3.2x** faster  |
-
-### Key Insights
-
-1. **Compile for repeated evaluation:** Compiled bytecode is 6-18x faster than tree-walk evaluation.
-
-2. **Simplification pays off:** For large expressions, SymbAnaFis's full simplification dramatically reduces expression size, leading to much faster compilation and evaluation.
-
-3. **Different strategies:**
-   - **Symbolica:** Light term collection (`3x + 2x → 5x`), faster simplification, optimized evaluator
-   - **SymbAnaFis:** Deep AST restructuring (trig identities, algebraic normalization), massive compilation speedup
-
-4. **SIMD acceleration:** Using `eval_batch` with f64x4 SIMD provides consistent ~2.9x speedup over scalar loops.
-
-5. **When to use which:**
-   - **Small expressions, one-shot evaluation:** Symbolica's faster evaluation wins
-   - **Large expressions, repeated evaluation:** SymbAnaFis's simplification + fast compile wins
-   - **Batch numerical work:** Use `eval_f64` for maximum performance (5.4x faster than generic parallel API)

@@ -36,8 +36,10 @@ _DERIVATION_CACHE = {}
 def derive_sympy():
     if 'sympy' in _DERIVATION_CACHE: return _DERIVATION_CACHE['sympy']
     import sympy as sp
-    th1, th2, w1, w2 = sp.symbols('th1 th2 w1 w2')
-    m1, m2, l1, l2, g = sp.symbols('m1 m2 L1 L2 g')
+    syms1 = sp.symbols('th1 th2 w1 w2')
+    th1, th2, w1, w2 = syms1[0], syms1[1], syms1[2], syms1[3]  # type: ignore[misc]
+    syms2 = sp.symbols('m1 m2 L1 L2 g')
+    m1, m2, l1, l2, g = syms2[0], syms2[1], syms2[2], syms2[3], syms2[4]  # type: ignore[misc]
     
     # Simple derivation for brevity in this file (Physics are standard)
     # Mass Matrix derived from Lagrangian T = 0.5*m1*v1^2 + 0.5*m2*v2^2
@@ -79,16 +81,16 @@ def derive_sympy():
     # RHS
     # F = dL_dth - (d(dL_dw)/dth * w + ...)
     # Term from d/dt that doesn't involve a
-    dt_term1 = sp.diff(dL_dw1, th1)*w1 + sp.diff(dL_dw1, th2)*w2
-    dt_term2 = sp.diff(dL_dw2, th1)*w1 + sp.diff(dL_dw2, th2)*w2
+    dt_term1 = sp.diff(dL_dw1, th1)*w1 + sp.diff(dL_dw1, th2)*w2  # type: ignore[operator]
+    dt_term2 = sp.diff(dL_dw2, th1)*w1 + sp.diff(dL_dw2, th2)*w2  # type: ignore[operator]
     
     F1 = dL_dth1 - dt_term1
     F2 = dL_dth2 - dt_term2
     
     # Cramer's Rule for symbolic solve
-    det = M11*M22 - M12*M21
-    a1 = (F1*M22 - F2*M12) / det
-    a2 = (M11*F2 - M21*F1) / det
+    det = M11*M22 - M12*M21  # type: ignore[operator]
+    a1 = (F1*M22 - F2*M12) / det  # type: ignore[operator]
+    a2 = (M11*F2 - M21*F1) / det  # type: ignore[operator]
     
     # Substitute values
     subs = {m1: M1, m2: M2, l1: L1, l2: L2, g: G}
@@ -103,8 +105,10 @@ def derive_symengine():
     # Similar to sympy but using symengine
     if 'symengine' in _DERIVATION_CACHE: return _DERIVATION_CACHE['symengine']
     import symengine as se
-    th1, th2, w1, w2 = se.symbols('th1 th2 w1 w2')
-    m1, m2, l1, l2, g = se.symbols('m1 m2 L1 L2 g')
+    syms1 = se.symbols('th1 th2 w1 w2')
+    th1, th2, w1, w2 = syms1[0], syms1[1], syms1[2], syms1[3]  # type: ignore[misc]
+    syms2 = se.symbols('m1 m2 L1 L2 g')
+    m1, m2, l1, l2, g = syms2[0], syms2[1], syms2[2], syms2[3], syms2[4]  # type: ignore[misc]
     
     x1 = l1 * se.sin(th1)
     y1 = -l1 * se.cos(th1)
@@ -495,20 +499,20 @@ def main():
             balls1 = sub['balls1']
             balls2 = sub['balls2']
             
-            idx = min(frame, hist.shape[0]-1)
-            state = hist[idx] # (4, N_vis)
+            idx = min(frame, hist.shape[0]-1)  # type: ignore[union-attr]
+            state = hist[idx]  # type: ignore[index] # (4, N_vis)
             
-            for k in range(len(lines)):
-                th1 = state[0, k]
-                th2 = state[1, k]
+            for k in range(len(lines)):  # type: ignore[arg-type]
+                th1 = state[0, k]  # type: ignore[index]
+                th2 = state[1, k]  # type: ignore[index]
                 x1 = L1 * np.sin(th1)
                 y1 = -L1 * np.cos(th1)
                 x2 = x1 + L2 * np.sin(th2)
                 y2 = y1 - L2 * np.cos(th2)
                 
-                lines[k].set_data([0, x1, x2], [0, y1, y2])
-                balls1[k].set_data([x1], [y1])
-                balls2[k].set_data([x2], [y2])
+                lines[k].set_data([0, x1, x2], [0, y1, y2])  # type: ignore[index]
+                balls1[k].set_data([x1], [y1])  # type: ignore[index]
+                balls2[k].set_data([x2], [y2])  # type: ignore[index]
                 
         return []
 
