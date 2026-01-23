@@ -1,5 +1,5 @@
 use crate::core::expr::{Expr, ExprKind as AstKind};
-use crate::core::known_symbols::{ABS, CBRT, SQRT, get_symbol};
+use crate::core::known_symbols::{KS, get_symbol};
 use crate::core::traits::EPSILON;
 use crate::simplification::rules::{ExprKind, Rule, RuleCategory, RuleContext};
 use std::sync::Arc;
@@ -12,7 +12,7 @@ rule!(
     &[ExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::FunctionCall { name, args } = &expr.kind
-            && name.id() == *SQRT
+            && name.id() == KS.sqrt
             && args.len() == 1
             && let AstKind::Pow(base, exp) = &args[0].kind
         {
@@ -23,7 +23,7 @@ rule!(
                 let is_square = *n == 2.0;
                 if is_square {
                     // sqrt(x^2) = |x|
-                    return Some(Expr::func_symbol(get_symbol(&ABS), base.as_ref().clone()));
+                    return Some(Expr::func_symbol(get_symbol(KS.abs), base.as_ref().clone()));
                 }
             }
 
@@ -74,7 +74,7 @@ rule!(
     &[ExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::FunctionCall { name, args } = &expr.kind
-            && name.id() == *CBRT
+            && name.id() == KS.cbrt
             && args.len() == 1
             && let AstKind::Pow(base, exp) = &args[0].kind
         {
@@ -128,10 +128,10 @@ rule!(SqrtProductRule, "sqrt_product", 56, Root, &[ExprKind::Product], alters_do
                     AstKind::FunctionCall { name: n1, args: args1 },
                     AstKind::FunctionCall { name: n2, args: args2 },
                 ) = (&f1.kind, &f2.kind)
-                    && n1.id() == *SQRT && n2.id() == *SQRT && args1.len() == 1 && args2.len() == 1 {
+                    && n1.id() == KS.sqrt && n2.id() == KS.sqrt && args1.len() == 1 && args2.len() == 1 {
                         // sqrt(a) * sqrt(b) = sqrt(a*b)
                         let combined = Expr::func_symbol(
-                            get_symbol(&SQRT),
+                            get_symbol(KS.sqrt),
                             Expr::product(vec![(*args1[0]).clone(), (*args2[0]).clone()]),
                         );
 
@@ -167,13 +167,13 @@ rule!(SqrtDivRule, "sqrt_div", 56, Root, &[ExprKind::Div], alters_domain: true, 
                 args: v_args,
             },
         ) = (&u.kind, &v.kind)
-            && u_name.id() == *SQRT
-            && v_name.id() == *SQRT
+            && u_name.id() == KS.sqrt
+            && v_name.id() == KS.sqrt
             && u_args.len() == 1
             && v_args.len() == 1
         {
             return Some(Expr::func_symbol(
-                get_symbol(&SQRT),
+                get_symbol(KS.sqrt),
                 Expr::div_expr(
                     (*u_args[0]).clone(),
                     (*v_args[0]).clone(),
@@ -194,12 +194,12 @@ rule!(
         if let AstKind::FunctionCall { name, args } = &expr.kind
             && args.len() == 1
         {
-            if name.id() == *SQRT {
+            if name.id() == KS.sqrt {
                 return Some(Expr::pow_static(
                     (*args[0]).clone(),
                     Expr::div_expr(Expr::number(1.0), Expr::number(2.0)),
                 ));
-            } else if name.id() == *CBRT {
+            } else if name.id() == KS.cbrt {
                 return Some(Expr::pow_static(
                     (*args[0]).clone(),
                     Expr::div_expr(Expr::number(1.0), Expr::number(3.0)),
@@ -219,7 +219,7 @@ rule!(
     |expr: &Expr, _context: &RuleContext| {
         // sqrt(a * x^2) → |x| * sqrt(a)
         if let AstKind::FunctionCall { name, args } = &expr.kind
-            && name.id() == *SQRT
+            && name.id() == KS.sqrt
             && args.len() == 1
             && let AstKind::Product(factors) = &args[0].kind
         {
@@ -233,7 +233,7 @@ rule!(
                     let is_square = *n == 2.0;
                     if is_square {
                         // Found x^2, extract |x|
-                        let abs_base = Expr::func_symbol(get_symbol(&ABS), (**base).clone());
+                        let abs_base = Expr::func_symbol(get_symbol(KS.abs), (**base).clone());
 
                         // Build remaining product for sqrt
                         let remaining: Vec<Arc<Expr>> = factors
@@ -248,7 +248,7 @@ rule!(
                         {
                             Expr::number(1.0)
                         } else {
-                            Expr::func_symbol(get_symbol(&SQRT), inner)
+                            Expr::func_symbol(get_symbol(KS.sqrt), inner)
                         };
 
                         return Some(Expr::product(vec![abs_base, sqrt_remaining]));

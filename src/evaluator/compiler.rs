@@ -28,7 +28,9 @@
 
 use super::instruction::Instruction;
 use crate::core::error::DiffError;
+use crate::core::known_symbols::KS;
 use crate::core::poly::Polynomial;
+use crate::core::symbol::InternedSymbol;
 use crate::core::unified_context::Context;
 use crate::{Expr, ExprKind};
 use std::collections::HashMap;
@@ -244,27 +246,45 @@ impl<'ctx> Compiler<'ctx> {
                 match args.len() {
                     1 => {
                         let x = Self::try_eval_const(&args[0])?;
-                        match name.as_str() {
-                            "sin" => Some(x.sin()),
-                            "cos" => Some(x.cos()),
-                            "tan" => Some(x.tan()),
-                            "exp" => Some(x.exp()),
-                            "ln" | "log" => Some(x.ln()),
-                            "sqrt" => Some(x.sqrt()),
-                            "abs" => Some(x.abs()),
-                            "floor" => Some(x.floor()),
-                            "ceil" => Some(x.ceil()),
-                            "round" => Some(x.round()),
-                            _ => None,
+                        let id = name.id();
+                        let ks = &*KS;
+                        if id == ks.sin {
+                            Some(x.sin())
+                        } else if id == ks.cos {
+                            Some(x.cos())
+                        } else if id == ks.tan {
+                            Some(x.tan())
+                        } else if id == ks.exp {
+                            Some(x.exp())
+                        } else if id == ks.ln || id == ks.log {
+                            Some(x.ln())
+                        } else if id == ks.sqrt {
+                            Some(x.sqrt())
+                        } else if id == ks.abs {
+                            Some(x.abs())
+                        } else if id == ks.floor {
+                            Some(x.floor())
+                        } else if id == ks.ceil {
+                            Some(x.ceil())
+                        } else if id == ks.round {
+                            Some(x.round())
+                        } else {
+                            None
                         }
                     }
                     2 => {
                         let a = Self::try_eval_const(&args[0])?;
                         let b = Self::try_eval_const(&args[1])?;
-                        match name.as_str() {
-                            "atan2" => Some(a.atan2(b)),
-                            "log" => Some(b.log(a)), // log(base, x)
-                            _ => None,
+                        let id = name.id();
+                        let ks = &*KS;
+                        if id == ks.atan2 {
+                            Some(a.atan2(b))
+                        } else if id == ks.log {
+                            Some(b.log(a))
+                        }
+                        // log(base, x)
+                        else {
+                            None
                         }
                     }
                     _ => None,
@@ -368,7 +388,7 @@ impl<'ctx> Compiler<'ctx> {
             }
 
             ExprKind::FunctionCall { name, args } => {
-                self.compile_function_call(name.as_str(), args)?;
+                self.compile_function_call(name, args)?;
             }
 
             ExprKind::Poly(poly) => {
@@ -591,7 +611,7 @@ impl<'ctx> Compiler<'ctx> {
     #[allow(clippy::too_many_lines)]
     fn compile_function_call(
         &mut self,
-        func_name: &str,
+        func_name: &InternedSymbol,
         args: &[Arc<Expr>],
     ) -> Result<(), DiffError> {
         // Compile arguments first (in order for proper stack layout)
@@ -600,150 +620,202 @@ impl<'ctx> Compiler<'ctx> {
             self.compile_expr(arg)?;
         }
 
+        let id = func_name.id();
+        let arity = args.len();
+        let ks = &*KS;
+
         // Emit function instruction
-        let instr = match (func_name, args.len()) {
-            // Trigonometric (unary)
-            ("sin", 1) => Instruction::Sin,
-            ("cos", 1) => Instruction::Cos,
-            ("tan", 1) => Instruction::Tan,
-            ("asin", 1) => Instruction::Asin,
-            ("acos", 1) => Instruction::Acos,
-            ("atan", 1) => Instruction::Atan,
-            ("cot", 1) => Instruction::Cot,
-            ("sec", 1) => Instruction::Sec,
-            ("csc", 1) => Instruction::Csc,
-            ("acot", 1) => Instruction::Acot,
-            ("asec", 1) => Instruction::Asec,
-            ("acsc", 1) => Instruction::Acsc,
-
-            // Hyperbolic (unary)
-            ("sinh", 1) => Instruction::Sinh,
-            ("cosh", 1) => Instruction::Cosh,
-            ("tanh", 1) => Instruction::Tanh,
-            ("asinh", 1) => Instruction::Asinh,
-            ("acosh", 1) => Instruction::Acosh,
-            ("atanh", 1) => Instruction::Atanh,
-            ("coth", 1) => Instruction::Coth,
-            ("sech", 1) => Instruction::Sech,
-            ("csch", 1) => Instruction::Csch,
-            ("acoth", 1) => Instruction::Acoth,
-            ("asech", 1) => Instruction::Asech,
-            ("acsch", 1) => Instruction::Acsch,
-
-            // Exponential/Logarithmic (unary)
-            ("exp", 1) => Instruction::Exp,
-            ("ln", 1) => Instruction::Ln,
-            ("log10", 1) => Instruction::Log10,
-            ("log2", 1) => Instruction::Log2,
-            ("sqrt", 1) => Instruction::Sqrt,
-            ("cbrt", 1) => Instruction::Cbrt,
-
-            // Special functions (unary)
-            ("abs", 1) => Instruction::Abs,
-            ("signum", 1) => Instruction::Signum,
-            ("floor", 1) => Instruction::Floor,
-            ("ceil", 1) => Instruction::Ceil,
-            ("round", 1) => Instruction::Round,
-            ("erf", 1) => Instruction::Erf,
-            ("erfc", 1) => Instruction::Erfc,
-            ("gamma", 1) => Instruction::Gamma,
-            ("digamma", 1) => Instruction::Digamma,
-            ("trigamma", 1) => Instruction::Trigamma,
-            ("tetragamma", 1) => Instruction::Tetragamma,
-            ("sinc", 1) => Instruction::Sinc,
-            ("lambertw", 1) => Instruction::LambertW,
-            ("elliptic_k", 1) => Instruction::EllipticK,
-            ("elliptic_e", 1) => Instruction::EllipticE,
-            ("zeta", 1) => Instruction::Zeta,
-            ("exp_polar", 1) => Instruction::ExpPolar,
-
-            // Two-argument functions
-            ("log", 2) => {
-                self.pop(); // Two args → one result
-                Instruction::Log
+        // We use an if-else chain (or match guards) here because KS fields are not constants,
+        // so we cannot match against them directly in patterns.
+        let instr = if arity == 1 {
+            if id == ks.sin {
+                Instruction::Sin
+            } else if id == ks.cos {
+                Instruction::Cos
+            } else if id == ks.tan {
+                Instruction::Tan
+            } else if id == ks.asin {
+                Instruction::Asin
+            } else if id == ks.acos {
+                Instruction::Acos
+            } else if id == ks.atan {
+                Instruction::Atan
+            } else if id == ks.cot {
+                Instruction::Cot
+            } else if id == ks.sec {
+                Instruction::Sec
+            } else if id == ks.csc {
+                Instruction::Csc
+            } else if id == ks.acot {
+                Instruction::Acot
+            } else if id == ks.asec {
+                Instruction::Asec
+            } else if id == ks.acsc {
+                Instruction::Acsc
             }
-            ("atan2", 2) => {
+            // Hyperbolic
+            else if id == ks.sinh {
+                Instruction::Sinh
+            } else if id == ks.cosh {
+                Instruction::Cosh
+            } else if id == ks.tanh {
+                Instruction::Tanh
+            } else if id == ks.asinh {
+                Instruction::Asinh
+            } else if id == ks.acosh {
+                Instruction::Acosh
+            } else if id == ks.atanh {
+                Instruction::Atanh
+            } else if id == ks.coth {
+                Instruction::Coth
+            } else if id == ks.sech {
+                Instruction::Sech
+            } else if id == ks.csch {
+                Instruction::Csch
+            } else if id == ks.acoth {
+                Instruction::Acoth
+            } else if id == ks.asech {
+                Instruction::Asech
+            } else if id == ks.acsch {
+                Instruction::Acsch
+            }
+            // Exponential
+            else if id == ks.exp {
+                Instruction::Exp
+            } else if id == ks.ln {
+                Instruction::Ln
+            } else if id == ks.log10 {
+                Instruction::Log10
+            } else if id == ks.log2 {
+                Instruction::Log2
+            } else if id == ks.sqrt {
+                Instruction::Sqrt
+            } else if id == ks.cbrt {
+                Instruction::Cbrt
+            }
+            // Special
+            else if id == ks.abs {
+                Instruction::Abs
+            } else if id == ks.signum {
+                Instruction::Signum
+            } else if id == ks.floor {
+                Instruction::Floor
+            } else if id == ks.ceil {
+                Instruction::Ceil
+            } else if id == ks.round {
+                Instruction::Round
+            } else if id == ks.erf {
+                Instruction::Erf
+            } else if id == ks.erfc {
+                Instruction::Erfc
+            } else if id == ks.gamma {
+                Instruction::Gamma
+            } else if id == ks.digamma {
+                Instruction::Digamma
+            } else if id == ks.trigamma {
+                Instruction::Trigamma
+            } else if id == ks.tetragamma {
+                Instruction::Tetragamma
+            } else if id == ks.sinc {
+                Instruction::Sinc
+            } else if id == ks.lambertw {
+                Instruction::LambertW
+            } else if id == ks.elliptic_k {
+                Instruction::EllipticK
+            } else if id == ks.elliptic_e {
+                Instruction::EllipticE
+            } else if id == ks.zeta {
+                Instruction::Zeta
+            } else if id == ks.exp_polar {
+                Instruction::ExpPolar
+            } else {
+                return self.compile_unknown_function(func_name, arity);
+            }
+        } else if arity == 2 {
+            if id == ks.log {
+                self.pop();
+                Instruction::Log
+            } else if id == ks.atan2 {
                 self.pop();
                 Instruction::Atan2
-            }
-            ("besselj", 2) => {
+            } else if id == ks.besselj {
                 self.pop();
                 Instruction::BesselJ
-            }
-            ("bessely", 2) => {
+            } else if id == ks.bessely {
                 self.pop();
                 Instruction::BesselY
-            }
-            ("besseli", 2) => {
+            } else if id == ks.besseli {
                 self.pop();
                 Instruction::BesselI
-            }
-            ("besselk", 2) => {
+            } else if id == ks.besselk {
                 self.pop();
                 Instruction::BesselK
-            }
-            ("polygamma", 2) => {
+            } else if id == ks.polygamma {
                 self.pop();
                 Instruction::Polygamma
-            }
-            ("beta", 2) => {
+            } else if id == ks.beta {
                 self.pop();
                 Instruction::Beta
-            }
-            ("zeta_deriv", 2) => {
+            } else if id == ks.zeta_deriv {
                 self.pop();
                 Instruction::ZetaDeriv
-            }
-            ("hermite", 2) => {
+            } else if id == ks.hermite {
                 self.pop();
                 Instruction::Hermite
+            } else {
+                return self.compile_unknown_function(func_name, arity);
             }
-
-            // Three-argument functions
-            ("assoc_legendre", 3) => {
+        } else if arity == 3 {
+            if id == ks.assoc_legendre {
                 self.pop();
                 self.pop();
                 Instruction::AssocLegendre
+            } else {
+                return self.compile_unknown_function(func_name, arity);
             }
-
-            // Four-argument functions
-            ("spherical_harmonic" | "ynm", 4) => {
+        } else if arity == 4 {
+            if id == ks.spherical_harmonic || id == ks.ynm {
                 self.pop();
                 self.pop();
                 self.pop();
                 Instruction::SphericalHarmonic
+            } else {
+                return self.compile_unknown_function(func_name, arity);
             }
-
-            _ => {
-                // Check if function exists in the context
-                if let Some(ctx) = self.function_context {
-                    let sym = crate::core::symbol::symb(func_name);
-                    let id = sym.id();
-
-                    if let Some(user_fn) = ctx.get_user_fn_by_id(id) {
-                        if user_fn.arity.contains(&args.len()) {
-                            // User function exists but has no symbolic body,
-                            // so we can't evaluate it numerically.
-                            return Err(DiffError::UnsupportedFunction(format!(
-                                "{func_name}: user function has no body for numeric evaluation. \
-                                 Define a body with `with_function(.., body: Some(expr))`"
-                            )));
-                        }
-                        return Err(DiffError::UnsupportedFunction(format!(
-                            "{}: invalid arity (expected {:?}, got {})",
-                            func_name,
-                            user_fn.arity,
-                            args.len()
-                        )));
-                    }
-                    return Err(DiffError::UnsupportedFunction(func_name.to_owned()));
-                }
-                return Err(DiffError::UnsupportedFunction(func_name.to_owned()));
-            }
+        } else {
+            return self.compile_unknown_function(func_name, arity);
         };
 
         self.emit(instr);
         Ok(())
+    }
+
+    fn compile_unknown_function(
+        &self,
+        func_name: &InternedSymbol,
+        arity: usize,
+    ) -> Result<(), DiffError> {
+        let name_str = func_name.as_str();
+        // Check if function exists in the context
+        if let Some(ctx) = self.function_context {
+            let id = func_name.id();
+
+            if let Some(user_fn) = ctx.get_user_fn_by_id(id) {
+                if user_fn.arity.contains(&arity) {
+                    // User function exists but has no symbolic body,
+                    // so we can't evaluate it numerically.
+                    return Err(DiffError::UnsupportedFunction(format!(
+                        "{name_str}: user function has no body for numeric evaluation. \
+                         Define a body with `with_function(.., body: Some(expr))`"
+                    )));
+                }
+                return Err(DiffError::UnsupportedFunction(format!(
+                    "{}: invalid arity (expected {:?}, got {})",
+                    name_str, user_fn.arity, arity
+                )));
+            }
+        }
+        Err(DiffError::UnsupportedFunction(name_str.to_owned()))
     }
 
     /// Compile a polynomial using Horner's method for efficiency.

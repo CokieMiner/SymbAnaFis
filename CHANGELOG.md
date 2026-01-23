@@ -1,39 +1,33 @@
 # Changelog
 
-All notable changes to SymbAnaFis will be documented in this file.
+All notable changes to symb_anafis will be documented in this file.
 
 ## [unreleased]
 
 ### Added
+- **Known Symbols (KS)**: Global `KS` registry for centralized management of mathematical functions and constants.
+- **Display System**: `DisplayContext` and expanded `Display` trait supporting sophisticated LaTeX, Unicode, and plain text formatting.
 - **UserFunction API**: Added `UserFunction::any_arity()` helper for registering variadic custom functions (0..=usize::MAX).
-- **Rule Registry Tests**: Added comprehensive test suite `rule_registry_tests` ensuring:
-  - All rule categories are loaded
-  - Rules are correctly sorted by priority descending
-  - Rule names are unique
-  - Priorities fall within convention range (1-100)
+- **Rule Registry Tests**: Added comprehensive test suite `rule_registry_tests` for category loading, priority sorting, and uniqueness validation.
 - **Builtins**: Added `spherical_harmonic` to lexer builtins.
-- **Differentiation**: Added `symbolic_partial` helper for robust fallback when differentiation user functions without registered partials.
+- **Helpers**: Added `is_known_constant` helper in `known_symbols`.
 
 ### Changed
-- **Refactoring - Evaluator Promotion**: Moved `core::evaluator` to top-level `src/evaluator`.
-  - Re-exported `CompiledEvaluator` and `Instruction` from `evaluator` module.
-  - Updated all internal crate references to use `crate::evaluator`.
-- **Simplification Tolerance**: Standardized floating-point comparisons across ALL simplification rules (Algebraic, Trigonometric, Hyperbolic, Exponential, Numeric) to use `EPSILON` (1e-14) instead of ad-hoc `1e-10`.
-  - Updated precision tests to reflect tighter tolerance (`3.0...01` vs `3.0...1`).
-- **Python Bindings**:
-  - `Expr.__eq__` and `Symbol.__eq__` now accept `object` matching Python data model.
-  - Clarified docstrings for `evaluate_parallel` and `eval_f64` regarding type-preserving behavior (NumPy->NumPy, Str->Str).
-- **Renames**: Renamed `perfect_square` -> `perfect_square_factoring` and `perfect_cube` -> `perfect_cube_factoring` rules.
+- **Core Refactoring**: Refactored `ExprKind::FunctionCall` and `ExprKind::Symbol` to use `InternedSymbol`.
+- **Evaluator Promotion**: Moved `core::evaluator` to top-level `src/evaluator` and updated internal references.
+- **Engine Optimization**: Updated differentiation engine, evaluator/compiler, and all simplification rules to use the `KS` registry for ID-based dispatch.
+- **Simplification Tolerance**: Standardized floating-point comparisons to use `EPSILON` (1e-14) across all rule categories.
+- **LaTeX Display**: Improved LaTeX output with operator precedence and special symbol formatting (e.g., `\exp`, `\ln`).
+- **Python Bindings**: Improved `__eq__` implementations and clarified docstrings regarding type-preserving behavior.
+- **Renames**: Renamed `perfect_square` -> `perfect_square_factoring` and `perfect_cube` -> `perfect_cube_factoring`.
 
 ### Fixed
-- **Derivative Edge Cases**:
-  - `x^0` now correctly differentiates to 0 (fast-path).
-  - Empty argument lists in function calls are handled gracefully (derivative 0).
-- **Simplification Safety**:
-  - `simplify()` now explicitly checks `max_depth` and `max_nodes` limits.
-  - `simplify_str()` now validates against name collisions between custom functions and known symbols.
-- **Documentation**: Added warnings to `gradient_str`, `hessian_str`, `jacobian_str` helpers about lack of custom function support.
-- **Cosmetic**: Replaced Unicode box-drawing characters with ASCII in `api_showcase` examples for better compatibility.
+- **Derivative Edge Cases**: Improved fast-path for `x^0` and graceful handling of empty argument lists.
+- **Simplification Safety**: Added `max_depth`/`max_nodes` checks and name collision validation in `simplify_str`.
+- **Display Robustness**: Improved handling of negative factors in product expressions.
+- **Context Safety**: Enhanced name collision detection in `Context`.
+- **Documentation**: Added warnings to vector calculus helpers regarding custom function support.
+- **Cosmetic**: Replaced Unicode box-drawing characters with ASCII in examples for better compatibility.
 
 ## [0.7.0] - 2026-01-20
 
@@ -237,7 +231,7 @@ All notable changes to SymbAnaFis will be documented in this file.
   - Use `ln(x)` for natural logarithm (unchanged)
   - Use `log(20, x)` for base-20, `log(4, x)` for base-4, etc.
   - For base 2 and 10 you can still use `log2(x)` and `log10(x)`
-  
+
 ### Added
 - **Spherical Harmonics Tests**: Comprehensive test suite for spherical harmonics and associated Legendre polynomials
 - **`log(b, x)` Simplification Rules**: New rules for simplifying logarithms with specific bases and powers

@@ -1,5 +1,5 @@
 use crate::core::expr::{Expr, ExprKind as AstKind};
-use crate::core::known_symbols::{COS, SIN, get_symbol};
+use crate::core::known_symbols::{KS, get_symbol};
 use crate::core::traits::EPSILON;
 use crate::simplification::rules::{ExprKind, Rule, RuleCategory, RuleContext};
 
@@ -11,7 +11,7 @@ fn check_sin_triple(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
             && let AstKind::Number(n) = &factors[0].kind
             && (*n - 3.0).abs() < eps
             && let AstKind::FunctionCall { name, args } = &factors[1].kind
-            && name.id() == *SIN
+            && name.id() == KS.sin
             && args.len() == 1
         {
             let x = &args[0];
@@ -19,7 +19,7 @@ fn check_sin_triple(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
                 && (coeff - 4.0).abs() < eps
             {
                 return Some(Expr::func_symbol(
-                    get_symbol(&SIN),
+                    get_symbol(KS.sin),
                     Expr::product(vec![Expr::number(3.0), (**x).clone()]),
                 ));
             }
@@ -35,7 +35,7 @@ fn check_sin_triple_add(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
         && let AstKind::Number(n) = &factors[0].kind
         && (*n - 3.0).abs() < eps
         && let AstKind::FunctionCall { name, args } = &factors[1].kind
-        && name.id() == *SIN
+        && name.id() == KS.sin
         && args.len() == 1
     {
         let x = &args[0];
@@ -44,7 +44,7 @@ fn check_sin_triple_add(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
             && (coeff - 4.0).abs() < eps
         {
             return Some(Expr::func_symbol(
-                get_symbol(&SIN),
+                get_symbol(KS.sin),
                 Expr::product(vec![Expr::number(3.0), (**x).clone()]),
             ));
         }
@@ -55,7 +55,7 @@ fn check_sin_triple_add(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
         && let AstKind::Number(n) = &factors[0].kind
         && (*n - 3.0).abs() < eps
         && let AstKind::FunctionCall { name, args } = &factors[1].kind
-        && name.id() == *SIN
+        && name.id() == KS.sin
         && args.len() == 1
     {
         let x = &args[0];
@@ -64,7 +64,7 @@ fn check_sin_triple_add(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
             && (coeff - 4.0).abs() < eps
         {
             return Some(Expr::func_symbol(
-                get_symbol(&SIN),
+                get_symbol(KS.sin),
                 Expr::product(vec![Expr::number(3.0), (**x).clone()]),
             ));
         }
@@ -81,7 +81,7 @@ fn check_cos_triple(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
         && let AstKind::Pow(base, exp) = &factors[1].kind
         && let AstKind::Number(e) = &exp.kind
         && let AstKind::FunctionCall { name, args } = &base.kind
-        && name.id() == *COS
+        && name.id() == KS.cos
         && args.len() == 1
     {
         // Exact check for cube exponent
@@ -95,7 +95,7 @@ fn check_cos_triple(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
             && (coeff - 3.0).abs() < eps
         {
             return Some(Expr::func_symbol(
-                get_symbol(&COS),
+                get_symbol(KS.cos),
                 Expr::product(vec![Expr::number(3.0), (**x).clone()]),
             ));
         }
@@ -112,7 +112,7 @@ fn check_cos_triple_add(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
         && let AstKind::Pow(base, exp) = &factors[1].kind
         && let AstKind::Number(e) = &exp.kind
         && let AstKind::FunctionCall { name, args } = &base.kind
-        && name.id() == *COS
+        && name.id() == KS.cos
         && args.len() == 1
     {
         // Exact check for cube exponent
@@ -127,7 +127,7 @@ fn check_cos_triple_add(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
             && (coeff - 3.0).abs() < eps
         {
             return Some(Expr::func_symbol(
-                get_symbol(&COS),
+                get_symbol(KS.cos),
                 Expr::product(vec![Expr::number(3.0), (**x).clone()]),
             ));
         }
@@ -140,7 +140,7 @@ fn check_cos_triple_add(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
         && let AstKind::Pow(base, exp) = &factors[1].kind
         && let AstKind::Number(e) = &exp.kind
         && let AstKind::FunctionCall { name, args } = &base.kind
-        && name.id() == *COS
+        && name.id() == KS.cos
         && args.len() == 1
     {
         // Exact check for cube exponent
@@ -155,7 +155,7 @@ fn check_cos_triple_add(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
             && (coeff - 3.0).abs() < eps
         {
             return Some(Expr::func_symbol(
-                get_symbol(&COS),
+                get_symbol(KS.cos),
                 Expr::product(vec![Expr::number(3.0), (**x).clone()]),
             ));
         }
@@ -171,7 +171,7 @@ fn extract_sin_cubed(expr: &Expr, x: &std::sync::Arc<Expr>, _eps: f64) -> Option
         && let AstKind::Pow(base, exp) = &factors[1].kind
         && let AstKind::Number(e) = &exp.kind
         && let AstKind::FunctionCall { name, args } = &base.kind
-        && name.id() == *SIN
+        && name.id() == KS.sin
         && args.len() == 1
         && &args[0] == x
     {
@@ -191,7 +191,7 @@ fn extract_cos(expr: &Expr, x: &std::sync::Arc<Expr>, _eps: f64) -> Option<(f64,
         && factors.len() == 2
         && let AstKind::Number(n) = &factors[0].kind
         && let AstKind::FunctionCall { name, args } = &factors[1].kind
-        && name.id() == *COS
+        && name.id() == KS.cos
         && args.len() == 1
         && &args[0] == x
     {
@@ -223,7 +223,7 @@ rule!(
 
                 // Check for sin triple angle: 3*sin(x) - 4*sin(x)^3
                 // terms should be [(1, 3.0), (3, -4.0)] or similar
-                if name.id() == *SIN && terms.len() == 2 {
+                if name.id() == KS.sin && terms.len() == 2 {
                     let mut has_linear_3 = false;
                     let mut has_cubic_neg4 = false;
 
@@ -237,7 +237,7 @@ rule!(
 
                     if has_linear_3 && has_cubic_neg4 {
                         return Some(Expr::func_symbol(
-                            get_symbol(&SIN),
+                            get_symbol(KS.sin),
                             Expr::product(vec![Expr::number(3.0), (**x).clone()]),
                         ));
                     }
@@ -245,7 +245,7 @@ rule!(
 
                 // Check for cos triple angle: 4*cos(x)^3 - 3*cos(x)
                 // terms should be [(1, -3.0), (3, 4.0)] or similar
-                if name.id() == *COS && terms.len() == 2 {
+                if name.id() == KS.cos && terms.len() == 2 {
                     let mut has_linear_neg3 = false;
                     let mut has_cubic_4 = false;
 
@@ -259,7 +259,7 @@ rule!(
 
                     if has_linear_neg3 && has_cubic_4 {
                         return Some(Expr::func_symbol(
-                            get_symbol(&COS),
+                            get_symbol(KS.cos),
                             Expr::product(vec![Expr::number(3.0), (**x).clone()]),
                         ));
                     }

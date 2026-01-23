@@ -1,5 +1,5 @@
 use crate::core::expr::{Expr, ExprKind as AstKind};
-use crate::core::known_symbols::{COS, COT, CSC, SEC, SIN, TAN, get_symbol};
+use crate::core::known_symbols::{KS, get_symbol};
 use crate::core::symbol::InternedSymbol;
 use crate::core::traits::EPSILON;
 use crate::simplification::rules::{ExprKind, Rule, RuleCategory, RuleContext};
@@ -43,8 +43,8 @@ rule_arc!(
                         args: cos_args,
                     },
                 ) = (&sin_base.kind, &cos_base.kind)
-                && sin_name.id() == *SIN
-                && cos_name.id() == *COS
+                && sin_name.id() == KS.sin
+                && cos_name.id() == KS.cos
                 && sin_args.len() == 1
                 && cos_args.len() == 1
                 && sin_args[0] == cos_args[0]
@@ -77,8 +77,8 @@ rule_arc!(
                         args: sin_args,
                     },
                 ) = (&cos_base.kind, &sin_base.kind)
-                && cos_name.id() == *COS
-                && sin_name.id() == *SIN
+                && cos_name.id() == KS.cos
+                && sin_name.id() == KS.sin
                 && cos_args.len() == 1
                 && sin_args.len() == 1
                 && cos_args[0] == sin_args[0]
@@ -144,18 +144,18 @@ rule_with_helpers_arc!(
                 && let Some(negated) = extract_negated(rhs)
             {
                 if let Some((name, arg)) = get_fn_pow_symbol_arc(&negated, 2.0)
-                    && name.id() == *COS
+                    && name.id() == KS.cos
                 {
                     return Some(Arc::new(Expr::pow_static(
-                        Expr::func_symbol(get_symbol(&SIN), arg.as_ref().clone()),
+                        Expr::func_symbol(get_symbol(KS.sin), arg.as_ref().clone()),
                         Expr::number(2.0),
                     )));
                 }
                 if let Some((name, arg)) = get_fn_pow_symbol_arc(&negated, 2.0)
-                    && name.id() == *SIN
+                    && name.id() == KS.sin
                 {
                     return Some(Arc::new(Expr::pow_static(
-                        Expr::func_symbol(get_symbol(&COS), arg.as_ref().clone()),
+                        Expr::func_symbol(get_symbol(KS.cos), arg.as_ref().clone()),
                         Expr::number(2.0),
                     )));
                 }
@@ -171,18 +171,18 @@ rule_with_helpers_arc!(
                 && let Some(negated) = extract_negated(lhs)
             {
                 if let Some((name, arg)) = get_fn_pow_symbol_arc(&negated, 2.0)
-                    && name.id() == *COS
+                    && name.id() == KS.cos
                 {
                     return Some(Arc::new(Expr::pow_static(
-                        Expr::func_symbol(get_symbol(&SIN), arg.as_ref().clone()),
+                        Expr::func_symbol(get_symbol(KS.sin), arg.as_ref().clone()),
                         Expr::number(2.0),
                     )));
                 }
                 if let Some((name, arg)) = get_fn_pow_symbol_arc(&negated, 2.0)
-                    && name.id() == *SIN
+                    && name.id() == KS.sin
                 {
                     return Some(Arc::new(Expr::pow_static(
-                        Expr::func_symbol(get_symbol(&COS), arg.as_ref().clone()),
+                        Expr::func_symbol(get_symbol(KS.cos), arg.as_ref().clone()),
                         Expr::number(2.0),
                     )));
                 }
@@ -228,7 +228,7 @@ rule_with_helpers_arc!(
 
             // tan^2(x) + 1 = sec^2(x)
             if let Some((name, arg)) = get_fn_pow_symbol_arc(lhs, 2.0)
-                && name.id() == *TAN
+                && name.id() == KS.tan
                 && {
                     // Exact check for constant 1.0
                     #[allow(clippy::float_cmp)] // Comparing against exact constant 1.0
@@ -237,7 +237,7 @@ rule_with_helpers_arc!(
                 }
             {
                 return Some(Arc::new(Expr::pow_static(
-                    Expr::func_symbol(get_symbol(&SEC), arg.as_ref().clone()),
+                    Expr::func_symbol(get_symbol(KS.sec), arg.as_ref().clone()),
                     Expr::number(2.0),
                 )));
             }
@@ -250,17 +250,17 @@ rule_with_helpers_arc!(
                 is_one
             }
                 && let Some((name, arg)) = get_fn_pow_symbol_arc(rhs, 2.0)
-                && name.id() == *TAN
+                && name.id() == KS.tan
             {
                 return Some(Arc::new(Expr::pow_static(
-                    Expr::func_symbol(get_symbol(&SEC), arg.as_ref().clone()),
+                    Expr::func_symbol(get_symbol(KS.sec), arg.as_ref().clone()),
                     Expr::number(2.0),
                 )));
             }
 
             // cot^2(x) + 1 = csc^2(x)
             if let Some((name, arg)) = get_fn_pow_symbol_arc(lhs, 2.0)
-                && name.id() == *COT
+                && name.id() == KS.cot
                 && {
                     // Exact check for constant 1.0
                     #[allow(clippy::float_cmp)] // Comparing against exact constant 1.0
@@ -269,7 +269,7 @@ rule_with_helpers_arc!(
                 }
             {
                 return Some(Arc::new(Expr::pow_static(
-                    Expr::func_symbol(get_symbol(&CSC), arg.as_ref().clone()),
+                    Expr::func_symbol(get_symbol(KS.csc), arg.as_ref().clone()),
                     Expr::number(2.0),
                 )));
             }
@@ -282,10 +282,10 @@ rule_with_helpers_arc!(
                 is_one
             }
                 && let Some((name, arg)) = get_fn_pow_symbol_arc(rhs, 2.0)
-                && name.id() == *COT
+                && name.id() == KS.cot
             {
                 return Some(Arc::new(Expr::pow_static(
-                    Expr::func_symbol(get_symbol(&CSC), arg.as_ref().clone()),
+                    Expr::func_symbol(get_symbol(KS.csc), arg.as_ref().clone()),
                     Expr::number(2.0),
                 )));
             }

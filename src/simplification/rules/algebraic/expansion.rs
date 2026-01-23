@@ -1,4 +1,4 @@
-use crate::core::known_symbols::{CBRT, SQRT};
+use crate::core::known_symbols::KS;
 use crate::core::traits::EPSILON;
 use crate::simplification::rules::{ExprKind, Rule, RuleCategory, RuleContext};
 use crate::{Expr, ExprKind as AstKind};
@@ -96,7 +96,7 @@ rule!(
                         }
                     }
                     AstKind::FunctionCall { name, .. } => {
-                        (name.id() == *SQRT || name.id() == *CBRT) && *n >= 2.0
+                        (name.id() == KS.sqrt || name.id() == KS.cbrt) && *n >= 2.0
                     }
                     AstKind::Number(_) => true,
                     _ => false,
@@ -143,13 +143,13 @@ rule!(
                             }
                         }
                         AstKind::FunctionCall { name, .. } => {
-                            (name.id() == *SQRT || name.id() == *CBRT) && *n >= 2.0
+                            (name.id() == KS.sqrt || name.id() == KS.cbrt) && *n >= 2.0
                         }
                         AstKind::Number(_) => true,
                         AstKind::Product(factors) => factors.iter().any(|f| match &f.kind {
                             AstKind::Number(_) => true,
                             AstKind::FunctionCall { name, .. } => {
-                                name.id() == *SQRT || name.id() == *CBRT
+                                name.id() == KS.sqrt || name.id() == KS.cbrt
                             }
                             AstKind::Pow(_, inner_exp) => {
                                 if let AstKind::Number(inner_n) = &inner_exp.kind {

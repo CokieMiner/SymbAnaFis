@@ -9,7 +9,7 @@ use crate::{Expr, ExprKind};
 /// Trigonometric pattern matching utilities
 pub mod trigonometric {
     use super::{Expr, ExprKind};
-    use crate::core::known_symbols::{COS, COT, CSC, SEC, SIN, TAN};
+    use crate::core::known_symbols::KS;
     use crate::core::symbol::InternedSymbol;
 
     /// Extract function name and argument if expression is a trig function
@@ -17,12 +17,12 @@ pub mod trigonometric {
         if let ExprKind::FunctionCall { name, args } = &expr.kind {
             if args.len() == 1 {
                 match name {
-                    n if n.id() == *SIN
-                        || n.id() == *COS
-                        || n.id() == *TAN
-                        || n.id() == *COT
-                        || n.id() == *SEC
-                        || n.id() == *CSC =>
+                    n if n.id() == KS.sin
+                        || n.id() == KS.cos
+                        || n.id() == KS.tan
+                        || n.id() == KS.cot
+                        || n.id() == KS.sec
+                        || n.id() == KS.csc =>
                     {
                         Some((name.clone(), (*args[0]).clone()))
                     }

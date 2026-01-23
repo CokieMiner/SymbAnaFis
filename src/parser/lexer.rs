@@ -503,7 +503,7 @@ fn resolve_sequence<S: std::hash::BuildHasher>(
     }
 
     // Priority 1.5: Check for known constants (pi, e)
-    if seq == "pi" || seq == "e" {
+    if crate::core::known_symbols::is_known_constant(seq) {
         return vec![Token::Identifier(seq.to_owned())];
     }
 

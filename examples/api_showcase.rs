@@ -26,10 +26,10 @@ use symb_anafis::{
 };
 
 fn main() {
-    println!("================================================================");
+    println!("====================================================================");
     println!("|          SYMB ANAFIS: COMPLETE API SHOWCASE (Rust)               |");
     println!("|          Symbolic Differentiation Library                        |");
-    println!("=======================================================================\n");
+    println!("====================================================================\n");
 
     // Following API_REFERENCE.md structure
     section_quick_start();
@@ -69,7 +69,7 @@ fn main() {
 fn section_quick_start() {
     println!("================================================================");
     println!("1. QUICK START");
-    println!("=======================================================================\n");
+    println!("================================================================\n");
 
     // 1.1 Differentiation
     println!("  1.1 Differentiation");

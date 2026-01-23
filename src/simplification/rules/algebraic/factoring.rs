@@ -1,4 +1,4 @@
-use crate::core::known_symbols::{CBRT, SQRT};
+use crate::core::known_symbols::KS;
 use crate::core::poly::Polynomial;
 use crate::core::traits::EPSILON;
 use crate::simplification::rules::{ExprKind, Rule, RuleCategory, RuleContext};
@@ -66,9 +66,9 @@ impl Rule for FractionCancellationRule {
                     AstKind::Pow(b, exp) => (Arc::clone(b), Arc::clone(exp)),
                     AstKind::FunctionCall { name, args } if args.len() == 1 => {
                         // Use ID validation via known_symbols
-                        if name.id() == *SQRT {
+                        if name.id() == KS.sqrt {
                             (Arc::clone(&args[0]), Arc::new(Expr::number(0.5)))
-                        } else if name.id() == *CBRT {
+                        } else if name.id() == KS.cbrt {
                             (
                                 Arc::clone(&args[0]),
                                 Arc::new(Expr::div_expr(Expr::number(1.0), Expr::number(3.0))),

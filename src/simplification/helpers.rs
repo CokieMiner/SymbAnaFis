@@ -3,8 +3,7 @@
 //! Provides expression manipulation utilities: flattening, normalization,
 //! coefficient extraction, root prettification, and like-term grouping.
 
-use crate::core::known_symbols::{ABS, COSH, EXP, PI as PI_SYM, SQRT};
-
+use crate::core::known_symbols as ks;
 use crate::core::traits::EPSILON;
 use crate::{Expr, ExprKind};
 use std::sync::Arc;
@@ -47,7 +46,7 @@ pub fn is_multiple_of_two_pi(expr: &Expr) -> bool {
         for f in factors {
             match &f.kind {
                 ExprKind::Number(n) => num_coeff = Some(num_coeff.unwrap_or(1.0) * n),
-                ExprKind::Symbol(s) if s.id() == *PI_SYM => has_pi = true,
+                ExprKind::Symbol(s) if s.id() == ks::KS.pi => has_pi = true,
                 _ => return false,
             }
         }
@@ -66,7 +65,7 @@ pub fn is_pi(expr: &Expr) -> bool {
     }
     // Check symbolic pi
     if let ExprKind::Symbol(s) = &expr.kind {
-        return s.id() == *PI_SYM;
+        return s.id() == ks::KS.pi;
     }
     false
 }
@@ -92,7 +91,7 @@ pub fn is_three_pi_over_two(expr: &Expr) -> bool {
                     has_three = true;
                 }
                 if let ExprKind::Symbol(s) = &f.kind
-                    && s.id() == *PI_SYM
+                    && s.id() == ks::KS.pi
                 {
                     has_pi = true;
                 }
@@ -417,16 +416,16 @@ pub fn is_known_non_negative(expr: &Expr) -> bool {
 
         // abs(x) is always non-negative
         ExprKind::FunctionCall { name, args } if args.len() == 1 => {
-            if name.id() == *ABS {
+            if name.id() == ks::KS.abs {
                 return true;
             }
-            if name.id() == *EXP {
+            if name.id() == ks::KS.exp {
                 return true;
             }
-            if name.id() == *COSH {
+            if name.id() == ks::KS.cosh {
                 return true;
             }
-            if name.id() == *SQRT {
+            if name.id() == ks::KS.sqrt {
                 return is_known_non_negative(&args[0]);
             }
             false

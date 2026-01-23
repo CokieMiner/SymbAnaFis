@@ -15,7 +15,7 @@
 //!
 //! The simplification engine then handles any remaining optimization opportunities.
 
-use crate::core::known_symbols::{EXP, LN, get_symbol};
+use crate::core::known_symbols as ks;
 use crate::core::unified_context::Context;
 use crate::{Expr, ExprKind};
 use std::sync::Arc;
@@ -73,10 +73,10 @@ impl Expr {
                 }
 
                 // Special handling for exponential function e^x
-                if name.id() == *EXP && args.len() == 1 {
+                if name.id() == ks::KS.exp && args.len() == 1 {
                     let inner_deriv = args[0].derive(var, Some(ctx));
                     return Self::product(vec![
-                        Self::func_symbol(get_symbol(&EXP), (*args[0]).clone()),
+                        Self::func_symbol(ks::get_symbol(ks::KS.exp), (*args[0]).clone()),
                         inner_deriv,
                     ]);
                 }
@@ -312,7 +312,7 @@ impl Expr {
                         Self::number(0.0)
                     } else {
                         let a_pow_v = Self::pow_from_arcs(Arc::clone(u), Arc::clone(v));
-                        let ln_a = Self::func_symbol(get_symbol(&LN), (**u).clone());
+                        let ln_a = Self::func_symbol(ks::get_symbol(ks::KS.ln), (**u).clone());
 
                         if v_prime.is_one_num() {
                             Self::mul_expr(a_pow_v, ln_a)
@@ -325,7 +325,7 @@ impl Expr {
                     let u_prime = u.derive(var, Some(ctx));
                     let v_prime = v.derive(var, Some(ctx));
 
-                    let ln_u = Self::func_symbol(get_symbol(&LN), (**u).clone());
+                    let ln_u = Self::func_symbol(ks::get_symbol(ks::KS.ln), (**u).clone());
 
                     // Term 1: v' * ln(u)
                     let term1 = if v_prime.is_zero_num() {
@@ -445,10 +445,10 @@ mod tests {
         let expr = Expr::func("sinh", Expr::symbol("x"));
         let result = expr.derive("x", None);
         match result.kind {
-            ExprKind::FunctionCall { name, .. } => assert_eq!(name.as_str(), "cosh"),
+            ExprKind::FunctionCall { name, .. } => assert_eq!(name.id(), ks::KS.cosh),
             ExprKind::Product(factors) => {
                 let has_cosh = factors.iter().any(
-                    |f| matches!(&f.kind, ExprKind::FunctionCall { name, .. } if name.as_str() == "cosh"),
+                    |f| matches!(&f.kind, ExprKind::FunctionCall { name, .. } if name.id() == ks::KS.cosh),
                 );
                 assert!(has_cosh, "Expected cosh in Product, got {factors:?}");
             }

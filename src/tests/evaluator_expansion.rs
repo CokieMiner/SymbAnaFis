@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::Expr;
-    use crate::core::known_symbols::get_symbol;
+    use crate::core::known_symbols as ks;
     use crate::evaluator::CompiledEvaluator;
     use crate::parser;
     use std::collections::HashSet;
@@ -53,7 +53,7 @@ mod tests {
     fn test_atan2() {
         let evaluator = CompiledEvaluator::compile_auto(
             &Expr::func_multi_from_arcs_symbol(
-                get_symbol(&crate::core::known_symbols::ATAN2),
+                ks::get_symbol(ks::KS.atan2),
                 vec![
                     Arc::new(Expr::number(1.0)), // y
                     Arc::new(Expr::number(0.0)), // x (y/x -> +infinity -> pi/2)

@@ -1,5 +1,5 @@
 use crate::core::expr::{Expr, ExprKind as AstKind};
-use crate::core::known_symbols::{COSH, COTH, CSCH, SECH, SINH, TANH, get_symbol};
+use crate::core::known_symbols::{KS, get_symbol};
 use crate::core::traits::EPSILON;
 use crate::simplification::rules::{ExprKind, Rule, RuleCategory, RuleContext};
 
@@ -19,13 +19,16 @@ rule!(
                 name: den_name,
                 args: den_args,
             } = &den.kind
-            && num_name.id() == *SINH
-            && den_name.id() == *COSH
+            && num_name.id() == KS.sinh
+            && den_name.id() == KS.cosh
             && num_args.len() == 1
             && den_args.len() == 1
             && num_args[0] == den_args[0]
         {
-            return Some(Expr::func_symbol(get_symbol(&TANH), (*num_args[0]).clone()));
+            return Some(Expr::func_symbol(
+                get_symbol(KS.tanh),
+                (*num_args[0]).clone(),
+            ));
         }
         None
     }
@@ -47,13 +50,16 @@ rule!(
                 name: den_name,
                 args: den_args,
             } = &den.kind
-            && num_name.id() == *COSH
-            && den_name.id() == *SINH
+            && num_name.id() == KS.cosh
+            && den_name.id() == KS.sinh
             && num_args.len() == 1
             && den_args.len() == 1
             && num_args[0] == den_args[0]
         {
-            return Some(Expr::func_symbol(get_symbol(&COTH), (*num_args[0]).clone()));
+            return Some(Expr::func_symbol(
+                get_symbol(KS.coth),
+                (*num_args[0]).clone(),
+            ));
         }
         None
     }
@@ -70,11 +76,11 @@ rule!(
             && let AstKind::Number(n) = &num.kind
             && (*n - 1.0).abs() < EPSILON
             && let AstKind::FunctionCall { name, args } = &den.kind
-            && name.id() == *COSH
+            && name.id() == KS.cosh
             && args.len() == 1
         {
             return Some(Expr::new(AstKind::FunctionCall {
-                name: get_symbol(&SECH),
+                name: get_symbol(KS.sech),
                 args: args.clone(),
             }));
         }
@@ -93,11 +99,11 @@ rule!(
             && let AstKind::Number(n) = &num.kind
             && (*n - 1.0).abs() < EPSILON
             && let AstKind::FunctionCall { name, args } = &den.kind
-            && name.id() == *SINH
+            && name.id() == KS.sinh
             && args.len() == 1
         {
             return Some(Expr::new(AstKind::FunctionCall {
-                name: get_symbol(&CSCH),
+                name: get_symbol(KS.csch),
                 args: args.clone(),
             }));
         }
@@ -116,11 +122,11 @@ rule!(
             && let AstKind::Number(n) = &num.kind
             && (*n - 1.0).abs() < EPSILON
             && let AstKind::FunctionCall { name, args } = &den.kind
-            && name.id() == *TANH
+            && name.id() == KS.tanh
             && args.len() == 1
         {
             return Some(Expr::new(AstKind::FunctionCall {
-                name: get_symbol(&COTH),
+                name: get_symbol(KS.coth),
                 args: args.clone(),
             }));
         }

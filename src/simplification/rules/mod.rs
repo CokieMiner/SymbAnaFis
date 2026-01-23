@@ -60,8 +60,8 @@ macro_rules! rule {
             fn applies_to(&self) -> &'static [ExprKind] {
                 $applies_to
             }
-            fn target_functions(&self) -> &'static [&'static str] {
-                $targets
+            fn target_functions(&self) -> Vec<u64> {
+                $targets.to_vec()
             }
             fn apply(
                 &self,
@@ -121,8 +121,8 @@ macro_rules! rule {
             fn applies_to(&self) -> &'static [ExprKind] {
                 $applies_to
             }
-            fn target_functions(&self) -> &'static [&'static str] {
-                $targets
+            fn target_functions(&self) -> Vec<u64> {
+                $targets.to_vec()
             }
             fn apply(
                 &self,
@@ -182,8 +182,8 @@ macro_rules! rule_arc {
             fn applies_to(&self) -> &'static [ExprKind] {
                 $applies_to
             }
-            fn target_functions(&self) -> &'static [&'static str] {
-                $targets
+            fn target_functions(&self) -> Vec<u64> {
+                $targets.to_vec()
             }
             fn apply(
                 &self,
@@ -243,8 +243,8 @@ macro_rules! rule_arc {
             fn applies_to(&self) -> &'static [ExprKind] {
                 $applies_to
             }
-            fn target_functions(&self) -> &'static [&'static str] {
-                $targets
+            fn target_functions(&self) -> Vec<u64> {
+                $targets.to_vec()
             }
             fn apply(
                 &self,
@@ -384,8 +384,8 @@ pub trait Rule {
     /// Optimized Dispatch: List of function names this rule targets.
     /// If non-empty, the rule is ONLY checked for `FunctionCall` nodes with these names.
     /// If empty, it is checked for ALL `FunctionCall` nodes (generic rules).
-    fn target_functions(&self) -> &'static [&'static str] {
-        &[]
+    fn target_functions(&self) -> Vec<u64> {
+        Vec::new()
     }
 
     /// Apply this rule to an expression. Returns `Some(new_expr)` if transformation applied.
@@ -555,10 +555,9 @@ impl RuleRegistry {
                     if targets.is_empty() {
                         self.generic_func_rules.push(Arc::clone(rule));
                     } else {
-                        for &fname in targets {
-                            let sym = crate::core::symbol::symb_interned(fname);
+                        for fid in targets {
                             self.rules_by_func
-                                .entry(sym.id())
+                                .entry(fid)
                                 .or_default()
                                 .push(Arc::clone(rule));
                         }

@@ -1,6 +1,6 @@
 use crate::Expr;
 use crate::ExprKind as AstKind;
-use crate::core::known_symbols::{CBRT, SQRT};
+use crate::core::known_symbols::KS;
 use crate::core::traits::EPSILON;
 use crate::simplification::rules::{ExprKind, Rule, RuleCategory, RuleContext};
 use std::sync::Arc;
@@ -479,7 +479,7 @@ rule!(
     &[ExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::FunctionCall { name, args } = &expr.kind
-            && name.id() == *SQRT
+            && name.id() == KS.sqrt
             && args.len() == 1
             && let AstKind::Number(n) = &args[0].kind
         {
@@ -500,7 +500,7 @@ rule!(
     &[ExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::FunctionCall { name, args } = &expr.kind
-            && name.id() == *CBRT
+            && name.id() == KS.cbrt
             && args.len() == 1
             && let AstKind::Number(n) = &args[0].kind
         {

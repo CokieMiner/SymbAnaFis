@@ -15,11 +15,7 @@
 //! - Lambert W: Corless et al. (1996) (W'(x) = W(x)/(x(1+W(x))))
 use super::registry::FunctionDefinition;
 use crate::Expr;
-use crate::core::known_symbols::{
-    ABS, ASSOC_LEGENDRE, BESSELI, BESSELJ, BESSELK, BESSELY, COS, COT, CSC, DIGAMMA, ELLIPTIC_E,
-    ELLIPTIC_K, EXP, EXP_POLAR, GAMMA, HERMITE, LAMBERTW, POLYGAMMA, SEC, SIGNUM, SIN,
-    SPHERICAL_HARMONIC, SQRT, TAN, TRIGAMMA, YNM, ZETA_DERIV, get_symbol,
-};
+use crate::core::known_symbols as ks;
 use std::sync::Arc;
 
 /// Return all function definitions for populating the registry
@@ -36,7 +32,7 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                 let u = Arc::clone(&args[0]);
                 let u_prime = arg_primes[0].clone();
                 Expr::mul_expr(
-                    Expr::func_multi_from_arcs_symbol(get_symbol(&COS), vec![u]),
+                    Expr::func_multi_from_arcs_symbol(ks::get_symbol(ks::KS.cos), vec![u]),
                     u_prime,
                 )
             },
@@ -50,7 +46,10 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                 let u = Arc::clone(&args[0]);
                 let u_prime = arg_primes[0].clone();
                 Expr::mul_expr(
-                    Expr::negate(Expr::func_multi_from_arcs_symbol(get_symbol(&SIN), vec![u])),
+                    Expr::negate(Expr::func_multi_from_arcs_symbol(
+                        ks::get_symbol(ks::KS.sin),
+                        vec![u],
+                    )),
                     u_prime,
                 )
             },
@@ -65,7 +64,7 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                 let u_prime = arg_primes[0].clone();
                 Expr::mul_expr(
                     Expr::pow(
-                        Expr::func_multi_from_arcs_symbol(get_symbol(&SEC), vec![u]),
+                        Expr::func_multi_from_arcs_symbol(ks::get_symbol(ks::KS.sec), vec![u]),
                         Expr::number(2.0),
                     ),
                     u_prime,
@@ -82,7 +81,7 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                 let u_prime = arg_primes[0].clone();
                 Expr::mul_expr(
                     Expr::negate(Expr::pow(
-                        Expr::func_multi_from_arcs_symbol(get_symbol(&CSC), vec![u]),
+                        Expr::func_multi_from_arcs_symbol(ks::get_symbol(ks::KS.csc), vec![u]),
                         Expr::number(2.0),
                     )),
                     u_prime,
@@ -99,8 +98,11 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                 let u_prime = arg_primes[0].clone();
                 Expr::mul_expr(
                     Expr::mul_expr(
-                        Expr::func_multi_from_arcs_symbol(get_symbol(&SEC), vec![Arc::clone(&u)]),
-                        Expr::func_multi_from_arcs_symbol(get_symbol(&TAN), vec![u]),
+                        Expr::func_multi_from_arcs_symbol(
+                            ks::get_symbol(ks::KS.sec),
+                            vec![Arc::clone(&u)],
+                        ),
+                        Expr::func_multi_from_arcs_symbol(ks::get_symbol(ks::KS.tan), vec![u]),
                     ),
                     u_prime,
                 )
@@ -116,8 +118,11 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                 let u_prime = arg_primes[0].clone();
                 Expr::mul_expr(
                     Expr::negate(Expr::mul_expr(
-                        Expr::func_multi_from_arcs_symbol(get_symbol(&CSC), vec![Arc::clone(&u)]),
-                        Expr::func_multi_from_arcs_symbol(get_symbol(&COT), vec![u]),
+                        Expr::func_multi_from_arcs_symbol(
+                            ks::get_symbol(ks::KS.csc),
+                            vec![Arc::clone(&u)],
+                        ),
+                        Expr::func_multi_from_arcs_symbol(ks::get_symbol(ks::KS.cot), vec![u]),
                     )),
                     u_prime,
                 )
@@ -136,7 +141,7 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                     Expr::div_expr(
                         Expr::number(1.0),
                         Expr::func_symbol(
-                            get_symbol(&SQRT),
+                            ks::get_symbol(ks::KS.sqrt),
                             Expr::sub_expr(
                                 Expr::number(1.0),
                                 Expr::pow_from_arcs(u, Arc::new(Expr::number(2.0))),
@@ -159,7 +164,7 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                     Expr::negate(Expr::div_expr(
                         Expr::number(1.0),
                         Expr::func_symbol(
-                            get_symbol(&SQRT),
+                            ks::get_symbol(ks::KS.sqrt),
                             Expr::sub_expr(
                                 Expr::number(1.0),
                                 Expr::pow_from_arcs(u, Arc::new(Expr::number(2.0))),
@@ -489,7 +494,7 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                         Expr::mul_from_arcs(vec![
                             Arc::clone(&u),
                             Arc::new(Expr::func_symbol(
-                                get_symbol(&SQRT),
+                                ks::get_symbol(ks::KS.sqrt),
                                 Expr::sub_expr(
                                     Expr::number(1.0),
                                     Expr::pow_from_arcs(u, Arc::new(Expr::number(2.0))),
@@ -520,11 +525,11 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                         Expr::number(1.0),
                         Expr::mul_from_arcs(vec![
                             Arc::new(Expr::func_multi_from_arcs_symbol(
-                                get_symbol(&ABS),
+                                ks::get_symbol(ks::KS.abs),
                                 vec![Arc::clone(&u)],
                             )),
                             Arc::new(Expr::func_symbol(
-                                get_symbol(&SQRT),
+                                ks::get_symbol(ks::KS.sqrt),
                                 Expr::add_expr(
                                     Expr::number(1.0),
                                     Expr::pow_from_arcs(u, Arc::new(Expr::number(2.0))),
@@ -546,7 +551,7 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                 let u = Arc::clone(&args[0]);
                 let u_prime = arg_primes[0].clone();
                 Expr::mul_expr(
-                    Expr::func_multi_from_arcs_symbol(get_symbol(&EXP), vec![u]),
+                    Expr::func_multi_from_arcs_symbol(ks::get_symbol(ks::KS.exp), vec![u]),
                     u_prime,
                 )
             },
@@ -654,7 +659,7 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                         Expr::number(1.0),
                         Expr::mul_expr(
                             Expr::number(2.0),
-                            Expr::func_multi_from_arcs_symbol(get_symbol(&SQRT), vec![u]),
+                            Expr::func_multi_from_arcs_symbol(ks::get_symbol(ks::KS.sqrt), vec![u]),
                         ),
                     ),
                     u_prime,
@@ -694,7 +699,7 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                 let u = Arc::clone(&args[0]);
                 let u_prime = arg_primes[0].clone();
                 Expr::mul_expr(
-                    Expr::func_multi_from_arcs_symbol(get_symbol(&SIGNUM), vec![u]),
+                    Expr::func_multi_from_arcs_symbol(ks::get_symbol(ks::KS.signum), vec![u]),
                     u_prime,
                 )
             },
@@ -719,9 +724,12 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                 let pi = Expr::symbol("pi");
                 Expr::mul_expr(
                     Expr::mul_expr(
-                        Expr::div_expr(Expr::number(2.0), Expr::func_symbol(get_symbol(&SQRT), pi)),
+                        Expr::div_expr(
+                            Expr::number(2.0),
+                            Expr::func_symbol(ks::get_symbol(ks::KS.sqrt), pi),
+                        ),
                         Expr::func_symbol(
-                            get_symbol(&EXP),
+                            ks::get_symbol(ks::KS.exp),
                             Expr::negate(Expr::pow_from_arcs(u, Arc::new(Expr::number(2.0)))),
                         ),
                     ),
@@ -742,10 +750,10 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                     Expr::mul_expr(
                         Expr::div_expr(
                             Expr::number(-2.0),
-                            Expr::func_symbol(get_symbol(&SQRT), pi),
+                            Expr::func_symbol(ks::get_symbol(ks::KS.sqrt), pi),
                         ),
                         Expr::func_symbol(
-                            get_symbol(&EXP),
+                            ks::get_symbol(ks::KS.exp),
                             Expr::negate(Expr::pow_from_arcs(u, Arc::new(Expr::number(2.0)))),
                         ),
                     ),
@@ -763,8 +771,11 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                 let u_prime = arg_primes[0].clone();
                 Expr::mul_expr(
                     Expr::mul_expr(
-                        Expr::func_multi_from_arcs_symbol(get_symbol(&GAMMA), vec![Arc::clone(&u)]),
-                        Expr::func_multi_from_arcs_symbol(get_symbol(&DIGAMMA), vec![u]),
+                        Expr::func_multi_from_arcs_symbol(
+                            ks::get_symbol(ks::KS.gamma),
+                            vec![Arc::clone(&u)],
+                        ),
+                        Expr::func_multi_from_arcs_symbol(ks::get_symbol(ks::KS.digamma), vec![u]),
                     ),
                     u_prime,
                 )
@@ -778,7 +789,7 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                 let u = Arc::clone(&args[0]);
                 let u_prime = arg_primes[0].clone();
                 Expr::mul_expr(
-                    Expr::func_multi_from_arcs_symbol(get_symbol(&TRIGAMMA), vec![u]),
+                    Expr::func_multi_from_arcs_symbol(ks::get_symbol(ks::KS.trigamma), vec![u]),
                     u_prime,
                 )
             },
@@ -866,11 +877,11 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                     Expr::sum_from_arcs(vec![Arc::clone(&n), Arc::new(Expr::number(1.0))]);
 
                 let j_prev = Expr::func_multi_from_arcs_symbol(
-                    get_symbol(&BESSELJ),
+                    ks::get_symbol(ks::KS.besselj),
                     vec![Arc::new(n_minus_1), Arc::clone(&x)],
                 );
                 let j_next = Expr::func_multi_from_arcs_symbol(
-                    get_symbol(&BESSELJ),
+                    ks::get_symbol(ks::KS.besselj),
                     vec![Arc::new(n_plus_1), Arc::clone(&x)],
                 );
 
@@ -901,11 +912,11 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                     Expr::sum_from_arcs(vec![Arc::clone(&n), Arc::new(Expr::number(1.0))]);
 
                 let y_prev = Expr::func_multi_from_arcs_symbol(
-                    get_symbol(&BESSELY),
+                    ks::get_symbol(ks::KS.bessely),
                     vec![Arc::new(n_minus_1), Arc::clone(&x)],
                 );
                 let y_next = Expr::func_multi_from_arcs_symbol(
-                    get_symbol(&BESSELY),
+                    ks::get_symbol(ks::KS.bessely),
                     vec![Arc::new(n_plus_1), Arc::clone(&x)],
                 );
 
@@ -936,11 +947,11 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                     Expr::sum_from_arcs(vec![Arc::clone(&n), Arc::new(Expr::number(1.0))]);
 
                 let i_prev = Expr::func_multi_from_arcs_symbol(
-                    get_symbol(&BESSELI),
+                    ks::get_symbol(ks::KS.besseli),
                     vec![Arc::new(n_minus_1), Arc::clone(&x)],
                 );
                 let i_next = Expr::func_multi_from_arcs_symbol(
-                    get_symbol(&BESSELI),
+                    ks::get_symbol(ks::KS.besseli),
                     vec![Arc::new(n_plus_1), Arc::clone(&x)],
                 );
 
@@ -971,11 +982,11 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                     Expr::sum_from_arcs(vec![Arc::clone(&n), Arc::new(Expr::number(1.0))]);
 
                 let k_prev = Expr::func_multi_from_arcs_symbol(
-                    get_symbol(&BESSELK),
+                    ks::get_symbol(ks::KS.besselk),
                     vec![Arc::new(n_minus_1), Arc::clone(&x)],
                 );
                 let k_next = Expr::func_multi_from_arcs_symbol(
-                    get_symbol(&BESSELK),
+                    ks::get_symbol(ks::KS.besselk),
                     vec![Arc::new(n_plus_1), Arc::clone(&x)],
                 );
 
@@ -1003,7 +1014,7 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                 let n_plus_1 =
                     Expr::sum_from_arcs(vec![Arc::clone(&n), Arc::new(Expr::number(1.0))]);
                 let derivative = Expr::func_multi_from_arcs_symbol(
-                    get_symbol(&POLYGAMMA),
+                    ks::get_symbol(ks::KS.polygamma),
                     vec![Arc::new(n_plus_1), Arc::clone(&x)],
                 );
 
@@ -1029,12 +1040,15 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                     Expr::sub_expr(
                         Expr::mul_from_arcs(vec![
                             Arc::new(Expr::func_multi_from_arcs_symbol(
-                                get_symbol(&COS),
+                                ks::get_symbol(ks::KS.cos),
                                 vec![Arc::clone(&u)],
                             )),
                             Arc::clone(&u),
                         ]),
-                        Expr::func_multi_from_arcs_symbol(get_symbol(&SIN), vec![Arc::clone(&u)]),
+                        Expr::func_multi_from_arcs_symbol(
+                            ks::get_symbol(ks::KS.sin),
+                            vec![Arc::clone(&u)],
+                        ),
                     ),
                     Expr::pow_from_arcs(Arc::clone(&u), Arc::new(Expr::number(2.0))),
                 );
@@ -1049,8 +1063,10 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                 // d/dx W(u) = W(u) / (u(1+W(u))) * u'
                 let u = Arc::clone(&args[0]);
                 let u_prime = arg_primes[0].clone();
-                let w =
-                    Expr::func_multi_from_arcs_symbol(get_symbol(&LAMBERTW), vec![Arc::clone(&u)]);
+                let w = Expr::func_multi_from_arcs_symbol(
+                    ks::get_symbol(ks::KS.lambertw),
+                    vec![Arc::clone(&u)],
+                );
                 Expr::mul_expr(
                     Expr::div_expr(
                         w.clone(),
@@ -1101,11 +1117,11 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                 let k = Arc::clone(&args[0]);
                 let k_prime = arg_primes[0].clone();
                 let big_k = Expr::func_multi_from_arcs_symbol(
-                    get_symbol(&ELLIPTIC_K),
+                    ks::get_symbol(ks::KS.elliptic_k),
                     vec![Arc::clone(&k)],
                 );
                 let big_e = Expr::func_multi_from_arcs_symbol(
-                    get_symbol(&ELLIPTIC_E),
+                    ks::get_symbol(ks::KS.elliptic_e),
                     vec![Arc::clone(&k)],
                 );
 
@@ -1126,7 +1142,7 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                 let s_prime = arg_primes[0].clone();
                 // We use "zeta_deriv" with order 1
                 let zp = Expr::func_multi_from_arcs_symbol(
-                    get_symbol(&ZETA_DERIV),
+                    ks::get_symbol(ks::KS.zeta_deriv),
                     vec![Arc::new(Expr::number(1.0)), Arc::clone(&s)],
                 );
                 Expr::mul_expr(zp, s_prime)
@@ -1178,7 +1194,7 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                 let n_minus_1 =
                     Expr::sum_from_arcs(vec![Arc::clone(&n), Arc::new(Expr::number(-1.0))]);
                 let h_prev = Expr::func_multi_from_arcs_symbol(
-                    get_symbol(&HERMITE),
+                    ks::get_symbol(ks::KS.hermite),
                     vec![Arc::new(n_minus_1), Arc::clone(&x)],
                 );
 
@@ -1205,7 +1221,7 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                 let term1 = Expr::mul_expr(
                     Expr::mul_from_arcs(vec![Arc::clone(&l), Arc::clone(&x)]),
                     Expr::func_multi_from_arcs_symbol(
-                        get_symbol(&ASSOC_LEGENDRE),
+                        ks::get_symbol(ks::KS.assoc_legendre),
                         vec![Arc::clone(&l), Arc::clone(&m), Arc::clone(&x)],
                     ),
                 );
@@ -1216,7 +1232,7 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                 let term2 = Expr::mul_expr(
                     l_plus_m,
                     Expr::func_multi_from_arcs_symbol(
-                        get_symbol(&ASSOC_LEGENDRE),
+                        ks::get_symbol(ks::KS.assoc_legendre),
                         vec![Arc::new(l_minus_1), Arc::clone(&m), Arc::clone(&x)],
                     ),
                 );
@@ -1254,7 +1270,7 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
 
                 // Y chain rule
                 let y_expr = Expr::func_multi_from_arcs_symbol(
-                    get_symbol(&SPHERICAL_HARMONIC),
+                    ks::get_symbol(ks::KS.spherical_harmonic),
                     vec![
                         Arc::clone(&l),
                         Arc::clone(&m),
@@ -1270,26 +1286,30 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                         Arc::new(Expr::number(-1.0)),
                         Arc::clone(&m),
                     ])),
-                    Arc::new(Expr::func_symbol(get_symbol(&TAN), m_phi)),
+                    Arc::new(Expr::func_symbol(ks::get_symbol(ks::KS.tan), m_phi)),
                     Arc::new(y_expr.clone()),
                 ]);
                 let term_phi = Expr::mul_expr(term_phi_part, phi_prime);
 
                 // 2. d/dtheta contribution:
                 // derived as: Y * [ l*cot(theta) - (l+m)/sin(theta) * (P_{l-1}/P) ] * theta'
-                let cos_theta =
-                    Expr::func_multi_from_arcs_symbol(get_symbol(&COS), vec![Arc::clone(&theta)]);
-                let sin_theta =
-                    Expr::func_multi_from_arcs_symbol(get_symbol(&SIN), vec![Arc::clone(&theta)]);
+                let cos_theta = Expr::func_multi_from_arcs_symbol(
+                    ks::get_symbol(ks::KS.cos),
+                    vec![Arc::clone(&theta)],
+                );
+                let sin_theta = Expr::func_multi_from_arcs_symbol(
+                    ks::get_symbol(ks::KS.sin),
+                    vec![Arc::clone(&theta)],
+                );
                 let l_minus_1 =
                     Expr::sum_from_arcs(vec![Arc::clone(&l), Arc::new(Expr::number(-1.0))]);
 
                 let p_expr = Expr::func_multi_from_arcs_symbol(
-                    get_symbol(&ASSOC_LEGENDRE),
+                    ks::get_symbol(ks::KS.assoc_legendre),
                     vec![Arc::clone(&l), Arc::clone(&m), Arc::new(cos_theta.clone())],
                 );
                 let p_prev = Expr::func_multi_from_arcs_symbol(
-                    get_symbol(&ASSOC_LEGENDRE),
+                    ks::get_symbol(ks::KS.assoc_legendre),
                     vec![Arc::new(l_minus_1), Arc::clone(&m), Arc::new(cos_theta)],
                 );
 
@@ -1298,7 +1318,7 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                     Expr::mul_from_arcs(vec![
                         Arc::clone(&l),
                         Arc::new(Expr::func_multi_from_arcs_symbol(
-                            get_symbol(&COT),
+                            ks::get_symbol(ks::KS.cot),
                             vec![Arc::clone(&theta)],
                         )),
                     ]),
@@ -1324,7 +1344,7 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                 let u = Arc::clone(&args[0]);
                 let u_prime = arg_primes[0].clone();
                 let deriv = Expr::func_multi_from_arcs_symbol(
-                    get_symbol(&POLYGAMMA),
+                    ks::get_symbol(ks::KS.polygamma),
                     vec![Arc::new(Expr::number(3.0)), Arc::clone(&u)],
                 );
                 Expr::mul_expr(deriv, u_prime)
@@ -1351,7 +1371,7 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                 let phi_prime = arg_primes[3].clone();
 
                 let y_expr = Expr::func_multi_from_arcs_symbol(
-                    get_symbol(&YNM),
+                    ks::get_symbol(ks::KS.ynm),
                     vec![
                         Arc::clone(&l),
                         Arc::clone(&m),
@@ -1375,20 +1395,24 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                 );
 
                 // d/dtheta
-                let cos_theta =
-                    Expr::func_multi_from_arcs_symbol(get_symbol(&COS), vec![Arc::clone(&theta)]);
-                let sin_theta =
-                    Expr::func_multi_from_arcs_symbol(get_symbol(&SIN), vec![Arc::clone(&theta)]);
+                let cos_theta = Expr::func_multi_from_arcs_symbol(
+                    ks::get_symbol(ks::KS.cos),
+                    vec![Arc::clone(&theta)],
+                );
+                let sin_theta = Expr::func_multi_from_arcs_symbol(
+                    ks::get_symbol(ks::KS.sin),
+                    vec![Arc::clone(&theta)],
+                );
                 let l_minus_1 =
                     Expr::sum_from_arcs(vec![Arc::clone(&l), Arc::new(Expr::number(-1.0))]);
 
                 let cos_theta_arc = Arc::new(cos_theta);
                 let p_expr = Expr::func_multi_from_arcs_symbol(
-                    get_symbol(&ASSOC_LEGENDRE),
+                    ks::get_symbol(ks::KS.assoc_legendre),
                     vec![Arc::clone(&l), Arc::clone(&m), Arc::clone(&cos_theta_arc)],
                 );
                 let p_prev = Expr::func_multi_from_arcs_symbol(
-                    get_symbol(&ASSOC_LEGENDRE),
+                    ks::get_symbol(ks::KS.assoc_legendre),
                     vec![
                         Arc::new(l_minus_1),
                         Arc::clone(&m),
@@ -1423,7 +1447,10 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                 let x_prime = arg_primes[0].clone();
                 // d/dx exp_polar(x) = exp_polar(x)
                 Expr::mul_expr(
-                    Expr::func_multi_from_arcs_symbol(get_symbol(&EXP_POLAR), vec![Arc::clone(&x)]),
+                    Expr::func_multi_from_arcs_symbol(
+                        ks::get_symbol(ks::KS.exp_polar),
+                        vec![Arc::clone(&x)],
+                    ),
                     x_prime,
                 )
             },

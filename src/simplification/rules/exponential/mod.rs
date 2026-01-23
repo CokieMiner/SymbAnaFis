@@ -1,5 +1,5 @@
 use crate::core::expr::{Expr, ExprKind as AstKind};
-use crate::core::known_symbols::{CBRT, COSH, E, EXP, LN, LOG, LOG2, LOG10, SQRT, get_symbol};
+use crate::core::known_symbols::{KS, get_symbol};
 use crate::core::traits::EPSILON;
 use crate::simplification::rules::{ExprKind, Rule, RuleCategory, RuleContext};
 use std::sync::Arc;
@@ -10,10 +10,10 @@ rule!(
     95,
     Exponential,
     &[ExprKind::Function],
-    targets: &["ln"],
+    targets: &[KS.ln],
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::FunctionCall { name, args } = &expr.kind
-            && name.id() == *LN
+            && name.id() == KS.ln
             && args.len() == 1
         {
             #[allow(clippy::float_cmp)] // Comparing against exact constant 1.0
@@ -33,15 +33,15 @@ rule!(
     95,
     Exponential,
     &[ExprKind::Function],
-    targets: &["ln"],
+    targets: &[KS.ln],
     |expr: &Expr, context: &RuleContext| {
         if let AstKind::FunctionCall { name, args } = &expr.kind
-            && name.id() == *LN
+            && name.id() == KS.ln
             && args.len() == 1
         {
             // Check for ln(exp(1))
             let is_exp_one = if let AstKind::FunctionCall { name: exp_name, args: exp_args } = &args[0].kind
-                && exp_name.id() == *EXP && exp_args.len() == 1
+                && exp_name.id() == KS.exp && exp_args.len() == 1
             {
                 if let AstKind::Number(n) = &exp_args[0].kind {
                     #[allow(clippy::float_cmp)] // Comparing against exact constant 1.0
@@ -59,7 +59,7 @@ rule!(
             }
             // Check for ln(e) where e is a symbol (and not a user-defined variable)
             if let AstKind::Symbol(s) = &args[0].kind
-                && s.id() == *E
+                && s.id() == KS.e
                 && !context.known_symbols.contains("e")
             {
                 return Some(Expr::number(1.0));
@@ -75,10 +75,10 @@ rule!(
     95,
     Exponential,
     &[ExprKind::Function],
-    targets: &["exp"],
+    targets: &[KS.exp],
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::FunctionCall { name, args } = &expr.kind
-            && name.id() == *EXP
+            && name.id() == KS.exp
             && args.len() == 1
         {
             #[allow(clippy::float_cmp)] // Comparing against exact constant 0.0
@@ -92,15 +92,15 @@ rule!(
     }
 );
 
-rule!(ExpLnIdentityRule, "exp_ln_identity", 90, Exponential, &[ExprKind::Function], alters_domain: true, targets: &["exp"], |expr: &Expr, _context: &RuleContext| {
+rule!(ExpLnIdentityRule, "exp_ln_identity", 90, Exponential, &[ExprKind::Function], alters_domain: true, targets: &[KS.exp], |expr: &Expr, _context: &RuleContext| {
     if let AstKind::FunctionCall { name, args } = &expr.kind
-        && name.id() == *EXP
+        && name.id() == KS.exp
         && args.len() == 1
         && let AstKind::FunctionCall {
             name: inner_name,
             args: inner_args,
         } = &args[0].kind
-        && inner_name.id() == *LN
+        && inner_name.id() == KS.ln
         && inner_args.len() == 1
     {
         return Some((*inner_args[0]).clone());
@@ -108,9 +108,9 @@ rule!(ExpLnIdentityRule, "exp_ln_identity", 90, Exponential, &[ExprKind::Functio
     None
 });
 
-rule!(LnExpIdentityRule, "ln_exp_identity", 90, Exponential, &[ExprKind::Function], alters_domain: true, targets: &["ln"], |expr: &Expr, _context: &RuleContext| {
+rule!(LnExpIdentityRule, "ln_exp_identity", 90, Exponential, &[ExprKind::Function], alters_domain: true, targets: &[KS.ln], |expr: &Expr, _context: &RuleContext| {
     if let AstKind::FunctionCall { name, args } = &expr.kind
-        && name.id() == *LN
+        && name.id() == KS.ln
         && args.len() == 1
     {
         // Check for ln(exp(x))
@@ -118,7 +118,7 @@ rule!(LnExpIdentityRule, "ln_exp_identity", 90, Exponential, &[ExprKind::Functio
             name: inner_name,
             args: inner_args,
         } = &args[0].kind
-            && inner_name.id() == *EXP
+            && inner_name.id() == KS.exp
             && inner_args.len() == 1
         {
             return Some((*inner_args[0]).clone());
@@ -126,7 +126,7 @@ rule!(LnExpIdentityRule, "ln_exp_identity", 90, Exponential, &[ExprKind::Functio
         // Check for ln(e^x)
         if let AstKind::Pow(base, exp) = &args[0].kind
             && let AstKind::Symbol(b) = &base.kind
-            && b.id() == *E
+            && b.id() == KS.e
         {
             return Some((**exp).clone());
         }
@@ -140,10 +140,10 @@ rule!(
     90,
     Exponential,
     &[ExprKind::Function],
-    targets: &["ln", "log10", "log2", "log"],
+    targets: &[KS.ln, KS.log10, KS.log2, KS.log],
     |expr: &Expr, context: &RuleContext| {
         if let AstKind::FunctionCall { name, args } = &expr.kind
-            && (name.id() == *LN || name.id() == *LOG10 || name.id() == *LOG2 || name.id() == *LOG)
+            && (name.id() == KS.ln || name.id() == KS.log10 || name.id() == KS.log2 || name.id() == KS.log)
         {
             let content = if args.len() == 1 {
                 &args[0]
@@ -178,7 +178,7 @@ rule!(
                         if context.domain_safe {
                             let is_positive = matches!(&base.kind,
                                 AstKind::FunctionCall { name: fn_name, .. }
-                                if fn_name.id() == *EXP || fn_name.id() == *COSH
+                                if fn_name.id() == KS.exp || fn_name.id() == KS.cosh
                             );
                             if !is_positive {
                                 return None;
@@ -215,7 +215,7 @@ rule!(
                 args: inner_args,
             } = &content.kind
             {
-                if inner_name.id() == *SQRT && inner_args.len() == 1 {
+                if inner_name.id() == KS.sqrt && inner_args.len() == 1 {
                     if context.domain_safe {
                         return None;
                     }
@@ -229,7 +229,7 @@ rule!(
                     ]));
                 }
                 // log(cbrt(x)) = (1/3) * log(x)
-                if inner_name.id() == *CBRT && inner_args.len() == 1 {
+                if inner_name.id() == KS.cbrt && inner_args.len() == 1 {
                     if context.domain_safe {
                         return None;
                     }
@@ -254,11 +254,11 @@ rule!(
     95,
     Exponential,
     &[ExprKind::Function],
-    targets: &["log10", "log2", "log"],
+    targets: &[KS.log10, KS.log2, KS.log],
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::FunctionCall { name, args } = &expr.kind {
             if args.len() == 1 {
-                if name.id() == *LOG10 {
+                if name.id() == KS.log10 {
                     #[allow(clippy::float_cmp)] // Comparing against exact constant 1.0
                     let is_one = matches!(&args[0].kind, AstKind::Number(n) if *n == 1.0);
                     if is_one {
@@ -269,7 +269,7 @@ rule!(
                     if is_ten {
                         return Some(Expr::number(1.0));
                     }
-                } else if name.id() == *LOG2 {
+                } else if name.id() == KS.log2 {
                     #[allow(clippy::float_cmp)] // Comparing against exact constant 1.0
                     let is_one = matches!(&args[0].kind, AstKind::Number(n) if *n == 1.0);
                     if is_one {
@@ -281,7 +281,7 @@ rule!(
                         return Some(Expr::number(1.0));
                     }
                 }
-            } else if args.len() == 2 && name.id() == *LOG {
+            } else if args.len() == 2 && name.id() == KS.log {
                 // log(base, 1) = 0
                 #[allow(clippy::float_cmp)] // Comparing against exact constant 1.0
                 let is_one = matches!(&args[1].kind, AstKind::Number(n) if *n == 1.0);
@@ -304,10 +304,10 @@ rule!(
     95,
     Exponential,
     &[ExprKind::Function],
-    targets: &["exp"],
+    targets: &[KS.exp],
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::FunctionCall { name, args } = &expr.kind
-            && name.id() == *EXP
+            && name.id() == KS.exp
             && args.len() == 1
         {
             return Some(Expr::pow_from_arcs(Arc::new(Expr::symbol("e")), Arc::clone(&args[0])));
@@ -319,7 +319,7 @@ rule!(
 /// Helper function to extract ln argument
 fn get_ln_arg(expr: &Expr) -> Option<Expr> {
     if let AstKind::FunctionCall { name, args } = &expr.kind
-        && name.id() == *LN
+        && name.id() == KS.ln
         && args.len() == 1
     {
         return Some((*args[0]).clone());
@@ -340,7 +340,7 @@ rule_with_helpers!(LogCombinationRule, "log_combination", 85, Exponential, &[Exp
                 // ln(a) + ln(b) = ln(a * b)
                 if let (Some(arg1), Some(arg2)) = (get_ln_arg(u), get_ln_arg(v)) {
                     return Some(Expr::func_symbol(
-                        get_symbol(&LN),
+                        get_symbol(KS.ln),
                         Expr::product(vec![arg1, arg2]),
                     ));
                 }
@@ -353,7 +353,7 @@ rule_with_helpers!(LogCombinationRule, "log_combination", 85, Exponential, &[Exp
                             && (*n + 1.0).abs() < EPSILON
                                 && let (Some(arg1), Some(arg2)) = (get_ln_arg(u), get_ln_arg(&factors[1])) {
                                     return Some(Expr::func_symbol(
-                                        get_symbol(&LN),
+                                        get_symbol(KS.ln),
                                         Expr::div_expr(arg1, arg2),
                                     ));
                                 }
