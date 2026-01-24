@@ -20,6 +20,15 @@ All notable changes to symb_anafis will be documented in this file.
 - **LaTeX Display**: Improved LaTeX output with operator precedence and special symbol formatting (e.g., `\exp`, `\ln`).
 - **Python Bindings**: Improved `__eq__` implementations and clarified docstrings regarding type-preserving behavior.
 - **Renames**: Renamed `perfect_square` -> `perfect_square_factoring` and `perfect_cube` -> `perfect_cube_factoring`.
+- **Evaluator Performance Optimizations**: 
+  - Increased inline stack/cache sizes (32→48 elements, 16→32 slots) for better coverage of complex expressions.
+  - Switched to `MaybeUninit` arrays to avoid zero-initialization overhead ("zero tax").
+  - Introduced raw pointer arithmetic for stack operations to eliminate bounds checks in hot path.
+  - Pre-loaded instruction and constant slices to reduce indirection.
+  - Optimized `Square` instruction to use in-place multiplication (`*=`) instead of temporary variables.
+  - Inlined additional mathematical functions in batch evaluation to reduce function call overhead.
+  - Reordered match arms in execution paths to prioritize hot instructions (arithmetic first).
+  - Changed parameter mapping from `HashMap` to `Vec` for faster linear search in compilation.
 
 ### Fixed
 - **Derivative Edge Cases**: Improved fast-path for `x^0` and graceful handling of empty argument lists.

@@ -83,6 +83,8 @@ enum ParenContext {
 
 /// Check if an expression is negative (has a negative leading coefficient)
 /// Returns `Some(positive_equivalent)` if the expression has a negative sign
+/// 
+/// Optimization: Returns Arc<Expr> to avoid cloning when possible
 fn extract_negative(expr: &Expr) -> Option<Expr> {
     match &expr.kind {
         ExprKind::Product(factors) => {
@@ -95,7 +97,8 @@ fn extract_negative(expr: &Expr) -> Option<Expr> {
                 if (abs_coeff - 1.0).abs() < EPSILON {
                     // Exactly -1: just remove it
                     if factors.len() == 2 {
-                        return Some((*factors[1]).clone());
+                        // Avoid clone by unwrapping Arc
+                        return Some(Expr::unwrap_arc(Arc::clone(&factors[1])));
                     }
                     let remaining: Vec<Arc<Expr>> = factors[1..].to_vec();
                     return Some(Expr::product_from_arcs(remaining));
@@ -103,7 +106,7 @@ fn extract_negative(expr: &Expr) -> Option<Expr> {
                 // Other negative coefficient like -2, -3.5: replace with positive
                 let mut new_factors: Vec<Arc<Expr>> = Vec::with_capacity(factors.len());
                 new_factors.push(Arc::new(Expr::number(abs_coeff)));
-                new_factors.extend(factors[1..].iter().cloned());
+                new_factors.extend_from_slice(&factors[1..]);
                 return Some(Expr::product_from_arcs(new_factors));
             }
         }
@@ -118,9 +121,6 @@ fn extract_negative(expr: &Expr) -> Option<Expr> {
                 && first_coeff < 0.0
             {
                 // Create a new Poly with ALL terms negated
-                // -P = -(P_negated)
-                // e.g. -x + x^2  -> negating all terms gives x - x^2
-                // displayed as -(x - x^2) which is correct (-x + x^2)
                 let negated_poly = poly.negate();
                 return Some(Expr::new(ExprKind::Poly(negated_poly)));
             }

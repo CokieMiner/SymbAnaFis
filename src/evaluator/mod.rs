@@ -152,17 +152,17 @@ impl ToParamName for &Symbol {
 #[derive(Clone)]
 pub struct CompiledEvaluator {
     /// Bytecode instructions (immutable after compilation)
-    pub instructions: Arc<[Instruction]>,
+    pub instructions: Box<[Instruction]>,
     /// Required stack depth for evaluation
     pub stack_size: usize,
     /// Parameter names in order (for mapping `HashMap` → array)
-    pub param_names: Arc<[String]>,
+    pub param_names: Box<[String]>,
     /// Number of parameters expected
     pub param_count: usize,
     /// Number of CSE cache slots required
     pub cache_size: usize,
     /// Constant pool for numeric literals
-    pub constants: Arc<[f64]>,
+    pub constants: Box<[f64]>,
 }
 
 impl CompiledEvaluator {
@@ -232,12 +232,12 @@ impl CompiledEvaluator {
         let optimized_instructions = Self::optimize_instructions(instructions);
 
         Ok(Self {
-            instructions: optimized_instructions.into(),
+            instructions: optimized_instructions.into_boxed_slice(),
             stack_size: max_stack,
-            param_names: param_names.into_iter().collect(),
+            param_names: param_names.into_boxed_slice(),
             param_count,
             cache_size,
-            constants: constants.into(),
+            constants: constants.into_boxed_slice(),
         })
     }
 

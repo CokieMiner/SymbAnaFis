@@ -100,7 +100,8 @@ pub fn register_in_id_registry(id: u64, interned: InternedSymbol) {
     #[allow(clippy::cast_possible_truncation)]
     let idx = id as usize;
     if guard.len() <= idx {
-        let new_len = idx + 32;
+        // Use exponential growth strategy for better amortized performance
+        let new_len = (idx + 1).next_power_of_two().max(guard.len() * 2);
         guard.resize(new_len, None);
     }
 
@@ -204,7 +205,7 @@ pub fn symb_interned(name: &str) -> InternedSymbol {
         .write()
         .expect("Global symbol registry shard poisoned");
 
-    // Double-check after acquiring write lock
+    // Double-check after acquiring write lock (another thread may have inserted)
     if let Some(sym) = shard.name_to_symbol.get(name) {
         return sym.clone();
     }
@@ -212,12 +213,11 @@ pub fn symb_interned(name: &str) -> InternedSymbol {
     let interned = InternedSymbol::new_named(name);
     let id = interned.id();
 
-    // Establish valid state in ID registry before making it visible in Shard
+    // Register in both registries while holding the shard lock
     register_in_id_registry(id, interned.clone());
     shard
         .name_to_symbol
         .insert(name.to_owned(), interned.clone());
-    drop(shard); // Early drop to reduce contention
 
     interned
 }
@@ -295,7 +295,7 @@ pub fn symbol_count() -> usize {
         .sum()
 }
 
-/// Get a list of all registered symbol names
+/// Get a list of all registered symbol names (unsorted for performance)
 ///
 /// # Panics
 ///
@@ -309,6 +309,7 @@ pub fn symbol_names() -> Vec<String> {
             .expect("Global symbol registry shard poisoned");
         names.extend(shard.name_to_symbol.keys().cloned());
     }
-    names.sort();
+    // Removed sorting - caller can sort if needed
+    // This avoids O(n log n) cost for use cases that don't need ordering
     names
 }

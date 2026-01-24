@@ -34,6 +34,7 @@ use crate::core::symbol::InternedSymbol;
 use crate::core::unified_context::Context;
 use crate::{Expr, ExprKind};
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::sync::Arc;
 
 /// Maximum allowed stack depth to prevent deeply nested expressions from causing issues.
@@ -54,8 +55,8 @@ pub const MAX_STACK_DEPTH: usize = 1024;
 pub struct Compiler<'ctx> {
     /// Emitted bytecode instructions
     instructions: Vec<Instruction>,
-    /// Maps symbol ID → parameter index for variable lookup
-    param_map: HashMap<u64, usize>,
+    /// Parameter IDs in evaluation order for fast linear search
+    param_ids: Vec<u64>,
     /// Current stack depth during compilation
     current_stack: usize,
     /// Maximum stack depth seen during compilation
@@ -80,15 +81,9 @@ impl<'ctx> Compiler<'ctx> {
     /// * `param_ids` - Symbol IDs for each parameter, in evaluation order
     /// * `context` - Optional context for user function definitions
     pub fn new(param_ids: &[u64], context: Option<&'ctx Context>) -> Self {
-        let param_map: HashMap<u64, usize> = param_ids
-            .iter()
-            .enumerate()
-            .map(|(i, id)| (*id, i))
-            .collect();
-
         Self {
             instructions: Vec::with_capacity(64),
-            param_map,
+            param_ids: param_ids.to_vec(),
             current_stack: 0,
             max_stack: 0,
             function_context: context,
@@ -106,16 +101,18 @@ impl<'ctx> Compiler<'ctx> {
     #[inline]
     pub fn add_const(&mut self, val: f64) -> u32 {
         let bits = val.to_bits();
-        if let Some(&idx) = self.const_map.get(&bits) {
-            return idx;
+        match self.const_map.entry(bits) {
+            Entry::Occupied(o) => *o.get(),
+            Entry::Vacant(v) => {
+                // SAFETY: Constants pool size is bounded by expression complexity,
+                // which is limited by MAX_STACK_DEPTH. Realistically < 2^16 constants.
+                #[allow(clippy::cast_possible_truncation)]
+                let idx = self.constants.len() as u32;
+                self.constants.push(val);
+                v.insert(idx);
+                idx
+            }
         }
-        // SAFETY: Constants pool size is bounded by expression complexity,
-        // which is limited by MAX_STACK_DEPTH. Realistically < 2^16 constants.
-        #[allow(clippy::cast_possible_truncation)]
-        let idx = self.constants.len() as u32;
-        self.constants.push(val);
-        self.const_map.insert(bits, idx);
-        idx
     }
 
     /// Track a push operation, validating stack depth.
@@ -165,7 +162,7 @@ impl<'ctx> Compiler<'ctx> {
             self.instructions,
             self.constants,
             self.max_stack,
-            self.param_map.len(),
+            self.param_ids.len(),
             self.cache_size,
         )
     }
@@ -189,18 +186,18 @@ impl<'ctx> Compiler<'ctx> {
     /// - Power operations (often involve expensive `powf`)
     /// - Division (can involve NaN checks)
     /// - Large sums/products (3+ terms to amortize overhead)
-    pub const fn is_expensive(expr: &Expr) -> bool {
+    pub fn is_expensive(expr: &Expr) -> bool {
         match &expr.kind {
-            // Cache expensive ops
-            ExprKind::FunctionCall { .. } | ExprKind::Pow(..) | ExprKind::Div(..) => true,
+            ExprKind::FunctionCall { .. } | ExprKind::Div(..) => true,
+            ExprKind::Pow(_, exp) => {
+                // Integer powers (n in range [-16, 16]) are optimized to cheap Powi/Square/etc.
+                // We only cache if it's a non-integer power (likely using powf).
+                Self::try_eval_const(exp).is_none_or(|n| (n - n.round()).abs() > 1e-10)
+            }
 
-            // Cache larger sums/products (3+ terms for overhead balance)
-            ExprKind::Sum(terms) | ExprKind::Product(terms) => terms.len() >= 3,
+            // Cache larger sums/products (4+ terms to amortize Store/Load overhead)
+            ExprKind::Sum(terms) | ExprKind::Product(terms) => terms.len() >= 4,
 
-            // Everything else is not cached:
-            // - Number/Symbol: Trivial (just a load)
-            // - Poly: Optimized via Horner's method
-            // - Derivative: Should be simplified before evaluation
             _ => false,
         }
     }
@@ -329,7 +326,7 @@ impl<'ctx> Compiler<'ctx> {
                     let idx = self.add_const(value);
                     self.emit(Instruction::LoadConst(idx));
                     self.push()?;
-                } else if let Some(&idx) = self.param_map.get(&sym_id) {
+                } else if let Some(idx) = self.param_ids.iter().position(|&id| id == sym_id) {
                     // Truncation safe: param count bounded by realistic expression size
                     #[allow(clippy::cast_possible_truncation)]
                     self.emit(Instruction::LoadParam(idx as u32));
@@ -343,10 +340,11 @@ impl<'ctx> Compiler<'ctx> {
         }
 
         // CSE: Check if we've already compiled a structurally identical subexpression
+        // Track if we should cache after compiling (for single-pass CSE)
+        let cache_this = Self::is_expensive(expr);
+
         // Only check for expensive expressions to avoid HashMap overhead
-        if Self::is_expensive(expr)
-            && let Some(&slot) = self.cse_cache.get(&expr.hash)
-        {
+        if cache_this && let Some(&slot) = self.cse_cache.get(&expr.hash) {
             // Cache hit! Load from cache instead of recompiling
             // Truncation safe: cache slots bounded by expression complexity
             #[allow(clippy::cast_possible_truncation)]
@@ -362,9 +360,6 @@ impl<'ctx> Compiler<'ctx> {
             self.push()?;
             return Ok(());
         }
-
-        // Track if we should cache after compiling (for single-pass CSE)
-        let cache_this = Self::is_expensive(expr);
 
         match &expr.kind {
             // Already handled above - these are unreachable as an internal invariant
@@ -422,13 +417,56 @@ impl<'ctx> Compiler<'ctx> {
             self.emit(Instruction::LoadConst(idx));
             self.push()?;
         } else {
-            // Compile first term (Arc<Expr> auto-derefs to &Expr)
+            // Optimization: Detect patterns for MulAdd [a, b, c] -> a * b + c
+            // We look for any term that is a product.
+            let mut best_pattern = None;
+            for (i, term) in terms.iter().enumerate() {
+                match &term.kind {
+                    ExprKind::Product(factors) if factors.len() >= 2 => {
+                        best_pattern = Some(i);
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+
+            if let Some(idx) = best_pattern.filter(|_| terms.len() >= 2) {
+                let term = &terms[idx];
+                if let ExprKind::Product(factors) = &term.kind {
+                    // a * b * c + remainder -> (a * b) * c + remainder
+                    if factors.len() == 2 {
+                        self.compile_expr(&factors[0])?;
+                        self.compile_expr(&factors[1])?;
+                    } else {
+                        // Group: (factors[0..n-1]) * factors[n-1]
+                        let head = Expr::product_from_arcs(factors[0..factors.len() - 1].to_vec());
+                        self.compile_expr(&head)?;
+                        self.compile_expr(&factors[factors.len() - 1])?;
+                    }
+
+                    // Compile remainder
+                    let mut remainder = Vec::with_capacity(terms.len() - 1);
+                    for (i, t) in terms.iter().enumerate() {
+                        if i != idx {
+                            remainder.push(Arc::clone(t));
+                        }
+                    }
+                    self.compile_sum(&remainder)?;
+
+                    // Stack: [a, b, remainder_sum]
+                    self.emit(Instruction::MulAdd);
+                    self.pop();
+                    self.pop();
+                    return Ok(());
+                }
+            }
+
+            // Fallback to iterative addition
             self.compile_expr(&terms[0])?;
-            // Add remaining terms
             for term in &terms[1..] {
                 self.compile_expr(term)?;
                 self.emit(Instruction::Add);
-                self.pop(); // Two operands → one result
+                self.pop();
             }
         }
         Ok(())
@@ -440,35 +478,76 @@ impl<'ctx> Compiler<'ctx> {
             let idx = self.add_const(1.0);
             self.emit(Instruction::LoadConst(idx));
             self.push()?;
-        } else {
-            // Check for negation pattern: Product([-1, x]) = -x
-            // Exact comparison for -1.0 is mathematically intentional
-            #[allow(clippy::float_cmp)]
-            let is_neg_one = if factors.len() == 2 {
-                if let ExprKind::Number(n) = &factors[0].kind {
-                    *n == -1.0
-                } else {
-                    false
-                }
-            } else {
-                false
-            };
-            if is_neg_one {
+            return Ok(());
+        }
+
+        // Check for negation pattern: Product([-1, x]) = -x
+        // Exact comparison for -1.0 is mathematically intentional
+        #[allow(clippy::float_cmp)]
+        if factors.len() == 2 {
+            if Self::try_eval_const(&factors[0]) == Some(-1.0) {
                 self.compile_expr(&factors[1])?;
                 self.emit(Instruction::Neg);
                 return Ok(());
             }
-
-            // Compile first factor
-            self.compile_expr(&factors[0])?;
-            // Multiply remaining factors
-            for factor in &factors[1..] {
-                self.compile_expr(factor)?;
-                self.emit(Instruction::Mul);
-                self.pop();
+            if Self::try_eval_const(&factors[1]) == Some(-1.0) {
+                self.compile_expr(&factors[0])?;
+                self.emit(Instruction::Neg);
+                return Ok(());
             }
         }
+
+        // Group identical factors to use Square/Cube/Pow4
+        let mut grouped: Vec<(Arc<Expr>, usize)> = Vec::with_capacity(factors.len());
+        for factor in factors {
+            if let Some(existing) = grouped.iter_mut().find(|(e, _)| e == factor) {
+                existing.1 += 1;
+            } else {
+                grouped.push((Arc::clone(factor), 1));
+            }
+        }
+
+        // Compile first group
+        let (expr, count) = &grouped[0];
+        self.compile_expr_with_count(expr, *count)?;
+
+        // Multiply remaining groups
+        for (expr, count) in &grouped[1..] {
+            self.compile_expr_with_count(expr, *count)?;
+            self.emit(Instruction::Mul);
+            self.pop();
+        }
+
         Ok(())
+    }
+
+    /// Helper to compile an expression effectively raised to a small integer power.
+    fn compile_expr_with_count(&mut self, expr: &Expr, count: usize) -> Result<(), DiffError> {
+        match count {
+            1 => self.compile_expr(expr),
+            2 => {
+                self.compile_expr(expr)?;
+                self.emit(Instruction::Square);
+                Ok(())
+            }
+            3 => {
+                self.compile_expr(expr)?;
+                self.emit(Instruction::Cube);
+                Ok(())
+            }
+            4 => {
+                self.compile_expr(expr)?;
+                self.emit(Instruction::Pow4);
+                Ok(())
+            }
+            _ => {
+                self.compile_expr(expr)?;
+                // Truncation safe: we only group up to realistic powers
+                #[allow(clippy::cast_possible_truncation)]
+                self.emit(Instruction::Powi(count as i8));
+                Ok(())
+            }
+        }
     }
 
     /// Compile a division expression with removable singularity detection.
@@ -476,8 +555,9 @@ impl<'ctx> Compiler<'ctx> {
     /// Detects patterns like:
     /// - `E/E → 1` (handles `x/x`, `sin(x)/sin(x)`, etc.)
     /// - `sin(E)/E → sinc(E)` (handles removable singularity at 0)
+    /// - `E/C → E * (1/C)` (where C is a non-zero constant)
     fn compile_division(&mut self, num: &Expr, den: &Expr) -> Result<(), DiffError> {
-        // Pattern 1: E/E → 1 (handles x/x, sin(x)/sin(x), etc.)
+        // Pattern 1: E/E → 1 (handles x/x, sin(x)/sin(x)`, etc.)
         if num == den {
             let idx = self.add_const(1.0);
             self.emit(Instruction::LoadConst(idx));
@@ -487,13 +567,26 @@ impl<'ctx> Compiler<'ctx> {
 
         // Pattern 2: sin(E)/E → sinc(E) (already handles E=0 → 1)
         // args[0] is Arc<Expr>, *args[0] derefs to Expr, compare with *den
-        if let ExprKind::FunctionCall { name, args } = &num.kind
-            && name.as_str() == "sin"
-            && args.len() == 1
-            && args[0].as_ref() == den
-        {
-            self.compile_expr(den)?;
-            self.emit(Instruction::Sinc);
+        match &num.kind {
+            ExprKind::FunctionCall { name, args }
+                if name.id() == KS.sin && args.len() == 1 && args[0].as_ref() == den =>
+            {
+                self.compile_expr(den)?;
+                self.emit(Instruction::Sinc);
+                return Ok(());
+            }
+            _ => {}
+        }
+
+        // Optimization: E / C -> E * (1/C)
+        // Multiplication is generally faster than division on most CPUs
+        if let Some(val) = Self::try_eval_const(den).filter(|&v| v != 0.0) {
+            self.compile_expr(num)?;
+            let idx = self.add_const(1.0 / val);
+            self.emit(Instruction::LoadConst(idx));
+            self.push()?;
+            self.emit(Instruction::Mul);
+            self.pop();
             return Ok(());
         }
 
@@ -846,7 +939,7 @@ impl<'ctx> Compiler<'ctx> {
             let sym_id = s.id();
             match name {
                 _ if crate::core::known_symbols::is_known_constant(name) => None,
-                _ => self.param_map.get(&sym_id).copied(),
+                _ => self.param_ids.iter().position(|&id| id == sym_id),
             }
         } else {
             None
@@ -861,22 +954,28 @@ impl<'ctx> Compiler<'ctx> {
             let mut term_iter = sorted_terms.iter().skip(1).peekable();
 
             for pow in (0..max_pow).rev() {
-                // Multiply by x
+                // Optimized multiply-add using Horner's method:
+                // current = current * x + coeff
+
+                // Push x
                 // Truncation safe: param count bounded by realistic expression size
                 #[allow(clippy::cast_possible_truncation)]
                 self.emit(Instruction::LoadParam(idx as u32));
                 self.push()?;
-                self.emit(Instruction::Mul);
-                self.pop();
 
-                // Add coefficient if this power exists
-                if term_iter.peek().is_some_and(|(p, _)| *p == pow) {
-                    // SAFETY: peek() returned Some, so next() is guaranteed to return Some
-                    let (_, coeff) = term_iter.next().expect("unreachable: peek was Some");
-                    let const_idx = self.add_const(*coeff);
+                if let Some((_, coeff)) = term_iter.peek().filter(|t| t.0 == pow) {
+                    // We have a coefficient for this power: use MulAdd
+                    let const_val = *coeff;
+                    let const_idx = self.add_const(const_val);
                     self.emit(Instruction::LoadConst(const_idx));
                     self.push()?;
-                    self.emit(Instruction::Add);
+                    self.emit(Instruction::MulAdd);
+                    self.pop();
+                    self.pop();
+                    term_iter.next();
+                } else {
+                    // No coefficient: just Multiply
+                    self.emit(Instruction::Mul);
                     self.pop();
                 }
             }
@@ -998,6 +1097,71 @@ mod tests {
     }
 
     #[test]
+    fn test_compile_muladd() {
+        let expr = parse_expr("x * y + z");
+        let x_sym = crate::symb("x");
+        let y_sym = crate::symb("y");
+        let z_sym = crate::symb("z");
+        let param_ids = vec![x_sym.id(), y_sym.id(), z_sym.id()];
+
+        let mut compiler = Compiler::new(&param_ids, None);
+        compiler.compile_expr(&expr).expect("Should compile");
+
+        // Should find MulAdd instruction
+        assert!(
+            compiler
+                .instructions()
+                .iter()
+                .any(|i| matches!(i, Instruction::MulAdd))
+        );
+        assert_eq!(compiler.max_stack(), 3);
+    }
+
+    #[test]
+    fn test_compile_muladd_recursive() {
+        // (a * b) + (c * d) + e
+        let expr = parse_expr("a * b + c * d + e");
+        let a = crate::symb("a");
+        let b = crate::symb("b");
+        let c = crate::symb("c");
+        let d = crate::symb("d");
+        let e = crate::symb("e");
+        let param_ids = vec![a.id(), b.id(), c.id(), d.id(), e.id()];
+
+        let mut compiler = Compiler::new(&param_ids, None);
+        compiler.compile_expr(&expr).expect("Should compile");
+
+        // Should have 2 MulAdd instructions
+        let muladd_count = compiler
+            .instructions()
+            .iter()
+            .filter(|i| matches!(i, Instruction::MulAdd))
+            .count();
+        assert_eq!(muladd_count, 2);
+    }
+
+    #[test]
+    fn test_compile_polynomial_muladd() {
+        // 2*x^2 + 3*x + 1
+        let expr = parse_expr("2*x^2 + 3*x + 1");
+        let x = crate::symb("x");
+        let param_ids = vec![x.id()];
+
+        let mut compiler = Compiler::new(&param_ids, None);
+        compiler.compile_expr(&expr).expect("Should compile");
+
+        // Horner's method should use MulAdd
+        // (2 * x + 3) * x + 1
+        // -> MulAdd(2, x, 3), then MulAdd(prev, x, 1)
+        let muladd_count = compiler
+            .instructions()
+            .iter()
+            .filter(|i| matches!(i, Instruction::MulAdd))
+            .count();
+        assert!(muladd_count >= 1);
+    }
+
+    #[test]
     fn test_compile_simple() {
         let expr = parse_expr("x + 1");
         let x_sym = crate::symb("x");
@@ -1009,5 +1173,81 @@ mod tests {
         // Should have: LoadParam(0), LoadConst(0), Add
         assert!(compiler.instructions().len() >= 3);
         assert_eq!(compiler.max_stack(), 2); // Two values on stack at once
+    }
+
+    #[test]
+    fn test_compile_muladd_extended() {
+        // a * b * c + d should use MulAdd(a*b, c, d)
+        let expr = parse_expr("a * b * c + d");
+        let a = crate::symb("a");
+        let b = crate::symb("b");
+        let c = crate::symb("c");
+        let d = crate::symb("d");
+        let param_ids = vec![a.id(), b.id(), c.id(), d.id()];
+
+        let mut compiler = Compiler::new(&param_ids, None);
+        compiler.compile_expr(&expr).expect("Should compile");
+
+        assert!(
+            compiler
+                .instructions()
+                .iter()
+                .any(|i| matches!(i, Instruction::MulAdd))
+        );
+    }
+
+    #[test]
+    fn test_compile_div_const() {
+        // x / 2.0 should become x * 0.5
+        let expr = parse_expr("x / 2.0");
+        let x = crate::symb("x");
+        let param_ids = vec![x.id()];
+
+        let mut compiler = Compiler::new(&param_ids, None);
+        compiler.compile_expr(&expr).expect("Should compile");
+
+        // Should NOT find Div instruction
+        assert!(
+            !compiler
+                .instructions()
+                .iter()
+                .any(|i| matches!(i, Instruction::Div))
+        );
+        // Should find Mul instruction
+        assert!(
+            compiler
+                .instructions()
+                .iter()
+                .any(|i| matches!(i, Instruction::Mul))
+        );
+    }
+
+    #[test]
+    fn test_compile_product_dedup() {
+        // x * x should use Square
+        let expr = parse_expr("x * x");
+        let x = crate::symb("x");
+        let param_ids = vec![x.id()];
+
+        let mut compiler = Compiler::new(&param_ids, None);
+        compiler.compile_expr(&expr).expect("Should compile");
+
+        assert!(
+            compiler
+                .instructions()
+                .iter()
+                .any(|i| matches!(i, Instruction::Square))
+        );
+
+        // x * x * x should use Cube
+        let expr = parse_expr("x * x * x");
+        let mut compiler = Compiler::new(&param_ids, None);
+        compiler.compile_expr(&expr).expect("Should compile");
+        assert!(
+            compiler
+                .instructions()
+                .iter()
+                .any(|i| matches!(i, Instruction::Cube))
+        );
     }
 }

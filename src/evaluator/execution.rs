@@ -20,14 +20,14 @@ use super::stack;
 
 /// Size of the inline stack buffer (on CPU stack, not heap).
 ///
-/// 32 elements * 8 bytes = 256 bytes, fits comfortably in L1 cache.
+/// 48 elements * 8 bytes = 384 bytes, fits comfortably in L1 cache.
 /// Expressions with deeper stacks fall back to heap allocation.
-const INLINE_STACK_SIZE: usize = 32;
+const INLINE_STACK_SIZE: usize = 48;
 
 /// Size of the inline CSE cache buffer.
 ///
-/// 16 slots * 8 bytes = 128 bytes.
-const INLINE_CACHE_SIZE: usize = 16;
+/// 32 slots * 8 bytes = 256 bytes.
+const INLINE_CACHE_SIZE: usize = 32;
 
 impl CompiledEvaluator {
     /// Fast evaluation - no allocations in hot path, no tree traversal.
@@ -81,141 +81,169 @@ impl CompiledEvaluator {
     #[allow(clippy::too_many_lines)]
     #[inline]
     fn evaluate_inline(&self, params: &[f64]) -> f64 {
-        let mut inline_stack = [0.0_f64; INLINE_STACK_SIZE];
-        let mut inline_cache = [0.0_f64; INLINE_CACHE_SIZE];
+        use std::mem::MaybeUninit;
+
+        let mut inline_stack: [MaybeUninit<f64>; INLINE_STACK_SIZE] =
+            [MaybeUninit::uninit(); INLINE_STACK_SIZE];
+        let mut inline_cache: [MaybeUninit<f64>; INLINE_CACHE_SIZE] =
+            [MaybeUninit::uninit(); INLINE_CACHE_SIZE];
         let mut len = 0_usize;
 
-        for instr in self.instructions.iter() {
-            // SAFETY: All stack operations are bounds-checked at compile time by the Compiler.
-            // The compiler validates max_stack <= INLINE_STACK_SIZE before we reach this path.
-            // Debug builds will catch any bugs via assertions. Using get_unchecked for hot path.
+        // Use raw pointers for zero-overhead stack access
+        let stack_ptr = inline_stack.as_mut_ptr().cast::<f64>();
+        let cache_ptr = inline_cache.as_mut_ptr().cast::<f64>();
+
+        // Pre-load slices to avoid repeated indirection
+        let instrs = &*self.instructions;
+        let consts = &*self.constants;
+
+        for instr in instrs {
+            // SAFETY: Compiler ensures max_stack <= INLINE_STACK_SIZE and cache_size <= INLINE_CACHE_SIZE.
+            // Bytecode guarantees all reads are preceded by writes.
             unsafe {
                 match *instr {
+                    // Hot instructions first for better branch prediction
                     Instruction::LoadConst(c) => {
-                        *inline_stack.get_unchecked_mut(len) =
-                            *self.constants.get_unchecked(c as usize);
+                        stack_ptr
+                            .add(len)
+                            .write(*consts.get_unchecked(c as usize));
                         len += 1;
                     }
                     Instruction::LoadParam(p) => {
-                        *inline_stack.get_unchecked_mut(len) = *params.get_unchecked(p as usize);
+                        stack_ptr.add(len).write(*params.get_unchecked(p as usize));
                         len += 1;
                     }
                     Instruction::Add => {
                         len -= 1;
-                        *inline_stack.get_unchecked_mut(len - 1) +=
-                            *inline_stack.get_unchecked(len);
+                        let b = stack_ptr.add(len).read();
+                        let a_ptr = stack_ptr.add(len - 1);
+                        *a_ptr += b;
                     }
                     Instruction::Mul => {
                         len -= 1;
-                        *inline_stack.get_unchecked_mut(len - 1) *=
-                            *inline_stack.get_unchecked(len);
+                        let b = stack_ptr.add(len).read();
+                        let a_ptr = stack_ptr.add(len - 1);
+                        *a_ptr *= b;
                     }
                     Instruction::Div => {
                         len -= 1;
-                        *inline_stack.get_unchecked_mut(len - 1) /=
-                            *inline_stack.get_unchecked(len);
+                        let b = stack_ptr.add(len).read();
+                        let a_ptr = stack_ptr.add(len - 1);
+                        *a_ptr /= b;
                     }
                     Instruction::Pow => {
                         len -= 1;
-                        let base = *inline_stack.get_unchecked(len - 1);
-                        let exp = *inline_stack.get_unchecked(len);
-                        *inline_stack.get_unchecked_mut(len - 1) = base.powf(exp);
+                        let exp = stack_ptr.add(len).read();
+                        let base_ptr = stack_ptr.add(len - 1);
+                        *base_ptr = base_ptr.read().powf(exp);
                     }
                     Instruction::Neg => {
-                        let top = inline_stack.get_unchecked_mut(len - 1);
-                        *top = -*top;
-                    }
-                    Instruction::Sin => {
-                        let top = inline_stack.get_unchecked_mut(len - 1);
-                        *top = top.sin();
-                    }
-                    Instruction::Cos => {
-                        let top = inline_stack.get_unchecked_mut(len - 1);
-                        *top = top.cos();
-                    }
-                    Instruction::Tan => {
-                        let top = inline_stack.get_unchecked_mut(len - 1);
-                        *top = top.tan();
-                    }
-                    Instruction::Sqrt => {
-                        let top = inline_stack.get_unchecked_mut(len - 1);
-                        *top = top.sqrt();
-                    }
-                    Instruction::Exp => {
-                        let top = inline_stack.get_unchecked_mut(len - 1);
-                        *top = top.exp();
-                    }
-                    Instruction::Ln => {
-                        let top = inline_stack.get_unchecked_mut(len - 1);
-                        *top = top.ln();
-                    }
-                    Instruction::Abs => {
-                        let top = inline_stack.get_unchecked_mut(len - 1);
-                        *top = top.abs();
-                    }
-                    Instruction::Square => {
-                        let top = inline_stack.get_unchecked_mut(len - 1);
-                        *top = *top * *top;
-                    }
-                    Instruction::Cube => {
-                        let x = *inline_stack.get_unchecked(len - 1);
-                        *inline_stack.get_unchecked_mut(len - 1) = x * x * x;
-                    }
-                    Instruction::Pow4 => {
-                        let x = *inline_stack.get_unchecked(len - 1);
-                        let x2 = x * x;
-                        *inline_stack.get_unchecked_mut(len - 1) = x2 * x2;
-                    }
-                    Instruction::Recip => {
-                        let top = inline_stack.get_unchecked_mut(len - 1);
-                        *top = 1.0 / *top;
-                    }
-                    Instruction::Powi(n) => {
-                        let top = inline_stack.get_unchecked_mut(len - 1);
-                        *top = top.powi(i32::from(n));
-                    }
-                    Instruction::SinCos => {
-                        let x = *inline_stack.get_unchecked(len - 1);
-                        let (s, c) = x.sin_cos();
-                        *inline_stack.get_unchecked_mut(len - 1) = c;
-                        *inline_stack.get_unchecked_mut(len) = s;
-                        len += 1;
-                    }
-                    Instruction::MulAdd => {
-                        let c = *inline_stack.get_unchecked(len - 1);
-                        let b = *inline_stack.get_unchecked(len - 2);
-                        let a = *inline_stack.get_unchecked(len - 3);
-                        *inline_stack.get_unchecked_mut(len - 3) = a.mul_add(b, c);
-                        len -= 2;
-                    }
-                    Instruction::Sinh => {
-                        let top = inline_stack.get_unchecked_mut(len - 1);
-                        *top = top.sinh();
-                    }
-                    Instruction::Cosh => {
-                        let top = inline_stack.get_unchecked_mut(len - 1);
-                        *top = top.cosh();
-                    }
-                    Instruction::Tanh => {
-                        let top = inline_stack.get_unchecked_mut(len - 1);
-                        *top = top.tanh();
+                        let top_ptr = stack_ptr.add(len - 1);
+                        *top_ptr = -*top_ptr;
                     }
                     Instruction::Dup => {
-                        *inline_stack.get_unchecked_mut(len) = *inline_stack.get_unchecked(len - 1);
+                        let val = stack_ptr.add(len - 1).read();
+                        stack_ptr.add(len).write(val);
                         len += 1;
                     }
                     Instruction::StoreCached(slot) => {
-                        *inline_cache.get_unchecked_mut(slot as usize) =
-                            *inline_stack.get_unchecked(len - 1);
+                        cache_ptr
+                            .add(slot as usize)
+                            .write(stack_ptr.add(len - 1).read());
                     }
                     Instruction::LoadCached(slot) => {
-                        *inline_stack.get_unchecked_mut(len) =
-                            *inline_cache.get_unchecked(slot as usize);
+                        let val = cache_ptr.add(slot as usize).read();
+                        stack_ptr.add(len).write(val);
                         len += 1;
                     }
+
+                    // Common mathematical functions
+                    Instruction::Sin => {
+                        let top_ptr = stack_ptr.add(len - 1);
+                        *top_ptr = top_ptr.read().sin();
+                    }
+                    Instruction::Cos => {
+                        let top_ptr = stack_ptr.add(len - 1);
+                        *top_ptr = top_ptr.read().cos();
+                    }
+                    Instruction::Tan => {
+                        let top_ptr = stack_ptr.add(len - 1);
+                        *top_ptr = top_ptr.read().tan();
+                    }
+                    Instruction::Sqrt => {
+                        let top_ptr = stack_ptr.add(len - 1);
+                        *top_ptr = top_ptr.read().sqrt();
+                    }
+                    Instruction::Exp => {
+                        let top_ptr = stack_ptr.add(len - 1);
+                        *top_ptr = top_ptr.read().exp();
+                    }
+                    Instruction::Ln => {
+                        let top_ptr = stack_ptr.add(len - 1);
+                        *top_ptr = top_ptr.read().ln();
+                    }
+                    Instruction::Abs => {
+                        let top_ptr = stack_ptr.add(len - 1);
+                        *top_ptr = top_ptr.read().abs();
+                    }
+
+                    // Fused operations
+                    Instruction::Square => {
+                        let top_ptr = stack_ptr.add(len - 1);
+                        *top_ptr *= *top_ptr;
+                    }
+                    Instruction::Cube => {
+                        let top_ptr = stack_ptr.add(len - 1);
+                        let x = *top_ptr;
+                        *top_ptr = x * x * x;
+                    }
+                    Instruction::Pow4 => {
+                        let top_ptr = stack_ptr.add(len - 1);
+                        let x = *top_ptr;
+                        let x2 = x * x;
+                        *top_ptr = x2 * x2;
+                    }
+                    Instruction::Recip => {
+                        let top_ptr = stack_ptr.add(len - 1);
+                        *top_ptr = 1.0 / *top_ptr;
+                    }
+                    Instruction::Powi(n) => {
+                        let top_ptr = stack_ptr.add(len - 1);
+                        *top_ptr = top_ptr.read().powi(i32::from(n));
+                    }
+                    Instruction::SinCos => {
+                        let x = stack_ptr.add(len - 1).read();
+                        let (s, c) = x.sin_cos();
+                        stack_ptr.add(len - 1).write(c);
+                        stack_ptr.add(len).write(s);
+                        len += 1;
+                    }
+                    Instruction::MulAdd => {
+                        let c = stack_ptr.add(len - 1).read();
+                        let b = stack_ptr.add(len - 2).read();
+                        let a_ptr = stack_ptr.add(len - 3);
+                        *a_ptr = a_ptr.read().mul_add(b, c);
+                        len -= 2;
+                    }
+
+                    // Hyperbolic
+                    Instruction::Sinh => {
+                        let top_ptr = stack_ptr.add(len - 1);
+                        *top_ptr = top_ptr.read().sinh();
+                    }
+                    Instruction::Cosh => {
+                        let top_ptr = stack_ptr.add(len - 1);
+                        *top_ptr = top_ptr.read().cosh();
+                    }
+                    Instruction::Tanh => {
+                        let top_ptr = stack_ptr.add(len - 1);
+                        *top_ptr = top_ptr.read().tanh();
+                    }
+
                     _ => {
                         // Slow path: expression uses uncommon instructions
                         // Fall back to heap-allocated Vec evaluation
+                        // Re-create as Vec for the general path
                         let mut vec_stack: Vec<f64> = Vec::with_capacity(self.stack_size);
                         let mut vec_cache: Vec<f64> = vec![0.0; self.cache_size];
                         return self.evaluate_with_cache(params, &mut vec_stack, &mut vec_cache);
@@ -225,8 +253,8 @@ impl CompiledEvaluator {
         }
 
         if len > 0 {
-            // SAFETY: len > 0 guaranteed by check
-            unsafe { *inline_stack.get_unchecked(len - 1) }
+            // SAFETY: len > 0 guaranteed by completion of instructions
+            unsafe { stack_ptr.add(len - 1).read() }
         } else {
             f64::NAN
         }
@@ -252,8 +280,18 @@ impl CompiledEvaluator {
         stack.clear();
 
         let constants = &self.constants;
-        for instr in self.instructions.iter() {
+        for instr in &*self.instructions {
             match *instr {
+                // Hot instructions first
+                // SAFETY: Stack operations validated at compile time.
+                Instruction::Add => unsafe { stack::scalar_stack_binop_assign_add(stack) },
+                // SAFETY: Stack operations validated at compile time.
+                Instruction::Mul => unsafe { stack::scalar_stack_binop_assign_mul(stack) },
+                // SAFETY: Stack operations validated at compile time.
+                Instruction::Div => unsafe { stack::scalar_stack_binop_assign_div(stack) },
+                Instruction::LoadConst(idx) => stack.push(constants[idx as usize]),
+                Instruction::LoadParam(i) => stack.push(params[i as usize]),
+
                 // CSE instructions need cache access
                 Instruction::Dup => {
                     // SAFETY: Stack is non-empty after prior instructions pushed values.
@@ -312,16 +350,16 @@ pub(super) fn exec_instruction(
     params: &[f64],
 ) {
     match instr {
-        Instruction::LoadConst(idx) => stack.push(constants[idx as usize]),
-        Instruction::LoadParam(i) => stack.push(params[i as usize]),
-
-        // Binary operations
+        // Binary operations first (very common)
         Instruction::Add => unsafe { stack::scalar_stack_binop_assign_add(stack) },
         Instruction::Mul => unsafe { stack::scalar_stack_binop_assign_mul(stack) },
         Instruction::Div => unsafe { stack::scalar_stack_binop_assign_div(stack) },
         Instruction::Pow => unsafe {
             stack::scalar_stack_binop(stack, f64::powf);
         },
+
+        Instruction::LoadConst(idx) => stack.push(constants[idx as usize]),
+        Instruction::LoadParam(i) => stack.push(params[i as usize]),
 
         // Fused operations
         Instruction::Square => {
@@ -657,9 +695,7 @@ pub(super) fn exec_instruction(
             #[allow(clippy::cast_possible_truncation)]
             let m_int = m.round() as i32;
             *l = crate::math::eval_spherical_harmonic(l_int, m_int, theta, phi).unwrap_or(f64::NAN);
-        }
-
-        // CSE instructions should be handled by caller
+        } // CSE instructions should be handled by caller
         Instruction::Dup | Instruction::StoreCached(_) | Instruction::LoadCached(_) => {
             // These are handled in the main evaluation loop with cache access
             debug_assert!(false, "CSE instructions should be handled by caller");
