@@ -3,6 +3,8 @@
 =============================================
 SymPy vs SymEngine vs SymbAnaFis
 
+Adaptive Stepping: Step size = LR / (1 + ||grad||)
+
 Quad-View Dashboard:
 [ SymPy 3D ] [ SymEngine 3D ]
 [ SymbAnaFis 3D ] [ Performance Chart ]
@@ -158,10 +160,14 @@ def simulate(name, eval_fn, x0, y0):
         
         gx, gy = eval_fn(x, y)
         
-        np.multiply(gx, LR, out=gx)
+        # Adaptive stepping: step size inversely proportional to gradient norm
+        grad_norm = np.sqrt(gx**2 + gy**2)
+        step_size = LR / (1 + grad_norm)
+        
+        np.multiply(gx, step_size, out=gx)
         np.subtract(x, gx, out=x)
         
-        np.multiply(gy, LR, out=gy)
+        np.multiply(gy, step_size, out=gy)
         np.subtract(y, gy, out=y)
         
     run_time = time.perf_counter() - t0
