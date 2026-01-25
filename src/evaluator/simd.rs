@@ -1275,6 +1275,7 @@ impl CompiledEvaluator {
                 let top = top_mut(stack, *len);
                 *top = top.powi(n);
             }
+            // TODO: v0.8.0 Hierarchical Power Optimizations (Pow3_2, InvPow3_2, Root2k, Cbrt)
             Instruction::MulAdd => {
                 let c = pop(stack, len);
                 let b = pop(stack, len);

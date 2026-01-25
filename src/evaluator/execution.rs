@@ -209,6 +209,7 @@ impl CompiledEvaluator {
                         let top_ptr = stack_ptr.add(len - 1);
                         *top_ptr = top_ptr.read().powi(n);
                     }
+                    // TODO: v0.8.0 Hierarchical Power Optimizations (Pow3_2, InvPow3_2, Root2k, Cbrt)
                     Instruction::SinCos => {
                         let x = stack_ptr.add(len - 1).read();
                         let (s, c) = x.sin_cos();

@@ -612,6 +612,11 @@ impl<'ctx> Compiler<'ctx> {
     /// - `x^n` for small n → `Powi(n)`
     /// - `x^0.5 → Sqrt`
     /// - `x^-0.5 → Sqrt; Recip`
+    ///
+    /// TODO: v0.8.0 Hierarchical Power Optimizations:
+    /// 1. Use try_eval_const(exp) to detect rational exponents (e.g. 3/2).
+    /// 2. Implement Pow3_2 (1.5) and InvPow3_2 (-1.5) fused instructions.
+    /// 3. Implement Root2k(k) for successive hardware sqrts (e.g. x^1/4, x^1/8).
     fn compile_power(&mut self, base: &Expr, exp: &Expr) -> Result<(), DiffError> {
         // Check for fused instruction patterns with integer/half exponents
         if let ExprKind::Number(n) = &exp.kind {
