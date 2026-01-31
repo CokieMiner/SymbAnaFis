@@ -368,7 +368,8 @@ pub(crate) fn evaluate_parallel_with_hint(
 
             let n_vars = vars.len();
             if n_vars == 0 {
-                let result = expr.evaluate(&HashMap::new(), &HashMap::new());
+                let empty_vars: HashMap<&str, f64> = HashMap::new();
+                let result = expr.evaluate(&empty_vars, &HashMap::new());
                 return Ok(vec![if *was_string {
                     EvalResult::String(result.to_string())
                 } else {

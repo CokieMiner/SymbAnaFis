@@ -221,7 +221,8 @@ fn test_eval_log_two_arg_type_safe_api() {
 
     // Build log(2, 8) using type-safe API
     let log_expr = Expr::func_multi("log", vec![Expr::number(2.0), Expr::number(8.0)]);
-    let result = log_expr.evaluate(&HashMap::new(), &HashMap::new());
+    let vars: HashMap<&str, f64> = HashMap::new();
+    let result = log_expr.evaluate(&vars, &HashMap::new());
     if let ExprKind::Number(n) = result.kind {
         assert!(approx_eq(n, 3.0), "log(2, 8) should be 3.0, got {}", n);
     } else {
@@ -230,7 +231,7 @@ fn test_eval_log_two_arg_type_safe_api() {
 
     // Build log(10, 100) using type-safe API
     let log_expr = Expr::func_multi("log", vec![Expr::number(10.0), Expr::number(100.0)]);
-    let result = log_expr.evaluate(&HashMap::new(), &HashMap::new());
+    let result = log_expr.evaluate(&vars, &HashMap::new());
     if let ExprKind::Number(n) = result.kind {
         assert!(approx_eq(n, 2.0), "log(10, 100) should be 2.0, got {}", n);
     } else {
@@ -591,7 +592,7 @@ fn test_partial_evaluation() {
     let fixed_vars = HashSet::new();
     let custom_funcs = HashSet::new();
     let expr = parse("sin(x) + cos(0)", &fixed_vars, &custom_funcs, None).unwrap();
-    let vars = HashMap::new();
+    let vars: HashMap<&str, f64> = HashMap::new();
     // Don't provide x, only evaluate cos(0)
     let result = expr.evaluate(&vars, &HashMap::new());
 
@@ -607,7 +608,7 @@ fn test_unknown_function_preserved() {
     let mut custom_funcs = HashSet::new();
     custom_funcs.insert("my_custom_func".to_string()); // Register as custom function
     let expr = parse("my_custom_func(2, 3)", &fixed_vars, &custom_funcs, None).unwrap();
-    let vars = HashMap::new();
+    let vars: HashMap<&str, f64> = HashMap::new();
     let result = expr.evaluate(&vars, &HashMap::new());
 
     // The function call should be preserved (args evaluated to numbers, function name kept)

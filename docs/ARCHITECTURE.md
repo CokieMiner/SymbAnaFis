@@ -525,9 +525,19 @@ src/
 ├── lib.rs                    # Public API: diff(), simplify(), re-exports (6KB)
 ├── core/                     # Core types and utilities
 │   ├── mod.rs               # Re-exports
-│   ├── expr.rs              # Expr, ExprKind - core expression types (61KB)
-│   ├── symbol.rs            # InternedSymbol, Symbol - Copy symbols (58KB)
-│   ├── known_symbols.rs     # Pre-interned symbols for O(1) lookup
+│   ├── expr/                # Expr, ExprKind - core expression types
+│   │   ├── mod.rs           # Expr struct and ExprKind enum
+│   │   ├── constructors.rs  # Expression builders
+│   │   ├── evaluate.rs      # Tree-walking evaluation
+│   │   ├── hash.rs          # Structural hashing for CSE
+│   │   ├── ordering.rs      # Expression ordering
+│   │   └── analysis.rs      # Expression analysis utilities
+│   ├── symbol/              # InternedSymbol, Symbol - Copy symbols
+│   │   ├── mod.rs           # Symbol types
+│   │   ├── interned.rs      # Interning registry
+│   │   ├── registry.rs      # Global symbol management
+│   │   ├── operators.rs     # Symbol operations
+│   │   └── math_methods.rs  # Mathematical methods on symbols
 │   ├── evaluator/           # Modular bytecode evaluation system (v0.7.0)
 │   │   ├── mod.rs           # Public API: CompiledEvaluator (464 lines)
 │   │   ├── compiler.rs      # Bytecode compilation with CSE (941 lines)
@@ -541,7 +551,9 @@ src/
 │   ├── error.rs             # DiffError, Span - error types (14KB)
 │   ├── traits.rs            # MathScalar trait
 │   ├── poly.rs              # Univariate polynomial type (24KB)
-│   └── visitor.rs           # AST visitor pattern
+│   ├── visitor.rs           # AST visitor pattern
+│   ├── known_symbols.rs     # Pre-interned symbols for O(1) lookup
+│   └── analysis.rs          # Expression analysis utilities
 │
 ├── parser/                   # String → Expr
 │   ├── mod.rs               # parse() function
@@ -589,7 +601,20 @@ src/
 │   ├── mod.rs               # Feature gates
 │   ├── eval_f64.rs          # Fast f64 evaluation helper (6KB)
 │   ├── parallel.rs          # (parallel feature) Rayon batch evaluation (25KB)
-│   └── python.rs            # (python feature) PyO3 bindings (99KB)
+│   └── python/              # (python feature) PyO3 bindings
+│       ├── mod.rs           # Python module definition
+│       ├── expr.rs          # PyExpr wrapper
+│       ├── symbol.rs        # PySymbol wrapper
+│       ├── builder.rs       # Diff, Simplify builders
+│       ├── evaluator.rs     # CompiledEvaluator binding
+│       ├── functions.rs     # Core API functions
+│       ├── context.rs       # Context and FunctionContext
+│       ├── error.rs         # Error handling
+│       ├── dual.rs          # Dual numbers
+│       ├── parallel.rs      # Parallel evaluation
+│       ├── utilities.rs     # Symbol management utilities
+│       ├── visitor.rs       # AST visitor utilities
+│       └── eval_f64.rs      # Fast evaluation helpers
 │
 └── tests/                    # 65 test files (+22 integration tests at root)
 ```

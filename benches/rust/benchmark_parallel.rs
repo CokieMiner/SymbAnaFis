@@ -209,7 +209,7 @@ fn bench_multi_expr(c: &mut Criterion) {
         ("Trig", "sin(t) * cos(t)", "t"),
     ];
 
-    let n_points = 100000;
+    let n_points = 100_000;
 
     // Pre-differentiate and compile all expressions
     let mut diff_exprs = Vec::new();

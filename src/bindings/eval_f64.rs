@@ -65,7 +65,7 @@ pub fn eval_f64<V: ToParamName + Sync>(
 ///
 /// This is the high-performance core for numeric evaluation. It takes a
 /// compiled evaluator and writes results directly into an output buffer.
-pub(crate) fn run_chunked_evaluator(
+pub fn run_chunked_evaluator(
     evaluator: &CompiledEvaluator,
     columns: &[&[f64]],
     output: &mut [f64],
@@ -77,7 +77,7 @@ pub(crate) fn run_chunked_evaluator(
         if n_points == 0 {
             return Ok(());
         }
-    } else if columns.first().map_or(false, |c| c.len() != n_points) {
+    } else if columns.first().is_some_and(|c| c.len() != n_points) {
         return Err(DiffError::invalid_syntax(
             "Output buffer length must match data column length",
         ));

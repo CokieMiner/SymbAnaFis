@@ -43,7 +43,7 @@ let result = simplify("sin(x)^2 + cos(x)^2", &[], None)?;
 ```python
 import symb_anafis
 
-# diff() and simplify() now return Expr objects
+# diff() and simplify() return strings
 result = symb_anafis.diff("x^3 + sin(x)", "x")
 print(result)  # "3*x^2 + cos(x)"
 
@@ -179,7 +179,7 @@ diff("alpha * x^2", "x", &["alpha"], None)?;
 ```
 
 > [!NOTE]
-> **Python API:** `diff()` returns a `PyExpr` object. Membership checks like `"x" in result` should be performed on `str(result)`.
+> **Python API:** `diff()` returns a string.
 
 ### `simplify(formula, known_symbols, custom_functions)`
 
@@ -191,7 +191,7 @@ simplify("x + x + x", &[], None)?;
 ```
 
 > [!NOTE]
-> **Python API:** `simplify()` returns a `PyExpr` object. Both `diff()` and `simplify()` in Python support duck typing for the `formula` argument (accepts `str` or `Expr`).
+> **Python API:** `simplify()` returns a string. Both `diff()` and `simplify()` in Python accept a string `formula`.
 
 ### `parse(formula, known_symbols, custom_functions, context)`
 
@@ -323,6 +323,20 @@ println!("{}", expr.to_unicode());
 - Middle dot for multiplication: `·`
 - Infinity symbol: `∞`
 
+### Expression Introspection
+
+```python
+from symb_anafis import parse, count_nodes, collect_variables
+
+expr = parse("x^2 + sin(y) + z")
+
+# Count AST nodes
+node_count = count_nodes(expr)  # 7
+
+# Collect variable names
+vars = collect_variables(expr)  # {"x", "y", "z"}
+```
+
 ---
 
 ## Uncertainty Propagation
@@ -430,6 +444,20 @@ let rel = relative_uncertainty(&expr, &["x", "y"], None)?;
 ---
 
 ## Custom Functions
+
+### Function Context
+
+For parsing support of custom function names:
+
+```python
+from symb_anafis import FunctionContext, parse
+
+ctx = FunctionContext()
+ctx.register("my_func")
+
+# Now "my_func(x)" parses without error
+expr = parse("my_func(x) + 1", context=ctx)
+```
 
 ### Single-Argument Custom Derivatives
 
@@ -674,17 +702,17 @@ let grad = gradient(&expr, &[&x, &y]);  // Vec<Expr>
 ### Python API
 
 ```python
-from symb_anafis import gradient, hessian, jacobian
+from symb_anafis import gradient_str, hessian_str, jacobian_str
 
 # Gradient: [∂f/∂x, ∂f/∂y]
-grad = gradient("x^2 + y^2", ["x", "y"])
+grad = gradient_str("x^2 + y^2", ["x", "y"])
 # grad = ["2*x", "2*y"]
 
 # Hessian: [[∂²f/∂x², ∂²f/∂x∂y], ...]
-hess = hessian("x^2 * y", ["x", "y"])
+hess = hessian_str("x^2 * y", ["x", "y"])
 
 # Jacobian: [[∂f₁/∂x, ∂f₁/∂y], [∂f₂/∂x, ∂f₂/∂y]]
-jac = jacobian(["x^2 + y", "x * y"], ["x", "y"])
+jac = jacobian_str(["x^2 + y", "x * y"], ["x", "y"])
 ```
 
 ---

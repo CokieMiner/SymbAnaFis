@@ -10,7 +10,7 @@ const ABS_TOL: f64 = 1e-14; // Absolute tolerance near zero
 /// Helper to evaluate expression string
 fn eval(expr_str: &str) -> f64 {
     let expr = parse(expr_str, &HashSet::new(), &HashSet::new(), None).unwrap();
-    let vars = HashMap::new();
+    let vars: HashMap<&str, f64> = HashMap::new();
     match &expr.evaluate(&vars, &HashMap::new()).kind {
         ExprKind::Number(n) => *n,
         other => panic!("Expected number, got {:?}", other),

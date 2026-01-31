@@ -1,14 +1,61 @@
 //! Expression evaluation.
 //!
-//! Provides the `evaluate` method for partial/full numeric evaluation of expressions.
+//! Provides evaluation methods for partial/full numeric evaluation of expressions.
+//!
+//! ## Flexibility
+//! The `evaluate` method accepts any type implementing `VarLookup`, including:
+//! - `HashMap<&str, f64>` - string-based keys (convenient)
+//! - `FxHashMap<u64, f64>` - ID-based keys (fast, use `symbol.id()`)
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use super::{CustomEvalMap, Expr, ExprKind};
+use crate::core::symbol::InternedSymbol;
+
+/// Trait for variable value lookup during evaluation.
+///
+/// This abstraction allows `evaluate` to work with both string-based
+/// and ID-based variable maps without code duplication.
+pub trait VarLookup {
+    /// Look up the value for a symbol. Returns `None` if not found.
+    fn get_value(&self, symbol: &InternedSymbol) -> Option<f64>;
+}
+
+// String-based lookup (backward compatible, convenient)
+impl VarLookup for HashMap<&str, f64> {
+    #[inline]
+    fn get_value(&self, symbol: &InternedSymbol) -> Option<f64> {
+        symbol.name().and_then(|name| self.get(name).copied())
+    }
+}
+
+// ID-based lookup (fast, O(1) with FxHash)
+impl VarLookup for rustc_hash::FxHashMap<u64, f64> {
+    #[inline]
+    fn get_value(&self, symbol: &InternedSymbol) -> Option<f64> {
+        self.get(&symbol.id()).copied()
+    }
+}
+
+// Also support standard HashMap with u64 keys
+impl VarLookup for HashMap<u64, f64> {
+    #[inline]
+    fn get_value(&self, symbol: &InternedSymbol) -> Option<f64> {
+        self.get(&symbol.id()).copied()
+    }
+}
+
+// Support empty map (no variables)
+impl VarLookup for () {
+    #[inline]
+    fn get_value(&self, _symbol: &InternedSymbol) -> Option<f64> {
+        None
+    }
+}
 
 impl Expr {
-    /// Partially evaluate expression by substituting known variable values.
+    /// Evaluate expression by substituting known variable values.
     ///
     /// This substitutes numeric values for variables and evaluates any subexpressions
     /// that become fully numeric. Unknown variables are left as-is in the result.
@@ -17,48 +64,64 @@ impl Expr {
     /// Use [`as_number()`](Self::as_number) on the result to extract a numeric value if fully evaluated.
     ///
     /// # Arguments
-    /// * `vars` - Map of variable names to their numeric values
+    /// * `vars` - Any type implementing `VarLookup`:
+    ///   - `HashMap<&str, f64>` for string-based keys (convenient)
+    ///   - `FxHashMap<u64, f64>` for ID-based keys (faster, use `symbol.id()`)
     /// * `custom_evals` - Optional custom evaluation functions for user-defined functions
     ///
     /// # Panics
     /// Panics only if internal invariants are violated (never in normal use).
     ///
-    /// # Example
+    /// # Examples
+    ///
+    /// String-based (convenient):
     /// ```
     /// use symb_anafis::{symb, Expr};
     /// use std::collections::HashMap;
     ///
-    /// let x = symb("x");
-    /// let y = symb("y");
-    /// let expr = x + y;  // x + y
+    /// let x = symb("eval_x");
+    /// let y = symb("eval_y");
+    /// let expr = x + y;
     ///
-    /// // Partial evaluation: only x is known
     /// let mut vars = HashMap::new();
-    /// vars.insert("x", 3.0);
-    /// let result = expr.evaluate(&vars, &HashMap::new());  // 3 + y (still an Expr)
-    ///
-    /// // Full evaluation: both variables known
-    /// vars.insert("y", 2.0);
-    /// let result = expr.evaluate(&vars, &HashMap::new());  // 5.0 as Expr
+    /// vars.insert("eval_x", 3.0);
+    /// vars.insert("eval_y", 2.0);
+    /// let result = expr.evaluate(&vars, &HashMap::new());
     /// assert_eq!(result.as_number(), Some(5.0));
     /// ```
+    ///
+    /// ID-based (fast, for repeated evaluations):
+    /// ```
+    /// use symb_anafis::{symb, Expr};
+    /// use rustc_hash::FxHashMap;
+    /// use std::collections::HashMap;
+    ///
+    /// let x = symb("eval_id_x");
+    /// let y = symb("eval_id_y");
+    /// let expr = x.pow(2.0) + y;
+    ///
+    /// // Build ID map once, reuse for many evaluations
+    /// let mut vars: FxHashMap<u64, f64> = FxHashMap::default();
+    /// vars.insert(x.id(), 3.0);
+    /// vars.insert(y.id(), 2.0);
+    ///
+    /// let result = expr.evaluate(&vars, &HashMap::new());
+    /// assert_eq!(result.as_number(), Some(11.0)); // 3^2 + 2 = 11
+    /// ```
     #[must_use]
-    // Expression evaluation handles many expression kinds, length is justified
     #[allow(
         clippy::too_many_lines,
         reason = "Expression evaluation handles many expression kinds"
     )]
-    pub fn evaluate(&self, vars: &HashMap<&str, f64>, custom_evals: &CustomEvalMap) -> Self {
+    pub fn evaluate<V: VarLookup>(&self, vars: &V, custom_evals: &CustomEvalMap) -> Self {
         match &self.kind {
             ExprKind::Number(n) => Self::number(*n),
             ExprKind::Symbol(s) => {
-                // First check if it's a user-provided variable value
-                if let Some(name) = s.name()
-                    && let Some(&val) = vars.get(name)
-                {
+                // Use trait-based lookup (works for both string and ID keys)
+                if let Some(val) = vars.get_value(s) {
                     return Self::number(val);
                 }
-                // Check for mathematical constants using centralized helper
+                // Check for mathematical constants
                 if let Some(name) = s.name()
                     && let Some(value) = crate::core::known_symbols::get_constant_value(name)
                 {
@@ -97,7 +160,6 @@ impl Expr {
             ExprKind::Sum(terms) => {
                 // Optimized: single-pass accumulation with lazy Vec allocation
                 let mut num_sum: f64 = 0.0;
-                // Only allocate when we encounter first non-numeric term
                 let mut others: Option<Vec<Self>> = None;
 
                 for t in terms {
@@ -124,9 +186,8 @@ impl Expr {
                 )
             }
             ExprKind::Product(factors) => {
-                // Optimized: single-pass accumulation with early zero exit and lazy Vec
+                // Optimized: single-pass with early zero exit and lazy Vec
                 let mut num_prod: f64 = 1.0;
-                // Only allocate when we encounter first non-numeric factor
                 let mut others: Option<Vec<Self>> = None;
 
                 for f in factors {
@@ -144,15 +205,8 @@ impl Expr {
                 others.map_or_else(
                     || Self::number(num_prod),
                     |mut v| {
-                        let num_is_one = {
-                            #[allow(
-                                clippy::float_cmp,
-                                reason = "Comparing against exact constant 1.0"
-                            )]
-                            let res = num_prod != 1.0;
-                            res
-                        };
-                        if num_is_one {
+                        #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
+                        if num_prod != 1.0 {
                             v.insert(0, Self::number(num_prod));
                         }
                         if v.len() == 1 {
@@ -183,29 +237,22 @@ impl Expr {
                 Self::derivative(inner.evaluate(vars, custom_evals), var.clone(), *order)
             }
             ExprKind::Poly(poly) => {
-                // Polynomial evaluation: evaluate P(base) where base is evaluated first
                 let base_result = poly.base().evaluate(vars, custom_evals);
-                // If base evaluates to a number, compute the polynomial value
                 if let ExprKind::Number(base_val) = &base_result.kind {
                     let mut total = 0.0;
                     for &(pow, coeff) in poly.terms() {
+                        #[allow(
+                            clippy::cast_possible_wrap,
+                            reason = "Polynomial powers are small positive integers"
+                        )]
                         {
-                            // u32->i32: polynomial powers are small positive integers
-                            #[allow(
-                                clippy::cast_possible_wrap,
-                                reason = "Polynomial powers are small positive integers"
-                            )]
-                            {
-                                total += coeff * base_val.powi(pow as i32);
-                            }
+                            total += coeff * base_val.powi(pow as i32);
                         }
                     }
                     Self::number(total)
                 } else if base_result == *poly.base() {
-                    // Base didn't change, return self clone
                     self.clone()
                 } else {
-                    // Base changed partially, create new Poly with updated base
                     let mut new_poly = poly.clone();
                     new_poly.set_base(Arc::new(base_result));
                     Self::poly(new_poly)

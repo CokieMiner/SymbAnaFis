@@ -186,7 +186,7 @@ mod api_tests {
         let fixed = HashSet::new();
         let custom = HashSet::new();
         let expr = parser_parse("2 + 3", &fixed, &custom, None).unwrap();
-        let vars = HashMap::new();
+        let vars: HashMap<&str, f64> = HashMap::new();
         let result = expr.evaluate(&vars, &HashMap::new());
         if let ExprKind::Number(n) = result.kind {
             assert_eq!(n, 5.0);
@@ -200,7 +200,7 @@ mod api_tests {
         let x = symb("x");
         let expr = x + Expr::number(1.0);
         let substituted = expr.substitute("x", &Expr::number(5.0));
-        let vars = HashMap::new();
+        let vars: HashMap<&str, f64> = HashMap::new();
         let result = substituted.evaluate(&vars, &HashMap::new());
         if let ExprKind::Number(n) = result.kind {
             assert_eq!(n, 6.0);

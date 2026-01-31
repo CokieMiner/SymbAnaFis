@@ -1121,6 +1121,34 @@ rule_arc!(
                     Arc::new(trinomial),
                 ])));
             }
+
+            // (-b^3) + a^3 = a^3 - b^3 = (a-b)(a^2 + ab + b^2) [reversed order]
+            if let (Some(neg_inner), Some(a)) = (extract_negated(t1), get_cube_root(t2))
+                && let Some(b) = get_cube_root(&neg_inner)
+            {
+                let neg_b = Arc::new(Expr::product_from_arcs(vec![
+                    Arc::new(Expr::number(-1.0)),
+                    Arc::clone(&b),
+                ]));
+                let diff = Expr::sum_from_arcs(vec![Arc::clone(&a), neg_b]);
+                let a2 = Arc::new(Expr::pow_from_arcs(
+                    Arc::clone(&a),
+                    Arc::new(Expr::number(2.0)),
+                ));
+                let ab = Arc::new(Expr::product_from_arcs(vec![
+                    Arc::clone(&a),
+                    Arc::clone(&b),
+                ]));
+                let b2 = Arc::new(Expr::pow_from_arcs(
+                    Arc::clone(&b),
+                    Arc::new(Expr::number(2.0)),
+                ));
+                let trinomial = Expr::sum_from_arcs(vec![a2, ab, b2]);
+                return Some(Arc::new(Expr::product_from_arcs(vec![
+                    Arc::new(diff),
+                    Arc::new(trinomial),
+                ])));
+            }
         }
         None
     }

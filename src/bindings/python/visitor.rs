@@ -32,5 +32,5 @@ pub fn count_nodes(expr: &PyExpr) -> usize {
 pub fn collect_variables(expr: &PyExpr) -> HashSet<String> {
     let mut collector = VariableCollector::default();
     walk_expr(&expr.0, &mut collector);
-    collector.variables
+    collector.variable_names()
 }

@@ -48,6 +48,7 @@ impl Expr {
     }
 
     /// Check if the expression contains a specific variable (by symbol ID)
+    #[inline]
     #[must_use]
     pub fn contains_var_id(&self, var_id: u64) -> bool {
         match &self.kind {
@@ -69,6 +70,7 @@ impl Expr {
 
     /// Check if the expression contains a specific variable (by name)
     /// Uses ID comparison when possible, falls back to string matching
+    #[inline]
     #[must_use]
     pub fn contains_var(&self, var: &str) -> bool {
         // Try to look up the symbol ID first for O(1) comparison
@@ -80,6 +82,7 @@ impl Expr {
 
     /// Check if the expression contains a specific variable (by name string match)
     /// This is used as a fallback when the symbol isn't in the global registry
+    #[inline]
     fn contains_var_str(&self, var: &str) -> bool {
         match &self.kind {
             ExprKind::Number(_) => false,

@@ -51,6 +51,7 @@ mod hash;
 mod ordering;
 
 use std::hash::Hasher;
+use rustc_hash::FxHasher;
 use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -315,7 +316,7 @@ impl std::hash::Hash for ExprKind {
                 // Commutative hash for terms
                 let mut terms_hash: u64 = 0;
                 for &(pow, coeff) in poly.terms() {
-                    let mut term_hasher = ahash::AHasher::default();
+                    let mut term_hasher = FxHasher::default();
                     coeff.to_bits().hash(&mut term_hasher);
                     pow.hash(&mut term_hasher);
                     terms_hash = terms_hash.wrapping_add(term_hasher.finish());

@@ -9,7 +9,11 @@ use crate::{DiffError, Expr};
 use crate::core::unified_context::Context;
 
 /// Parse tokens into an AST using Pratt parsing algorithm
-pub fn parse_expression(tokens: &[Token<'_>], context: Option<&Context>) -> Result<Expr, DiffError> {
+#[inline]
+pub fn parse_expression(
+    tokens: &[Token<'_>],
+    context: Option<&Context>,
+) -> Result<Expr, DiffError> {
     if tokens.is_empty() {
         return Err(DiffError::UnexpectedEndOfInput);
     }
@@ -30,10 +34,12 @@ struct Parser<'tokens, 'src> {
 }
 
 impl<'src> Parser<'_, 'src> {
+    #[inline]
     fn current(&self) -> Option<&Token<'src>> {
         self.tokens.get(self.pos)
     }
 
+    #[inline]
     const fn advance(&mut self) {
         self.pos += 1;
     }

@@ -9,12 +9,14 @@ use crate::{Expr, ExprKind};
 use std::sync::Arc;
 
 // Floating point approx equality used for numeric pattern matching
+#[inline]
 pub fn approx_eq(a: f64, b: f64) -> bool {
     (a - b).abs() < EPSILON
 }
 
 /// Get numeric value from expression if it's a Number.
 /// Returns None if the expression is not a Number.
+#[inline]
 pub const fn get_numeric_value(expr: &Expr) -> Option<f64> {
     if let ExprKind::Number(n) = &expr.kind {
         Some(*n)
@@ -260,6 +262,7 @@ pub fn extract_coeff(expr: &Expr) -> (f64, Expr) {
 
 /// Helper to extract coefficient and base, returning Arc to avoid deep cloning
 /// Returns (coefficient, Arc<`base_expr`>)
+#[inline]
 pub fn extract_coeff_arc(expr: &Expr) -> (f64, Arc<Expr>) {
     match &expr.kind {
         ExprKind::Number(n) => (*n, Arc::new(Expr::number(1.0))),
@@ -533,6 +536,7 @@ pub const fn gcd(a: i64, b: i64) -> i64 {
 /// 2. Uses `wrapping_add` for commutative operations (Sum, Product), ensuring
 ///    order-independence (a+b = b+a) without sorting or allocations.
 /// 3. Uses `InternedSymbol::id()` (u64) directly, avoiding string hashing.
+#[inline]
 pub fn get_term_hash(expr: &Expr) -> u64 {
     // FNV-1a constants
     const FNV_OFFSET: u64 = 14_695_981_039_346_656_037;

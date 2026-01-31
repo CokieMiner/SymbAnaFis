@@ -29,24 +29,23 @@ pub fn key_from_id(id: u64) -> DefaultKey {
 #[inline]
 #[must_use]
 pub fn symb_anon() -> Symbol {
-    let mut guard = REGISTRY
+    let key = REGISTRY
         .id_to_data
         .write()
-        .expect("Global ID registry poisoned");
-    let key = guard.insert_with_key(|k| InternedSymbol::new_anon(k));
+        .expect("Global ID registry poisoned")
+        .insert_with_key(InternedSymbol::new_anon);
     Symbol(key)
 }
 
 /// Create a new named symbol that is only registered by ID, not by name.
 /// This is for use in isolated contexts.
 #[must_use]
-pub(crate) fn symb_new_isolated(name: &str) -> Symbol {
-    let mut id_data = REGISTRY
+pub fn symb_new_isolated(name: &str) -> Symbol {
+    let key = REGISTRY
         .id_to_data
         .write()
-        .expect("Global ID registry poisoned");
-
-    let key = id_data.insert_with_key(|k| InternedSymbol::new_named(name, k));
+        .expect("Global ID registry poisoned")
+        .insert_with_key(|k| InternedSymbol::new_named(name, k));
     Symbol(key)
 }
 
@@ -125,11 +124,12 @@ pub fn lookup_by_id(id: u64) -> Option<InternedSymbol> {
     }
 
     // Fallback to global registry
-    let id_data = REGISTRY
+    let symbol = REGISTRY
         .id_to_data
         .read()
-        .expect("Global ID registry poisoned");
-    let symbol = id_data.get(key).cloned();
+        .expect("Global ID registry poisoned")
+        .get(key)
+        .cloned();
 
     // Populate cache if found
     if let Some(ref s) = symbol {
@@ -163,13 +163,13 @@ pub fn symb_new(name: &str) -> Result<Symbol, SymbolError> {
         return Err(SymbolError::DuplicateName(name.to_owned()));
     }
 
-    let mut id_data = REGISTRY
+    let key = REGISTRY
         .id_to_data
         .write()
-        .expect("Global ID registry poisoned");
-
-    let key = id_data.insert_with_key(|k| InternedSymbol::new_named(name, k));
+        .expect("Global ID registry poisoned")
+        .insert_with_key(|k| InternedSymbol::new_named(name, k));
     shard.name_to_symbol_key.insert(name.to_owned(), key);
+    drop(shard);
 
     Ok(Symbol(key))
 }
@@ -209,6 +209,10 @@ pub fn symbol_exists(name: &str) -> bool {
 }
 
 /// Create or get a Symbol
+///
+/// # Panics
+///
+/// Panics if any global registry lock is poisoned.
 #[must_use]
 pub fn symb(name: &str) -> Symbol {
     let shard_lock = REGISTRY.get_shard(name);
@@ -222,13 +226,13 @@ pub fn symb(name: &str) -> Symbol {
     }
 
     // If not, create it.
-    let mut id_data = REGISTRY
+    let key = REGISTRY
         .id_to_data
         .write()
-        .expect("Global ID registry poisoned");
-
-    let key = id_data.insert_with_key(|k| InternedSymbol::new_named(name, k));
+        .expect("Global ID registry poisoned")
+        .insert_with_key(|k| InternedSymbol::new_named(name, k));
     shard.name_to_symbol_key.insert(name.to_owned(), key);
+    drop(shard);
 
     Symbol(key)
 }
@@ -256,17 +260,16 @@ pub fn remove_symbol(name: &str) -> bool {
         .lock()
         .expect("Global symbol registry shard poisoned");
 
-    if let Some(key) = shard.name_to_symbol_key.remove(name) {
+    shard.name_to_symbol_key.remove(name).is_some_and(|key| {
         // Explicitly drop shard lock before taking id_data lock to avoid deadlocks
         drop(shard);
-        let mut id_data = REGISTRY
+        REGISTRY
             .id_to_data
             .write()
-            .expect("Global ID registry poisoned");
-        id_data.remove(key).is_some()
-    } else {
-        false
-    }
+            .expect("Global ID registry poisoned")
+            .remove(key)
+            .is_some()
+    })
 }
 
 /// Clear all symbols from the global registry

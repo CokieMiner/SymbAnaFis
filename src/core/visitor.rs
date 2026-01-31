@@ -188,11 +188,26 @@ impl ExprVisitor for NodeCounter {
     }
 }
 
-/// A visitor that collects all unique variable names in an expression.
+/// A visitor that collects all unique variable symbols in an expression.
+///
+/// Uses `InternedSymbol` to avoid string allocations during traversal.
+/// To get variable names as strings, use `variable_names()` method.
 #[derive(Default)]
 pub struct VariableCollector {
-    /// Set of all variable names found in the expression.
-    pub variables: std::collections::HashSet<String>,
+    /// Set of all variable symbols found in the expression (allocation-free collection).
+    pub variables: rustc_hash::FxHashSet<crate::core::symbol::InternedSymbol>,
+}
+
+impl VariableCollector {
+    /// Get variable names as strings (for compatibility).
+    /// This allocates strings only when names are actually needed.
+    #[must_use]
+    pub fn variable_names(&self) -> std::collections::HashSet<String> {
+        self.variables
+            .iter()
+            .filter_map(|s| s.name().map(str::to_owned))
+            .collect()
+    }
 }
 
 impl ExprVisitor for VariableCollector {
@@ -201,7 +216,9 @@ impl ExprVisitor for VariableCollector {
     }
 
     fn visit_symbol(&mut self, name: &str) -> bool {
-        self.variables.insert(name.to_owned());
+        // Intern the symbol (O(1) if already exists) to store without allocation
+        self.variables
+            .insert(crate::core::symbol::symb_interned(name));
         true
     }
 
@@ -214,7 +231,8 @@ impl ExprVisitor for VariableCollector {
     }
 
     fn visit_derivative(&mut self, _inner: &Expr, var: &str, _order: u32) -> bool {
-        self.variables.insert(var.to_owned());
+        self.variables
+            .insert(crate::core::symbol::symb_interned(var));
         true
     }
 }
@@ -250,8 +268,10 @@ mod tests {
         let expr = x + y;
         let mut collector = VariableCollector::default();
         walk_expr(&expr, &mut collector);
-        assert!(collector.variables.contains("x"));
-        assert!(collector.variables.contains("y"));
+        // Use variable_names() for string-based checking
+        let names = collector.variable_names();
+        assert!(names.contains("x"));
+        assert!(names.contains("y"));
         assert_eq!(collector.variables.len(), 2);
     }
 

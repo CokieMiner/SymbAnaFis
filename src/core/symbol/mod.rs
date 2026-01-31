@@ -26,21 +26,21 @@
 mod interned;
 mod math_methods;
 mod operators;
-pub(crate) mod registry;
+pub mod registry;
 
 // Re-exports
 pub use interned::InternedSymbol;
 pub use registry::{
-    clear_symbols, lookup_by_id, remove_symbol, symb, symb_get,
-    symb_interned, symb_new, symbol_count, symbol_exists, symbol_names,
+    clear_symbols, lookup_by_id, remove_symbol, symb, symb_get, symb_interned, symb_new,
+    symbol_count, symbol_exists, symbol_names,
 };
 
 use std::sync::Arc;
 
 use slotmap::{DefaultKey, Key};
 
-use crate::core::known_symbols as ks;
 use crate::Expr;
+use crate::core::known_symbols as ks;
 
 // Re-export ArcExprExt from operators
 pub use operators::ArcExprExt;

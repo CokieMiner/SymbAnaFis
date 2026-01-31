@@ -25,7 +25,7 @@ impl InternedSymbol {
     }
 
     /// Create a new anonymous interned symbol
-    pub(crate) fn new_anon(key: DefaultKey) -> Self {
+    pub(crate) const fn new_anon(key: DefaultKey) -> Self {
         Self { key, name: None }
     }
 

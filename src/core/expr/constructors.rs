@@ -10,6 +10,7 @@ use crate::core::symbol::{InternedSymbol, symb_interned};
 
 impl Expr {
     /// Create a new expression with fresh ID
+    #[inline]
     #[must_use]
     pub fn new(kind: ExprKind) -> Self {
         let hash = compute_expr_hash(&kind);
@@ -79,6 +80,7 @@ impl Expr {
     // -------------------------------------------------------------------------
 
     /// Create a number expression
+    #[inline]
     #[must_use]
     pub fn number(n: f64) -> Self {
         Self::new(ExprKind::Number(n))
@@ -90,6 +92,7 @@ impl Expr {
     }
 
     /// Create from an already-interned symbol
+    #[inline]
     pub(crate) fn from_interned(interned: InternedSymbol) -> Self {
         Self::new(ExprKind::Symbol(interned))
     }
@@ -218,11 +221,11 @@ impl Expr {
             if matches!(t.kind, ExprKind::Sum(_)) {
                 // Try to unwrap to avoid cloning inner vector elements
                 match Arc::try_unwrap(t) {
-                    Ok(expr) => match expr.into_kind() {
-                        ExprKind::Sum(inner) => flat.extend(inner),
-                        // Guarded by matches!(t.kind, Sum)
-                        _ => {}
-                    },
+                    Ok(expr) => {
+                        if let ExprKind::Sum(inner) = expr.into_kind() {
+                            flat.extend(inner);
+                        }
+                    }
                     Err(arc) => {
                         if let ExprKind::Sum(inner) = &arc.kind {
                             flat.extend(inner.iter().cloned());
@@ -304,6 +307,7 @@ impl Expr {
             .any(|f| matches!(f.kind, ExprKind::Product(_) | ExprKind::Number(_)))
         {
             let mut flat = factors;
+            // Sort for canonical form
             flat.sort_unstable_by(|a, b| {
                 if Arc::ptr_eq(a, b) {
                     CmpOrdering::Equal
@@ -323,11 +327,11 @@ impl Expr {
                 ExprKind::Product(_) => {
                     // Try to unwrap to avoid cloning inner factors
                     match Arc::try_unwrap(f) {
-                        Ok(expr) => match expr.into_kind() {
-                            ExprKind::Product(inner) => flat.extend(inner),
-                            // Guarded by matches!(f.kind, Product)
-                            _ => {}
-                        },
+                        Ok(expr) => {
+                            if let ExprKind::Product(inner) = expr.into_kind() {
+                                flat.extend(inner);
+                            }
+                        }
                         Err(arc) => {
                             if let ExprKind::Product(inner) = &arc.kind {
                                 flat.extend(inner.iter().cloned());
@@ -678,6 +682,7 @@ impl Expr {
 fn finalize_sum(mut flat: Vec<Arc<Expr>>) -> Expr {
     let len = flat.len();
     if len == 2 {
+        // Use canonical comparison for binary case
         let cmp = expr_cmp(&flat[0], &flat[1]);
         if cmp == CmpOrdering::Greater {
             flat.swap(0, 1);

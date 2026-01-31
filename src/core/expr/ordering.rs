@@ -8,32 +8,41 @@ use super::{EXPR_ONE, Expr, ExprKind};
 
 /// Compare expressions for canonical ordering.
 /// Order: Numbers < Symbols (by power) < Sum < `FunctionCall` < Pow < Div
-/// Compare expressions for canonical ordering.
-/// Order: Numbers < Symbols (by power) < Sum < `FunctionCall` < Pow < Div
+#[inline]
 pub fn expr_cmp(a: &Expr, b: &Expr) -> CmpOrdering {
-    // 0. Fast identity check (pointer or structural hash)
+    // Fast identity check (pointer equality)
     if std::ptr::eq(a, b) {
         return CmpOrdering::Equal;
     }
-    if a.hash == b.hash && a == b {
-        return CmpOrdering::Equal;
+
+    // Fast path: different types can be ordered immediately
+    let disc_a = std::mem::discriminant(&a.kind);
+    let disc_b = std::mem::discriminant(&b.kind);
+    if disc_a != disc_b {
+        return type_order(&a.kind).cmp(&type_order(&b.kind));
     }
 
-    // 1. Compare structure hash + fallback
+    // Same type: compare base expressions
     let base_a = get_base(a);
     let base_b = get_base(b);
 
-    let base_cmp = expr_cmp_type_strict(base_a, base_b);
-    if base_cmp != CmpOrdering::Equal {
-        return base_cmp;
+    // If bases are same pointer, skip recursive comparison
+    if !std::ptr::eq(base_a, base_b) {
+        let base_cmp = expr_cmp_type_strict(base_a, base_b);
+        if base_cmp != CmpOrdering::Equal {
+            return base_cmp;
+        }
     }
 
     let exp_a = get_exponent(a);
     let exp_b = get_exponent(b);
 
-    let exp_cmp = expr_cmp(exp_a, exp_b);
-    if exp_cmp != CmpOrdering::Equal {
-        return exp_cmp;
+    // If exponents are same pointer, skip recursive comparison
+    if !std::ptr::eq(exp_a, exp_b) {
+        let exp_cmp = expr_cmp(exp_a, exp_b);
+        if exp_cmp != CmpOrdering::Equal {
+            return exp_cmp;
+        }
     }
 
     let coeff_a = get_coeff(a);
@@ -42,8 +51,25 @@ pub fn expr_cmp(a: &Expr, b: &Expr) -> CmpOrdering {
     coeff_a.partial_cmp(&coeff_b).unwrap_or(CmpOrdering::Equal)
 }
 
+/// Get a numeric ordering for expression types (for fast discriminant comparison)
+#[inline]
+const fn type_order(kind: &ExprKind) -> u8 {
+    match kind {
+        ExprKind::Number(_) => 0,
+        ExprKind::Symbol(_) => 1,
+        ExprKind::Sum(_) => 2,
+        ExprKind::FunctionCall { .. } => 3,
+        ExprKind::Product(_) => 4,
+        ExprKind::Pow(_, _) => 5,
+        ExprKind::Div(_, _) => 6,
+        ExprKind::Derivative { .. } => 7,
+        ExprKind::Poly(_) => 8,
+    }
+}
+
 // Helper to get the sorting "base" of an expression.
 // e.g., for `3*x^2`, the base is `x`. For `sin(t)`, the base is `sin(t)`.
+#[inline]
 fn get_base(e: &Expr) -> &Expr {
     match &e.kind {
         ExprKind::Pow(b, _) => b.as_ref(),
@@ -59,6 +85,7 @@ fn get_base(e: &Expr) -> &Expr {
 
 // Helper to get the sorting "exponent" of an expression.
 // e.g., for `3*x^2`, the exponent is `2`. For `x`, it's `1`.
+#[inline]
 fn get_exponent(e: &Expr) -> &Expr {
     match &e.kind {
         ExprKind::Pow(_, exp) => exp.as_ref(),
@@ -73,6 +100,7 @@ fn get_exponent(e: &Expr) -> &Expr {
 
 // Helper to get the coefficient of an expression.
 // e.g., for `3*x^2`, the coeff is `3.0`. For `x`, it's `1.0`.
+#[inline]
 fn get_coeff(e: &Expr) -> f64 {
     match &e.kind {
         ExprKind::Product(factors) if factors.len() == 2 => {

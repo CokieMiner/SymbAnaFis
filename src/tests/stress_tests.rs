@@ -191,7 +191,8 @@ fn test_eval_extreme_values() {
 fn test_eval_precision_sensitive() {
     // 1/3 * 3 should be approximately 1
     let expr = parse("1/3 * 3", &HashSet::new(), &HashSet::new(), None).unwrap();
-    let result = expr.evaluate(&HashMap::new(), &HashMap::new());
+    let vars: HashMap<&str, f64> = HashMap::new();
+    let result = expr.evaluate(&vars, &HashMap::new());
     if let ExprKind::Number(n) = result.kind {
         assert!((n - 1.0).abs() < 1e-10, "1/3 * 3 = {} should be ~1", n);
     }
@@ -516,7 +517,8 @@ fn test_division_by_symbolic_zero() {
 fn test_zero_to_zero_power() {
     // 0^0 - mathematically undefined but IEEE 754 says 1
     let expr = parse("0^0", &HashSet::new(), &HashSet::new(), None).unwrap();
-    let result = expr.evaluate(&HashMap::new(), &HashMap::new());
+    let vars: HashMap<&str, f64> = HashMap::new();
+    let result = expr.evaluate(&vars, &HashMap::new());
     if let ExprKind::Number(n) = result.kind {
         assert_eq!(n, 1.0, "0^0 should be 1 per IEEE 754");
     }
@@ -526,7 +528,8 @@ fn test_zero_to_zero_power() {
 fn test_negative_base_fractional_exponent() {
     // (-8)^(1/3) = -2 (real cube root)
     let expr = parse("(-8)^(1/3)", &HashSet::new(), &HashSet::new(), None).unwrap();
-    let result = expr.evaluate(&HashMap::new(), &HashMap::new());
+    let vars: HashMap<&str, f64> = HashMap::new();
+    let result = expr.evaluate(&vars, &HashMap::new());
     if let ExprKind::Number(n) = result.kind {
         // Note: IEEE 754 pow(-8, 1/3) = NaN, cbrt(-8) = -2
         // Our implementation may differ

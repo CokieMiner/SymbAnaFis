@@ -476,8 +476,14 @@ fn format_div_expr(
     }
 
     // Standard/Unicode logic
-    // Parenthesize numerator if it's a sum
-    if matches!(u.kind, ExprKind::Sum(_)) {
+    // Parenthesize numerator if it's a sum or a polynomial with multiple terms
+    let numerator_needs_parens = match &u.kind {
+        ExprKind::Sum(_) => true,
+        ExprKind::Poly(p) => p.term_count() > 1,
+        _ => false,
+    };
+
+    if numerator_needs_parens {
         write!(f, "(")?;
         format_recursive(f, u, mode, cache)?;
         write!(f, ")/")?;
@@ -1381,5 +1387,35 @@ mod tests {
         let display = format!("{expr}");
         // Should display as "x + (y + z)" to preserve structure
         assert_eq!(display, "x + y + z");
+    }
+
+    #[test]
+    fn test_display_div_with_poly_numerator() {
+        // Reproduces user report: (y - y^2) / (x + e^x) could display as y - y^2 / ...
+        // if the numerator is a Polynomial and parentheses are missing.
+        use crate::core::poly::Polynomial;
+
+        let y = Expr::symbol("y");
+        // Poly: y - y^2
+        let mut poly = Polynomial::term(std::sync::Arc::new(y), 1, 1.0); // y
+        poly.add_term(2, -1.0); // - y^2
+
+        let poly_expr = Expr::poly(poly);
+
+        let x = Expr::symbol("x");
+        let ex = Expr::func("exp", x.clone());
+        let denom = Expr::sum(vec![x, ex]);
+
+        let div = Expr::div_expr(poly_expr, denom);
+
+        let display = format!("{div}");
+        // Expect parentheses around the polynomial numerator
+        // Note: Poly usually prints from highest power, but standard display might vary or be sorted.
+        // Assuming it prints something like "y - y^2" or "-y^2 + y".
+        // It definitely needs parentheses.
+        assert!(
+            display.starts_with('('),
+            "Numerator should be parenthesized. Got: {display}"
+        );
     }
 }
