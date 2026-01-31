@@ -1,3 +1,4 @@
+use crate::core::known_symbols as ks;
 use crate::core::traits::EPSILON;
 use crate::simplification::rules::{ExprKind, Rule, RuleCategory, RuleContext};
 use crate::{Expr, ExprKind as AstKind};
@@ -28,7 +29,7 @@ rule_arc!(
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::Pow(u, v) = &expr.kind {
             // Exact check for exponent == 1.0
-            #[allow(clippy::float_cmp)] // Comparing against exact constant 1.0
+            #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
             let is_one = matches!(v.kind, AstKind::Number(n) if n == 1.0);
             if is_one {
                 return Some(Arc::clone(u));
@@ -51,7 +52,11 @@ rule!(
             // Check for special case: (x^even)^(1/even) where result would be x^1
             if let AstKind::Number(inner_n) = &exp_inner.kind {
                 // Exact comparison for integer check, cast for modulo
-                #[allow(clippy::float_cmp, clippy::cast_possible_truncation)]
+                #[allow(
+                    clippy::float_cmp,
+                    clippy::cast_possible_truncation,
+                    reason = "Exact check for integer, cast for modulo"
+                )]
                 // Exact check for integer, cast for modulo
                 let inner_is_even =
                     *inner_n > 0.0 && inner_n.fract() == 0.0 && (*inner_n as i64) % 2 == 0;
@@ -62,18 +67,27 @@ rule!(
                             (&num.kind, &den.kind)
                         && {
                             // Exact check for 1.0 numerator in exponent fraction
-                            #[allow(clippy::float_cmp)] // Comparing against exact constant 1.0
+                            #[allow(
+                                clippy::float_cmp,
+                                reason = "Comparing against exact constant 1.0"
+                            )]
                             let is_one = *num_val == 1.0;
                             is_one
                         }
                         && (*den_val - *inner_n).abs() < EPSILON
                     {
-                        return Some(Expr::func_multi_from_arcs("abs", vec![Arc::clone(base)]));
+                        return Some(Expr::func_multi_from_arcs_symbol(
+                            ks::get_symbol(ks::KS.abs),
+                            vec![Arc::clone(base)],
+                        ));
                     }
                     if let AstKind::Number(outer_n) = &v.kind {
                         let product = inner_n * outer_n;
                         if (product - 1.0).abs() < EPSILON {
-                            return Some(Expr::func_multi_from_arcs("abs", vec![Arc::clone(base)]));
+                            return Some(Expr::func_multi_from_arcs_symbol(
+                                ks::get_symbol(ks::KS.abs),
+                                vec![Arc::clone(base)],
+                            ));
                         }
                     }
                 }
@@ -247,7 +261,7 @@ rule_arc!(
             for (base, exponents) in base_to_exponents {
                 if exponents.len() == 1 {
                     // Exact check for exponent == 1.0
-                    #[allow(clippy::float_cmp)] // Comparing against exact constant 1.0
+                    #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
                     let is_one_exp = matches!(exponents[0].kind, AstKind::Number(n) if n == 1.0);
                     if is_one_exp {
                         result_factors.push(base);
@@ -424,7 +438,7 @@ rule!(
                 && let AstKind::Number(n) = &factors[0].kind
             {
                 // Exact check for -1.0 coefficient
-                #[allow(clippy::float_cmp)] // Comparing against exact constant -1.0
+                #[allow(clippy::float_cmp, reason = "Comparing against exact constant -1.0")]
                 let is_neg_one = *n == -1.0;
                 if is_neg_one {
                     // Create a new exponent with the remaining factors (excluding -1)
@@ -456,7 +470,10 @@ rule!(
             let is_root_exponent = match &exp.kind {
                 AstKind::Div(n, d) => {
                     // Exact check for 1/n root exponent
-                    #[allow(clippy::float_cmp)]
+                    #[allow(
+                        clippy::float_cmp,
+                        reason = "Comparing against exact constants for root exponent"
+                    )]
                     // Comparing against exact constants for root exponent
                     let res = matches!((&n.kind, &d.kind), (AstKind::Number(num_val), AstKind::Number(den_val))
                         if *num_val == 1.0 && *den_val >= 2.0);
@@ -475,7 +492,10 @@ rule!(
                             (&one.kind, &n_rc.kind)
                         {
                             // Exact check for 1/n exponent form
-                            #[allow(clippy::float_cmp)]
+                            #[allow(
+                                clippy::float_cmp,
+                                reason = "Comparing against exact constants for 1/n exponent"
+                            )]
                             // Comparing against exact constants for 1/n exponent
                             let matches = *one_val == 1.0 && (m / n_val).fract().abs() < EPSILON;
                             matches

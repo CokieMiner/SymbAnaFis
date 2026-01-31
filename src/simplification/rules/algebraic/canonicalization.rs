@@ -29,10 +29,10 @@ rule!(
                 return None;
             }
 
-            // Clone Arcs and sort
+            // Clone Arcs and sort (use unstable sort for performance)
             let mut sorted_factors: Vec<Arc<Expr>> = factors.clone();
             sorted_factors
-                .sort_by(|a, b| crate::simplification::helpers::compare_mul_factors(a, b));
+                .sort_unstable_by(|a, b| crate::simplification::helpers::compare_mul_factors(a, b));
             Some(Expr::product_from_arcs(sorted_factors))
         } else {
             None
@@ -62,9 +62,10 @@ rule!(
                 return None;
             }
 
-            // Clone Arcs and sort
+            // Clone Arcs and sort (use unstable sort for performance)
             let mut sorted_terms: Vec<Arc<Expr>> = terms.clone();
-            sorted_terms.sort_by(|a, b| crate::simplification::helpers::compare_expr(a, b));
+            sorted_terms
+                .sort_unstable_by(|a, b| crate::simplification::helpers::compare_expr(a, b));
             Some(Expr::sum_from_arcs(sorted_terms))
         } else {
             None

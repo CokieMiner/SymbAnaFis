@@ -81,53 +81,104 @@ enum ParenContext {
     PowerBase,
 }
 
-/// Check if an expression is negative (has a negative leading coefficient)
-/// Returns `Some(positive_equivalent)` if the expression has a negative sign
-///
-/// Optimization: Returns Arc<Expr> to avoid cloning when possible
-fn extract_negative(expr: &Expr) -> Option<Expr> {
+/// Helper struct for negative extraction result
+struct NegativeExtraction<'expr> {
+    /// True if the expression is negative
+    is_negative: bool,
+    /// The absolute coefficient (if applicable)
+    abs_coeff: Option<f64>,
+    /// The remaining expression parts (if any)
+    rest: Option<&'expr Expr>,
+    /// If the rest is a list of factors (Product case)
+    rest_factors: Option<&'expr [Arc<Expr>]>,
+    /// Code duplication in Poly handling
+    poly_negated: Option<crate::core::poly::Polynomial>,
+}
+
+/// Analyze expression for negative sign without allocating new expressions
+fn analyze_negative(expr: &Expr) -> NegativeExtraction<'_> {
     match &expr.kind {
         ExprKind::Product(factors) => {
             if !factors.is_empty()
                 && let ExprKind::Number(n) = &factors[0].kind
                 && *n < 0.0
             {
-                // Negative leading coefficient
                 let abs_coeff = n.abs();
                 if (abs_coeff - 1.0).abs() < EPSILON {
-                    // Exactly -1: just remove it
+                    // Exactly -1 * ...
                     if factors.len() == 2 {
-                        // Avoid clone by unwrapping Arc
-                        return Some(Expr::unwrap_arc(Arc::clone(&factors[1])));
+                        return NegativeExtraction {
+                            is_negative: true,
+                            abs_coeff: None, // Implicit 1.0
+                            rest: Some(&factors[1]),
+                            rest_factors: None,
+                            poly_negated: None,
+                        };
                     }
-                    let remaining: Vec<Arc<Expr>> = factors[1..].to_vec();
-                    return Some(Expr::product_from_arcs(remaining));
+                    return NegativeExtraction {
+                        is_negative: true,
+                        abs_coeff: None,
+                        rest: None,
+                        rest_factors: Some(&factors[1..]),
+                        poly_negated: None,
+                    };
                 }
-                // Other negative coefficient like -2, -3.5: replace with positive
-                let mut new_factors: Vec<Arc<Expr>> = Vec::with_capacity(factors.len());
-                new_factors.push(Arc::new(Expr::number(abs_coeff)));
-                new_factors.extend_from_slice(&factors[1..]);
-                return Some(Expr::product_from_arcs(new_factors));
+                // -n * ...
+                if factors.len() == 1 {
+                    // Just a negative number, handled by simple number case but caught here
+                    return NegativeExtraction {
+                        is_negative: true,
+                        abs_coeff: Some(abs_coeff),
+                        rest: None,
+                        rest_factors: None,
+                        poly_negated: None,
+                    };
+                }
+                return NegativeExtraction {
+                    is_negative: true,
+                    abs_coeff: Some(abs_coeff),
+                    rest: None,
+                    rest_factors: Some(&factors[1..]),
+                    poly_negated: None,
+                };
             }
         }
         ExprKind::Number(n) => {
             if *n < 0.0 {
-                return Some(Expr::number(-*n));
+                return NegativeExtraction {
+                    is_negative: true,
+                    abs_coeff: Some(n.abs()),
+                    rest: None, // No "rest", just the number itself printed differently
+                    rest_factors: None,
+                    poly_negated: None,
+                };
             }
         }
-        // Handle Poly with negative first term
         ExprKind::Poly(poly) => {
             if let Some(first_coeff) = poly.first_coeff()
                 && first_coeff < 0.0
             {
-                // Create a new Poly with ALL terms negated
-                let negated_poly = poly.negate();
-                return Some(Expr::new(ExprKind::Poly(negated_poly)));
+                // For Poly, we DO need to allocate if we want to print the negated version
+                // but we can defer it until printing time.
+                // Or we can construct the negated poly here.
+                return NegativeExtraction {
+                    is_negative: true,
+                    abs_coeff: None,
+                    rest: None,
+                    rest_factors: None,
+                    poly_negated: Some(poly.negate()),
+                };
             }
         }
         _ => {}
     }
-    None
+    NegativeExtraction {
+        is_negative: false,
+        abs_coeff: None,
+        rest: None,
+        rest_factors: None,
+        poly_negated: None,
+    }
 }
 
 /// Helper for Power base parenthesis
@@ -231,22 +282,85 @@ fn format_sum_expr(
         FormatMode::Unicode => ("\u{2212}", " \u{2212} "),
     };
 
-    let mut first = true;
+    let mut is_first = true;
     for term in terms {
-        if first {
-            if let Some(positive_term) = extract_negative(term) {
+        if is_first {
+            let neg = analyze_negative(term);
+            if neg.is_negative {
                 write!(f, "{minus}")?;
-                format_wrapped(f, &positive_term, mode, ParenContext::SumOrProduct, cache)?;
+                format_negative_part(f, neg, mode, ParenContext::SumOrProduct, cache)?;
             } else {
                 format_wrapped(f, term, mode, ParenContext::SumOrProduct, cache)?;
             }
-            first = false;
-        } else if let Some(positive_term) = extract_negative(term) {
-            write!(f, "{minus_sep}")?;
-            format_wrapped(f, &positive_term, mode, ParenContext::SumOrProduct, cache)?;
+            is_first = false;
         } else {
-            write!(f, "{plus}")?;
-            format_wrapped(f, term, mode, ParenContext::SumOrProduct, cache)?;
+            let neg = analyze_negative(term);
+            if neg.is_negative {
+                write!(f, "{minus_sep}")?;
+                format_negative_part(f, neg, mode, ParenContext::SumOrProduct, cache)?;
+            } else {
+                write!(f, "{plus}")?;
+                format_wrapped(f, term, mode, ParenContext::SumOrProduct, cache)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn format_negative_part(
+    f: &mut fmt::Formatter<'_>,
+    neg: NegativeExtraction<'_>,
+    mode: FormatMode,
+    context: ParenContext,
+    cache: Option<&SymbolCache>,
+) -> fmt::Result {
+    if let Some(abs_coeff) = neg.abs_coeff {
+        // e.g. -2*x -> print "2*x"
+        // If there are other factors, print 2 * rest
+        if let Some(factors) = neg.rest_factors {
+            format_number_expr(f, abs_coeff, mode)?;
+            let sep = match mode {
+                FormatMode::Unicode => "\u{b7}",
+                FormatMode::Latex => r" \cdot ",
+                FormatMode::Standard => "*",
+            };
+            write!(f, "{sep}")?;
+            // Print remaining factors
+            let mut first = true;
+            for fac in factors {
+                if !first {
+                    write!(f, "{sep}")?;
+                }
+                format_wrapped(f, fac, mode, ParenContext::SumOrProduct, cache)?;
+                first = false;
+            }
+        } else if neg.rest.is_none() {
+            // Just a number -2 -> print "2"
+            format_number_expr(f, abs_coeff, mode)?;
+        }
+    } else if let Some(poly) = neg.poly_negated {
+        // e.g. -(x-1) -> print x-1 (negated form)
+        // We construct a temporary Expr for the poly to reuse format_recursive logic
+        // allocating here is unavoidable unless we make Poly printable directly with options
+        let p_expr = Expr::new(ExprKind::Poly(poly));
+        format_wrapped(f, &p_expr, mode, context, cache)?;
+    } else if let Some(rest) = neg.rest {
+        // e.g. -x -> print "x"
+        format_wrapped(f, rest, mode, context, cache)?;
+    } else if let Some(factors) = neg.rest_factors {
+        // e.g. -(a*b) -> print "a*b"
+        let sep = match mode {
+            FormatMode::Unicode => "\u{b7}",
+            FormatMode::Latex => r" \cdot ",
+            FormatMode::Standard => "*",
+        };
+        let mut first = true;
+        for fac in factors {
+            if !first {
+                write!(f, "{sep}")?;
+            }
+            format_wrapped(f, fac, mode, ParenContext::SumOrProduct, cache)?;
+            first = false;
         }
     }
     Ok(())
@@ -279,6 +393,7 @@ fn format_product_expr(
         FormatMode::Unicode => "\u{2212}",
     };
 
+    // Standard formatting: print factors separated by *
     // Check for leading negative coefficient (any negative number, not just -1)
     if !factors.is_empty()
         && let ExprKind::Number(n) = &factors[0].kind
@@ -291,38 +406,45 @@ fn format_product_expr(
             return format_number_expr(f, *n, mode);
         }
 
-        // Build the "rest" expression (everything after the negative coefficient)
-        let rest = if factors.len() == 2 {
-            (*factors[1]).clone()
-        } else {
-            Expr::product_from_arcs(factors[1..].to_vec())
-        };
-
-        // Check for double negative: -n * -X = n * X
-        if let Some(positive_rest) = extract_negative(&rest) {
-            // Double negative: cancel the signs
-            if (abs_val - 1.0).abs() < EPSILON {
-                // -1 * -X = X
-                return format_wrapped(f, &positive_rest, mode, ParenContext::SumOrProduct, cache);
+        // Handle double negative: -n * -X = n * X
+        // We need to look at the next factor to see if it's negative
+        let mut second_is_neg = false;
+        if factors.len() > 1 {
+            let next_neg = analyze_negative(&factors[1]);
+            if next_neg.is_negative {
+                second_is_neg = true;
+                // Double negative!
+                if (abs_val - 1.0).abs() >= EPSILON {
+                    // -n * -X = n * X
+                    format_number_expr(f, abs_val, mode)?;
+                    write!(f, "{sep}")?;
+                }
+                format_negative_part(f, next_neg, mode, ParenContext::SumOrProduct, cache)?;
             }
-            // -n * -X = n * X
-            format_number_expr(f, abs_val, mode)?;
-            write!(f, "{sep}")?;
-            return format_wrapped(f, &positive_rest, mode, ParenContext::SumOrProduct, cache);
         }
 
-        // Single negative: print "-" then the rest
-        write!(f, "{minus}")?;
+        if !second_is_neg {
+            // Single negative: print "-" then the rest
+            write!(f, "{minus}")?;
 
-        if (abs_val - 1.0).abs() < EPSILON {
-            // -1 * X = -X (skip the "1*" part)
-            return format_wrapped(f, &rest, mode, ParenContext::SumOrProduct, cache);
+            if (abs_val - 1.0).abs() < EPSILON {
+                // -1 * X = -X (skip the "1*" part)
+            } else {
+                // -n * X = -n*X
+                format_number_expr(f, abs_val, mode)?;
+                write!(f, "{sep}")?;
+            }
+            // Print remaining factors
+            let mut first = true;
+            for fac in &factors[1..] {
+                if !first {
+                    write!(f, "{sep}")?;
+                }
+                format_wrapped(f, fac, mode, ParenContext::SumOrProduct, cache)?;
+                first = false;
+            }
         }
-
-        // -n * X = -n*X
-        format_number_expr(f, abs_val, mode)?;
-        write!(f, "{sep}")?;
-        return format_wrapped(f, &rest, mode, ParenContext::SumOrProduct, cache);
+        return Ok(());
     }
 
     // Standard formatting: print factors separated by *
@@ -449,7 +571,10 @@ fn format_pow_expr(
 }
 
 /// Unified Function Call formatting
-#[allow(clippy::too_many_lines)]
+#[allow(
+    clippy::too_many_lines,
+    reason = "Function call formatting requires handling many cases"
+)]
 fn format_function_call_expr(
     f: &mut fmt::Formatter<'_>,
     name: &str,
@@ -915,10 +1040,13 @@ fn format_number_expr(f: &mut fmt::Formatter<'_>, n: f64, mode: FormatMode) -> f
         };
     }
 
-    #[allow(clippy::float_cmp)]
+    #[allow(
+        clippy::float_cmp,
+        reason = "Checking if number is integer by comparing with truncated value"
+    )]
     let is_int = n.trunc() == n;
     if is_int && n.abs() < 1e10 {
-        #[allow(clippy::cast_possible_truncation)]
+        #[allow(clippy::cast_possible_truncation, reason = "Checked is_int above")]
         let n_int = n as i64;
         write!(f, "{n_int}")
     } else {
@@ -932,7 +1060,10 @@ fn format_number_expr(f: &mut fmt::Formatter<'_>, n: f64, mode: FormatMode) -> f
 
 impl fmt::Display for Expr {
     // Large match blocks for different expression kinds
-    #[allow(clippy::too_many_lines)] // Large match block for different expression kinds
+    #[allow(
+        clippy::too_many_lines,
+        reason = "Large match block for different expression kinds"
+    )]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.kind {
             ExprKind::Number(n) => format_number_expr(f, *n, FormatMode::Standard),
@@ -983,7 +1114,10 @@ impl fmt::Display for LatexFormatter<'_> {
 }
 
 // Display format functions are naturally lengthy due to many expression kinds
-#[allow(clippy::too_many_lines)] // Display format naturally lengthy due to many expr kinds
+#[allow(
+    clippy::too_many_lines,
+    reason = "Display format naturally lengthy due to many expr kinds"
+)]
 fn format_latex(
     expr: &Expr,
     f: &mut fmt::Formatter<'_>,
@@ -1070,12 +1204,12 @@ const fn to_superscript(c: char) -> char {
 #[inline]
 fn num_to_superscript(n: f64) -> String {
     if {
-        #[allow(clippy::float_cmp)] // Checking for exact integer via trunc
+        #[allow(clippy::float_cmp, reason = "Checking for exact integer via trunc")]
         let is_int = n.trunc() == n;
         is_int
     } && n.abs() < 1000.0
     {
-        #[allow(clippy::cast_possible_truncation)] // Checked is_int above
+        #[allow(clippy::cast_possible_truncation, reason = "Checked is_int above")]
         let n_int = n as i64;
         format!("{n_int}").chars().map(to_superscript).collect()
     } else {
@@ -1084,7 +1218,10 @@ fn num_to_superscript(n: f64) -> String {
 }
 
 // Display format functions are naturally lengthy due to many expression kinds
-#[allow(clippy::too_many_lines)] // Display format naturally lengthy due to many expr kinds
+#[allow(
+    clippy::too_many_lines,
+    reason = "Display format naturally lengthy due to many expr kinds"
+)]
 fn format_unicode(
     expr: &Expr,
     f: &mut fmt::Formatter<'_>,
@@ -1174,14 +1311,18 @@ impl Expr {
     clippy::cast_precision_loss,
     clippy::items_after_statements,
     clippy::let_underscore_must_use,
-    clippy::no_effect_underscore_binding
+    clippy::no_effect_underscore_binding,
+    reason = "Standard test relaxations"
 )]
 mod tests {
     use super::*;
     use std::collections::HashMap;
 
     #[test]
-    #[allow(clippy::approx_constant)] // Testing exact float display, not mathematical approximation
+    #[allow(
+        clippy::approx_constant,
+        reason = "Testing exact float display, not mathematical approximation"
+    )]
     fn test_display_number() {
         assert_eq!(format!("{}", Expr::number(3.0)), "3");
         assert!(format!("{}", Expr::number(3.141)).starts_with("3.141"));

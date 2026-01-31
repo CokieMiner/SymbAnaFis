@@ -426,7 +426,11 @@ impl Simplify {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::items_after_statements)] // Standard test relaxations
+#[allow(
+    clippy::unwrap_used,
+    clippy::items_after_statements,
+    reason = "Standard test relaxations"
+)]
 mod tests {
     use super::*;
     use crate::core::symbol::symb;

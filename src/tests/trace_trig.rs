@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod tests {
+    use crate::core::known_symbols::KS;
     use crate::{Expr, ExprKind, simplification::simplify_expr};
     use std::collections::{HashMap, HashSet};
     use std::f64::consts::PI;
@@ -48,7 +49,7 @@ mod tests {
             assert!(factors.iter().any(|f| **f == Expr::number(-1.0)));
             let has_cos = factors.iter().any(|f| {
                 if let ExprKind::FunctionCall { name, args } = &f.kind {
-                    name.as_str() == "cos" && *args[0] == Expr::symbol("x")
+                    name.id() == KS.cos && *args[0] == Expr::symbol("x")
                 } else {
                     false
                 }
@@ -80,7 +81,7 @@ mod tests {
             assert!(factors.iter().any(|f| **f == Expr::number(-1.0)));
             let has_cos = factors.iter().any(|f| {
                 if let ExprKind::FunctionCall { name, args } = &f.kind {
-                    name.as_str() == "cos" && *args[0] == Expr::symbol("x")
+                    name.id() == KS.cos && *args[0] == Expr::symbol("x")
                 } else {
                     false
                 }

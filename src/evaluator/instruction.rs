@@ -4,40 +4,6 @@
 //! that the compiled evaluator can perform. Instructions are organized into
 //! logical categories for maintainability.
 //!
-//! # TODO: Planned Fused Instructions
-//!
-//! The following optimizations are planned to improve evaluation performance:
-//!
-//! ## High Priority (impact on benchmarks)
-//!
-//! - [ ] `Expm1`: `[x] → [e^x - 1]` - Detects `exp(x) - 1` pattern. Important for
-//!       Planck Blackbody (currently 0.56x vs Symbolica). Uses `f64::exp_m1()`.
-//!
-//! - [ ] `Log1p`: `[x] → [ln(1 + x)]` - Detects `ln(1 + x)` pattern for numerical
-//!       stability near zero. Uses `f64::ln_1p()`.
-//!
-//! ## Medium Priority (micro-optimizations)
-//!
-//! - [ ] `ExpNeg`: `[x] → [e^(-x)]` - Fuses `Neg` + `Exp` pattern. Avoids separate
-//!       negation instruction.
-//!
-//! - [ ] `NegMulAdd`: `[a, b, c] → [-a * b + c]` - Fuses negation into `MulAdd` for
-//!       patterns like `-a*b + c`.
-//!
-//! - [ ] `Sub`: `[a, b] → [a - b]` - Direct subtraction instead of `Neg` + `Add`.
-//!       Currently addition is dominant, but subtraction patterns exist.
-//!
-//! ## Lower Priority (strength reduction)
-//!
-//! - [ ] `Pow3_2`: `[x] → [x^1.5]` - Computes as `x * sqrt(x)` instead of `powf`.
-//!
-//! - [ ] `Pow_1_3`: `[x] → [x^(1/3)]` - Alias for `Cbrt` for pattern detection.
-//!
-//! ## SIMD Considerations
-//!
-//! - [ ] Consider `sleef-rs` or `packed_simd` for faster SIMD transcendentals.
-//!   Current `wide` crate may have slower sin/cos/exp implementations.
-//!
 //! # Instruction Categories
 //!
 //! | Category | Description | Examples |
@@ -48,7 +14,7 @@
 //! | Hyperbolic | Hyperbolic functions | `Sinh`, `Cosh`, `Tanh`, etc. |
 //! | Exponential | Exp/log functions | `Exp`, `Ln`, `Log10`, `Sqrt` |
 //! | Special | Special math functions | `Erf`, `Gamma`, `BesselJ`, etc. |
-//! | Fused | Performance optimizations | `Square`, `Cube`, `SinCos`, `MulAdd` |
+//! | Fused | Performance optimizations | `Square`, `Cube`, `MulAdd` |
 //!
 //! # Stack Machine Model
 //!
@@ -96,6 +62,12 @@ pub enum Instruction {
     /// Used by CSE to reuse previously computed subexpressions.
     LoadCached(u32),
 
+    /// Pop the top value from the stack and discard it.
+    Pop,
+
+    /// Swap the top two values on the stack: `[a, b] -> [b, a]`.
+    Swap,
+
     // =========================================================================
     // Core Arithmetic Operations
     // =========================================================================
@@ -107,6 +79,21 @@ pub enum Instruction {
 
     /// Pop two values, push their quotient: `[a, b] → [a / b]`
     Div,
+
+    /// Multiply the top of stack by a constant: `[a] → [a * C]`
+    MulConst(u32),
+
+    /// Pop two values, push their difference: `[a, b] → [a - b]`
+    Sub,
+
+    /// Add a constant to the top of stack: `[a] → [a + C]`
+    AddConst(u32),
+
+    /// Subtract a constant from the top of stack: `[a] → [a - C]`
+    SubConst(u32),
+
+    /// Subtract the top of stack from a constant: `[a] → [C - a]`
+    ConstSub(u32),
 
     /// Negate the top of stack: `[a] → [-a]`
     Neg,
@@ -135,24 +122,6 @@ pub enum Instruction {
     /// Arctangent: `[x] → [atan(x)]`
     Atan,
 
-    /// Cotangent: `[x] → [cot(x)] = [1/tan(x)]`
-    Cot,
-
-    /// Secant: `[x] → [sec(x)] = [1/cos(x)]`
-    Sec,
-
-    /// Cosecant: `[x] → [csc(x)] = [1/sin(x)]`
-    Csc,
-
-    /// Arccotangent: `[x] → [acot(x)]`
-    Acot,
-
-    /// Arcsecant: `[x] → [asec(x)]`, domain: `|x| ≥ 1`
-    Asec,
-
-    /// Arccosecant: `[x] → [acsc(x)]`, domain: `|x| ≥ 1`
-    Acsc,
-
     // =========================================================================
     // Hyperbolic Functions (Unary)
     // =========================================================================
@@ -174,38 +143,23 @@ pub enum Instruction {
     /// Inverse hyperbolic tangent: `[x] → [atanh(x)]`, domain: `|x| < 1`
     Atanh,
 
-    /// Hyperbolic cotangent: `[x] → [coth(x)] = [1/tanh(x)]`
-    Coth,
-
-    /// Hyperbolic secant: `[x] → [sech(x)] = [1/cosh(x)]`
-    Sech,
-
-    /// Hyperbolic cosecant: `[x] → [csch(x)] = [1/sinh(x)]`
-    Csch,
-
-    /// Inverse hyperbolic cotangent: `[x] → [acoth(x)]`, domain: `|x| > 1`
-    Acoth,
-
-    /// Inverse hyperbolic secant: `[x] → [asech(x)]`, domain: `0 < x ≤ 1`
-    Asech,
-
-    /// Inverse hyperbolic cosecant: `[x] → [acsch(x)]`, domain: `x ≠ 0`
-    Acsch,
-
     // =========================================================================
     // Exponential and Logarithmic Functions (Unary)
     // =========================================================================
     /// Exponential: `[x] → [e^x]`
     Exp,
 
+    /// Compute `exp(x) - 1` (more accurate for x near 0).
+    Expm1,
+
+    /// Compute `ln(1 + x)` (more accurate for x near 0).
+    Log1p,
+
+    /// Compute `exp(-x)`.
+    ExpNeg,
+
     /// Natural logarithm: `[x] → [ln(x)]`, domain: `x > 0`
     Ln,
-
-    /// Base-10 logarithm: `[x] → [log₁₀(x)]`, domain: `x > 0`
-    Log10,
-
-    /// Base-2 logarithm: `[x] → [log₂(x)]`, domain: `x > 0`
-    Log2,
 
     /// Square root: `[x] → [√x]`, domain: `x ≥ 0`
     Sqrt,
@@ -363,6 +317,25 @@ pub enum Instruction {
     /// Computed as `(x²)²` for efficiency.
     Pow4,
 
+    /// 1.5 power: `[x] → [x^(1.5)]`
+    ///
+    /// Computed as `x * sqrt(x)` for efficiency.
+    Pow3_2,
+
+    /// Inverse 1.5 power: `[x] → [x^(-1.5)]`
+    ///
+    /// Computed as `1 / (x * sqrt(x))` for efficiency.
+    InvPow3_2,
+
+    /// Inverse square root: `[x] → [1/√x]`
+    InvSqrt,
+
+    /// Inverse square: `[x] → [1/x²]`
+    InvSquare,
+
+    /// Inverse cube: `[x] → [1/x³]`
+    InvCube,
+
     /// Reciprocal: `[x] → [1/x]`
     ///
     /// Faster than `LoadConst(1) + Div`.
@@ -373,17 +346,40 @@ pub enum Instruction {
     /// Uses `powi` for n in range `[-2^31, 2^31-1]`, avoiding `powf` overhead.
     Powi(i32),
 
-    /// Simultaneous sine and cosine: `[x] → [cos(x), sin(x)]`
-    ///
-    /// More efficient than separate `Sin` + `Cos` calls.
-    /// Pushes cosine first (bottom), then sine (top).
-    SinCos,
-
     /// Fused multiply-add: `[a, b, c] → [a * b + c]`
     ///
     /// Uses hardware FMA instruction when available for better precision
     /// and performance.
     MulAdd,
+
+    /// Fused multiply-subtract: `[a, b, c] → [a * b - c]`
+    MulSub,
+
+    /// Fused negative multiply-add: `[a, b, c] → [-a * b + c]`
+    NegMulAdd,
+
+    /// Evaluate polynomial: `[x] → [P(x)]`
+    ///
+    /// Payload is index into constant pool where:
+    ///   - `constants[idx]` = degree (n)
+    ///   - `constants[idx+1]` = coeff of x^n
+    ///   - `constants[idx+2]` = coeff of x^(n-1)
+    ///     ...
+    ///   - `constants[idx+n+1]` = coeff of x^0
+    PolyEval(u32),
+
+    /// Reciprocal of Expm1: `[x] → [1 / (e^x - 1)]`
+    ///
+    /// Useful for Planck's law and Bose-Einstein distributions.
+    RecipExpm1,
+
+    /// Exponential of square: `[x] → [e^(x²)]`
+    ExpSqr,
+
+    /// Exponential of negative square: `[x] → [e^(-x²)]`
+    ///
+    /// Useful for Gaussian distributions.
+    ExpSqrNeg,
 }
 
 impl Instruction {
@@ -403,8 +399,14 @@ impl Instruction {
     // Allow match_same_arms: Arms are grouped by semantic category (push, binary, unary, etc.)
     // for documentation clarity, not just by return value.
     // Allow trivially_copy_pass_by_ref: Method convention - &self is idiomatic even for Copy types.
-    #[allow(clippy::match_same_arms)]
-    #[allow(clippy::trivially_copy_pass_by_ref)]
+    #[allow(
+        clippy::match_same_arms,
+        reason = "Arms are grouped by semantic category for documentation clarity, not just by return value"
+    )]
+    #[allow(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "Method convention - &self is idiomatic even for Copy types"
+    )]
     #[must_use]
     pub const fn stack_effect(&self) -> i32 {
         match self {
@@ -412,7 +414,7 @@ impl Instruction {
             Self::LoadConst(_) | Self::LoadParam(_) | Self::Dup | Self::LoadCached(_) => 1,
 
             // Pop 2, push 1 (net: -1)
-            Self::Add | Self::Mul | Self::Div | Self::Pow => -1,
+            Self::Add | Self::Mul | Self::Div | Self::Sub | Self::Pow => -1,
 
             // Pop 1, push 1 (net: 0) - all unary operations
             Self::Neg
@@ -422,28 +424,17 @@ impl Instruction {
             | Self::Asin
             | Self::Acos
             | Self::Atan
-            | Self::Cot
-            | Self::Sec
-            | Self::Csc
-            | Self::Acot
-            | Self::Asec
-            | Self::Acsc
             | Self::Sinh
             | Self::Cosh
             | Self::Tanh
             | Self::Asinh
             | Self::Acosh
             | Self::Atanh
-            | Self::Coth
-            | Self::Sech
-            | Self::Csch
-            | Self::Acoth
-            | Self::Asech
-            | Self::Acsch
             | Self::Exp
+            | Self::Expm1
+            | Self::ExpNeg
             | Self::Ln
-            | Self::Log10
-            | Self::Log2
+            | Self::Log1p
             | Self::Sqrt
             | Self::Cbrt
             | Self::Abs
@@ -466,8 +457,17 @@ impl Instruction {
             | Self::Square
             | Self::Cube
             | Self::Pow4
+            | Self::Pow3_2
+            | Self::InvPow3_2
+            | Self::InvSqrt
+            | Self::InvSquare
+            | Self::InvCube
             | Self::Recip
-            | Self::Powi(_) => 0,
+            | Self::Powi(_)
+            | Self::MulConst(_)
+            | Self::AddConst(_)
+            | Self::SubConst(_)
+            | Self::ConstSub(_) => 0,
 
             // Store does not change stack
             Self::StoreCached(_) => 0,
@@ -490,11 +490,21 @@ impl Instruction {
             // Four-arg: pop 4, push 1 (net: -3)
             Self::SphericalHarmonic => -3,
 
-            // SinCos: pop 1, push 2 (net: +1)
-            Self::SinCos => 1,
-
             // MulAdd: pop 3, push 1 (net: -2)
-            Self::MulAdd => -2,
+            Self::MulAdd | Self::MulSub | Self::NegMulAdd => -2,
+
+            // Hypot: pop n, push 1 (net: 1 - n)
+            // PolyEval: pop 1, push 1 (net: 0)
+            Self::PolyEval(_) => 0,
+
+            // RecipExpm1, ExpSqr, ExpSqrNeg: pop 1, push 1 (net: 0)
+            Self::RecipExpm1 | Self::ExpSqr | Self::ExpSqrNeg => 0,
+
+            // Pop: pop 1, push 0 (net: -1)
+            Self::Pop => -1,
+
+            // Swap: pop 2, push 2 (net: 0)
+            Self::Swap => 0,
         }
     }
 
@@ -502,7 +512,10 @@ impl Instruction {
     /// that can be efficiently vectorized with SIMD.
     //
     // Allow trivially_copy_pass_by_ref: Method convention - &self is idiomatic even for Copy types.
-    #[allow(clippy::trivially_copy_pass_by_ref)]
+    #[allow(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "Method convention - &self is idiomatic even for Copy types"
+    )]
     #[must_use]
     pub const fn is_simd_fast_path(&self) -> bool {
         matches!(
@@ -511,7 +524,12 @@ impl Instruction {
                 | Self::LoadParam(_)
                 | Self::Add
                 | Self::Mul
+                | Self::MulConst(_)
+                | Self::AddConst(_)
+                | Self::SubConst(_)
+                | Self::ConstSub(_)
                 | Self::Div
+                | Self::Sub
                 | Self::Pow
                 | Self::Neg
                 | Self::Sin
@@ -519,38 +537,62 @@ impl Instruction {
                 | Self::Tan
                 | Self::Sqrt
                 | Self::Exp
+                | Self::Expm1
+                | Self::ExpNeg
                 | Self::Ln
+                | Self::Log1p
                 | Self::Abs
                 | Self::Square
                 | Self::Cube
                 | Self::Pow4
+                | Self::Pow3_2
+                | Self::InvPow3_2
+                | Self::InvSqrt
+                | Self::InvSquare
+                | Self::InvCube
+                | Self::Cbrt
                 | Self::Recip
                 | Self::Powi(_)
                 | Self::Sinh
                 | Self::Cosh
                 | Self::Tanh
-                | Self::SinCos
                 | Self::MulAdd
+                | Self::MulSub
+                | Self::NegMulAdd
+                | Self::PolyEval(_)
+                | Self::Sinc
                 | Self::Dup
                 | Self::StoreCached(_)
                 | Self::LoadCached(_)
+                | Self::RecipExpm1
+                | Self::ExpSqr
+                | Self::ExpSqrNeg
+                | Self::Pop
+                | Self::Swap
         )
     }
 
     /// Returns a human-readable name for this instruction (for debugging).
     //
     // Allow trivially_copy_pass_by_ref: Method convention - &self is idiomatic even for Copy types.
-    #[allow(clippy::trivially_copy_pass_by_ref)]
+    #[allow(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "Method convention - &self is idiomatic even for Copy types"
+    )]
     #[must_use]
     pub const fn name(&self) -> &'static str {
         match self {
             Self::LoadConst(_) => "LoadConst",
             Self::LoadParam(_) => "LoadParam",
             Self::Dup => "Dup",
+            Self::Sub => "Sub",
             Self::StoreCached(_) => "StoreCached",
             Self::LoadCached(_) => "LoadCached",
+            Self::Pop => "Pop",
+            Self::Swap => "Swap",
             Self::Add => "Add",
             Self::Mul => "Mul",
+            Self::MulConst(_) => "MulConst",
             Self::Div => "Div",
             Self::Neg => "Neg",
             Self::Pow => "Pow",
@@ -560,28 +602,17 @@ impl Instruction {
             Self::Asin => "Asin",
             Self::Acos => "Acos",
             Self::Atan => "Atan",
-            Self::Cot => "Cot",
-            Self::Sec => "Sec",
-            Self::Csc => "Csc",
-            Self::Acot => "Acot",
-            Self::Asec => "Asec",
-            Self::Acsc => "Acsc",
             Self::Sinh => "Sinh",
             Self::Cosh => "Cosh",
             Self::Tanh => "Tanh",
             Self::Asinh => "Asinh",
             Self::Acosh => "Acosh",
             Self::Atanh => "Atanh",
-            Self::Coth => "Coth",
-            Self::Sech => "Sech",
-            Self::Csch => "Csch",
-            Self::Acoth => "Acoth",
-            Self::Asech => "Asech",
-            Self::Acsch => "Acsch",
-            Self::Exp => "Exp",
+            Self::Expm1 => "Expm1",
+            Self::ExpNeg => "ExpNeg",
             Self::Ln => "Ln",
-            Self::Log10 => "Log10",
-            Self::Log2 => "Log2",
+            Self::Log1p => "Log1p",
+            Self::Exp => "Exp",
             Self::Sqrt => "Sqrt",
             Self::Cbrt => "Cbrt",
             Self::Abs => "Abs",
@@ -616,10 +647,23 @@ impl Instruction {
             Self::Square => "Square",
             Self::Cube => "Cube",
             Self::Pow4 => "Pow4",
+            Self::Pow3_2 => "Pow3_2",
+            Self::InvPow3_2 => "InvPow3_2",
+            Self::InvSqrt => "InvSqrt",
+            Self::InvSquare => "InvSquare",
+            Self::InvCube => "InvCube",
+            Self::AddConst(_) => "AddConst",
+            Self::SubConst(_) => "SubConst",
+            Self::ConstSub(_) => "ConstSub",
+            Self::NegMulAdd => "NegMulAdd",
+            Self::MulSub => "MulSub",
             Self::Recip => "Recip",
             Self::Powi(_) => "Powi",
-            Self::SinCos => "SinCos",
             Self::MulAdd => "MulAdd",
+            Self::PolyEval(_) => "PolyEval",
+            Self::RecipExpm1 => "RecipExpm1",
+            Self::ExpSqr => "ExpSqr",
+            Self::ExpSqrNeg => "ExpSqrNeg",
         }
     }
 }
@@ -643,7 +687,6 @@ mod tests {
         assert_eq!(Instruction::LoadConst(0).stack_effect(), 1);
         assert_eq!(Instruction::Add.stack_effect(), -1);
         assert_eq!(Instruction::Sin.stack_effect(), 0);
-        assert_eq!(Instruction::SinCos.stack_effect(), 1);
         assert_eq!(Instruction::MulAdd.stack_effect(), -2);
     }
 }

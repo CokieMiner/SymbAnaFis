@@ -3,56 +3,47 @@
 //! Contains the `InternedSymbol` type that is stored in the global registry.
 
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 
-use super::registry::NEXT_SYMBOL_ID;
+use slotmap::{DefaultKey, Key};
 
 /// An interned symbol - the actual data stored in the registry
 ///
-/// This is Clone-cheap because it only contains a u64 and an Arc.
+/// This is Clone-cheap because it only contains a key and an Arc.
 #[derive(Debug, Clone)]
 pub struct InternedSymbol {
-    id: u64,
+    key: DefaultKey,
     name: Option<Arc<str>>,
 }
 
 impl InternedSymbol {
     /// Create a new named interned symbol
-    pub(crate) fn new_named(name: &str) -> Self {
+    pub(crate) fn new_named(name: &str, key: DefaultKey) -> Self {
         Self {
-            id: NEXT_SYMBOL_ID.fetch_add(1, Ordering::Relaxed),
+            key,
             name: Some(Arc::from(name)),
         }
     }
 
     /// Create a new anonymous interned symbol
-    pub(crate) fn new_anon() -> Self {
-        Self {
-            id: NEXT_SYMBOL_ID.fetch_add(1, Ordering::Relaxed),
-            name: None,
-        }
+    pub(crate) fn new_anon(key: DefaultKey) -> Self {
+        Self { key, name: None }
     }
 
-    /// Create an anonymous symbol with a specific ID (for Symbol -> Expr when not in registry)
-    pub(crate) const fn new_anon_with_id(id: u64) -> Self {
-        Self { id, name: None }
+    /// Create an anonymous symbol with a specific key (for Symbol -> Expr when not in registry)
+    pub(crate) const fn new_anon_with_key(key: DefaultKey) -> Self {
+        Self { key, name: None }
     }
 
-    /// Create a new named symbol for Context (uses external counter for isolation).
-    pub(crate) fn new_named_for_context(
-        name: &str,
-        counter: &std::sync::atomic::AtomicU64,
-    ) -> Self {
-        Self {
-            id: counter.fetch_add(1, Ordering::Relaxed),
-            name: Some(Arc::from(name)),
-        }
-    }
-
-    /// Get the symbol's unique ID
+    /// Get the symbol's unique key
     #[inline]
-    pub const fn id(&self) -> u64 {
-        self.id
+    pub const fn key(&self) -> DefaultKey {
+        self.key
+    }
+
+    /// Get the symbol's unique ID as a u64 (for display and external use)
+    #[inline]
+    pub fn id(&self) -> u64 {
+        self.key.data().as_ffi()
     }
 
     /// Get the symbol's name (None for anonymous symbols)
@@ -72,20 +63,19 @@ impl InternedSymbol {
     }
 }
 
-// O(1) equality comparison using ID only
+// O(1) equality comparison using key only
 impl PartialEq for InternedSymbol {
     fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
+        self.key == other.key
     }
 }
 
 impl Eq for InternedSymbol {}
 
-// Hash by ID for O(1) HashMap operations
+// Hash by key for O(1) HashMap operations
 impl std::hash::Hash for InternedSymbol {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        // Hash by ID for consistency with PartialEq (which now uses ID only)
-        self.id.hash(state);
+        self.key.hash(state);
     }
 }
 
@@ -94,7 +84,7 @@ impl std::fmt::Display for InternedSymbol {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.name {
             Some(n) => write!(f, "{n}"),
-            None => write!(f, "${}", self.id),
+            None => write!(f, "${}", self.id()),
         }
     }
 }
@@ -120,7 +110,7 @@ impl Ord for InternedSymbol {
             (Some(a), Some(b)) => a.cmp(b),
             (Some(_), None) => std::cmp::Ordering::Less,
             (None, Some(_)) => std::cmp::Ordering::Greater,
-            (None, None) => self.id.cmp(&other.id),
+            (None, None) => self.id().cmp(&other.id()),
         }
     }
 }

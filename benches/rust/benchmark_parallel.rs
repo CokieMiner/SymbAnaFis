@@ -4,7 +4,8 @@
     clippy::print_stdout,
     clippy::print_stderr,
     clippy::similar_names,
-    clippy::cast_precision_loss
+    clippy::cast_precision_loss,
+    reason = "Parallel bench: unwrap for setup, stdout/stderr for logs, similar names for math, precision loss in timers"
 )]
 //! Parallel Evaluation Benchmarks
 
@@ -208,7 +209,7 @@ fn bench_multi_expr(c: &mut Criterion) {
         ("Trig", "sin(t) * cos(t)", "t"),
     ];
 
-    let n_points = 1000;
+    let n_points = 100000;
 
     // Pre-differentiate and compile all expressions
     let mut diff_exprs = Vec::new();

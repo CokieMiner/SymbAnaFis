@@ -8,91 +8,82 @@ use super::{EXPR_ONE, Expr, ExprKind};
 
 /// Compare expressions for canonical ordering.
 /// Order: Numbers < Symbols (by power) < Sum < `FunctionCall` < Pow < Div
+/// Compare expressions for canonical ordering.
+/// Order: Numbers < Symbols (by power) < Sum < `FunctionCall` < Pow < Div
 pub fn expr_cmp(a: &Expr, b: &Expr) -> CmpOrdering {
-    use ExprKind::{Number, Pow, Product};
-
-    // Helper: Extract sort key (Base, Exponent, Coefficient)
-    // Returns: (Base, Exponent, Coefficient, IsAtomic)
-    // Note: Exponent is Option<&Expr> (None means 1), Coefficient is f64
-    fn extract_key(e: &Expr) -> (&Expr, Option<&Expr>, f64, bool) {
-        match &e.kind {
-            // Case: x^2 -> Base x, Exp 2, Coeff 1
-            Pow(b, exp) => (b.as_ref(), Some(exp.as_ref()), 1.0, false),
-
-            // Case: 2*x -> Base x, Exp 1, Coeff 2 (Only if Product starts with Number)
-            Product(factors) if factors.len() == 2 => {
-                if let Number(n) = &factors[0].kind {
-                    (&factors[1], None, *n, false)
-                } else {
-                    (e, None, 1.0, true)
-                }
-            }
-            // Case: x -> Base x, Exp 1, Coeff 1
-            _ => (e, None, 1.0, true),
-        }
+    // 0. Fast identity check (pointer or structural hash)
+    if std::ptr::eq(a, b) {
+        return CmpOrdering::Equal;
+    }
+    if a.hash == b.hash && a == b {
+        return CmpOrdering::Equal;
     }
 
-    // 1. Numbers always come first
-    if let (Number(x), Number(y)) = (&a.kind, &b.kind) {
-        return x.partial_cmp(y).unwrap_or(CmpOrdering::Equal);
-    }
-    if matches!(a.kind, Number(_)) {
-        return CmpOrdering::Less;
-    }
-    if matches!(b.kind, Number(_)) {
-        return CmpOrdering::Greater;
-    }
+    // 1. Compare structure hash + fallback
+    let base_a = get_base(a);
+    let base_b = get_base(b);
 
-    let (base_a, exp_a, coeff_a, atomic_a) = extract_key(a);
-    let (base_b, exp_b, coeff_b, atomic_b) = extract_key(b);
-
-    // 2. If both are atomic (e.g., Symbol vs Symbol), use strict type sorting fallback
-    // This prevents infinite recursion (comparing x vs x)
-    if atomic_a && atomic_b {
-        return expr_cmp_type_strict(a, b);
-    }
-
-    // 3. Compare Bases (Recursively)
-    // Recursion is safe because at least one is composite (smaller depth)
-    let base_cmp = expr_cmp(base_a, base_b);
+    let base_cmp = expr_cmp_type_strict(base_a, base_b);
     if base_cmp != CmpOrdering::Equal {
         return base_cmp;
     }
 
-    // logic: 1 vs 2 -> Less
-    // logic: 1 vs 1 -> Equal
-    // logic: 2 vs 1 -> Greater
+    let exp_a = get_exponent(a);
+    let exp_b = get_exponent(b);
 
-    // If one has explicit exponent and one implied 1:
-    // x (1) vs x^2 (2) -> 1 < 2 -> Less
-    // Use statically cached EXPR_ONE to avoid allocations in this hot path
-    match (exp_a, exp_b) {
-        (Some(e_a), Some(e_b)) => {
-            let exp_cmp = expr_cmp(e_a, e_b);
-            if exp_cmp != CmpOrdering::Equal {
-                return exp_cmp;
-            }
-        }
-        (Some(e_a), None) => {
-            // Compare expr e_a vs 1.0 (using static cached EXPR_ONE)
-            let exp_cmp = expr_cmp(e_a, &EXPR_ONE);
-            if exp_cmp != CmpOrdering::Equal {
-                return exp_cmp;
-            }
-        }
-        (None, Some(e_b)) => {
-            // Compare 1.0 vs e_b (using static cached EXPR_ONE)
-            let exp_cmp = expr_cmp(&EXPR_ONE, e_b);
-            if exp_cmp != CmpOrdering::Equal {
-                return exp_cmp;
-            }
-        }
-        (None, None) => {} // Both 1
+    let exp_cmp = expr_cmp(exp_a, exp_b);
+    if exp_cmp != CmpOrdering::Equal {
+        return exp_cmp;
     }
 
-    // 5. Compare Coefficients (1 < 2)
-    // x vs 2x -> 1 < 2 -> Less -> x, 2x
+    let coeff_a = get_coeff(a);
+    let coeff_b = get_coeff(b);
+
     coeff_a.partial_cmp(&coeff_b).unwrap_or(CmpOrdering::Equal)
+}
+
+// Helper to get the sorting "base" of an expression.
+// e.g., for `3*x^2`, the base is `x`. For `sin(t)`, the base is `sin(t)`.
+fn get_base(e: &Expr) -> &Expr {
+    match &e.kind {
+        ExprKind::Pow(b, _) => b.as_ref(),
+        ExprKind::Product(factors)
+            if factors.len() == 2 && matches!(&factors[0].kind, ExprKind::Number(_)) =>
+        {
+            get_base(&factors[1])
+        }
+        ExprKind::Poly(p) => p.base(),
+        _ => e,
+    }
+}
+
+// Helper to get the sorting "exponent" of an expression.
+// e.g., for `3*x^2`, the exponent is `2`. For `x`, it's `1`.
+fn get_exponent(e: &Expr) -> &Expr {
+    match &e.kind {
+        ExprKind::Pow(_, exp) => exp.as_ref(),
+        ExprKind::Product(factors)
+            if factors.len() == 2 && matches!(&factors[0].kind, ExprKind::Number(_)) =>
+        {
+            get_exponent(&factors[1])
+        }
+        _ => &EXPR_ONE,
+    }
+}
+
+// Helper to get the coefficient of an expression.
+// e.g., for `3*x^2`, the coeff is `3.0`. For `x`, it's `1.0`.
+fn get_coeff(e: &Expr) -> f64 {
+    match &e.kind {
+        ExprKind::Product(factors) if factors.len() == 2 => {
+            if let ExprKind::Number(c) = &factors[0].kind {
+                *c
+            } else {
+                1.0
+            }
+        }
+        _ => 1.0,
+    }
 }
 
 /// Fallback: Strict type comparisons for atomic terms
@@ -101,17 +92,16 @@ pub fn expr_cmp(a: &Expr, b: &Expr) -> CmpOrdering {
 pub fn expr_cmp_type_strict(a: &Expr, b: &Expr) -> CmpOrdering {
     use ExprKind::{Derivative, Div, FunctionCall, Number, Pow, Product, Sum, Symbol};
     match (&a.kind, &b.kind) {
-        // 0. Numbers come first (sorted by value)
+        // 0. Symbols and Numbers come first (most common atomic types)
         (Number(x), Number(y)) => x.partial_cmp(y).unwrap_or(CmpOrdering::Equal),
         (Number(_), _) => CmpOrdering::Less,
         (_, Number(_)) => CmpOrdering::Greater,
 
-        // 1. Symbols (sorted alphabetically)
-        (Symbol(x), Symbol(y)) => x.as_ref().cmp(y.as_ref()),
+        (Symbol(x), Symbol(y)) => x.cmp(y),
         (Symbol(_), _) => CmpOrdering::Less,
         (_, Symbol(_)) => CmpOrdering::Greater,
 
-        // 2. Sums (rarely appear as factors, but handle them)
+        // 1. Composite types (Sum, Product, etc.)
         (Sum(t1), Sum(t2)) => t1.len().cmp(&t2.len()).then_with(|| {
             for (x, y) in t1.iter().zip(t2.iter()) {
                 match expr_cmp(x, y) {
@@ -179,6 +169,23 @@ pub fn expr_cmp_type_strict(a: &Expr, b: &Expr) -> CmpOrdering {
             .then_with(|| o1.cmp(o2))
             .then_with(|| expr_cmp(i1, i2)),
 
-        _ => CmpOrdering::Equal, // Safe fallback
+        (ExprKind::Poly(p1), ExprKind::Poly(p2)) => {
+            expr_cmp(p1.base(), p2.base()).then_with(|| {
+                p1.terms().len().cmp(&p2.terms().len()).then_with(|| {
+                    for (t1, t2) in p1.terms().iter().zip(p2.terms().iter()) {
+                        let c = t1
+                            .0
+                            .cmp(&t2.0)
+                            .then_with(|| t1.1.partial_cmp(&t2.1).unwrap_or(CmpOrdering::Equal));
+                        if c != CmpOrdering::Equal {
+                            return c;
+                        }
+                    }
+                    CmpOrdering::Equal
+                })
+            })
+        }
+        (ExprKind::Poly(_), _) => CmpOrdering::Less,
+        (_, ExprKind::Poly(_)) => CmpOrdering::Greater,
     }
 }

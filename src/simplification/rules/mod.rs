@@ -367,7 +367,10 @@ impl ExprKind {
 pub trait Rule {
     fn name(&self) -> &'static str;
     fn priority(&self) -> i32;
-    #[allow(dead_code)]
+    #[allow(
+        dead_code,
+        reason = "Legacy for categorizzation maybe useful in the future"
+    )]
     fn category(&self) -> RuleCategory;
 
     fn alters_domain(&self) -> bool {
@@ -394,7 +397,10 @@ pub trait Rule {
 }
 
 /// Categories of simplification rules
-#[allow(dead_code)]
+#[allow(
+    dead_code,
+    reason = "Legacy for categorizzation maybe useful in the future"
+)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum RuleCategory {
     Numeric,   // Constant folding, identities

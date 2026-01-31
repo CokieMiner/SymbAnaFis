@@ -245,7 +245,10 @@ impl DiffError {
 
 impl fmt::Display for DiffError {
     // Complex error display logic with many variants
-    #[allow(clippy::too_many_lines)] // Complex error display logic with many variants
+    #[allow(
+        clippy::too_many_lines,
+        reason = "Complex error display logic with many variants"
+    )]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::EmptyFormula => write!(f, "Formula cannot be empty"),
@@ -385,7 +388,8 @@ impl std::error::Error for DiffError {}
     clippy::cast_precision_loss,
     clippy::items_after_statements,
     clippy::let_underscore_must_use,
-    clippy::no_effect_underscore_binding
+    clippy::no_effect_underscore_binding,
+    reason = "Standard test relaxations"
 )]
 mod tests {
     use super::*;
@@ -424,47 +428,47 @@ mod tests {
 
     #[test]
     fn test_span_display() {
-        let span = Span::new(4, 8);
-        assert_eq!(span.display(), " at positions 5-8");
+        let span1 = Span::new(4, 8);
+        assert_eq!(span1.display(), " at positions 5-8");
 
-        let span = Span::at(9);
-        assert_eq!(span.display(), " at position 10");
+        let span2 = Span::at(9);
+        assert_eq!(span2.display(), " at position 10");
 
-        let span = Span::empty();
-        assert_eq!(span.display(), "");
+        let span3 = Span::empty();
+        assert_eq!(span3.display(), "");
     }
 
     #[test]
     fn test_diff_error_display() {
-        let err = DiffError::EmptyFormula;
-        assert_eq!(format!("{err}"), "Formula cannot be empty");
+        let err1 = DiffError::EmptyFormula;
+        assert_eq!(format!("{err1}"), "Formula cannot be empty");
 
-        let err = DiffError::invalid_syntax("test message");
-        assert_eq!(format!("{err}"), "Invalid syntax: test message");
+        let err2 = DiffError::invalid_syntax("test message");
+        assert_eq!(format!("{err2}"), "Invalid syntax: test message");
 
-        let err = DiffError::invalid_syntax_at("spanned message", Span::new(1, 3));
+        let err3 = DiffError::invalid_syntax_at("spanned message", Span::new(1, 3));
         assert_eq!(
-            format!("{err}"),
+            format!("{err3}"),
             "Invalid syntax: spanned message at positions 2-3"
         );
 
-        let err = DiffError::MaxDepthExceeded;
+        let err4 = DiffError::MaxDepthExceeded;
         assert_eq!(
-            format!("{err}"),
+            format!("{err4}"),
             "Expression nesting depth exceeds maximum limit"
         );
     }
 
     #[test]
     fn test_diff_error_constructors() {
-        let err = DiffError::invalid_syntax("msg");
-        match err {
+        let err5 = DiffError::invalid_syntax("msg");
+        match err5 {
             DiffError::InvalidSyntax { msg, span: None } => assert_eq!(msg, "msg"),
             _ => panic!("Wrong error type"),
         }
 
-        let err = DiffError::invalid_syntax_at("msg", Span::at(5));
-        match err {
+        let err6 = DiffError::invalid_syntax_at("msg", Span::at(5));
+        match err6 {
             DiffError::InvalidSyntax {
                 msg,
                 span: Some(span),

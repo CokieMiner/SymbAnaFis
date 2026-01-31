@@ -44,7 +44,10 @@ impl Expr {
     /// ```
     #[must_use]
     // Expression evaluation handles many expression kinds, length is justified
-    #[allow(clippy::too_many_lines)] // Expression evaluation handles many expression kinds
+    #[allow(
+        clippy::too_many_lines,
+        reason = "Expression evaluation handles many expression kinds"
+    )]
     pub fn evaluate(&self, vars: &HashMap<&str, f64>, custom_evals: &CustomEvalMap) -> Self {
         match &self.kind {
             ExprKind::Number(n) => Self::number(*n),
@@ -142,7 +145,10 @@ impl Expr {
                     || Self::number(num_prod),
                     |mut v| {
                         let num_is_one = {
-                            #[allow(clippy::float_cmp)] // Comparing against exact constant 1.0
+                            #[allow(
+                                clippy::float_cmp,
+                                reason = "Comparing against exact constant 1.0"
+                            )]
                             let res = num_prod != 1.0;
                             res
                         };
@@ -185,17 +191,24 @@ impl Expr {
                     for &(pow, coeff) in poly.terms() {
                         {
                             // u32->i32: polynomial powers are small positive integers
-                            #[allow(clippy::cast_possible_wrap)]
-                            // Polynomial powers are small positive integers
+                            #[allow(
+                                clippy::cast_possible_wrap,
+                                reason = "Polynomial powers are small positive integers"
+                            )]
                             {
                                 total += coeff * base_val.powi(pow as i32);
                             }
                         }
                     }
                     Self::number(total)
-                } else {
-                    // Can't fully evaluate, return as-is
+                } else if base_result == *poly.base() {
+                    // Base didn't change, return self clone
                     self.clone()
+                } else {
+                    // Base changed partially, create new Poly with updated base
+                    let mut new_poly = poly.clone();
+                    new_poly.set_base(Arc::new(base_result));
+                    Self::poly(new_poly)
                 }
             }
         }

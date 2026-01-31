@@ -61,6 +61,50 @@ pub fn eval_f64<V: ToParamName + Sync>(
     results
 }
 
+/// Run a compiled evaluator over chunked data in parallel.
+///
+/// This is the high-performance core for numeric evaluation. It takes a
+/// compiled evaluator and writes results directly into an output buffer.
+pub(crate) fn run_chunked_evaluator(
+    evaluator: &CompiledEvaluator,
+    columns: &[&[f64]],
+    output: &mut [f64],
+) -> Result<(), DiffError> {
+    let n_points = output.len();
+
+    // Handle constant expressions where columns may be empty.
+    if columns.is_empty() {
+        if n_points == 0 {
+            return Ok(());
+        }
+    } else if columns.first().map_or(false, |c| c.len() != n_points) {
+        return Err(DiffError::invalid_syntax(
+            "Output buffer length must match data column length",
+        ));
+    }
+
+    if n_points < CHUNK_SIZE {
+        evaluator.eval_batch(columns, output, None)?;
+    } else {
+        // Efficient parallel chunked evaluation writing directly to output
+        output
+            .par_chunks_mut(CHUNK_SIZE)
+            .enumerate()
+            .try_for_each_init(
+                || Vec::with_capacity(evaluator.stack_size()),
+                |simd_buffer, (chunk_idx, chunk_out)| {
+                    let start = chunk_idx * CHUNK_SIZE;
+                    let end = start + chunk_out.len();
+                    let col_slices: Vec<&[f64]> =
+                        columns.iter().map(|col| &col[start..end]).collect();
+                    evaluator.eval_batch(&col_slices, chunk_out, Some(simd_buffer))
+                },
+            )?;
+    }
+
+    Ok(())
+}
+
 fn eval_single_expr_chunked<V: ToParamName>(
     expr: &Expr,
     vars: &[V],
@@ -73,6 +117,10 @@ fn eval_single_expr_chunked<V: ToParamName>(
         columns[0].len()
     };
 
+    if n_points == 0 {
+        return Ok(Vec::new());
+    }
+
     let evaluator = CompiledEvaluator::compile(expr, vars, None).map_err(|e| {
         DiffError::invalid_syntax(format!("Failed to compile expression {expr_idx}: {e}"))
     })?;
@@ -80,42 +128,17 @@ fn eval_single_expr_chunked<V: ToParamName>(
     // Pre-allocate output buffer
     let mut output = vec![0.0; n_points];
 
-    // For very small datasets, use sequential eval_batch directly
-    if n_points < CHUNK_SIZE {
-        evaluator.eval_batch(columns, &mut output, None)?;
-    } else {
-        // Parallel chunked evaluation with thread-local SIMD buffer reuse
-        // Uses map_init to allocate buffer once per thread, not per chunk
-        let chunk_indices: Vec<usize> = (0..n_points).step_by(CHUNK_SIZE).collect();
-
-        // Process chunks in parallel, collecting results
-        let chunk_results: Result<Vec<(usize, Vec<f64>)>, DiffError> = chunk_indices
-            .into_par_iter()
-            .map_init(
-                || Vec::with_capacity(evaluator.stack_size()),
-                |simd_buffer, start| {
-                    let end = (start + CHUNK_SIZE).min(n_points);
-                    let len = end - start;
-                    let col_slices: Vec<&[f64]> =
-                        columns.iter().map(|col| &col[start..end]).collect();
-                    let mut chunk_out = vec![0.0; len];
-                    evaluator.eval_batch(&col_slices, &mut chunk_out, Some(simd_buffer))?;
-                    Ok((start, chunk_out))
-                },
-            )
-            .collect();
-
-        // Copy results back to output buffer (maintains order)
-        for (start, chunk_out) in chunk_results? {
-            output[start..start + chunk_out.len()].copy_from_slice(&chunk_out);
-        }
-    }
+    run_chunked_evaluator(&evaluator, columns, &mut output)?;
 
     Ok(output)
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::cast_precision_loss)] // Standard test relaxations
+#[allow(
+    clippy::unwrap_used,
+    clippy::cast_precision_loss,
+    reason = "Standard test relaxations"
+)]
 mod tests {
     use super::*;
     use std::collections::HashSet;

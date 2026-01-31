@@ -3,7 +3,8 @@
     clippy::unwrap_used,
     clippy::print_stdout,
     clippy::print_stderr,
-    clippy::use_debug
+    clippy::use_debug,
+    reason = "Comparison script: unwrap for setup, stdout/stderr for logs, debug for output"
 )]
 //! Simplification comparison: `SymbAnaFis` vs Symbolica.
 //!

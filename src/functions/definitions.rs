@@ -19,7 +19,10 @@ use crate::core::known_symbols as ks;
 use std::sync::Arc;
 
 /// Return all function definitions for populating the registry
-#[allow(clippy::too_many_lines)] // Function registry requires all definitions in one place
+#[allow(
+    clippy::too_many_lines,
+    reason = "Function registry requires all definitions in one place"
+)]
 pub fn all_definitions() -> Vec<FunctionDefinition> {
     vec![
         // Trigonometric
@@ -259,9 +262,12 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                     Expr::div_expr(
                         Expr::number(1.0),
                         Expr::mul_expr(
-                            Expr::func_multi_from_arcs("abs", vec![Arc::clone(&u)]),
-                            Expr::func(
-                                "sqrt",
+                            Expr::func_multi_from_arcs_symbol(
+                                ks::get_symbol(ks::KS.abs),
+                                vec![Arc::clone(&u)],
+                            ),
+                            Expr::func_symbol(
+                                ks::get_symbol(ks::KS.sqrt),
                                 Expr::sub_expr(
                                     Expr::pow_from_arcs(u, Arc::new(Expr::number(2.0))),
                                     Expr::number(1.0),
@@ -285,9 +291,12 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                     Expr::negate(Expr::div_expr(
                         Expr::number(1.0),
                         Expr::mul_from_arcs(vec![
-                            Arc::new(Expr::func_multi_from_arcs("abs", vec![Arc::clone(&u)])),
-                            Arc::new(Expr::func(
-                                "sqrt",
+                            Arc::new(Expr::func_multi_from_arcs_symbol(
+                                ks::get_symbol(ks::KS.abs),
+                                vec![Arc::clone(&u)],
+                            )),
+                            Arc::new(Expr::func_symbol(
+                                ks::get_symbol(ks::KS.sqrt),
                                 Expr::sub_expr(
                                     Expr::pow_from_arcs(u, Arc::new(Expr::number(2.0))),
                                     Expr::number(1.0),
@@ -308,7 +317,10 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                 // d/dx sinh(u) = cosh(u) * u'
                 let u = Arc::clone(&args[0]);
                 let u_prime = arg_primes[0].clone();
-                Expr::mul_expr(Expr::func_multi_from_arcs("cosh", vec![u]), u_prime)
+                Expr::mul_expr(
+                    Expr::func_multi_from_arcs_symbol(ks::get_symbol(ks::KS.cosh), vec![u]),
+                    u_prime,
+                )
             },
         },
         FunctionDefinition {
@@ -319,7 +331,10 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                 // d/dx cosh(u) = sinh(u) * u'
                 let u = Arc::clone(&args[0]);
                 let u_prime = arg_primes[0].clone();
-                Expr::mul_expr(Expr::func_multi_from_arcs("sinh", vec![u]), u_prime)
+                Expr::mul_expr(
+                    Expr::func_multi_from_arcs_symbol(ks::get_symbol(ks::KS.sinh), vec![u]),
+                    u_prime,
+                )
             },
         },
         FunctionDefinition {
@@ -334,7 +349,7 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                     Expr::sub_expr(
                         Expr::number(1.0),
                         Expr::pow(
-                            Expr::func_multi_from_arcs("tanh", vec![u]),
+                            Expr::func_multi_from_arcs_symbol(ks::get_symbol(ks::KS.tanh), vec![u]),
                             Expr::number(2.0),
                         ),
                     ),
@@ -352,7 +367,7 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                 let u_prime = arg_primes[0].clone();
                 Expr::mul_expr(
                     Expr::negate(Expr::pow(
-                        Expr::func_multi_from_arcs("csch", vec![u]),
+                        Expr::func_multi_from_arcs_symbol(ks::get_symbol(ks::KS.csch), vec![u]),
                         Expr::number(2.0),
                     )),
                     u_prime,
@@ -369,8 +384,11 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                 let u_prime = arg_primes[0].clone();
                 Expr::mul_expr(
                     Expr::negate(Expr::mul_expr(
-                        Expr::func_multi_from_arcs("sech", vec![Arc::clone(&u)]),
-                        Expr::func_multi_from_arcs("tanh", vec![u]),
+                        Expr::func_multi_from_arcs_symbol(
+                            ks::get_symbol(ks::KS.sech),
+                            vec![Arc::clone(&u)],
+                        ),
+                        Expr::func_multi_from_arcs_symbol(ks::get_symbol(ks::KS.tanh), vec![u]),
                     )),
                     u_prime,
                 )
@@ -386,8 +404,11 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                 let u_prime = arg_primes[0].clone();
                 Expr::mul_expr(
                     Expr::negate(Expr::mul_expr(
-                        Expr::func_multi_from_arcs("csch", vec![Arc::clone(&u)]),
-                        Expr::func_multi_from_arcs("coth", vec![u]),
+                        Expr::func_multi_from_arcs_symbol(
+                            ks::get_symbol(ks::KS.csch),
+                            vec![Arc::clone(&u)],
+                        ),
+                        Expr::func_multi_from_arcs_symbol(ks::get_symbol(ks::KS.coth), vec![u]),
                     )),
                     u_prime,
                 )
@@ -578,7 +599,7 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                 let base = args[0];
                 let x = args[1];
                 // Exact comparison for base == 1.0 is mathematically intentional
-                #[allow(clippy::float_cmp)] // Exact comparison for log base == 1.0
+                #[allow(clippy::float_cmp, reason = "Exact comparison for log base == 1.0")]
                 let invalid = base <= 0.0 || base == 1.0 || x <= 0.0;
                 if invalid { None } else { Some(x.log(base)) }
             },
@@ -592,14 +613,17 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                 let x_prime = arg_primes[1].clone();
 
                 // Term 1: x' / (x * ln(b))
-                let ln_b = Expr::func_multi_from_arcs("ln", vec![Arc::clone(&b)]);
+                let ln_b = Expr::func_multi_from_arcs_symbol(
+                    ks::get_symbol(ks::KS.ln),
+                    vec![Arc::clone(&b)],
+                );
                 let term1 = Expr::div_expr(
                     x_prime,
                     Expr::mul_from_arcs(vec![Arc::clone(&x), Arc::new(ln_b.clone())]),
                 );
 
                 // Term 2: -b' * ln(x) / (b * ln(b)^2)
-                let ln_x = Expr::func_multi_from_arcs("ln", vec![x]);
+                let ln_x = Expr::func_multi_from_arcs_symbol(ks::get_symbol(ks::KS.ln), vec![x]);
                 let ln_b_sq = Expr::pow(ln_b, Expr::number(2.0));
                 let term2 = Expr::negate(Expr::div_expr(
                     Expr::mul_expr(b_prime, ln_x),
@@ -622,7 +646,10 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                         Expr::number(1.0),
                         Expr::mul_from_arcs(vec![
                             u,
-                            Arc::new(Expr::func("ln", Expr::number(10.0))),
+                            Arc::new(Expr::func_symbol(
+                                ks::get_symbol(ks::KS.ln),
+                                Expr::number(10.0),
+                            )),
                         ]),
                     ),
                     u_prime,
@@ -640,7 +667,13 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                 Expr::mul_expr(
                     Expr::div_expr(
                         Expr::number(1.0),
-                        Expr::mul_from_arcs(vec![u, Arc::new(Expr::func("ln", Expr::number(2.0)))]),
+                        Expr::mul_from_arcs(vec![
+                            u,
+                            Arc::new(Expr::func_symbol(
+                                ks::get_symbol(ks::KS.ln),
+                                Expr::number(2.0),
+                            )),
+                        ]),
                     ),
                     u_prime,
                 )
@@ -801,7 +834,10 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
             derivative: |args, arg_primes| {
                 let u = Arc::clone(&args[0]);
                 let u_prime = arg_primes[0].clone();
-                Expr::mul_expr(Expr::func_multi_from_arcs("tetragamma", vec![u]), u_prime)
+                Expr::mul_expr(
+                    Expr::func_multi_from_arcs_symbol(ks::get_symbol(ks::KS.tetragamma), vec![u]),
+                    u_prime,
+                )
             },
         },
         FunctionDefinition {
@@ -822,10 +858,12 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                 let a_prime = arg_primes[0].clone();
                 let b_prime = arg_primes[1].clone();
 
-                let beta_ab =
-                    Expr::func_multi_from_arcs("beta", vec![Arc::clone(&a), Arc::clone(&b)]);
-                let psi_a_plus_b = Expr::func_multi_from_arcs(
-                    "digamma",
+                let beta_ab = Expr::func_multi_from_arcs_symbol(
+                    ks::get_symbol(ks::KS.beta),
+                    vec![Arc::clone(&a), Arc::clone(&b)],
+                );
+                let psi_a_plus_b = Expr::func_multi_from_arcs_symbol(
+                    ks::get_symbol(ks::KS.digamma),
                     vec![Arc::new(Expr::sum_from_arcs(vec![
                         Arc::clone(&a),
                         Arc::clone(&b),
@@ -836,7 +874,10 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                     Expr::mul_expr(
                         beta_ab.clone(),
                         Expr::sub_expr(
-                            Expr::func_multi_from_arcs("digamma", vec![a]),
+                            Expr::func_multi_from_arcs_symbol(
+                                ks::get_symbol(ks::KS.digamma),
+                                vec![a],
+                            ),
                             psi_a_plus_b.clone(),
                         ),
                     ),
@@ -847,7 +888,10 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                     Expr::mul_expr(
                         beta_ab,
                         Expr::sub_expr(
-                            Expr::func_multi_from_arcs("digamma", vec![b]),
+                            Expr::func_multi_from_arcs_symbol(
+                                ks::get_symbol(ks::KS.digamma),
+                                vec![b],
+                            ),
                             psi_a_plus_b,
                         ),
                     ),
@@ -861,7 +905,10 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
             name: "besselj",
             arity: 2..=2,
             eval: |args| {
-                #[allow(clippy::cast_possible_truncation)] // Bessel order is always a small integer
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    reason = "Bessel order is always a small integer"
+                )]
                 let n = args[0].round() as i32;
                 crate::math::bessel_j(n, args[1])
             },
@@ -895,7 +942,10 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
             name: "bessely",
             arity: 2..=2,
             eval: |args| {
-                #[allow(clippy::cast_possible_truncation)] // Bessel order is always a small integer
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    reason = "Bessel order is always a small integer"
+                )]
                 let n = args[0].round() as i32;
                 crate::math::bessel_y(n, args[1])
             },
@@ -930,7 +980,10 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
             name: "besseli",
             arity: 2..=2,
             eval: |args| {
-                #[allow(clippy::cast_possible_truncation)] // Bessel order is always a small integer
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    reason = "Bessel order is always a small integer"
+                )]
                 let n = args[0].round() as i32;
                 Some(crate::math::bessel_i(n, args[1]))
             },
@@ -965,7 +1018,10 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
             name: "besselk",
             arity: 2..=2,
             eval: |args| {
-                #[allow(clippy::cast_possible_truncation)] // Bessel order is always a small integer
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    reason = "Bessel order is always a small integer"
+                )]
                 let n = args[0].round() as i32;
                 crate::math::bessel_k(n, args[1])
             },
@@ -1000,7 +1056,10 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
             name: "polygamma",
             arity: 2..=2,
             eval: |args| {
-                #[allow(clippy::cast_possible_truncation)]
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    reason = "Polygamma order is always a small integer"
+                )]
                 // Polygamma order is always a small integer
                 let n = args[0].round() as i32;
                 crate::math::eval_polygamma(n, args[1])
@@ -1088,8 +1147,14 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                 // d/dk K(k) = (E(k)/(k(1-k^2)) - K(k)/k) * k'
                 let k = Arc::clone(&args[0]);
                 let k_prime = arg_primes[0].clone();
-                let big_k = Expr::func_multi_from_arcs("elliptic_k", vec![Arc::clone(&k)]);
-                let big_e = Expr::func_multi_from_arcs("elliptic_e", vec![Arc::clone(&k)]);
+                let big_k = Expr::func_multi_from_arcs_symbol(
+                    ks::get_symbol(ks::KS.elliptic_k),
+                    vec![Arc::clone(&k)],
+                );
+                let big_e = Expr::func_multi_from_arcs_symbol(
+                    ks::get_symbol(ks::KS.elliptic_e),
+                    vec![Arc::clone(&k)],
+                );
 
                 // term1 = E(k) / (k * (1 - k^2))
                 let term1 = Expr::div_expr(
@@ -1152,7 +1217,10 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
             name: "zeta_deriv",
             arity: 2..=2,
             eval: |args| {
-                #[allow(clippy::cast_possible_truncation)]
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    reason = "Zeta derivative order is always a small integer"
+                )]
                 // Zeta derivative order is always a small integer
                 let n = args[0].round() as i32;
                 crate::math::eval_zeta_deriv(n, args[1])
@@ -1178,7 +1246,10 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
             name: "hermite",
             arity: 2..=2,
             eval: |args| {
-                #[allow(clippy::cast_possible_truncation)]
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    reason = "Hermite polynomial degree is always a small integer"
+                )]
                 // Hermite polynomial degree is always a small integer
                 let n = args[0].round() as i32;
                 crate::math::eval_hermite(n, args[1])
@@ -1205,9 +1276,15 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
             name: "assoc_legendre",
             arity: 3..=3,
             eval: |args| {
-                #[allow(clippy::cast_possible_truncation)] // Legendre l is always a small integer
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    reason = "Legendre l is always a small integer"
+                )]
                 let l = args[0].round() as i32;
-                #[allow(clippy::cast_possible_truncation)] // Legendre m is always a small integer
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    reason = "Legendre m is always a small integer"
+                )]
                 let m = args[1].round() as i32;
                 crate::math::eval_assoc_legendre(l, m, args[2])
             },
@@ -1251,10 +1328,16 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
             arity: 4..=4,
             eval: |args| {
                 // Order/degree args are integers by definition
-                #[allow(clippy::cast_possible_truncation)]
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    reason = "Spherical harmonic l is always a small integer"
+                )]
                 // Spherical harmonic l is always a small integer
                 let l = args[0].round() as i32;
-                #[allow(clippy::cast_possible_truncation)]
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    reason = "Spherical harmonic m is always a small integer"
+                )]
                 // Spherical harmonic m is always a small integer
                 let m = args[1].round() as i32;
                 crate::math::eval_spherical_harmonic(l, m, args[2], args[3])
@@ -1355,9 +1438,15 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
             arity: 4..=4,
             eval: |args| {
                 // Order/degree args are integers by definition
-                #[allow(clippy::cast_possible_truncation)] // ynm l is always a small integer
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    reason = "ynm l is always a small integer"
+                )]
                 let l = args[0].round() as i32;
-                #[allow(clippy::cast_possible_truncation)] // ynm m is always a small integer
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    reason = "ynm m is always a small integer"
+                )]
                 let m = args[1].round() as i32;
                 crate::math::eval_spherical_harmonic(l, m, args[2], args[3])
             },

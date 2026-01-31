@@ -38,12 +38,13 @@ rule!(
                 let is_pi_div_2 = |e: &Expr| {
                     if let AstKind::Div(num, den) = &e.kind {
                         // Exact check for denominator 2.0 (PI/2)
-                        #[allow(clippy::float_cmp)] // Comparing against exact constant 2.0
+                        #[allow(clippy::float_cmp, reason = "Comparing against exact constant 2.0")]
                         let is_two = matches!(&den.kind, AstKind::Number(n) if *n == 2.0);
                         helpers::is_pi(num) && is_two
                     } else {
-                        helpers::get_numeric_value(e)
-                            .is_some_and(|v| helpers::approx_eq(v, std::f64::consts::PI / 2.0))
+                        helpers::get_numeric_value(e).is_some_and(|value| {
+                            helpers::approx_eq(value, std::f64::consts::PI / 2.0)
+                        })
                     }
                 };
 
@@ -294,20 +295,20 @@ rule!(
                 && let AstKind::Number(n) = &factors[0].kind
                 && {
                     // Exact check for -1.0 coefficient
-                    #[allow(clippy::float_cmp)] // Comparing against exact constant -1.0
+                    #[allow(clippy::float_cmp, reason = "Comparing against exact constant -1.0")]
                     let is_neg_one = *n == -1.0;
                     is_neg_one
                 }
             {
                 let inner = (*factors[1]).clone();
                 match &name {
-                    n if n.id() == KS.sin || n.id() == KS.tan => {
+                    func if func.id() == KS.sin || func.id() == KS.tan => {
                         return Some(Expr::product(vec![
                             Expr::number(-1.0),
                             Expr::func_symbol(name.clone(), inner),
                         ]));
                     }
-                    n if n.id() == KS.cos || n.id() == KS.sec => {
+                    func if func.id() == KS.cos || func.id() == KS.sec => {
                         return Some(Expr::func_symbol(name.clone(), inner));
                     }
                     _ => {}

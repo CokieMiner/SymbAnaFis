@@ -111,9 +111,9 @@ mod parentheses_edge_cases {
         let custom_funcs = HashSet::new();
         let expr = crate::parser::parse("∂_f(x+y)/∂_x", &fixed_vars, &custom_funcs, None).unwrap();
         // Check structure: Derivative { inner: FunctionCall(f, args=[Add(x,y)]), var: x, order: 1 }
-        if let ExprKind::Derivative { inner, var, order } = expr.kind {
+        if let ExprKind::Derivative { inner, var, order } = &expr.kind {
             assert_eq!(var.as_str(), "x");
-            assert_eq!(order, 1);
+            assert_eq!(*order, 1);
             if let ExprKind::FunctionCall { name, args } = &inner.kind {
                 assert_eq!(name.as_str(), "f");
                 assert_eq!(args.len(), 1);
@@ -146,7 +146,7 @@ mod parentheses_edge_cases {
         let custom_funcs = HashSet::new();
         let expr = crate::parser::parse("∂_f(x,y)/∂_x", &fixed_vars, &custom_funcs, None).unwrap();
 
-        if let ExprKind::Derivative { inner, .. } = expr.kind {
+        if let ExprKind::Derivative { inner, .. } = &expr.kind {
             if let ExprKind::FunctionCall { name, args } = &inner.kind {
                 assert_eq!(name.as_str(), "f");
                 assert_eq!(args.len(), 2);

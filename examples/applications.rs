@@ -3,7 +3,8 @@
     clippy::unwrap_used,
     clippy::print_stdout,
     clippy::similar_names,
-    clippy::too_many_lines
+    clippy::too_many_lines,
+    reason = "Example app requirements: unwrap for logic, stdout for output, similar names for math, long main functions"
 )]
 //! Physics & Engineering Applications using `SymbAnaFis`.
 
@@ -20,12 +21,12 @@ fn main() {
 
     // Position as function of time: x(t) = 5t² + 3t + 10
     let position = "5*t^2 + 3*t + 10";
-    let velocity = diff(position, "t", &[], None).unwrap();
-    let acceleration = diff(&velocity, "t", &[], None).unwrap();
+    let velocity_expr = diff(position, "t", &[], None).unwrap();
+    let acceleration_expr = diff(&velocity_expr, "t", &[], None).unwrap();
 
     println!("Position:     x(t) = {position}");
-    println!("Velocity:     v(t) = dx/dt = {velocity}");
-    println!("Acceleration: a(t) = dv/dt = {acceleration}");
+    println!("Velocity:     v(t) = dx/dt = {velocity_expr}");
+    println!("Acceleration: a(t) = dv/dt = {acceleration_expr}");
 
     println!("\n2. ELECTRICITY - RC Circuit Voltage");
     println!("----------------------------------");
@@ -179,12 +180,12 @@ fn main() {
 
     // Simple harmonic motion: x(t) = A*cos(ωt + φ)
     let displacement = "A * cos(omega * t + phi)";
-    let velocity = diff(displacement, "t", &["A", "omega", "phi"], None).unwrap();
-    let acceleration = diff(&velocity, "t", &["A", "omega", "phi"], None).unwrap();
+    let velocity_shm = diff(displacement, "t", &["A", "omega", "phi"], None).unwrap();
+    let acceleration_shm = diff(&velocity_shm, "t", &["A", "omega", "phi"], None).unwrap();
 
     println!("Displacement: x(t) = {displacement}");
-    println!("Velocity:     v(t) = {velocity}");
-    println!("Acceleration: a(t) = {acceleration}");
+    println!("Velocity:     v(t) = {velocity_shm}");
+    println!("Acceleration: a(t) = {acceleration_shm}");
 
     println!("\n16. ELECTROMAGNETISM - Maxwell's Equations");
     println!("-----------------------------------------");
@@ -216,10 +217,10 @@ fn main() {
     println!("-----------------------------------------");
 
     // Time-dependent wave function: ψ(x,t) = ψ0(x)*exp(-iEt/ℏ)
-    let wave_function = "psi0 * exp(-i * E * t / hbar)";
-    let time_derivative = diff(wave_function, "t", &["psi0", "E", "hbar"], None).unwrap();
+    let wave_function_td = "psi0 * exp(-i * E * t / hbar)";
+    let time_derivative = diff(wave_function_td, "t", &["psi0", "E", "hbar"], None).unwrap();
 
-    println!("Wave function: \u{3c8}(x,t) = {wave_function}");
+    println!("Wave function: \u{3c8}(x,t) = {wave_function_td}");
     println!("\u{2202}\u{3c8}/\u{2202}t = {time_derivative}");
 
     println!("\n19. RELATIVITY - Time Dilation");

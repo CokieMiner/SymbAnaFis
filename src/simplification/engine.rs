@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 macro_rules! trace_log {
     ($($arg:tt)*) => {
         if trace_enabled() {
-            #[allow(clippy::print_stderr)]
+            #[allow(clippy::print_stderr, reason = "Trace logging macro uses stderr for debug output")]
             {
                 eprintln!($($arg)*);
             }
@@ -50,7 +50,11 @@ pub fn global_registry() -> &'static RuleRegistry {
 pub struct Simplifier {
     /// Per-rule caches - cleared when exceeding capacity to bound memory
     /// Uses &'static str keys since rule names are guaranteed to be static
-    rule_caches: HashMap<&'static str, HashMap<u64, Option<Arc<Expr>>>>,
+    ///
+    /// Key change (Phase 7 fix): Uses `Arc<Expr>` instead of `u64` hash.
+    /// While `Expr` uses its internal hash for fast lookups, storing the `Arc`
+    /// ensures `HashMap` handles collisions correctly via structural equality check.
+    rule_caches: HashMap<&'static str, HashMap<Arc<Expr>, Option<Arc<Expr>>>>,
     cache_capacity: usize,
     max_iterations: usize,
     max_depth: usize,
@@ -119,9 +123,10 @@ impl Simplifier {
 
         let mut current = Arc::new(expr);
         let mut iterations = 0;
-        // Use expression id (structural hash) for cheap cycle detection
-        // This avoids storing full expression clones and expensive normalization
-        let mut seen_hashes: HashSet<u64> = HashSet::new();
+        // Use full expression storage for cycle detection to handle hash collisions safely.
+        // `Expr` hash implementation uses the pre-computed hash, so this is still fast (O(1)),
+        // but `HashSet` will verify structural equality on collision.
+        let mut seen_exprs: HashSet<Arc<Expr>> = HashSet::new();
         let start_time = Instant::now();
 
         loop {
@@ -146,22 +151,20 @@ impl Simplifier {
 
             trace_log!("[DEBUG] Iteration {iterations}: {original} -> {current}");
 
-            // Cycle detection: Check if we've seen this exact structural hash before
+            // Cycle detection: Check if we've seen this exact expression before.
             //
-            // The `hash` field is a structural hash computed during construction.
-            // If we see the same hash twice, we're in a simplification cycle where
+            // If we see the same expression twice, we're in a simplification cycle where
             // rules are undoing each other's transformations (e.g., a/b ↔ a*(1/b)).
             //
             // When a cycle is detected, we return the CURRENT (most recent) expression
             // because canonicalization rules (lowest priority) run last, making the
             // latest iteration the most canonical form (e.g., sorted products/sums).
-            let fingerprint = current.hash;
-            if seen_hashes.contains(&fingerprint) {
+            if seen_exprs.contains(&current) {
                 trace_log!("[DEBUG] Cycle detected, returning last (most canonical) form");
                 return Arc::try_unwrap(current).unwrap_or_else(|rc| (*rc).clone());
             }
             // Add AFTER checking to avoid false positive on first iteration
-            seen_hashes.insert(fingerprint);
+            seen_exprs.insert(Arc::clone(&current));
 
             iterations += 1;
         }
@@ -280,11 +283,11 @@ impl Simplifier {
                 }
 
                 let rule_name = $rule.name();
-                let original_id = current.id;
+                // Removed original_id usage - we use the expression itself as key
 
                 // Check per-rule cache
                 let cache = self.rule_caches.entry(rule_name).or_default();
-                if let Some(res) = cache.get(&original_id) {
+                if let Some(res) = cache.get(&current) {
                     if let Some(new_expr) = res {
                         current = Arc::clone(new_expr);
                     }
@@ -299,10 +302,10 @@ impl Simplifier {
 
                 if let Some(new_expr) = $rule.apply(&current, &self.context) {
                     trace_log!("[TRACE] {} : {} => {}", rule_name, current, new_expr);
-                    cache.insert(original_id, Some(Arc::clone(&new_expr)));
+                    cache.insert(Arc::clone(&current), Some(Arc::clone(&new_expr)));
                     current = new_expr;
                 } else {
-                    cache.insert(original_id, None);
+                    cache.insert(Arc::clone(&current), None);
                 }
             };
         }

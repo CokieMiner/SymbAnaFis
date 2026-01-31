@@ -19,7 +19,7 @@ rule_arc!(
             && args.len() == 1
             && {
                 // Exact check for sin(0.0)
-                #[allow(clippy::float_cmp)] // Comparing against exact constant 0.0
+                #[allow(clippy::float_cmp, reason = "Comparing against exact constant 0.0")]
                 let is_zero = matches!(&args[0].kind, AstKind::Number(n) if *n == 0.0);
                 is_zero
             }
@@ -121,7 +121,7 @@ rule_arc!(
             && helpers::is_pi(num)
         {
             // Exact check for pi/2 denominator
-            #[allow(clippy::float_cmp)] // Comparing against exact constant 2.0
+            #[allow(clippy::float_cmp, reason = "Comparing against exact constant 2.0")]
             let is_two = matches!(&den.kind, AstKind::Number(n) if *n == 2.0);
             if is_two {
                 return Some(Arc::new(Expr::number(1.0)));
@@ -146,7 +146,7 @@ rule_arc!(
             && helpers::is_pi(num)
         {
             // Exact check for pi/2 denominator
-            #[allow(clippy::float_cmp)] // Comparing against exact constant 2.0
+            #[allow(clippy::float_cmp, reason = "Comparing against exact constant 2.0")]
             let is_two = matches!(&den.kind, AstKind::Number(n) if *n == 2.0);
             if is_two {
                 return Some(Arc::new(Expr::number(0.0)));
@@ -175,8 +175,8 @@ rule_arc!(
                 n if n.id() == KS.sin => {
                     let matches_pi_six = {
                         // Exact check for denominator 6.0 (PI/6)
-                        #[allow(clippy::float_cmp)] // Comparing against exact constant 6.0
-                        let is_six = matches!(&arg.kind, AstKind::Div(num, den) if helpers::is_pi(num) && matches!(&den.kind, AstKind::Number(n) if *n == 6.0));
+                        #[allow(clippy::float_cmp, reason = "Comparing against exact constant 6.0")]
+                        let is_six = matches!(&arg.kind, AstKind::Div(num, den) if helpers::is_pi(num) && matches!(&den.kind, AstKind::Number(val) if *val == 6.0));
                         is_six
                     };
                     if helpers::approx_eq(arg_val, PI / 6.0) || matches_pi_six
@@ -189,8 +189,8 @@ rule_arc!(
                     }
                     let matches_pi_four = {
                         // Exact check for denominator 4.0 (PI/4)
-                        #[allow(clippy::float_cmp)] // Comparing against exact constant 4.0
-                        let is_four = matches!(&arg.kind, AstKind::Div(num, den) if helpers::is_pi(num) && matches!(&den.kind, AstKind::Number(n) if *n == 4.0));
+                        #[allow(clippy::float_cmp, reason = "Comparing against exact constant 4.0")]
+                        let is_four = matches!(&arg.kind, AstKind::Div(num, den) if helpers::is_pi(num) && matches!(&den.kind, AstKind::Number(val) if *val == 4.0));
                         is_four
                     };
                     if helpers::approx_eq(arg_val, PI / 4.0) || matches_pi_four
@@ -208,8 +208,8 @@ rule_arc!(
                 n if n.id() == KS.cos => {
                     let matches_pi_three = {
                         // Exact check for denominator 3.0 (PI/3)
-                        #[allow(clippy::float_cmp)] // Comparing against exact constant 3.0
-                        let is_three = matches!(&arg.kind, AstKind::Div(num, den) if helpers::is_pi(num) && matches!(&den.kind, AstKind::Number(n) if *n == 3.0));
+                        #[allow(clippy::float_cmp, reason = "Comparing against exact constant 3.0")]
+                        let is_three = matches!(&arg.kind, AstKind::Div(num, den) if helpers::is_pi(num) && matches!(&den.kind, AstKind::Number(val) if *val == 3.0));
                         is_three
                     };
                     if helpers::approx_eq(arg_val, PI / 3.0) || matches_pi_three
@@ -222,8 +222,8 @@ rule_arc!(
                     }
                     let matches_pi_four = {
                         // Exact check for denominator 4.0 (PI/4)
-                        #[allow(clippy::float_cmp)] // Comparing against exact constant 4.0
-                        let is_four = matches!(&arg.kind, AstKind::Div(num, den) if helpers::is_pi(num) && matches!(&den.kind, AstKind::Number(n) if *n == 4.0));
+                        #[allow(clippy::float_cmp, reason = "Comparing against exact constant 4.0")]
+                        let is_four = matches!(&arg.kind, AstKind::Div(num, den) if helpers::is_pi(num) && matches!(&den.kind, AstKind::Number(val) if *val == 4.0));
                         is_four
                     };
                     if helpers::approx_eq(arg_val, PI / 4.0) || matches_pi_four
@@ -241,8 +241,8 @@ rule_arc!(
                 n if n.id() == KS.tan => {
                     let matches_pi_four = {
                         // Exact check for denominator 4.0 (PI/4)
-                        #[allow(clippy::float_cmp)] // Comparing against exact constant 4.0
-                        let is_four = matches!(&arg.kind, AstKind::Div(num, den) if helpers::is_pi(num) && matches!(&den.kind, AstKind::Number(n) if *n == 4.0));
+                        #[allow(clippy::float_cmp, reason = "Comparing against exact constant 4.0")]
+                        let is_four = matches!(&arg.kind, AstKind::Div(num, den) if helpers::is_pi(num) && matches!(&den.kind, AstKind::Number(val) if *val == 4.0));
                         is_four
                     };
                     if helpers::approx_eq(arg_val, PI / 4.0) || matches_pi_four
@@ -251,8 +251,8 @@ rule_arc!(
                     }
                     let matches_pi_three = {
                         // Exact check for denominator 3.0 (PI/3)
-                        #[allow(clippy::float_cmp)] // Comparing against exact constant 3.0
-                        let is_three = matches!(&arg.kind, AstKind::Div(num, den) if helpers::is_pi(num) && matches!(&den.kind, AstKind::Number(n) if *n == 3.0));
+                        #[allow(clippy::float_cmp, reason = "Comparing against exact constant 3.0")]
+                        let is_three = matches!(&arg.kind, AstKind::Div(num, den) if helpers::is_pi(num) && matches!(&den.kind, AstKind::Number(val) if *val == 3.0));
                         is_three
                     };
                     if helpers::approx_eq(arg_val, PI / 3.0) || matches_pi_three
@@ -265,8 +265,8 @@ rule_arc!(
                     }
                     let matches_pi_six = {
                         // Exact check for denominator 6.0 (PI/6)
-                        #[allow(clippy::float_cmp)] // Comparing against exact constant 6.0
-                        let is_six = matches!(&arg.kind, AstKind::Div(num, den) if helpers::is_pi(num) && matches!(&den.kind, AstKind::Number(n) if *n == 6.0));
+                        #[allow(clippy::float_cmp, reason = "Comparing against exact constant 6.0")]
+                        let is_six = matches!(&arg.kind, AstKind::Div(num, den) if helpers::is_pi(num) && matches!(&den.kind, AstKind::Number(val) if *val == 6.0));
                         is_six
                     };
                     if helpers::approx_eq(arg_val, PI / 6.0) || matches_pi_six

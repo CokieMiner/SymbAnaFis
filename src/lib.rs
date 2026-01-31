@@ -28,25 +28,32 @@
 //! let derivative = Diff::new().differentiate(&expr, &x).unwrap();
 //! // derivative is: 2*x + cos(x)
 //! ```
-#![cfg_attr(
-    test,
-    allow(clippy::float_cmp, clippy::cast_possible_truncation, clippy::pedantic)
-)]
-// New module structure
-mod api; // User-facing builders: Diff, Simplify, helpers
-mod bindings; // External bindings (Python, parallel)
+
+// ============================================================================
+// Module Declarations (organized by layer)
+// ============================================================================
+
+// Core infrastructure
 mod core; // Core types: Expr, Symbol, Error, Display, Visitor
+mod parser; // String-to-AST parsing
+
+// Computation engines
 mod diff; // Differentiation engine
-mod evaluator; // Compiled evaluator (promoted from core)
+mod evaluator; // Compiled evaluator
+mod simplification; // Expression simplification
 
-mod functions;
-mod math;
-mod parser;
-mod simplification;
-mod uncertainty;
+// Function and math support
+mod functions; // Function definitions and registry
+mod math; // Mathematical function implementations
+mod uncertainty; // Uncertainty propagation
 
-// Re-export visitor at crate root for public API
-pub use core::visitor;
+// User-facing APIs
+mod api; // Builder APIs: Diff, Simplify, helpers
+mod bindings; // External bindings (Python, parallel)
+
+// ============================================================================
+// Test Module
+// ============================================================================
 
 #[cfg(test)]
 #[allow(missing_docs)]
@@ -56,52 +63,44 @@ pub use core::visitor;
 mod tests;
 
 // ============================================================================
-// Public API Re-exports (organized by concept)
+// Public API Re-exports (organized by category)
 // ============================================================================
 
-// --- Error Types ---
-pub use core::{DiffError, Span, SymbolError};
-
-// --- Expression Types ---
-pub use core::Expr;
-pub use evaluator::CompiledEvaluator;
-pub use evaluator::ToParamName;
-// ExprKind is NOT re-exported at the crate root to encourage use of Expr constructors
-// (Expr::sum, Expr::product, etc.) instead of direct ExprKind construction.
-// It IS still public via `use symb_anafis::core::ExprKind` for pattern matching.
-// This pub(crate) re-export is only for internal crate usage.
-pub(crate) use core::ExprKind;
-
-// --- Math Types ---
+// --- Core Types ---
 pub use core::traits::MathScalar;
+pub use core::{DiffError, Expr, Span, Symbol, SymbolError};
+pub use evaluator::{CompiledEvaluator, ToParamName};
 pub use math::dual::Dual;
 
 // --- Symbol Management ---
-/// Symbol type and context for variable handling.
-/// - `symb(name)` - Get or create a symbol (most common usage)
-/// - `symb_new(name)` - Create a new symbol (errors if exists)
-/// - `symb_get(name)` - Get existing symbol (errors if not found)
 pub use core::{
-    ArcExprExt, Symbol, clear_symbols, remove_symbol, symb, symb_get, symb_new, symbol_count,
+    ArcExprExt, clear_symbols, remove_symbol, symb, symb_get, symb_new, symbol_count,
     symbol_exists, symbol_names,
 };
 
-// --- Builder API ---
-pub use api::{Diff, Simplify};
-
-// --- Unified Context ---
+// --- Context and Functions ---
 pub use core::unified_context::{BodyFn, Context, PartialFn, UserFunction};
+pub use parser::parse;
+
+// --- Builder APIs ---
+pub use api::{Diff, Simplify};
 
 // --- Utility Functions ---
 pub use api::{evaluate_str, gradient, gradient_str, hessian, hessian_str, jacobian, jacobian_str};
-pub use parser::parse;
 pub use uncertainty::{CovEntry, CovarianceMatrix, relative_uncertainty, uncertainty_propagation};
 
-// Conditional re-exports
+// --- Visitor Pattern (for advanced users) ---
+pub use core::visitor;
+
+// --- Feature-gated APIs ---
 #[cfg(feature = "parallel")]
 pub use bindings::eval_f64::eval_f64;
 #[cfg(feature = "parallel")]
 pub use bindings::parallel;
+
+// ============================================================================
+// Constants
+// ============================================================================
 
 /// Default maximum AST depth.
 /// This limit prevents stack overflow from deeply nested expressions.
@@ -110,6 +109,10 @@ pub const DEFAULT_MAX_DEPTH: usize = 100;
 /// Default maximum AST node count.
 /// This limit prevents memory exhaustion from extremely large expressions.
 pub const DEFAULT_MAX_NODES: usize = 10_000;
+
+// ============================================================================
+// Convenience Functions
+// ============================================================================
 
 /// Main API function for symbolic differentiation
 ///
@@ -218,3 +221,13 @@ pub fn simplify(
         .max_nodes(DEFAULT_MAX_NODES)
         .simplify_str(formula, known_symbols)
 }
+
+// ============================================================================
+// Internal Re-exports (for crate use only)
+// ============================================================================
+
+// ExprKind is NOT re-exported at the crate root to encourage use of Expr constructors
+// (Expr::sum, Expr::product, etc.) instead of direct ExprKind construction.
+// It IS still public via `use symb_anafis::core::ExprKind` for pattern matching.
+// This pub(crate) re-export is only for internal crate usage.
+pub(crate) use core::ExprKind;

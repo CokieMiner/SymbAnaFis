@@ -30,12 +30,12 @@ pub struct Polynomial {
 /// Helper to format coefficient
 fn format_coeff(n: f64) -> String {
     if {
-        #[allow(clippy::float_cmp)] // Checking for exact integer via trunc
+        #[allow(clippy::float_cmp, reason = "Checking for exact integer via trunc")]
         let is_int = n.trunc() == n;
         is_int
     } && n.abs() < 1e10
     {
-        #[allow(clippy::cast_possible_truncation)] // Checked is_int above
+        #[allow(clippy::cast_possible_truncation, reason = "Checked is_int above")]
         let n_int = n as i64;
         format!("{n_int}")
     } else {
@@ -79,16 +79,36 @@ impl Polynomial {
         pow: u32,
         coeff: f64,
     ) -> std::fmt::Result {
+        // Determine if base needs parentheses when raised to a power
+        let needs_parens_pow = matches!(
+            self.base.kind,
+            ExprKind::Sum(_)
+                | ExprKind::Product(_)
+                | ExprKind::Div(_, _)
+                | ExprKind::Poly(_)
+                | ExprKind::Pow(_, _)
+        ) || (matches!(self.base.kind, ExprKind::Number(n) if n < 0.0));
+
         if pow == 0 {
             write!(f, "{}", format_coeff(coeff))
         } else if (coeff - 1.0).abs() < EPSILON {
             if pow == 1 {
                 write!(f, "{}", self.base)
+            } else if needs_parens_pow {
+                write!(f, "({})^{}", self.base, pow)
             } else {
                 write!(f, "{}^{}", self.base, pow)
             }
         } else if pow == 1 {
-            write!(f, "{}*{}", format_coeff(coeff), self.base)
+            // Determine if base needs parentheses when multiplied by coefficient
+            let needs_parens_mul = matches!(self.base.kind, ExprKind::Sum(_) | ExprKind::Poly(_));
+            if needs_parens_mul {
+                write!(f, "{}*({})", format_coeff(coeff), self.base)
+            } else {
+                write!(f, "{}*{}", format_coeff(coeff), self.base)
+            }
+        } else if needs_parens_pow {
+            write!(f, "{}*({})^{}", format_coeff(coeff), self.base, pow)
         } else {
             write!(f, "{}*{}^{}", format_coeff(coeff), self.base, pow)
         }
@@ -152,6 +172,11 @@ impl Polynomial {
         &self.base
     }
 
+    /// Update the base expression
+    pub(crate) fn set_base(&mut self, base: Arc<Expr>) {
+        self.base = base;
+    }
+
     /// Get terms as (power, coefficient) pairs
     #[inline]
     pub fn terms(&self) -> &[(u32, f64)] {
@@ -189,6 +214,12 @@ impl Polynomial {
     /// Number of terms
     pub const fn term_count(&self) -> usize {
         self.terms.len()
+    }
+
+    /// Take the base expression, replacing it with a dummy
+    pub(crate) fn take_base(&mut self) -> Arc<Expr> {
+        let dummy = Arc::new(Expr::number(0.0));
+        std::mem::replace(&mut self.base, dummy)
     }
 
     /// Get coefficient for a given power (0 if not present)
@@ -496,7 +527,8 @@ impl Polynomial {
                     #[allow(
                         clippy::float_cmp,
                         clippy::cast_possible_truncation,
-                        clippy::cast_sign_loss
+                        clippy::cast_sign_loss,
+                        reason = "Safe conversion of validated non-negative integer float to u32 for polynomial power"
                     )]
                     let pow = *n as u32;
                     // Reuse existing Arc instead of deep cloning
@@ -654,15 +686,18 @@ impl Default for Polynomial {
 #[cfg(test)]
 // Standard test relaxations: unwrap/panic for assertions, precision loss for math
 #[allow(
+    clippy::pedantic,
     clippy::unwrap_used,
     clippy::panic,
     clippy::cast_precision_loss,
     clippy::items_after_statements,
     clippy::let_underscore_must_use,
-    clippy::no_effect_underscore_binding
+    clippy::no_effect_underscore_binding,
+    reason = "Standard test relaxations"
 )]
 mod tests {
     use super::*;
+    use crate::core::known_symbols as ks;
 
     #[test]
     fn test_poly_constant() {
@@ -760,7 +795,7 @@ mod tests {
     #[test]
     fn test_poly_with_function_base() {
         // Polynomial in sin(x)
-        let sin_x = Expr::func("sin", Expr::symbol("x"));
+        let sin_x = Expr::func_symbol(ks::get_symbol(ks::KS.sin), Expr::symbol("x"));
         let base = Arc::new(sin_x);
 
         let mut p = Polynomial::zero(Arc::clone(&base));

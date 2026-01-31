@@ -4,62 +4,99 @@
 //! This implementation uses sharding to minimize lock contention and `FxHash` for
 //! high-performance mapping.
 
-use std::sync::RwLock;
-use std::sync::atomic::AtomicU64;
+use std::sync::{Mutex, RwLock};
 
 use rustc_hash::{FxHashMap, FxHasher};
+use slotmap::{DefaultKey, SlotMap};
 use std::hash::Hasher;
 
 use super::interned::InternedSymbol;
 use super::{Symbol, SymbolError};
 
 // ============================================================================
-// Global Symbol Registry
+// Public API Functions for ID/Key Conversion and Anonymous Symbols
 // ============================================================================
 
-/// Global counter for symbol IDs (shared across modules)
-pub static NEXT_SYMBOL_ID: AtomicU64 = AtomicU64::new(1);
+/// Create a `DefaultKey` from a 64-bit ID.
+///
+/// This is the reverse of `key.data().as_ffi()`.
+#[inline]
+pub fn key_from_id(id: u64) -> DefaultKey {
+    slotmap::KeyData::from_ffi(id).into()
+}
+
+/// Create a new anonymous symbol.
+#[inline]
+#[must_use]
+pub fn symb_anon() -> Symbol {
+    let mut guard = REGISTRY
+        .id_to_data
+        .write()
+        .expect("Global ID registry poisoned");
+    let key = guard.insert_with_key(|k| InternedSymbol::new_anon(k));
+    Symbol(key)
+}
+
+/// Create a new named symbol that is only registered by ID, not by name.
+/// This is for use in isolated contexts.
+#[must_use]
+pub(crate) fn symb_new_isolated(name: &str) -> Symbol {
+    let mut id_data = REGISTRY
+        .id_to_data
+        .write()
+        .expect("Global ID registry poisoned");
+
+    let key = id_data.insert_with_key(|k| InternedSymbol::new_named(name, k));
+    Symbol(key)
+}
+
+// ============================================================================
+// Global Symbol Registry
+// ============================================================================
 
 const NUM_SHARDS: usize = 16;
 
 struct RegistryShard {
     // Use FxHashMap for faster lookups with short symbol names
-    name_to_symbol: FxHashMap<String, InternedSymbol>,
+    name_to_symbol_key: FxHashMap<String, DefaultKey>,
 }
 
 /// Unified symbol registry storage
 struct SymbolRegistry {
     // Shards for Name -> Symbol mapping to reduce contention
-    shards: [RwLock<RegistryShard>; NUM_SHARDS],
-    // ID -> Symbol mapping (Sequential, O(1) lookup, using Vec instead of HashMap)
-    id_to_data: RwLock<Vec<Option<InternedSymbol>>>,
+    shards: [Mutex<RegistryShard>; NUM_SHARDS],
+    // ID -> Symbol mapping using SlotMap for memory efficiency and safe key generation
+    id_to_data: RwLock<SlotMap<DefaultKey, InternedSymbol>>,
 }
 
 impl SymbolRegistry {
     fn new() -> Self {
-        let shards: [RwLock<RegistryShard>; NUM_SHARDS] = std::array::from_fn(|_| {
-            RwLock::new(RegistryShard {
-                name_to_symbol: FxHashMap::default(),
+        let shards: [Mutex<RegistryShard>; NUM_SHARDS] = std::array::from_fn(|_| {
+            Mutex::new(RegistryShard {
+                name_to_symbol_key: FxHashMap::default(),
             })
         });
 
         Self {
             shards,
-            id_to_data: RwLock::new(Vec::with_capacity(128)),
+            id_to_data: RwLock::new(SlotMap::with_key()),
         }
     }
 
     /// # Panics
     ///
     /// Panics if the global registry hash cannot be computed.
-    fn get_shard(&self, name: &str) -> &RwLock<RegistryShard> {
+    fn get_shard(&self, name: &str) -> &Mutex<RegistryShard> {
         // Use FxHasher for sharding to stay consistent and fast
         let mut hasher = FxHasher::default();
         std::hash::Hash::hash(name, &mut hasher);
         let hash = hasher.finish();
 
         // Truncation is safe/expected here as we only need the low bits for sharding (hash % 16)
-        #[allow(clippy::cast_possible_truncation)]
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "Truncation is safe/expected here as we only need the low bits for sharding (hash % 16)"
+        )]
         let shard_idx = (hash as usize) % NUM_SHARDS;
         &self.shards[shard_idx]
     }
@@ -69,43 +106,39 @@ impl SymbolRegistry {
 static REGISTRY: std::sync::LazyLock<SymbolRegistry> =
     std::sync::LazyLock::new(SymbolRegistry::new);
 
-/// Look up `InternedSymbol` by ID (for Symbol -> Expr conversion and `known_symbols`)
+thread_local! {
+    // Thread-local cache to avoid global lock contention on frequently accessed symbols
+    static ID_CACHE: std::cell::RefCell<FxHashMap<DefaultKey, InternedSymbol>> = std::cell::RefCell::new(FxHashMap::default());
+}
+
+/// Look up `InternedSymbol` by its u64 ID.
 ///
 /// # Panics
 ///
 /// Panics if the global ID registry lock is poisoned.
 pub fn lookup_by_id(id: u64) -> Option<InternedSymbol> {
-    let guard = REGISTRY
+    let key = key_from_id(id);
+
+    // Try TLS cache first to avoid RwLock contention
+    if let Some(s) = ID_CACHE.with(|cache| cache.borrow().get(&key).cloned()) {
+        return Some(s);
+    }
+
+    // Fallback to global registry
+    let id_data = REGISTRY
         .id_to_data
         .read()
         .expect("Global ID registry poisoned");
-    // Symbol IDs are sequential; 4 billion symbols would exceed system memory before 32-bit truncation
-    #[allow(clippy::cast_possible_truncation)]
-    let idx = id as usize;
-    guard.get(idx).and_then(Clone::clone)
-}
+    let symbol = id_data.get(key).cloned();
 
-/// Register an `InternedSymbol` in the ID registry (for Context integration)
-///
-/// # Panics
-///
-/// Panics if the global ID registry lock is poisoned.
-pub fn register_in_id_registry(id: u64, interned: InternedSymbol) {
-    let mut guard = REGISTRY
-        .id_to_data
-        .write()
-        .expect("Global ID registry poisoned");
-
-    // Symbol IDs are sequential; 4 billion symbols would exceed system memory before 32-bit truncation
-    #[allow(clippy::cast_possible_truncation)]
-    let idx = id as usize;
-    if guard.len() <= idx {
-        // Use exponential growth strategy for better amortized performance
-        let new_len = (idx + 1).next_power_of_two().max(guard.len() * 2);
-        guard.resize(new_len, None);
+    // Populate cache if found
+    if let Some(ref s) = symbol {
+        ID_CACHE.with(|cache| {
+            cache.borrow_mut().insert(key, s.clone());
+        });
     }
 
-    guard[idx] = Some(interned);
+    symbol
 }
 
 // ============================================================================
@@ -123,22 +156,22 @@ pub fn register_in_id_registry(id: u64, interned: InternedSymbol) {
 pub fn symb_new(name: &str) -> Result<Symbol, SymbolError> {
     let shard_lock = REGISTRY.get_shard(name);
     let mut shard = shard_lock
-        .write()
+        .lock()
         .expect("Global symbol registry shard poisoned");
 
-    if shard.name_to_symbol.contains_key(name) {
+    if shard.name_to_symbol_key.contains_key(name) {
         return Err(SymbolError::DuplicateName(name.to_owned()));
     }
 
-    let interned = InternedSymbol::new_named(name);
-    let id = interned.id();
+    let mut id_data = REGISTRY
+        .id_to_data
+        .write()
+        .expect("Global ID registry poisoned");
 
-    // Consistency: Update both registries while holding the shard lock
-    register_in_id_registry(id, interned.clone());
-    shard.name_to_symbol.insert(name.to_owned(), interned);
-    drop(shard); // Early drop to reduce contention
+    let key = id_data.insert_with_key(|k| InternedSymbol::new_named(name, k));
+    shard.name_to_symbol_key.insert(name.to_owned(), key);
 
-    Ok(Symbol(id))
+    Ok(Symbol(key))
 }
 
 /// Get an existing symbol by name
@@ -152,13 +185,13 @@ pub fn symb_new(name: &str) -> Result<Symbol, SymbolError> {
 pub fn symb_get(name: &str) -> Result<Symbol, SymbolError> {
     let shard_lock = REGISTRY.get_shard(name);
     let shard = shard_lock
-        .read()
+        .lock()
         .expect("Global symbol registry shard poisoned");
 
     shard
-        .name_to_symbol
+        .name_to_symbol_key
         .get(name)
-        .map(|s| Symbol(s.id()))
+        .map(|&key| Symbol(key))
         .ok_or_else(|| SymbolError::NotFound(name.to_owned()))
 }
 
@@ -170,16 +203,34 @@ pub fn symb_get(name: &str) -> Result<Symbol, SymbolError> {
 pub fn symbol_exists(name: &str) -> bool {
     let shard_lock = REGISTRY.get_shard(name);
     let shard = shard_lock
-        .read()
+        .lock()
         .expect("Global symbol registry shard poisoned");
-    shard.name_to_symbol.contains_key(name)
+    shard.name_to_symbol_key.contains_key(name)
 }
 
 /// Create or get a Symbol
 #[must_use]
 pub fn symb(name: &str) -> Symbol {
-    let interned = symb_interned(name);
-    Symbol(interned.id())
+    let shard_lock = REGISTRY.get_shard(name);
+    let mut shard = shard_lock
+        .lock()
+        .expect("Global symbol registry shard poisoned");
+
+    // Check if the symbol already exists.
+    if let Some(&key) = shard.name_to_symbol_key.get(name) {
+        return Symbol(key);
+    }
+
+    // If not, create it.
+    let mut id_data = REGISTRY
+        .id_to_data
+        .write()
+        .expect("Global ID registry poisoned");
+
+    let key = id_data.insert_with_key(|k| InternedSymbol::new_named(name, k));
+    shard.name_to_symbol_key.insert(name.to_owned(), key);
+
+    Symbol(key)
 }
 
 /// Get or create an interned symbol
@@ -188,38 +239,8 @@ pub fn symb(name: &str) -> Symbol {
 ///
 /// Panics if the global registry shard lock is poisoned.
 pub fn symb_interned(name: &str) -> InternedSymbol {
-    let shard_lock = REGISTRY.get_shard(name);
-
-    // Fast Path: Read Lock (common case)
-    {
-        let shard = shard_lock
-            .read()
-            .expect("Global symbol registry shard poisoned");
-        if let Some(sym) = shard.name_to_symbol.get(name) {
-            return sym.clone();
-        }
-    }
-
-    // Slow Path: Write Lock
-    let mut shard = shard_lock
-        .write()
-        .expect("Global symbol registry shard poisoned");
-
-    // Double-check after acquiring write lock (another thread may have inserted)
-    if let Some(sym) = shard.name_to_symbol.get(name) {
-        return sym.clone();
-    }
-
-    let interned = InternedSymbol::new_named(name);
-    let id = interned.id();
-
-    // Register in both registries while holding the shard lock
-    register_in_id_registry(id, interned.clone());
-    shard
-        .name_to_symbol
-        .insert(name.to_owned(), interned.clone());
-
-    interned
+    let symbol = symb(name);
+    lookup_by_id(symbol.id()).expect("Just-created symbol should always be found")
 }
 
 /// Remove a symbol from the global registry
@@ -232,28 +253,20 @@ pub fn symb_interned(name: &str) -> InternedSymbol {
 pub fn remove_symbol(name: &str) -> bool {
     let shard_lock = REGISTRY.get_shard(name);
     let mut shard = shard_lock
-        .write()
+        .lock()
         .expect("Global symbol registry shard poisoned");
 
-    // Remove from name mapping and get the symbol to know its ID
-    let sym_opt = shard.name_to_symbol.remove(name);
-    // Explicitly drop shard lock before taking id_data lock to avoid potential deadlocks
-    drop(shard);
-
-    sym_opt.is_some_and(|sym| {
+    if let Some(key) = shard.name_to_symbol_key.remove(name) {
+        // Explicitly drop shard lock before taking id_data lock to avoid deadlocks
+        drop(shard);
         let mut id_data = REGISTRY
             .id_to_data
             .write()
             .expect("Global ID registry poisoned");
-
-        // Symbol IDs are sequential; 4 billion symbols would exceed system memory before 32-bit truncation
-        #[allow(clippy::cast_possible_truncation)]
-        let idx = sym.id() as usize;
-        if idx < id_data.len() {
-            id_data[idx] = None;
-        }
-        true
-    })
+        id_data.remove(key).is_some()
+    } else {
+        false
+    }
 }
 
 /// Clear all symbols from the global registry
@@ -264,9 +277,9 @@ pub fn remove_symbol(name: &str) -> bool {
 pub fn clear_symbols() {
     for shard_lock in &REGISTRY.shards {
         let mut shard = shard_lock
-            .write()
+            .lock()
             .expect("Global symbol registry shard poisoned");
-        shard.name_to_symbol.clear();
+        shard.name_to_symbol_key.clear();
     }
 
     let mut id_data = REGISTRY
@@ -282,17 +295,11 @@ pub fn clear_symbols() {
 ///
 /// Panics if any global registry shard lock is poisoned.
 pub fn symbol_count() -> usize {
-    REGISTRY
-        .shards
-        .iter()
-        .map(|shard_lock| {
-            shard_lock
-                .read()
-                .expect("Global symbol registry shard poisoned")
-                .name_to_symbol
-                .len()
-        })
-        .sum()
+    let id_data = REGISTRY
+        .id_to_data
+        .read()
+        .expect("Global ID registry poisoned");
+    id_data.len()
 }
 
 /// Get a list of all registered symbol names (unsorted for performance)
@@ -305,9 +312,9 @@ pub fn symbol_names() -> Vec<String> {
     let mut names = Vec::new();
     for shard_lock in &REGISTRY.shards {
         let shard = shard_lock
-            .read()
+            .lock()
             .expect("Global symbol registry shard poisoned");
-        names.extend(shard.name_to_symbol.keys().cloned());
+        names.extend(shard.name_to_symbol_key.keys().cloned());
     }
     // Removed sorting - caller can sort if needed
     // This avoids O(n log n) cost for use cases that don't need ordering

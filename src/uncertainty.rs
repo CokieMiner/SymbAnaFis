@@ -12,8 +12,11 @@
 //! of uncertainty in measurement" (GUM), Section 5.1.2
 //! <https://www.bipm.org/documents/20126/2071204/JCGM_100_2008_E.pdf>
 
+use crate::core::known_symbols as ks;
 use crate::core::traits::EPSILON;
 use crate::{Diff, DiffError, Expr};
+#[cfg(feature = "parallel")]
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 /// Covariance matrix entry - can be numeric or symbolic
 #[derive(Debug, Clone)]
@@ -201,13 +204,26 @@ pub fn uncertainty_propagation(
 
     // Compute all partial derivatives
     let diff = Diff::new();
-    let mut partials: Vec<Expr> = Vec::with_capacity(n);
 
-    for var in variables {
-        let partial = diff.differentiate_by_name(expr, var)?;
-        let simplified = partial.simplified()?;
-        partials.push(simplified);
-    }
+    #[cfg(not(feature = "parallel"))]
+    let partials: Result<Vec<Expr>, DiffError> = variables
+        .iter()
+        .map(|&var| {
+            let partial = diff.differentiate_by_name(expr, var)?;
+            partial.simplified()
+        })
+        .collect();
+
+    #[cfg(feature = "parallel")]
+    let partials: Result<Vec<Expr>, DiffError> = variables
+        .par_iter()
+        .map(|&var| {
+            let partial = diff.differentiate_by_name(expr, var)?;
+            partial.simplified()
+        })
+        .collect();
+
+    let partials = partials?;
 
     // Get or create covariance matrix
     let default_cov;
@@ -265,7 +281,7 @@ pub fn uncertainty_propagation(
 
     // Simplify the variance, then wrap in sqrt for σ_f = sqrt(σ_f²)
     let simplified_variance = variance.simplified()?;
-    let std_dev = Expr::func("sqrt", simplified_variance);
+    let std_dev = Expr::func_symbol(ks::get_symbol(ks::KS.sqrt), simplified_variance);
 
     std_dev.simplified()
 }
@@ -289,7 +305,7 @@ pub fn relative_uncertainty(
     let std_dev = uncertainty_propagation(expr, variables, covariance)?;
 
     // |f|
-    let abs_f = Expr::func("abs", expr.clone());
+    let abs_f = Expr::func_symbol(ks::get_symbol(ks::KS.abs), expr.clone());
 
     // σ_f / |f|
     Ok(Expr::div_expr(std_dev, abs_f))

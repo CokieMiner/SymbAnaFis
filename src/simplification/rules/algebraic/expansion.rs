@@ -12,10 +12,10 @@ rule!(
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::Div(num, den) = &expr.kind {
             // Helper to check if a factor is present in an expression
-            let contains_factor = |expr: &Expr, factor: &Expr| -> bool {
-                match &expr.kind {
+            let contains_factor = |e: &Expr, factor: &Expr| -> bool {
+                match &e.kind {
                     AstKind::Product(factors) => factors.iter().any(|f| **f == *factor),
-                    _ => expr == factor,
+                    _ => e == factor,
                 }
             };
 
@@ -73,7 +73,10 @@ rule!(
                 && n.fract() == 0.0
                 && {
                     // Checked fract() == 0.0, so cast is safe. Limit expansion to small powers.
-                    #[allow(clippy::cast_possible_truncation)]
+                    #[allow(
+                        clippy::cast_possible_truncation,
+                        reason = "Checked fract()==0.0, limit to small powers"
+                    )]
                     // Checked fract()==0.0, limit to small powers
                     let small_pow = (*n as i64) < 10;
                     small_pow
@@ -118,7 +121,10 @@ rule!(
                 && n.fract() == 0.0
                 && {
                     // Checked fract() == 0.0, so cast is safe. Limit expansion to small powers.
-                    #[allow(clippy::cast_possible_truncation)]
+                    #[allow(
+                        clippy::cast_possible_truncation,
+                        reason = "Checked fract()==0.0, limit to small powers"
+                    )]
                     // Checked fract()==0.0, limit to small powers
                     let small_pow = (*n as i64) < 10;
                     small_pow

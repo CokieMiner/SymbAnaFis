@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod actual_bug_test {
-    use crate::{Expr, simplification::simplify_expr};
+    use crate::{Expr, simplification::simplify_expr, Simplify, symb};
     use std::collections::{HashMap, HashSet};
 
     #[test]
@@ -100,4 +100,22 @@ mod actual_bug_test {
         let display = format!("{}", simplified);
         assert_eq!(display, "-1/R", "Expected '-1/R', got '{}'", display);
     }
+
+    #[test]
+    fn test_abs() {
+        let y = symb("y");
+        let expr = y.abs() + (y/y.abs());
+        let simplified = Simplify::new().simplify(
+            &expr
+        ).unwrap();
+        let mut vars = HashMap::new();
+        vars.insert("y", 2.0);
+        let val1 = simplified.evaluate(&vars, &HashMap::new());
+        let val2 = expr.evaluate(&vars, &HashMap::new());
+        println!("\nAbs test:");
+        println!("Original:   {}", expr);
+        println!("Simplified: {}", simplified);
+        println!("Value check with y = -3: original = {}, simplified = {}", val2, val1);
+        assert_eq!(val1, val2, "Values do not match");
+    }   
 }

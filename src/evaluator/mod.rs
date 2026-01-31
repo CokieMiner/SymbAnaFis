@@ -50,7 +50,10 @@
 //! - [`simd`]: SIMD batch evaluation implementation
 
 // Allow unsafe code in this module - safety is guaranteed by compile-time stack validation
-#![allow(unsafe_code)]
+#![allow(
+    unsafe_code,
+    reason = "Safety is guaranteed by compile-time stack validation"
+)]
 
 // Internal submodules - visibility is controlled by parent module (not exported from crate root)
 mod compiler;
@@ -226,10 +229,12 @@ impl CompiledEvaluator {
         compiler.compile_expr(&expanded_expr)?;
 
         // Extract compilation results
-        let (instructions, constants, max_stack, param_count, cache_size) = compiler.into_parts();
+        let (instructions, mut constants, max_stack, param_count, mut cache_size) =
+            compiler.into_parts();
 
         // Post-compilation optimization pass: fuse instructions
-        let optimized_instructions = Self::optimize_instructions(instructions);
+        let optimized_instructions =
+            Self::optimize_instructions(instructions, &mut constants, &mut cache_size);
 
         Ok(Self {
             instructions: optimized_instructions.into_boxed_slice(),
@@ -285,9 +290,368 @@ impl CompiledEvaluator {
     //
     // Allow needless_pass_by_value: Takes ownership to match call site pattern where
     // caller builds Vec and passes it directly without needing it afterwards.
-    #[allow(clippy::needless_pass_by_value)]
-    fn optimize_instructions(instructions: Vec<Instruction>) -> Vec<Instruction> {
-        Self::fuse_muladd(&instructions)
+    #[allow(
+        clippy::needless_pass_by_value,
+        reason = "Takes ownership to match call site pattern where caller builds Vec and passes it directly without needing it afterwards."
+    )]
+    fn optimize_instructions(
+        mut instructions: Vec<Instruction>,
+        constants: &mut Vec<f64>,
+        cache_size: &mut usize,
+    ) -> Vec<Instruction> {
+        // Pass 1: Peephole optimizations (local fusion)
+        Self::peephole_optimize(&mut instructions, constants);
+
+        // Pass 2: Fuse MulAdd (requires 3 instructions)
+        instructions = Self::fuse_muladd(&instructions);
+
+        // Pass 3: Dead store elimination (global analysis)
+        Self::eliminate_dead_stores(&mut instructions, cache_size);
+
+        // Pass 4: Constant pool deduplication
+        Self::deduplicate_constants(&mut instructions, constants);
+
+        // Pass 5: Cache slot reuse optimization
+        Self::optimize_cache_slots(&mut instructions, cache_size);
+
+        instructions
+    }
+
+    /// Deduplicate constant pool to reduce memory usage and improve cache hits.
+    fn deduplicate_constants(instructions: &mut [Instruction], constants: &mut Vec<f64>) {
+        use std::collections::HashMap;
+
+        let mut const_map: HashMap<u64, u32> = HashMap::with_capacity(constants.len());
+        let mut new_constants = Vec::with_capacity(constants.len());
+
+        for instr in instructions.iter_mut() {
+            match instr {
+                Instruction::LoadConst(idx)
+                | Instruction::MulConst(idx)
+                | Instruction::AddConst(idx)
+                | Instruction::SubConst(idx)
+                | Instruction::ConstSub(idx) => {
+                    let val = constants[*idx as usize];
+                    let bits = val.to_bits();
+                    *idx = *const_map.entry(bits).or_insert_with(|| {
+                        #[allow(
+                            clippy::cast_possible_truncation,
+                            reason = "Constant pool index will not exceed u32::MAX"
+                        )]
+                        let new_idx = new_constants.len() as u32;
+                        new_constants.push(val);
+                        new_idx
+                    });
+                }
+                Instruction::PolyEval(idx) => {
+                    let old_idx = *idx as usize;
+                    #[allow(
+                        clippy::cast_possible_truncation,
+                        clippy::cast_sign_loss,
+                        reason = "Degree is stored as f64 in constant pool"
+                    )]
+                    let degree = constants[old_idx] as usize;
+                    let block_len = degree + 2;
+
+                    #[allow(
+                        clippy::cast_possible_truncation,
+                        reason = "Constant pool index will not exceed u32::MAX"
+                    )]
+                    let new_idx = new_constants.len() as u32;
+                    for i in 0..block_len {
+                        new_constants.push(constants[old_idx + i]);
+                    }
+                    *idx = new_idx;
+                }
+                _ => {}
+            }
+        }
+
+        *constants = new_constants;
+    }
+
+    /// Implement live-range analysis and cache slot reuse.
+    fn optimize_cache_slots(instructions: &mut [Instruction], cache_size: &mut usize) {
+        use std::collections::HashMap;
+
+        // Track live ranges more precisely
+        let mut slot_live_ranges: HashMap<u32, (usize, usize, bool)> = HashMap::new();
+        let mut last_use_map: HashMap<u32, usize> = HashMap::new();
+
+        for (i, instr) in instructions.iter().enumerate() {
+            match instr {
+                Instruction::StoreCached(slot) => {
+                    slot_live_ranges.entry(*slot).or_insert((i, i, false)).1 = i;
+                    last_use_map.insert(*slot, i);
+                }
+                Instruction::LoadCached(slot) => {
+                    if let Some((start, _, _)) = slot_live_ranges.get_mut(slot) {
+                        if *start > i {
+                            *start = i; // Earlier use than we thought
+                        }
+                    } else {
+                        // Load without prior store - mark as read-only
+                        slot_live_ranges.insert(*slot, (i, i, true));
+                    }
+                    last_use_map.insert(*slot, i);
+                }
+                _ => {}
+            }
+        }
+
+        if slot_live_ranges.is_empty() {
+            *cache_size = 0;
+            return;
+        }
+
+        // Sort old slots by first use
+        let mut old_slots: Vec<u32> = slot_live_ranges.keys().copied().collect();
+        old_slots.sort_by_key(|&s| slot_live_ranges[&s].0);
+
+        let mut remap: HashMap<u32, u32> = HashMap::new();
+        let mut active_slots: Vec<(u32, usize)> = Vec::new(); // (new_slot, last_use)
+        let mut next_new_slot = 0;
+
+        for &old_slot in &old_slots {
+            let (first, _last, _readonly) = slot_live_ranges[&old_slot];
+            // Use precise last use from last_use_map
+            let last = *last_use_map.get(&old_slot).unwrap_or(&first);
+
+            let mut reused = false;
+            for (new_slot, last_use) in &mut active_slots {
+                if *last_use < first {
+                    remap.insert(old_slot, *new_slot);
+                    *last_use = last;
+                    reused = true;
+                    break;
+                }
+            }
+
+            if !reused {
+                let new_slot = next_new_slot;
+                next_new_slot += 1;
+                remap.insert(old_slot, new_slot);
+                active_slots.push((new_slot, last));
+            }
+        }
+
+        // Apply remapping
+        for instr in instructions.iter_mut() {
+            match instr {
+                Instruction::StoreCached(slot) | Instruction::LoadCached(slot) => {
+                    if let Some(&new_slot) = remap.get(slot) {
+                        *slot = new_slot;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        *cache_size = next_new_slot as usize;
+    }
+
+    /// Perform local peephole optimizations.
+    #[allow(
+        clippy::too_many_lines,
+        clippy::collapsible_if,
+        reason = "function is complex and splitting it would reduce readability; logic is clearer with nested ifs"
+    )]
+    fn peephole_optimize(instructions: &mut Vec<Instruction>, constants: &mut Vec<f64>) {
+        let mut i = 0;
+        while i + 1 < instructions.len() {
+            // Pattern: x * x * x → Cube (if not already detected)
+            if i + 2 < instructions.len() {
+                if (instructions[i], instructions[i + 1], instructions[i + 2])
+                    == (Instruction::Dup, Instruction::Mul, Instruction::Mul)
+                {
+                    instructions[i] = Instruction::Cube;
+                    instructions.remove(i + 1);
+                    instructions.remove(i + 1);
+                    continue;
+                }
+            }
+
+            // Pattern: LoadConst(0), Add → NOP (remove)
+            if let (Instruction::LoadConst(idx), Instruction::Add) =
+                (instructions[i], instructions[i+1]) {
+                 if constants[idx as usize] == 0.0 {
+                    instructions.remove(i);
+                    instructions.remove(i); // i+1 becomes i after first removal
+                    continue;
+                }
+            }
+
+            // LoadConst + Op -> OpConst
+            match (instructions[i], instructions[i + 1]) {
+                (Instruction::LoadConst(idx), Instruction::Mul) => {
+                    let val = constants[idx as usize];
+                    if (val - 1.0).abs() < f64::EPSILON {
+                        // x * 1.0 = x
+                        instructions.remove(i);
+                        instructions.remove(i);
+                        continue;
+                    }
+                    if (val + 1.0).abs() < f64::EPSILON {
+                        // x * -1.0 = -x
+                        instructions[i] = Instruction::Neg;
+                        instructions.remove(i + 1);
+                        continue;
+                    }
+                    if val == 0.0 {
+                        // x * 0.0 = 0.0
+                        // Need to pop x and load 0.0
+                        instructions[i] = Instruction::Pop;
+                        instructions[i + 1] = Instruction::LoadConst(idx);
+                        continue;
+                    }
+                    instructions[i] = Instruction::MulConst(idx);
+                    instructions.remove(i + 1);
+                    continue;
+                }
+                (Instruction::LoadConst(idx), Instruction::Add) => {
+                    if constants[idx as usize] == 0.0 {
+                        // x + 0.0 = x
+                        instructions.remove(i);
+                        instructions.remove(i);
+                        continue;
+                    }
+                    instructions[i] = Instruction::AddConst(idx);
+                    instructions.remove(i + 1);
+                    continue;
+                }
+                (Instruction::LoadConst(idx), Instruction::Sub) => {
+                    if constants[idx as usize] == 0.0 {
+                        // x - 0.0 = x
+                        instructions.remove(i);
+                        instructions.remove(i);
+                        continue;
+                    }
+                    instructions[i] = Instruction::SubConst(idx);
+                    instructions.remove(i + 1);
+                    continue;
+                }
+                (Instruction::LoadConst(idx), Instruction::Div) => {
+                    let val = constants[idx as usize];
+                    if (val - 1.0).abs() < f64::EPSILON {
+                        // x / 1.0 = x
+                        instructions.remove(i);
+                        instructions.remove(i);
+                        continue;
+                    }
+                    if (val + 1.0).abs() < f64::EPSILON {
+                        // x / -1.0 = -x
+                        instructions[i] = Instruction::Neg;
+                        instructions.remove(i + 1);
+                        continue;
+                    }
+                    if val != 0.0 {
+                        // x / C = x * (1/C)
+                        let inv_val = 1.0 / val;
+                        #[allow(clippy::cast_possible_truncation, reason = "Constant pool index safe")]
+                        let new_idx = constants.len() as u32;
+                        constants.push(inv_val);
+                        instructions[i] = Instruction::MulConst(new_idx);
+                        instructions.remove(i + 1);
+                        continue;
+                    }
+                }
+                _ => {}
+            }
+
+            // Patterns involving 3 instructions
+            if i + 2 < instructions.len() {
+                // LoadConst + Swap + Sub -> ConstSub (C - x)
+                if let (Instruction::LoadConst(idx), Instruction::Swap, Instruction::Sub) =
+                    (instructions[i], instructions[i + 1], instructions[i + 2])
+                {
+                    if constants[idx as usize] == 0.0 {
+                        // 0.0 - x = -x
+                        instructions[i] = Instruction::Neg;
+                        instructions.remove(i + 1);
+                        instructions.remove(i + 1);
+                        continue;
+                    }
+                    instructions[i] = Instruction::ConstSub(idx);
+                    instructions.remove(i + 1);
+                    instructions.remove(i + 1);
+                    continue;
+                }
+
+                // LoadConst(1.0) + Swap + Div -> Recip (1.0 / x)
+                if let (Instruction::LoadConst(idx), Instruction::Swap, Instruction::Div) =
+                    (instructions[i], instructions[i + 1], instructions[i + 2])
+                    && (constants[idx as usize] - 1.0).abs() < f64::EPSILON
+                {
+                    instructions[i] = Instruction::Recip;
+                    instructions.remove(i + 1);
+                    instructions.remove(i + 1);
+                    continue;
+                }
+            }
+
+            // LoadCached(s) + StoreCached(s) -> Dup
+            if let (Instruction::LoadCached(s1), Instruction::StoreCached(s2)) =
+                (instructions[i], instructions[i + 1])
+                && s1 == s2
+            {
+                instructions[i] = Instruction::Dup;
+                instructions.remove(i + 1);
+                continue;
+            }
+
+            // Unary patterns
+            match (instructions[i], instructions[i + 1]) {
+                (Instruction::Square, Instruction::Sqrt) => {
+                    instructions[i] = Instruction::Abs;
+                    instructions.remove(i + 1);
+                    continue;
+                }
+                (Instruction::Recip, Instruction::Recip) | (Instruction::Neg, Instruction::Neg) => {
+                    instructions.remove(i);
+                    instructions.remove(i);
+                    continue;
+                }
+                (Instruction::Neg, Instruction::Add) => {
+                    instructions[i] = Instruction::Sub;
+                    instructions.remove(i + 1);
+                    continue;
+                }
+                (Instruction::Neg, Instruction::Sub) => {
+                    instructions[i] = Instruction::Add;
+                    instructions.remove(i + 1);
+                    continue;
+                }
+                _ => {}
+            }
+
+            i += 1;
+        }
+    }
+
+    /// Eliminate `StoreCached` instructions for slots that are never loaded.
+    fn eliminate_dead_stores(instructions: &mut Vec<Instruction>, _cache_size: &mut usize) {
+        use std::collections::HashSet;
+
+        let mut loaded_slots = HashSet::new();
+        for instr in instructions.iter() {
+            if let Instruction::LoadCached(slot) = instr {
+                loaded_slots.insert(*slot);
+            }
+        }
+
+        // Remove stores to dead slots
+        instructions.retain(|instr| {
+            if let Instruction::StoreCached(slot) = instr {
+                loaded_slots.contains(slot)
+            } else {
+                true
+            }
+        });
+
+        // Optional: Renumber slots to reduce cache_size?
+        // For simplicity in Phase 1, just reducing instruction count is enough.
+        // Reducing `cache_size` requires remapping all Load/Store.
+        // Let's stick to instruction reduction.
     }
 
     /// Fuse `a * b + c` patterns into `MulAdd` instruction.
@@ -295,23 +659,41 @@ impl CompiledEvaluator {
     /// The `MulAdd` instruction uses hardware FMA (fused multiply-add) when available,
     /// which is both faster and more accurate than separate multiply and add.
     fn fuse_muladd(instructions: &[Instruction]) -> Vec<Instruction> {
-        use Instruction::{Add, LoadCached, LoadConst, LoadParam, Mul, MulAdd};
-
         let mut result = Vec::with_capacity(instructions.len());
         let mut i = 0;
 
         while i < instructions.len() {
-            // Look for pattern: ..., Mul, LoadX, Add
-            if i + 2 < instructions.len()
-                && let (Mul, load_instr, Add) =
-                    (&instructions[i], &instructions[i + 1], &instructions[i + 2])
-                && matches!(load_instr, LoadParam(_) | LoadConst(_) | LoadCached(_))
-            {
-                // Fuse: emit Load then MulAdd
-                result.push(*load_instr);
-                result.push(MulAdd);
-                i += 3;
-                continue;
+            if i + 2 < instructions.len() {
+                let match_result = match (instructions[i], instructions[i + 1], instructions[i + 2]) {
+                    (Instruction::Mul, load_instr, Instruction::Add)
+                        if matches!(
+                            load_instr,
+                            Instruction::LoadParam(_)
+                                | Instruction::LoadConst(_)
+                                | Instruction::LoadCached(_)
+                        ) =>
+                    {
+                        Some((load_instr, Instruction::MulAdd))
+                    }
+                    (Instruction::Mul, load_instr, Instruction::Sub)
+                        if matches!(
+                            load_instr,
+                            Instruction::LoadParam(_)
+                                | Instruction::LoadConst(_)
+                                | Instruction::LoadCached(_)
+                        ) =>
+                    {
+                        Some((load_instr, Instruction::MulSub))
+                    }
+                    _ => None,
+                };
+
+                if let Some((load, fused)) = match_result {
+                    result.push(load);
+                    result.push(fused);
+                    i += 3;
+                    continue;
+                }
             }
 
             result.push(instructions[i]);

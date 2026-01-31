@@ -19,6 +19,7 @@
 //
 use crate::DiffError;
 use crate::parser::tokens::{Operator, Token};
+use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::collections::HashSet;
 
@@ -121,7 +122,7 @@ fn is_identifier_continue(c: char) -> bool {
 }
 
 /// Balance parentheses in the input string
-pub fn balance_parentheses(input: &str) -> String {
+pub fn balance_parentheses(input: &str) -> Cow<'_, str> {
     let open_count = input.chars().filter(|&c| c == '(').count();
     let close_count = input.chars().filter(|&c| c == ')').count();
 
@@ -129,12 +130,12 @@ pub fn balance_parentheses(input: &str) -> String {
         Ordering::Greater => {
             // More ( than ) → append ) at end
             let missing = open_count - close_count;
-            format!("{}{}", input, ")".repeat(missing))
+            Cow::Owned(format!("{}{}", input, ")".repeat(missing)))
         }
         Ordering::Less => {
             // More ) than ( → prepend ( at start
             let missing = close_count - open_count;
-            format!("{}{}", "(".repeat(missing), input)
+            Cow::Owned(format!("{}{}", "(".repeat(missing), input))
         }
         Ordering::Equal => {
             // Check for wrong order (e.g., ")(x" → "()(x)")
@@ -146,11 +147,11 @@ pub fn balance_parentheses(input: &str) -> String {
                     depth -= 1;
                     if depth < 0 {
                         // Closing before opening
-                        return format!("({input})");
+                        return Cow::Owned(format!("({input})"));
                     }
                 }
             }
-            input.to_owned()
+            Cow::Borrowed(input)
         }
     }
 }
@@ -187,11 +188,11 @@ fn parse_number(s: &str) -> Result<f64, DiffError> {
 
 /// Raw token before symbol resolution
 #[derive(Debug, Clone)]
-enum RawToken {
+enum RawToken<'src> {
     Number(f64),
-    Sequence(String),   // Multi-char sequence to be resolved
+    Sequence(Cow<'src, str>),   // Multi-char sequence to be resolved
     Operator(char),     // Single-char operator: +, *, ^
-    Derivative(String), // Derivative notation starting with ∂
+    Derivative(Cow<'src, str>), // Derivative notation starting with ∂
     LeftParen,
     RightParen,
     Comma,
@@ -202,19 +203,20 @@ enum RawToken {
 ///
 /// This handles complex derivative notation like: ∂_f(x+y)/∂_x
 /// by tracking parenthesis depth to ensure balanced expressions.
-fn scan_derivative_notation(
-    chars: &mut std::iter::Peekable<std::str::Chars>,
-) -> Result<String, DiffError> {
-    let mut seq = String::new();
+#[allow(clippy::string_slice, reason = "Slicing is safe because len is calculated from utf8 lengths")]
+fn scan_derivative_notation(input: &str) -> Result<&str, DiffError> {
+    let mut chars = input.chars().peekable();
+    let mut len = 0;
     let mut depth = 0;
 
-    // chars is already positioned at '∂', consume it
+    // chars is already positioned at start of input. Check for ∂
     if chars.peek() == Some(&'\u{2202}') {
-        seq.push(
-            chars
-                .next()
-                .expect("Character iterator guaranteed to have next character"),
-        );
+        let c = chars.next().expect("Checked peek");
+        len += c.len_utf8();
+    } else {
+        // This function expects to be called when ∂ is detected
+        // but we handle the case where it's not starting with it if needed,
+        // though the caller (lexer) checks it.
     }
 
     while let Some(&next_c) = chars.peek() {
@@ -238,8 +240,8 @@ fn scan_derivative_notation(
             break;
         }
 
-        seq.push(next_c);
-        chars.next(); // Consume only if accepted
+        chars.next(); // Consume
+        len += next_c.len_utf8();
 
         // Update depth AFTER consuming
         match next_c {
@@ -249,6 +251,17 @@ fn scan_derivative_notation(
                     depth -= 1;
                 } else {
                     // Unmatched closing paren at top level - stop here
+                    // This logic mirrors the original: break on unmatched closing paren
+                    // However, we consumed it.
+                    // "Unmatched closing paren at top level - stop here"
+                    // Original code:
+                    // seq.push(next_c); chars.next();
+                    // if depth > 0 { depth -= 1 } else { break }
+                    // So it INCLUDED the closing paren in seq, then broke loop.
+                    // Wait, if depth == 0, break.
+                    // So ")(x" -> seq includes ")".
+                    // But then it breaks.
+                    // Let's verify original behavior.
                     break;
                 }
             }
@@ -256,8 +269,10 @@ fn scan_derivative_notation(
         }
     }
 
+    let seq = &input[..len];
+
     // Basic validation: derivative notation should contain more than just '∂'
-    if seq.len() <= 1 {
+    if seq.len() <= '\u{2202}'.len_utf8() {
         return Err(DiffError::invalid_token(format!(
             "Incomplete derivative notation: {seq}"
         )));
@@ -268,11 +283,18 @@ fn scan_derivative_notation(
 
 /// Pass 1: Scan characters and create raw tokens
 /// Now tracks byte positions for better error reporting
-#[allow(clippy::too_many_lines)]
-fn scan_characters(input: &str) -> Result<Vec<RawToken>, DiffError> {
+#[allow(
+    clippy::too_many_lines,
+    clippy::string_slice,
+    reason = "Complex character scanning logic requires comprehensive tokenization and safe slicing is manually verified"
+)]
+fn scan_characters(input: &str) -> Result<Vec<RawToken<'_>>, DiffError> {
     // Estimate capacity: rough heuristic (input.len() / 2) to minimize reallocations
     // Heuristic: assume average token length is ~2 characters
-    #[allow(clippy::integer_division)]
+    #[allow(
+        clippy::integer_division,
+        reason = "Integer division for capacity estimation in token vector"
+    )]
     let mut tokens = Vec::with_capacity(input.len() / 2);
     let bytes = input.as_bytes();
     let mut pos = 0; // Current byte position
@@ -337,7 +359,6 @@ fn scan_characters(input: &str) -> Result<Vec<RawToken>, DiffError> {
             // Numbers and scientific notation
             '0'..='9' | '.' => {
                 let start_pos = pos;
-                let mut num_str = String::new();
                 let mut has_exponent = false;
 
                 while pos < bytes.len() {
@@ -345,16 +366,13 @@ fn scan_characters(input: &str) -> Result<Vec<RawToken>, DiffError> {
                     // Simple character class check - let f64::parse handle validation
                     match c {
                         '0'..='9' | '.' | '_' => {
-                            num_str.push(c);
                             pos += 1;
                         }
                         'e' | 'E' if !has_exponent => {
                             has_exponent = true;
-                            num_str.push(c);
                             pos += 1;
                             // Handle optional sign after exponent
                             if pos < bytes.len() && (bytes[pos] == b'+' || bytes[pos] == b'-') {
-                                num_str.push(bytes[pos] as char);
                                 pos += 1;
                             }
                         }
@@ -362,11 +380,12 @@ fn scan_characters(input: &str) -> Result<Vec<RawToken>, DiffError> {
                     }
                 }
 
-                match parse_number(&num_str) {
+                let num_str = &input[start_pos..pos];
+                match parse_number(num_str) {
                     Ok(n) => tokens.push(RawToken::Number(n)),
                     Err(_) => {
                         return Err(DiffError::InvalidNumber {
-                            value: num_str,
+                            value: num_str.to_owned(),
                             span: Some(crate::Span::new(start_pos, pos)),
                         });
                     }
@@ -375,19 +394,15 @@ fn scan_characters(input: &str) -> Result<Vec<RawToken>, DiffError> {
 
             // Unicode derivatives (∂)
             _ if input.get(pos..).is_some_and(|s| s.starts_with('\u{2202}')) => {
-                let mut remaining_chars = input
-                    .get(pos..)
-                    .expect("Checked in guard")
-                    .chars()
-                    .peekable();
-                let deriv_str = scan_derivative_notation(&mut remaining_chars)?;
+                let remaining_str = input.get(pos..).expect("Checked in guard");
+                let deriv_str = scan_derivative_notation(remaining_str)?;
                 pos += deriv_str.len(); // Advance pos by the byte length of the derivative string
-                tokens.push(RawToken::Derivative(deriv_str));
+                tokens.push(RawToken::Derivative(Cow::Borrowed(deriv_str)));
             }
 
             // Unicode pi (π) - use remaining string for UTF-8 safety
             _ if input.get(pos..).is_some_and(|s| s.starts_with('\u{3c0}')) => {
-                tokens.push(RawToken::Sequence("pi".to_owned()));
+                tokens.push(RawToken::Sequence(Cow::Borrowed("pi")));
                 pos += '\u{3c0}'.len_utf8();
             }
 
@@ -398,17 +413,16 @@ fn scan_characters(input: &str) -> Result<Vec<RawToken>, DiffError> {
                 .and_then(|s| s.chars().next())
                 .is_some_and(|c| c.is_alphabetic() || c == '_') =>
             {
-                let mut seq = String::new();
+                let start_pos = pos;
                 let remaining = input.get(pos..).expect("Checked in guard");
-                for ch in remaining.chars() {
-                    if ch.is_alphanumeric() || ch == '_' {
-                        seq.push(ch);
-                        pos += ch.len_utf8();
+                for current_char in remaining.chars() {
+                    if current_char.is_alphanumeric() || current_char == '_' {
+                        pos += current_char.len_utf8();
                     } else {
                         break;
                     }
                 }
-                tokens.push(RawToken::Sequence(seq));
+                tokens.push(RawToken::Sequence(Cow::Borrowed(&input[start_pos..pos])));
             }
 
             _ => {
@@ -425,11 +439,11 @@ fn scan_characters(input: &str) -> Result<Vec<RawToken>, DiffError> {
 }
 
 /// Pass 2: Resolve sequences into tokens using context
-pub fn lex<S: std::hash::BuildHasher>(
-    input: &str,
+pub fn lex<'src, S: std::hash::BuildHasher>(
+    input: &'src str,
     fixed_vars: &HashSet<String, S>,
     custom_functions: &HashSet<String, S>,
-) -> Result<Vec<Token>, DiffError> {
+) -> Result<Vec<Token<'src>>, DiffError> {
     let raw_tokens = scan_characters(input)?;
     // Optimization: Pre-allocate capacity roughly matching raw tokens count
     let mut tokens = Vec::with_capacity(raw_tokens.len());
@@ -454,17 +468,27 @@ pub fn lex<S: std::hash::BuildHasher>(
             }
 
             RawToken::Derivative(deriv_str) => {
-                match parse_derivative_notation(deriv_str, fixed_vars, custom_functions) {
+                // deriv_str is Cow::Borrowed from input (guaranteed by scan_characters)
+                let s = match deriv_str {
+                    Cow::Borrowed(s) => s,
+                    Cow::Owned(s) => return Err(DiffError::invalid_token(s.clone())),
+                };
+                match parse_derivative_notation(s, fixed_vars, custom_functions) {
                     Ok(deriv_token) => tokens.push(deriv_token),
-                    Err(_) => return Err(DiffError::invalid_token(deriv_str.clone())),
+                    Err(_) => return Err(DiffError::invalid_token(s.to_string())),
                 }
             }
 
             RawToken::Sequence(seq) => {
                 let next_is_paren =
                     i + 1 < raw_tokens.len() && matches!(raw_tokens[i + 1], RawToken::LeftParen);
-                let resolved = resolve_sequence(seq, fixed_vars, custom_functions, next_is_paren);
-                tokens.extend(resolved);
+                
+                // seq is Cow::Borrowed from input (guaranteed by scan_characters)
+                let s = match seq {
+                    Cow::Borrowed(s) => s,
+                    Cow::Owned(s) => return Err(DiffError::invalid_token(s.clone())),
+                };
+                resolve_sequence(s, fixed_vars, custom_functions, next_is_paren, &mut tokens);
             }
         }
     }
@@ -491,20 +515,24 @@ pub fn lex<S: std::hash::BuildHasher>(
 /// but introduces potential ambiguity. Users can resolve ambiguity by:
 /// - Declaring multi-char variables in `fixed_vars`
 /// - Using explicit multiplication: `x*sin(y)`
-fn resolve_sequence<S: std::hash::BuildHasher>(
-    seq: &str,
+#[allow(clippy::string_slice, reason = "Slicing by char indices yields valid UTF-8 sequences")]
+fn resolve_sequence<'src, S: std::hash::BuildHasher>(
+    seq: &'src str,
     fixed_vars: &HashSet<String, S>,
     custom_functions: &HashSet<String, S>,
     next_is_paren: bool,
-) -> Vec<Token> {
+    output: &mut Vec<Token<'src>>,
+) {
     // Priority 1: Check if entire sequence is in fixed_vars
     if fixed_vars.contains(seq) {
-        return vec![Token::Identifier(seq.to_owned())];
+        output.push(Token::Identifier(Cow::Borrowed(seq)));
+        return;
     }
 
     // Priority 1.5: Check for known constants (pi, e)
     if crate::core::known_symbols::is_known_constant(seq) {
-        return vec![Token::Identifier(seq.to_owned())];
+        output.push(Token::Identifier(Cow::Borrowed(seq)));
+        return;
     }
 
     // Priority 2: Check if it's a built-in function followed by (
@@ -513,12 +541,14 @@ fn resolve_sequence<S: std::hash::BuildHasher>(
         && next_is_paren
         && let Some(op) = Operator::parse_str(seq)
     {
-        return vec![Token::Operator(op)];
+        output.push(Token::Operator(op));
+        return;
     }
 
     // Priority 3: Check if it's a custom function followed by (
     if custom_functions.contains(seq) && next_is_paren {
-        return vec![Token::Identifier(seq.to_owned())];
+        output.push(Token::Identifier(Cow::Borrowed(seq)));
+        return;
     }
 
     // Priority 4: Scan for built-in functions as substrings (if followed by paren)
@@ -539,22 +569,21 @@ fn resolve_sequence<S: std::hash::BuildHasher>(
                 let split_idx = seq.len() - builtin.len();
                 let before = seq.get(0..split_idx).expect("Checked suffix boundaries");
 
-                let mut tokens = Vec::with_capacity(2);
-
                 // Recursively resolve the part before
-                tokens.extend(resolve_sequence(
+                resolve_sequence(
                     before,
                     fixed_vars,
                     custom_functions,
                     false,
-                ));
+                    output,
+                );
 
                 // Add the built-in function
                 if let Some(op) = Operator::parse_str(builtin) {
-                    tokens.push(Token::Operator(op));
+                    output.push(Token::Operator(op));
                 }
 
-                return tokens;
+                return;
             }
         }
     }
@@ -576,40 +605,45 @@ fn resolve_sequence<S: std::hash::BuildHasher>(
             if fixed_vars.contains(prefix) {
                 // Found a fixed variable prefix, split here
                 let rest = seq.get(end_byte..).expect("Checked char boundaries");
-                let mut tokens = vec![Token::Identifier(prefix.to_owned())];
+                output.push(Token::Identifier(Cow::Borrowed(prefix)));
                 if !rest.is_empty() {
                     // Recursively resolve the rest
-                    tokens.extend(resolve_sequence(
+                    resolve_sequence(
                         rest,
                         fixed_vars,
                         custom_functions,
                         next_is_paren && end_byte == seq.len(),
-                    ));
+                        output,
+                    );
                 }
-                return tokens;
+                return;
             }
         }
 
         // No fixed variable prefix found, treat as single identifier
         // This preserves multi-character Unicode identifiers like "αβ" or "θ₁"
-        return vec![Token::Identifier(seq.to_owned())];
+        output.push(Token::Identifier(Cow::Borrowed(seq)));
+        return;
     }
 
     // Priority 6 (FINAL FALLBACK): Split into individual characters (for complex sequences)
-    seq.chars()
-        .map(|c| Token::Identifier(c.to_string()))
-        .collect()
+    // NOTE: Slicing by char indices ensures we return borrowed slices instead of allocating strings
+    let mut char_indices = seq.char_indices().map(|(i, _)| i).peekable();
+    while let Some(start) = char_indices.next() {
+        let end = char_indices.peek().copied().unwrap_or(seq.len());
+        output.push(Token::Identifier(Cow::Borrowed(&seq[start..end])));
+    }
 }
 
 /// Parse derivative notation like ∂^`1_f(x)`/∂_x^1
 ///
 /// **Safety**: Validates format before recursively lexing arguments to prevent
 /// infinite recursion on malformed input.
-fn parse_derivative_notation<S: std::hash::BuildHasher>(
-    s: &str,
+fn parse_derivative_notation<'src, S: std::hash::BuildHasher>(
+    s: &'src str,
     fixed_vars: &HashSet<String, S>,
     custom_functions: &HashSet<String, S>,
-) -> Result<Token, DiffError> {
+) -> Result<Token<'src>, DiffError> {
     // Format: ∂^order_func(args)/∂_var^order
     if !s.starts_with("\u{2202}") || !s.contains("/\u{2202}_") {
         return Err(DiffError::invalid_token(format!(
@@ -670,8 +704,8 @@ fn parse_derivative_notation<S: std::hash::BuildHasher>(
         if func_str.ends_with(')') {
             let name = func_str
                 .get(..open_paren)
-                .expect("Checked paren position")
-                .to_owned();
+                .expect("Checked paren position");
+                // .to_owned(); // Changed to borrow
             let args_body = func_str
                 .get(open_paren + 1..func_str.len() - 1)
                 .expect("Checked paren boundaries");
@@ -698,29 +732,31 @@ fn parse_derivative_notation<S: std::hash::BuildHasher>(
             )));
         }
     } else {
-        (func_str.to_owned(), Vec::new())
+        (func_str, Vec::new())
     };
 
     // Parse right side: var^order or var
     let right_parts: Vec<&str> = right.split('^').collect();
-    let var = right_parts[0].to_owned();
+    let var = right_parts[0]; //.to_owned();
 
     Ok(Token::Derivative {
         order,
-        func: func_name,
+        func: Cow::Borrowed(func_name), //Borrow
         args: args_tokens,
-        var,
+        var: Cow::Borrowed(var), // Borrow
     })
 }
 
 #[cfg(test)]
 #[allow(
+    clippy::float_cmp,
     clippy::unwrap_used,
     clippy::panic,
     clippy::cast_precision_loss,
     clippy::items_after_statements,
     clippy::let_underscore_must_use,
-    clippy::no_effect_underscore_binding
+    clippy::no_effect_underscore_binding,
+    reason = "Standard test relaxations"
 )]
 mod tests {
     use super::*;
@@ -806,11 +842,11 @@ mod tests {
 
     #[test]
     fn test_scan_characters() {
-        let result = scan_characters("x + 1").unwrap();
-        assert_eq!(result.len(), 3);
+        let result1 = scan_characters("x + 1").unwrap();
+        assert_eq!(result1.len(), 3);
 
-        let result = scan_characters("sin(x)").unwrap();
-        assert_eq!(result.len(), 4);
+        let result2 = scan_characters("sin(x)").unwrap();
+        assert_eq!(result2.len(), 4);
     }
 
     #[test]
@@ -831,7 +867,7 @@ mod tests {
 
         let tokens = lex("ax", &fixed_vars, &custom_funcs).unwrap();
         assert_eq!(tokens.len(), 1);
-        assert_eq!(tokens[0], Token::Identifier("ax".to_owned()));
+        assert_eq!(tokens[0], Token::Identifier(Cow::Borrowed("ax")));
     }
 
     #[test]
@@ -852,18 +888,18 @@ mod tests {
         let custom_funcs = HashSet::new();
 
         // Greek letters
-        let tokens = lex("\u{3b1}\u{3b2}", &fixed_vars, &custom_funcs).unwrap();
-        assert_eq!(tokens.len(), 1);
-        if let Token::Identifier(s) = &tokens[0] {
+        let tokens1 = lex("\u{3b1}\u{3b2}", &fixed_vars, &custom_funcs).unwrap();
+        assert_eq!(tokens1.len(), 1);
+        if let Token::Identifier(s) = &tokens1[0] {
             assert_eq!(s, "\u{3b1}\u{3b2}"); // Should be treated as single identifier
         } else {
             panic!("Expected Identifier token");
         }
 
         // Greek letter with subscript (if using Unicode subscripts)
-        let tokens = lex("\u{3b8}\u{2081}", &fixed_vars, &custom_funcs).unwrap();
-        assert_eq!(tokens.len(), 1);
-        if let Token::Identifier(s) = &tokens[0] {
+        let tokens2 = lex("\u{3b8}\u{2081}", &fixed_vars, &custom_funcs).unwrap();
+        assert_eq!(tokens2.len(), 1);
+        if let Token::Identifier(s) = &tokens2[0] {
             assert_eq!(s, "\u{3b8}\u{2081}");
         } else {
             panic!("Expected Identifier token");
@@ -884,20 +920,20 @@ mod tests {
         let custom_funcs = HashSet::new();
 
         // Test invalid derivative order
-        let result = parse_derivative_notation(
+        let result1 = parse_derivative_notation(
             "\u{2202}^999999_f(x)/\u{2202}_x",
             &fixed_vars,
             &custom_funcs,
         );
-        assert!(result.is_err());
+        assert!(result1.is_err());
 
         // Test malformed derivative
-        let result = parse_derivative_notation(
+        let result2 = parse_derivative_notation(
             "\u{2202}_f(x", // Missing closing paren and /∂_x
             &fixed_vars,
             &custom_funcs,
         );
-        assert!(result.is_err());
+        assert!(result2.is_err());
     }
 
     #[test]

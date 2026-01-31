@@ -121,7 +121,8 @@ pub fn is_neg_one(n: f64) -> bool {
     clippy::cast_precision_loss,
     clippy::items_after_statements,
     clippy::let_underscore_must_use,
-    clippy::no_effect_underscore_binding
+    clippy::no_effect_underscore_binding,
+    reason = "Standard test relaxations"
 )]
 mod tests {
     use super::*;

@@ -1,5 +1,9 @@
 // Essential for examples: unwrap for simplicity, stdout for demonstration
-#![allow(clippy::unwrap_used, clippy::print_stdout)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::print_stdout,
+    reason = "Essential for examples: unwrap for simplicity, stdout for demonstration"
+)]
 //! Quickstart: `SymbAnaFis` in 30 seconds
 
 //!

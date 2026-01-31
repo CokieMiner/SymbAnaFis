@@ -77,7 +77,10 @@ rule!(
                 .iter()
                 .filter(|f| {
                     // Exact check for 1.0 to filter identity element
-                    #[allow(clippy::float_cmp)]
+                    #[allow(
+                        clippy::float_cmp,
+                        reason = "Comparing against exact constant 1.0 to filter identity element"
+                    )]
                     // Comparing against exact constant 1.0 to filter identity element
                     !matches!(&f.kind, AstKind::Number(n) if *n == 1.0)
                 })
@@ -116,7 +119,7 @@ rule!(
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::Div(u, v) = &expr.kind {
             // Exact check for 1.0 to simplify division
-            #[allow(clippy::float_cmp)] // Comparing against exact constant 1.0
+            #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
             if matches!(&v.kind, AstKind::Number(n) if *n == 1.0) {
                 return Some((**u).clone());
             }
@@ -168,7 +171,7 @@ rule!(
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::Pow(u, v) = &expr.kind {
             // Exact check for 1.0 exponent
-            #[allow(clippy::float_cmp)] // Comparing against exact constant 1.0
+            #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
             if matches!(&v.kind, AstKind::Number(n) if *n == 1.0) {
                 return Some((**u).clone());
             }
@@ -204,7 +207,7 @@ rule!(
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::Pow(u, _v) = &expr.kind {
             // Exact check for 1.0 base
-            #[allow(clippy::float_cmp)] // Comparing against exact constant 1.0
+            #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
             if matches!(&u.kind, AstKind::Number(n) if *n == 1.0) {
                 return Some(Expr::number(1.0));
             }
@@ -239,7 +242,7 @@ rule!(
                 && let Some(first) = factors.first()
             {
                 // Exact check for -1.0 coefficient
-                #[allow(clippy::float_cmp)] // Comparing against exact constant -1.0
+                #[allow(clippy::float_cmp, reason = "Comparing against exact constant -1.0")]
                 if matches!(&first.kind, AstKind::Number(n) if *n == -1.0) {
                     // x / (-1 * y) -> -x / y
                     let rest: Vec<Arc<Expr>> = factors.iter().skip(1).cloned().collect();
@@ -300,7 +303,7 @@ rule!(
                                 Err(a) => (*a).clone(),
                             });
                         }
-                        #[allow(clippy::panic)] // Unreachable: len checked above
+                        #[allow(clippy::panic, reason = "Unreachable: len checked above")]
                         {
                             panic!("non_numeric should have exactly one element");
                         }
@@ -346,7 +349,7 @@ rule!(
                     return Some(Expr::number(0.0));
                 } else {
                     // Exact check for 1.0 product
-                    #[allow(clippy::float_cmp)] // Comparing against exact constant 1.0
+                    #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
                     if num_product == 1.0 {
                         // Combined to 1, return non-numeric only
                         if non_numeric.len() == 1 {
@@ -356,7 +359,7 @@ rule!(
                                     Err(a) => (*a).clone(),
                                 });
                             }
-                            #[allow(clippy::panic)] // Unreachable: len checked above
+                            #[allow(clippy::panic, reason = "Unreachable: len checked above")]
                             {
                                 panic!("non_numeric should have exactly one element");
                             }
@@ -427,9 +430,9 @@ rule_with_helpers!(FractionSimplifyRule, "fraction_simplify", 80, Numeric, &[Exp
     |expr: &Expr, _context: &RuleContext| {
         // Check bounds before casting to i64 to prevent overflow
         // i64::MAX/MIN->f64: intentional for boundary checking
-        #[allow(clippy::cast_precision_loss)] // i64::MAX→f64 for boundary checking
+        #[allow(clippy::cast_precision_loss, reason = "i64::MAX→f64 for boundary checking")]
         const MAX_SAFE: f64 = i64::MAX as f64;
-        #[allow(clippy::cast_precision_loss)] // i64::MIN→f64 for boundary checking
+        #[allow(clippy::cast_precision_loss, reason = "i64::MIN→f64 for boundary checking")]
         const MIN_SAFE: f64 = i64::MIN as f64;
 
         if let AstKind::Div(u, v) = &expr.kind
@@ -450,18 +453,18 @@ rule_with_helpers!(FractionSimplifyRule, "fraction_simplify", 80, Numeric, &[Exp
 
                 let (a_int, b_int) = {
                     // Checked fract() == 0.0 and bounds, so cast is safe
-                    #[allow(clippy::cast_possible_truncation)] // Checked fract()==0.0 and bounds
+                    #[allow(clippy::cast_possible_truncation, reason = "Checked fract()==0.0 and bounds")]
                     (*a as i64, *b as i64)
                 };
                 let common = gcd(a_int.abs(), b_int.abs());
 
                 if common > 1 {
                     // i64->f64: GCD results are small integers from fraction simplification
-                    #[allow(clippy::cast_precision_loss)] // GCD results are small integers
+                    #[allow(clippy::cast_precision_loss, reason = "GCD results are small integers")]
                     return Some(Expr::div_expr(
-                        #[allow(clippy::integer_division)] // GCD division is exact
+                        #[allow(clippy::integer_division, reason = "GCD division is exact")]
                         Expr::number((a_int / common) as f64),
-                        #[allow(clippy::integer_division)] // GCD division is exact
+                        #[allow(clippy::integer_division, reason = "GCD division is exact")]
                         Expr::number((b_int / common) as f64),
                     ));
                 }

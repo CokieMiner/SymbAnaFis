@@ -1,5 +1,10 @@
 // Benchmark requirements: unwrap for setup, stdout for progress, similar names for math variables
-#![allow(clippy::unwrap_used, clippy::print_stdout, clippy::similar_names)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::print_stdout,
+    clippy::similar_names,
+    reason = "Benchmark requirements: unwrap for setup, stdout for progress, similar names for math variables"
+)]
 //! Comprehensive `SymbAnaFis` Benchmarks
 
 //!
@@ -104,7 +109,7 @@ fn bench_simplify_only(c: &mut Criterion) {
         group.bench_with_input(
             BenchmarkId::new("symb_anafis", name),
             &diff_result,
-            |b, expr| b.iter(|| simplify_builder.simplify(black_box(expr))),
+            |b, diffed_expr| b.iter(|| simplify_builder.simplify(black_box(diffed_expr))),
         );
     }
 
@@ -137,15 +142,17 @@ fn bench_compile(c: &mut Criterion) {
         params.sort();
 
         // Benchmark: compile raw
-        group.bench_with_input(BenchmarkId::new("raw", name), &diff_raw, |b, expr| {
-            b.iter(|| CompiledEvaluator::compile(black_box(expr), &params, None));
+        group.bench_with_input(BenchmarkId::new("raw", name), &diff_raw, |b, raw_expr| {
+            b.iter(|| CompiledEvaluator::compile(black_box(raw_expr), &params, None));
         });
 
         // Benchmark: compile simplified
         group.bench_with_input(
             BenchmarkId::new("simplified", name),
             &diff_simplified,
-            |b, expr| b.iter(|| CompiledEvaluator::compile(black_box(expr), &params, None)),
+            |b, simplified_expr| {
+                b.iter(|| CompiledEvaluator::compile(black_box(simplified_expr), &params, None));
+            },
         );
     }
 
@@ -195,9 +202,9 @@ fn bench_eval(c: &mut Criterion) {
                 |b, points| {
                     b.iter(|| {
                         let mut sum = 0.0;
+                        // Re-use buffer to avoid 1000 allocations
+                        let mut values = vec![1.0; param_count];
                         for &x in points {
-                            // Build values: x for var, 1.0 for all fixed
-                            let mut values = vec![1.0; param_count];
                             values[var_idx] = x;
                             sum += evaluator.evaluate(&values);
                         }
@@ -219,8 +226,9 @@ fn bench_eval(c: &mut Criterion) {
                 |b, points| {
                     b.iter(|| {
                         let mut sum = 0.0;
+                        // Re-use buffer to avoid 1000 allocations
+                        let mut values = vec![1.0; param_count];
                         for &x in points {
-                            let mut values = vec![1.0; param_count];
                             values[var_idx] = x;
                             sum += evaluator.evaluate(&values);
                         }

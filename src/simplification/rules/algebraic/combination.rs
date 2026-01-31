@@ -96,8 +96,10 @@ rule_arc!(
                 return Some(Arc::new(Expr::number(0.0)));
             }
 
-            // Sort terms for canonical ordering (requires &Expr)
-            result.sort_by(|a, b| crate::simplification::helpers::compare_expr(a, b));
+            // Sort terms for canonical ordering (use unstable sort for performance)
+            if result.len() > 1 {
+                result.sort_unstable_by(|a, b| crate::simplification::helpers::compare_expr(a, b));
+            }
 
             if result.len() == 1 {
                 return Some(
@@ -291,9 +293,9 @@ fn distribute_factor(factor: &Expr, addends: &[Expr]) -> Vec<Expr> {
             // Combine variable parts, converting x*x to x^2 etc.
             let combined_var = {
                 // Exact check for 1.0 to avoid redundant multiplication
-                #[allow(clippy::float_cmp)] // Comparing against exact constant 1.0
+                #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
                 let factor_var_is_one = matches!(factor_var.kind, AstKind::Number(n) if n == 1.0);
-                #[allow(clippy::float_cmp)] // Comparing against exact constant 1.0
+                #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
                 let addend_var_is_one = matches!(addend_var.kind, AstKind::Number(n) if n == 1.0);
 
                 if factor_var_is_one {

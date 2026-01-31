@@ -85,7 +85,7 @@ fn check_cos_triple(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
         && args.len() == 1
     {
         // Exact check for cube exponent
-        #[allow(clippy::float_cmp)] // Comparing against exact constant 3.0
+        #[allow(clippy::float_cmp, reason = "Comparing against exact constant 3.0")]
         let is_cube = *e == 3.0;
         if !is_cube {
             return None;
@@ -116,7 +116,7 @@ fn check_cos_triple_add(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
         && args.len() == 1
     {
         // Exact check for cube exponent
-        #[allow(clippy::float_cmp)] // Comparing against exact constant 3.0
+        #[allow(clippy::float_cmp, reason = "Comparing against exact constant 3.0")]
         let is_cube = *e == 3.0;
         if !is_cube {
             return None;
@@ -144,7 +144,7 @@ fn check_cos_triple_add(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
         && args.len() == 1
     {
         // Exact check for cube exponent
-        #[allow(clippy::float_cmp)] // Comparing against exact constant 3.0
+        #[allow(clippy::float_cmp, reason = "Comparing against exact constant 3.0")]
         let is_cube = *e == 3.0;
         if !is_cube {
             return None;
@@ -176,7 +176,7 @@ fn extract_sin_cubed(expr: &Expr, x: &std::sync::Arc<Expr>, _eps: f64) -> Option
         && &args[0] == x
     {
         // Exact check for cube exponent
-        #[allow(clippy::float_cmp)] // Comparing against exact constant 3.0
+        #[allow(clippy::float_cmp, reason = "Comparing against exact constant 3.0")]
         let is_cube = *e == 3.0;
         if is_cube {
             return Some((n.abs(), *n < 0.0));

@@ -19,7 +19,7 @@ rule!(
             // Special case: sqrt(x^2) should always return abs(x)
             if let AstKind::Number(n) = &exp.kind {
                 // Exact check for power 2.0 (square)
-                #[allow(clippy::float_cmp)] // Comparing against exact constant 2.0
+                #[allow(clippy::float_cmp, reason = "Comparing against exact constant 2.0")]
                 let is_square = *n == 2.0;
                 if is_square {
                     // sqrt(x^2) = |x|
@@ -52,7 +52,7 @@ rule!(
             };
 
             // If exponent simplified to 1, return base directly
-            #[allow(clippy::float_cmp)] // Comparing against exact constant 1.0
+            #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
             let is_match = matches!(&simplified_exp.kind, AstKind::Number(n) if *n == 1.0);
             if is_match {
                 return Some(base.as_ref().clone());
@@ -103,7 +103,7 @@ rule!(
             };
 
             // If exponent simplified to 1, return base directly
-            #[allow(clippy::float_cmp)] // Comparing against exact constant 1.0
+            #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
             let is_one = matches!(&simplified_exp.kind, AstKind::Number(n) if *n == 1.0);
             if is_one {
                 return Some(base.as_ref().clone());
@@ -229,7 +229,7 @@ rule!(
                     && let AstKind::Number(n) = &exp.kind
                 {
                     // Exact check for power 2.0 (square)
-                    #[allow(clippy::float_cmp)] // Comparing against exact constant 2.0
+                    #[allow(clippy::float_cmp, reason = "Comparing against exact constant 2.0")]
                     let is_square = *n == 2.0;
                     if is_square {
                         // Found x^2, extract |x|
@@ -244,7 +244,7 @@ rule!(
                             .collect();
 
                         let inner = Expr::product_from_arcs(remaining);
-                        let sqrt_remaining = if matches!(inner.kind, AstKind::Number(n) if (n - 1.0).abs() < EPSILON)
+                        let sqrt_remaining = if matches!(inner.kind, AstKind::Number(val) if (val - 1.0).abs() < EPSILON)
                         {
                             Expr::number(1.0)
                         } else {

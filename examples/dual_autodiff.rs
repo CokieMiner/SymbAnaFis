@@ -2,7 +2,8 @@
 #![allow(
     clippy::unwrap_used,
     clippy::print_stdout,
-    clippy::items_after_statements
+    clippy::items_after_statements,
+    reason = "AD Example: unwrap for logic, stdout for results, items after statements for modular demo"
 )]
 //! Dual Numbers for Automatic Differentiation
 

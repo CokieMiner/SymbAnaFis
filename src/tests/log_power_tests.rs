@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod tests {
+    use crate::core::known_symbols::KS;
     use crate::simplification::simplify_expr;
     use crate::{Expr, ExprKind};
     use std::collections::HashMap;
@@ -27,7 +28,7 @@ mod tests {
 
             let has_ln = factors.iter().any(|f| {
                 if let ExprKind::FunctionCall { name, args } = &f.kind
-                    && name.as_str() == "ln"
+                    && name.id() == KS.ln
                 {
                     // The argument should be abs(x)
                     if let ExprKind::FunctionCall {
@@ -35,7 +36,7 @@ mod tests {
                         args: abs_args,
                     } = &args[0].kind
                     {
-                        return abs_name.as_str() == "abs" && *abs_args[0] == Expr::symbol("x");
+                        return abs_name.id() == KS.abs && *abs_args[0] == Expr::symbol("x");
                     }
                 }
                 false
@@ -67,7 +68,7 @@ mod tests {
 
             let has_log = factors.iter().any(|f| {
                 if let ExprKind::FunctionCall { name, args } = &f.kind {
-                    name.as_str() == "log10" && *args[0] == Expr::symbol("x")
+                    name.id() == KS.log10 && *args[0] == Expr::symbol("x")
                 } else {
                     false
                 }
@@ -99,13 +100,13 @@ mod tests {
 
             let has_log = factors.iter().any(|f| {
                 if let ExprKind::FunctionCall { name, args } = &f.kind
-                    && name.as_str() == "log10"
+                    && name.id() == KS.log10
                     && let ExprKind::FunctionCall {
                         name: abs_name,
                         args: abs_args,
                     } = &args[0].kind
                 {
-                    return abs_name.as_str() == "abs" && *abs_args[0] == Expr::symbol("x");
+                    return abs_name.id() == KS.abs && *abs_args[0] == Expr::symbol("x");
                 }
                 false
             });
@@ -135,7 +136,7 @@ mod tests {
             ExprKind::Div(num, den) => {
                 // Check for log2(x) / 2
                 let is_log2 = if let ExprKind::FunctionCall { name, args } = &num.kind {
-                    name.as_str() == "log2" && *args[0] == Expr::symbol("x")
+                    name.id() == KS.log2 && *args[0] == Expr::symbol("x")
                 } else {
                     false
                 };
@@ -149,7 +150,7 @@ mod tests {
                 let has_half = factors.iter().any(|f| **f == Expr::number(0.5));
                 let has_log2 = factors.iter().any(|f| {
                     if let ExprKind::FunctionCall { name, args } = &f.kind {
-                        name.as_str() == "log2" && *args[0] == Expr::symbol("x")
+                        name.id() == KS.log2 && *args[0] == Expr::symbol("x")
                     } else {
                         false
                     }

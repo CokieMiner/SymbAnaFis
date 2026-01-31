@@ -4,6 +4,8 @@ All notable changes to symb_anafis will be documented in this file.
 
 ## [unreleased]
 
+### Fogot to keep track so just know performance improved a lot and bugs were fixed. API should be the same if something broke pls report.
+
 ### Added
 - **Known Symbols (KS)**: Global `KS` registry for centralized management of mathematical functions and constants.
 - **Display System**: `DisplayContext` and expanded `Display` trait supporting sophisticated LaTeX, Unicode, and plain text formatting.

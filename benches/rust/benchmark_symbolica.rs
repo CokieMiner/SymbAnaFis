@@ -1,5 +1,10 @@
 // Benchmark requirements: unwrap for setup, stdout for progress, similar names for math variables
-#![allow(clippy::unwrap_used, clippy::print_stdout, clippy::similar_names)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::print_stdout,
+    clippy::similar_names,
+    reason = "Benchmark requirements: unwrap for setup, stdout for progress, similar names for math variables"
+)]
 //! Symbolica Benchmarks (Comparison)
 
 //!
@@ -167,7 +172,7 @@ fn bench_eval(c: &mut Criterion) {
         let mut evaluator = expr
             .evaluator(&func_map, &params, settings)
             .expect("Failed to create evaluator")
-            .map_coeff(&|c| c.to_real().map_or(1.0, std::convert::Into::into));
+            .map_coeff(&|coeff| coeff.to_real().map_or(1.0, std::convert::Into::into));
 
         // Prepare constants (1.0 for all fixed vars)
         let fixed_vals: Vec<f64> = vec![1.0; all_fixed_vars.len()];
@@ -248,7 +253,7 @@ fn bench_full_pipeline(c: &mut Criterion) {
                     let mut evaluator = diff
                         .evaluator(&func_map, &params, settings)
                         .expect("Failed to create evaluator")
-                        .map_coeff(&|c| c.to_real().map_or(1.0, std::convert::Into::into));
+                        .map_coeff(&|coeff| coeff.to_real().map_or(1.0, std::convert::Into::into));
 
                     // 4. Evaluate (1000 points)
                     let fixed_vals: Vec<f64> = vec![1.0; all_fixed_vars.len()];

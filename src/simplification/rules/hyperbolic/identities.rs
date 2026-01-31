@@ -16,7 +16,7 @@ rule!(
             && args.len() == 1
             && {
                 // Exact check for constant 0.0
-                #[allow(clippy::float_cmp)] // Comparing against exact constant 0.0
+                #[allow(clippy::float_cmp, reason = "Comparing against exact constant 0.0")]
                 let is_zero = matches!(args[0].kind, AstKind::Number(n) if n == 0.0);
                 is_zero
             }
@@ -40,7 +40,7 @@ rule!(
             && args.len() == 1
             && {
                 // Exact check for constant 0.0
-                #[allow(clippy::float_cmp)] // Comparing against exact constant 0.0
+                #[allow(clippy::float_cmp, reason = "Comparing against exact constant 0.0")]
                 let is_zero = matches!(args[0].kind, AstKind::Number(n) if n == 0.0_f64);
                 is_zero
             }
@@ -65,7 +65,7 @@ rule!(
             && let AstKind::Product(factors) = &args[0].kind
             && factors.len() == 2
         {
-            #[allow(clippy::float_cmp)] // Comparing against exact constant -1.0
+            #[allow(clippy::float_cmp, reason = "Comparing against exact constant -1.0")]
             let is_neg_one = matches!(&factors[0].kind, AstKind::Number(n) if *n == -1.0);
             if is_neg_one
             {
@@ -74,9 +74,9 @@ rule!(
                     Expr::func_symbol(get_symbol(KS.sinh), (*factors[1]).clone()),
                 ]));
             }
-            #[allow(clippy::float_cmp)] // Comparing against exact constant -1.0
-            let is_neg_one = matches!(&factors[1].kind, AstKind::Number(n) if *n == -1.0);
-            if is_neg_one
+            #[allow(clippy::float_cmp, reason = "Comparing against exact constant -1.0")]
+            let is_neg_one_alt = matches!(&factors[1].kind, AstKind::Number(n) if *n == -1.0);
+            if is_neg_one_alt
             {
                 return Some(Expr::product(vec![
                     Expr::number(-1.0),
@@ -102,15 +102,15 @@ rule!(
             && let AstKind::Product(factors) = &args[0].kind
             && factors.len() == 2
         {
-            #[allow(clippy::float_cmp)] // Comparing against exact constant -1.0
+            #[allow(clippy::float_cmp, reason = "Comparing against exact constant -1.0")]
             let is_neg_one = matches!(&factors[0].kind, AstKind::Number(n) if *n == -1.0);
             if is_neg_one
             {
                 return Some(Expr::func_symbol(get_symbol(KS.cosh), (*factors[1]).clone()));
             }
-            #[allow(clippy::float_cmp)] // Comparing against exact constant -1.0
-            let is_neg_one = matches!(&factors[1].kind, AstKind::Number(n) if *n == -1.0);
-            if is_neg_one
+            #[allow(clippy::float_cmp, reason = "Comparing against exact constant -1.0")]
+            let is_neg_one_alt = matches!(&factors[1].kind, AstKind::Number(n) if *n == -1.0);
+            if is_neg_one_alt
             {
                 return Some(Expr::func_symbol(get_symbol(KS.cosh), (*factors[0]).clone()));
             }
@@ -133,7 +133,7 @@ rule!(
             && let AstKind::Product(factors) = &args[0].kind
             && factors.len() == 2
         {
-            #[allow(clippy::float_cmp)] // Comparing against exact constant -1.0
+            #[allow(clippy::float_cmp, reason = "Comparing against exact constant -1.0")]
             let is_neg_one = matches!(&factors[0].kind, AstKind::Number(n) if *n == -1.0);
             if is_neg_one
             {
@@ -142,9 +142,9 @@ rule!(
                     Expr::func_symbol(get_symbol(KS.tanh), (*factors[1]).clone()),
                 ]));
             }
-            #[allow(clippy::float_cmp)] // Comparing against exact constant -1.0
-            let is_neg_one = matches!(&factors[1].kind, AstKind::Number(n) if *n == -1.0);
-            if is_neg_one
+            #[allow(clippy::float_cmp, reason = "Comparing against exact constant -1.0")]
+            let is_neg_one_alt = matches!(&factors[1].kind, AstKind::Number(n) if *n == -1.0);
+            if is_neg_one_alt
             {
                 return Some(Expr::product(vec![
                     Expr::number(-1.0),
@@ -269,7 +269,7 @@ rule!(
             // 1 + (-tanh^2(x)) = sech^2(x)
             if {
                 // Exact check for constant 1.0
-                #[allow(clippy::float_cmp)] // Comparing against exact constant 1.0
+                #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
                 let is_one = matches!(&u.kind, AstKind::Number(n) if *n == 1.0);
                 is_one
             } && let Some(negated) = extract_negated(v)
@@ -336,7 +336,7 @@ fn get_hyperbolic_power(
         && let AstKind::Number(p) = &exp.kind
         && {
             // Exact check for power (e.g. 2.0)
-            #[allow(clippy::float_cmp)] // Comparing against exact constant power
+            #[allow(clippy::float_cmp, reason = "Comparing against exact constant power")]
             let is_match = *p == power;
             is_match
         }
@@ -363,7 +363,7 @@ fn is_cosh_minus_sinh_term(expr: &Expr) -> Option<Expr> {
         && factors.len() == 2
         && {
             // Exact check for constant -1.0
-            #[allow(clippy::float_cmp)] // Comparing against exact constant -1.0
+            #[allow(clippy::float_cmp, reason = "Comparing against exact constant -1.0")]
             let is_neg_one = matches!(&factors[0].kind, AstKind::Number(n) if *n == -1.0);
             is_neg_one
         }
@@ -474,17 +474,17 @@ rule!(
             ) && arg1 == arg2
             {
                 // Constants in triple angle identity
-                #[allow(clippy::float_cmp)] // Comparing against exact constant 3.0
+                #[allow(clippy::float_cmp, reason = "Comparing against exact constant 3.0")]
                 let is_pow1_cubed = p1 == 3.0;
-                #[allow(clippy::float_cmp)] // Comparing against exact constant 3.0
+                #[allow(clippy::float_cmp, reason = "Comparing against exact constant 3.0")]
                 let is_coef2_three = c2 == 3.0;
-                #[allow(clippy::float_cmp)] // Comparing against exact constant 1.0
+                #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
                 let is_pow2_one = p2 == 1.0;
-                #[allow(clippy::float_cmp)] // Comparing against exact constant 3.0
+                #[allow(clippy::float_cmp, reason = "Comparing against exact constant 3.0")]
                 let is_pow2_cubed = p2 == 3.0;
-                #[allow(clippy::float_cmp)] // Comparing against exact constant 3.0
+                #[allow(clippy::float_cmp, reason = "Comparing against exact constant 3.0")]
                 let is_coef1_three = c1 == 3.0;
-                #[allow(clippy::float_cmp)] // Comparing against exact constant 1.0
+                #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
                 let is_pow1_one = p1 == 1.0;
 
                 if (c1 - 4.0).abs() < eps && is_pow1_cubed && is_coef2_three && is_pow2_one
@@ -503,11 +503,11 @@ rule!(
                 && arg1 == arg2
             {
                 // 4*cosh^3(x) - 3*cosh(x) -> cosh(3x)
-                #[allow(clippy::float_cmp)] // Comparing against exact constant 3.0
+                #[allow(clippy::float_cmp, reason = "Comparing against exact constant 3.0")]
                 let is_p1_3 = p1 == 3.0;
-                #[allow(clippy::float_cmp)] // Comparing against exact constant -3.0
+                #[allow(clippy::float_cmp, reason = "Comparing against exact constant -3.0")]
                 let is_c2_neg3 = c2 == -3.0;
-                #[allow(clippy::float_cmp)] // Comparing against exact constant 1.0
+                #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
                 let is_p2_1 = p2 == 1.0;
 
                 if (c1 - 4.0).abs() < eps && is_p1_3 && is_c2_neg3 && is_p2_1 {

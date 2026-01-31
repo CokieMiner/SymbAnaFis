@@ -16,7 +16,7 @@ rule!(
             && name.id() == KS.ln
             && args.len() == 1
         {
-            #[allow(clippy::float_cmp)] // Comparing against exact constant 1.0
+            #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
             let is_one = matches!(&args[0].kind, AstKind::Number(n) if *n == 1.0);
             if is_one
         {
@@ -44,7 +44,7 @@ rule!(
                 && exp_name.id() == KS.exp && exp_args.len() == 1
             {
                 if let AstKind::Number(n) = &exp_args[0].kind {
-                    #[allow(clippy::float_cmp)] // Comparing against exact constant 1.0
+                    #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
                     let is_one = *n == 1.0;
                     is_one
                 } else {
@@ -81,7 +81,7 @@ rule!(
             && name.id() == KS.exp
             && args.len() == 1
         {
-            #[allow(clippy::float_cmp)] // Comparing against exact constant 0.0
+            #[allow(clippy::float_cmp, reason = "Comparing against exact constant 0.0")]
             let is_zero = matches!(&args[0].kind, AstKind::Number(n) if *n == 0.0);
             if is_zero
         {
@@ -158,9 +158,9 @@ rule!(
                 // Check if exponent is an even integer
                 if let AstKind::Number(n) = &exp.kind {
                     // Exact comparison for integer check and cast for parity
-                    #[allow(clippy::float_cmp, clippy::cast_possible_truncation)] // Comparing against exact constant 0.0 for integer check
+                    #[allow(clippy::float_cmp, clippy::cast_possible_truncation, reason = "Comparing against exact constant 0.0 for integer check")]
                     let is_even_int = n.fract() == 0.0 && (*n as i64) % 2 == 0;
-                    #[allow(clippy::float_cmp, clippy::cast_possible_truncation)] // Comparing against exact constant 0.0 for integer check
+                    #[allow(clippy::float_cmp, clippy::cast_possible_truncation, reason = "Comparing against exact constant 0.0 for integer check")]
                     let is_odd_int = n.fract() == 0.0 && (*n as i64) % 2 != 0;
 
                     if is_even_int && *n != 0.0 {
@@ -168,8 +168,8 @@ rule!(
                         return Some(Expr::product(vec![
                             (**exp).clone(),
                             match args.len() {
-                                1 => Expr::func_multi_from_arcs_symbol(name.clone(), vec![Arc::new(Expr::func_multi_from_arcs("abs", vec![Arc::clone(base)]))]),
-                                2 => Expr::func_multi_from_arcs_symbol(name.clone(), vec![Arc::clone(&args[0]), Arc::new(Expr::func_multi_from_arcs("abs", vec![Arc::clone(base)]))]),
+                                1 => Expr::func_multi_from_arcs_symbol(name.clone(), vec![Arc::new(Expr::func_multi_from_arcs_symbol(get_symbol(KS.abs), vec![Arc::clone(base)]))]),
+                                2 => Expr::func_multi_from_arcs_symbol(name.clone(), vec![Arc::clone(&args[0]), Arc::new(Expr::func_multi_from_arcs_symbol(get_symbol(KS.abs), vec![Arc::clone(base)]))]),
                                 _ => return None, // Invalid number of arguments
                             }
                         ]));
@@ -259,23 +259,23 @@ rule!(
         if let AstKind::FunctionCall { name, args } = &expr.kind {
             if args.len() == 1 {
                 if name.id() == KS.log10 {
-                    #[allow(clippy::float_cmp)] // Comparing against exact constant 1.0
+                    #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
                     let is_one = matches!(&args[0].kind, AstKind::Number(n) if *n == 1.0);
                     if is_one {
                         return Some(Expr::number(0.0));
                     }
-                    #[allow(clippy::float_cmp)] // Comparing against exact constant 10.0
+                    #[allow(clippy::float_cmp, reason = "Comparing against exact constant 10.0")]
                     let is_ten = matches!(&args[0].kind, AstKind::Number(n) if *n == 10.0);
                     if is_ten {
                         return Some(Expr::number(1.0));
                     }
                 } else if name.id() == KS.log2 {
-                    #[allow(clippy::float_cmp)] // Comparing against exact constant 1.0
+                    #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
                     let is_one = matches!(&args[0].kind, AstKind::Number(n) if *n == 1.0);
                     if is_one {
                         return Some(Expr::number(0.0));
                     }
-                    #[allow(clippy::float_cmp)] // Comparing against exact constant 2.0
+                    #[allow(clippy::float_cmp, reason = "Comparing against exact constant 2.0")]
                     let is_two = matches!(&args[0].kind, AstKind::Number(n) if *n == 2.0);
                     if is_two {
                         return Some(Expr::number(1.0));
@@ -283,7 +283,7 @@ rule!(
                 }
             } else if args.len() == 2 && name.id() == KS.log {
                 // log(base, 1) = 0
-                #[allow(clippy::float_cmp)] // Comparing against exact constant 1.0
+                #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
                 let is_one = matches!(&args[1].kind, AstKind::Number(n) if *n == 1.0);
                 if is_one {
                      return Some(Expr::number(0.0));

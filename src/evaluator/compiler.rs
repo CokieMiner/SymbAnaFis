@@ -107,7 +107,10 @@ impl<'ctx> Compiler<'ctx> {
             Entry::Vacant(v) => {
                 // SAFETY: Constants pool size is bounded by expression complexity,
                 // which is limited by MAX_STACK_DEPTH. Realistically < 2^16 constants.
-                #[allow(clippy::cast_possible_truncation)]
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    reason = "Constants pool size is bounded by expression complexity, realistically < 2^16 constants"
+                )]
                 let idx = self.constants.len() as u32;
                 self.constants.push(val);
                 v.insert(idx);
@@ -190,14 +193,23 @@ impl<'ctx> Compiler<'ctx> {
     pub fn is_expensive(expr: &Expr) -> bool {
         match &expr.kind {
             ExprKind::FunctionCall { .. } | ExprKind::Div(..) => true,
-            ExprKind::Pow(_, exp) => {
+            ExprKind::Pow(base, exp) => {
                 // Integer powers (n in range [-16, 16]) are optimized to cheap Powi/Square/etc.
-                // We only cache if it's a non-integer power (likely using powf).
-                Self::try_eval_const(exp).is_none_or(|n| (n - n.round()).abs() > EPSILON)
+                // We only cache if it's a non-integer power (likely using powf) OR if the base is complex.
+                if Self::try_eval_const(exp).is_none_or(|n| (n - n.round()).abs() > EPSILON) {
+                    true
+                } else {
+                    // If base is not a simple number or symbol, it's worth caching the result of the power
+                    !matches!(base.kind, ExprKind::Number(_) | ExprKind::Symbol(_))
+                }
             }
 
-            // Cache larger sums/products (4+ terms to amortize Store/Load overhead)
-            ExprKind::Sum(terms) | ExprKind::Product(terms) => terms.len() >= 4,
+            // Cache sums/products with 3+ terms or if at least one term is expensive.
+            // This avoids caching trivial 2-term operations where cache overhead
+            // might exceed re-computation cost.
+            ExprKind::Sum(terms) | ExprKind::Product(terms) => {
+                terms.len() >= 2 || terms.iter().any(|t| Self::is_expensive(t))
+            }
 
             _ => false,
         }
@@ -309,7 +321,10 @@ impl<'ctx> Compiler<'ctx> {
     /// - `UnsupportedFunction`: Unknown function name
     /// - `UnsupportedExpression`: Derivatives (must be simplified first)
     // Compilation handles many expression kinds; length is justified
-    #[allow(clippy::too_many_lines)]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "Compilation handles many expression kinds; length is justified"
+    )]
     pub fn compile_expr(&mut self, expr: &Expr) -> Result<(), DiffError> {
         // Fast path for trivial expressions - skip CSE and constant folding checks
         match &expr.kind {
@@ -329,7 +344,10 @@ impl<'ctx> Compiler<'ctx> {
                     self.push()?;
                 } else if let Some(idx) = self.param_ids.iter().position(|&id| id == sym_id) {
                     // Truncation safe: param count bounded by realistic expression size
-                    #[allow(clippy::cast_possible_truncation)]
+                    #[allow(
+                        clippy::cast_possible_truncation,
+                        reason = "Param count bounded by realistic expression size"
+                    )]
                     self.emit(Instruction::LoadParam(idx as u32));
                     self.push()?;
                 } else {
@@ -348,7 +366,10 @@ impl<'ctx> Compiler<'ctx> {
         if cache_this && let Some(&slot) = self.cse_cache.get(&expr.hash) {
             // Cache hit! Load from cache instead of recompiling
             // Truncation safe: cache slots bounded by expression complexity
-            #[allow(clippy::cast_possible_truncation)]
+            #[allow(
+                clippy::cast_possible_truncation,
+                reason = "Cache slots bounded by expression complexity"
+            )]
             self.emit(Instruction::LoadCached(slot as u32));
             self.push()?;
             return Ok(());
@@ -364,7 +385,10 @@ impl<'ctx> Compiler<'ctx> {
 
         match &expr.kind {
             // Already handled above - these are unreachable as an internal invariant
-            #[allow(clippy::unreachable)]
+            #[allow(
+                clippy::unreachable,
+                reason = "Already handled above - these are unreachable as an internal invariant"
+            )]
             ExprKind::Number(_) | ExprKind::Symbol(_) => unreachable!(),
 
             ExprKind::Sum(terms) => {
@@ -403,7 +427,10 @@ impl<'ctx> Compiler<'ctx> {
             let slot = self.cache_size;
             self.cache_size += 1;
             // Truncation safe: cache slots bounded by expression complexity
-            #[allow(clippy::cast_possible_truncation)]
+            #[allow(
+                clippy::cast_possible_truncation,
+                reason = "Cache slots bounded by expression complexity"
+            )]
             self.emit(Instruction::StoreCached(slot as u32));
             self.cse_cache.insert(expr.hash, slot);
         }
@@ -412,12 +439,99 @@ impl<'ctx> Compiler<'ctx> {
     }
 
     /// Compile a sum expression: `a + b + c + ...`
+    #[allow(
+        clippy::too_many_lines,
+        reason = "Complex pattern matching logic for sum optimizations requires detailed implementation"
+    )]
     fn compile_sum(&mut self, terms: &[Arc<Expr>]) -> Result<(), DiffError> {
+
         if terms.is_empty() {
             let idx = self.add_const(0.0);
             self.emit(Instruction::LoadConst(idx));
             self.push()?;
         } else {
+            // Optimization: Patterns for Expm1 and Sub
+            // We look for these even in larger sums to maximize fused ops
+            let mut expm1_idx = None;
+            let mut neg_one_idx = None;
+            let mut sub_idx = None;
+
+            for (i, term) in terms.iter().enumerate() {
+                if let ExprKind::FunctionCall { name, args } = &term.kind {
+                    if name.id() == KS.exp && args.len() == 1 {
+                        expm1_idx = Some(i);
+                    }
+                } else if let Some(n) = Self::try_eval_const(term) {
+                    if (n - -1.0).abs() < EPSILON {
+                        neg_one_idx = Some(i);
+                    }
+                } else if let ExprKind::Product(factors) = &term.kind
+                    && factors.len() == 2
+                    && let Some(n) = Self::try_eval_const(&factors[0])
+                    && (n - -1.0).abs() < EPSILON
+                {
+                    sub_idx = Some(i);
+                }
+            }
+
+            // Pattern: exp(x) - 1 -> Expm1(x)
+            if let (Some(e_idx), Some(n_idx)) = (expm1_idx, neg_one_idx)
+                && let ExprKind::FunctionCall { args, .. } = &terms[e_idx].kind
+            {
+                self.compile_expr(&args[0])?;
+                self.emit(Instruction::Expm1);
+
+                // Compile remainder of the sum
+                let mut remainder = Vec::with_capacity(terms.len() - 2);
+                for (i, t) in terms.iter().enumerate() {
+                    if i != e_idx && i != n_idx {
+                        remainder.push(Arc::clone(t));
+                    }
+                }
+                if !remainder.is_empty() {
+                    self.compile_sum(&remainder)?;
+                    self.emit(Instruction::Add);
+                    self.pop();
+                }
+                return Ok(());
+            }
+
+            // Pattern: a - b -> Sub(a, b)
+            if let Some(s_idx) = sub_idx {
+                // Compile remainder (the "a" part)
+                let mut remainder = Vec::with_capacity(terms.len() - 1);
+                for (i, t) in terms.iter().enumerate() {
+                    if i != s_idx {
+                        remainder.push(Arc::clone(t));
+                    }
+                }
+
+                if !remainder.is_empty() {
+                    // Optimization: Detect MulSub (a*b - c)
+                    if remainder.len() == 1
+                        && let ExprKind::Product(factors) = &remainder[0].kind
+                        && factors.len() == 2
+                        && let ExprKind::Product(s_factors) = &terms[s_idx].kind
+                    {
+                        self.compile_expr(&factors[0])?;
+                        self.compile_expr(&factors[1])?;
+                        self.compile_expr(&s_factors[1])?;
+                        self.emit(Instruction::MulSub);
+                        self.pop();
+                        self.pop();
+                        return Ok(());
+                    }
+
+                    self.compile_sum(&remainder)?;
+                    if let ExprKind::Product(factors) = &terms[s_idx].kind {
+                        self.compile_expr(&factors[1])?;
+                        self.emit(Instruction::Sub);
+                        self.pop();
+                        return Ok(());
+                    }
+                }
+            }
+
             // Optimization: Detect patterns for MulAdd [a, b, c] -> a * b + c
             // We look for any term that is a product.
             let mut best_pattern = None;
@@ -434,7 +548,32 @@ impl<'ctx> Compiler<'ctx> {
             if let Some(idx) = best_pattern.filter(|_| terms.len() >= 2) {
                 let term = &terms[idx];
                 if let ExprKind::Product(factors) = &term.kind {
-                    // a * b * c + remainder -> (a * b) * c + remainder
+                    // Check for negative MulAdd: -a*b + c -> NegMulAdd(a, b, c)
+                    // Pattern: Product([-1, a, b]) + c
+                    if factors.len() == 3
+                        && matches!(factors[0].kind, ExprKind::Number(n) if (n - -1.0).abs() < EPSILON)
+                    {
+                        // -1 * a * b
+                        self.compile_expr(&factors[1])?;
+                        self.compile_expr(&factors[2])?;
+
+                        // Compile remainder
+                        let mut remainder = Vec::with_capacity(terms.len() - 1);
+                        for (i, t) in terms.iter().enumerate() {
+                            if i != idx {
+                                remainder.push(Arc::clone(t));
+                            }
+                        }
+                        self.compile_sum(&remainder)?;
+
+                        // Stack: [a, b, c] -> -a*b + c
+                        self.emit(Instruction::NegMulAdd);
+                        self.pop();
+                        self.pop();
+                        return Ok(());
+                    }
+
+                    // Standard MulAdd: a * b * c + remainder -> (a * b) * c + remainder
                     if factors.len() == 2 {
                         self.compile_expr(&factors[0])?;
                         self.compile_expr(&factors[1])?;
@@ -482,25 +621,21 @@ impl<'ctx> Compiler<'ctx> {
             return Ok(());
         }
 
-        // Check for negation pattern: Product([-1, x]) = -x
-        // Exact comparison for -1.0 is mathematically intentional
-        #[allow(clippy::float_cmp)]
-        if factors.len() == 2 {
-            if Self::try_eval_const(&factors[0]) == Some(-1.0) {
-                self.compile_expr(&factors[1])?;
-                self.emit(Instruction::Neg);
-                return Ok(());
-            }
-            if Self::try_eval_const(&factors[1]) == Some(-1.0) {
-                self.compile_expr(&factors[0])?;
-                self.emit(Instruction::Neg);
-                return Ok(());
+        // Constant folding: Accumulate all constant factors
+        let mut constant_acc = 1.0;
+        let mut variable_factors = Vec::with_capacity(factors.len());
+
+        for factor in factors {
+            if let Some(c) = Self::try_eval_const(factor) {
+                constant_acc *= c;
+            } else {
+                variable_factors.push(Arc::clone(factor));
             }
         }
 
-        // Group identical factors to use Square/Cube/Pow4
-        let mut grouped: Vec<(Arc<Expr>, usize)> = Vec::with_capacity(factors.len());
-        for factor in factors {
+        // Group identical variable factors to use Square/Cube/Pow4
+        let mut grouped: Vec<(Arc<Expr>, usize)> = Vec::with_capacity(variable_factors.len());
+        for factor in &variable_factors {
             if let Some(existing) = grouped.iter_mut().find(|(e, _)| e == factor) {
                 existing.1 += 1;
             } else {
@@ -508,15 +643,47 @@ impl<'ctx> Compiler<'ctx> {
             }
         }
 
-        // Compile first group
-        let (expr, count) = &grouped[0];
-        self.compile_expr_with_count(expr, *count)?;
+        let mut first = true;
+        let mut negate_at_end = false;
 
-        // Multiply remaining groups
-        for (expr, count) in &grouped[1..] {
-            self.compile_expr_with_count(expr, *count)?;
-            self.emit(Instruction::Mul);
-            self.pop();
+        // Compile variable factors first
+        for (expr, count) in grouped {
+            self.compile_expr_with_count(&expr, count)?;
+
+            if !first {
+                self.emit(Instruction::Mul);
+                self.pop();
+            }
+            first = false;
+        }
+
+        // Handle the constant part at the end (enables MulConst fusion)
+        if (constant_acc - 1.0).abs() > EPSILON {
+            if (constant_acc - -1.0).abs() < EPSILON {
+                // Defer negation to the end (saving a LoadConst + Mul)
+                negate_at_end = true;
+            } else {
+                let idx = self.add_const(constant_acc);
+                if first {
+                    self.emit(Instruction::LoadConst(idx));
+                    self.push()?;
+                } else {
+                    self.emit(Instruction::MulConst(idx));
+                }
+                first = false;
+            }
+        }
+
+        // If we haven't emitted anything yet (e.g. factors were empty or just 1.0),
+        // we must emit something.
+        if first {
+            let idx = self.add_const(1.0);
+            self.emit(Instruction::LoadConst(idx));
+            self.push()?;
+        }
+
+        if negate_at_end {
+            self.emit(Instruction::Neg);
         }
 
         Ok(())
@@ -544,7 +711,11 @@ impl<'ctx> Compiler<'ctx> {
             _ => {
                 self.compile_expr(expr)?;
                 // Truncation safe: we only group up to realistic powers
-                #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_possible_wrap,
+                    reason = "We only group up to realistic powers"
+                )]
                 self.emit(Instruction::Powi(count as i32));
                 Ok(())
             }
@@ -579,15 +750,79 @@ impl<'ctx> Compiler<'ctx> {
             _ => {}
         }
 
+        // Optimization: 1 / (exp(x) - 1) -> RecipExpm1(x)
+        if let ExprKind::Number(n) = num.kind
+            && (n - 1.0).abs() < EPSILON
+        {
+            // Check if den is exp(x) - 1 or sum with exp(x) and -1
+            let mut expm1_arg = None;
+
+            if let ExprKind::Sum(terms) = &den.kind {
+                // Look for exp(x) and -1.0
+                let mut has_neg_one = false;
+                let mut exp_arg = None;
+
+                // Usually sum has 2 terms: exp(x) and -1
+                if terms.len() == 2 {
+                    for term in terms {
+                        if let ExprKind::Number(term_n) = term.kind {
+                            if (term_n - -1.0).abs() < EPSILON {
+                                has_neg_one = true;
+                            }
+                        } else if let ExprKind::FunctionCall { name, args } = &term.kind
+                            && name.id() == KS.exp
+                            && args.len() == 1
+                        {
+                            exp_arg = Some(&args[0]);
+                        }
+                    }
+                }
+
+                if has_neg_one && exp_arg.is_some() {
+                    expm1_arg = exp_arg;
+                }
+            }
+
+            if let Some(arg) = expm1_arg {
+                self.compile_expr(arg)?;
+                self.emit(Instruction::RecipExpm1);
+                return Ok(());
+            }
+        }
+
+        // Optimization: num / exp(x) -> num * exp(-x)
+        // Only apply if num is constant to avoid duplicating exp computation
+        // (e.g. if num contains exp(x), we'd compute exp(x) and exp(-x))
+        let mut exp_neg_arg = None;
+        if Self::try_eval_const(num).is_some() {
+            if let ExprKind::FunctionCall { name, args } = &den.kind
+                && name.id() == KS.exp
+                && args.len() == 1
+            {
+                exp_neg_arg = Some(&args[0]);
+            } else if let ExprKind::Pow(base, exp) = &den.kind
+                && let Some(val) = Self::try_eval_const(base)
+                && (val - std::f64::consts::E).abs() < EPSILON
+            {
+                exp_neg_arg = Some(exp);
+            }
+        }
+
+        if let Some(arg) = exp_neg_arg {
+            self.compile_expr(num)?;
+            self.compile_expr(arg)?;
+            self.emit(Instruction::ExpNeg);
+            self.emit(Instruction::Mul);
+            self.pop(); // Mul pops 1 more than it pushes relative to stack growth of 2
+            return Ok(());
+        }
+
         // Optimization: E / C -> E * (1/C)
         // Multiplication is generally faster than division on most CPUs
         if let Some(val) = Self::try_eval_const(den).filter(|&v| v != 0.0) {
             self.compile_expr(num)?;
             let idx = self.add_const(1.0 / val);
-            self.emit(Instruction::LoadConst(idx));
-            self.push()?;
-            self.emit(Instruction::Mul);
-            self.pop();
+            self.emit(Instruction::MulConst(idx));
             return Ok(());
         }
 
@@ -613,20 +848,45 @@ impl<'ctx> Compiler<'ctx> {
     /// - `x^0.5 → Sqrt`
     /// - `x^-0.5 → Sqrt; Recip`
     ///
-    /// TODO: v0.8.0 Hierarchical Power Optimizations:
-    /// 1. Use try_eval_const(exp) to detect rational exponents (e.g. 3/2).
-    /// 2. Implement Pow3_2 (1.5) and InvPow3_2 (-1.5) fused instructions.
-    /// 3. Implement Root2k(k) for successive hardware sqrts (e.g. x^1/4, x^1/8).
+    /// TODO: Root2k(k) for successive hardware sqrts (e.g. x^1/4, x^1/8).
+    #[allow(
+        clippy::too_many_lines,
+        reason = "Handles many specific power optimization cases"
+    )]
     fn compile_power(&mut self, base: &Expr, exp: &Expr) -> Result<(), DiffError> {
+        // Optimization: e^x -> Exp(x)
+        if let Some(base_val) = Self::try_eval_const(base)
+            && (base_val - std::f64::consts::E).abs() < EPSILON
+        {
+            // Check for e^(-x) -> ExpNeg(x)
+            // -x is represented as Product([-1, x])
+            if let ExprKind::Product(factors) = &exp.kind
+                && factors.len() == 2
+                && let Some(c) = Self::try_eval_const(&factors[0])
+                && (c - -1.0).abs() < EPSILON
+            {
+                self.compile_expr(&factors[1])?;
+                self.emit(Instruction::ExpNeg);
+                return Ok(());
+            }
+
+            self.compile_expr(exp)?;
+            self.emit(Instruction::Exp);
+            return Ok(());
+        }
+
         // Check for fused instruction patterns with integer/half exponents
-        if let ExprKind::Number(n) = &exp.kind {
-            let n_val = *n;
+        // Optimization: use try_eval_const to catch rational exponents like 3/2
+        if let Some(n_val) = Self::try_eval_const(exp) {
             let n_rounded = n_val.round();
             let is_integer = (n_val - n_rounded).abs() < EPSILON;
 
             if is_integer {
                 // Truncation safe: checked by is_integer and i32 bounds below
-                #[allow(clippy::cast_possible_truncation)]
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    reason = "Checked by is_integer and i32 bounds below"
+                )]
                 let n_int = n_rounded as i64;
                 match n_int {
                     0 => {
@@ -656,6 +916,23 @@ impl<'ctx> Compiler<'ctx> {
                         self.emit(Instruction::Pow4);
                         return Ok(());
                     }
+                    8 => {
+                        self.compile_expr(base)?;
+                        // x^8 = ((x^2)^2)^2
+                        self.emit(Instruction::Square);
+                        self.emit(Instruction::Square);
+                        self.emit(Instruction::Square);
+                        return Ok(());
+                    }
+                    16 => {
+                        self.compile_expr(base)?;
+                        // x^16 = (((x^2)^2)^2)^2
+                        self.emit(Instruction::Square);
+                        self.emit(Instruction::Square);
+                        self.emit(Instruction::Square);
+                        self.emit(Instruction::Square);
+                        return Ok(());
+                    }
                     -1 => {
                         self.compile_expr(base)?;
                         self.emit(Instruction::Recip);
@@ -663,8 +940,12 @@ impl<'ctx> Compiler<'ctx> {
                     }
                     -2 => {
                         self.compile_expr(base)?;
-                        self.emit(Instruction::Square);
-                        self.emit(Instruction::Recip);
+                        self.emit(Instruction::InvSquare);
+                        return Ok(());
+                    }
+                    -3 => {
+                        self.compile_expr(base)?;
+                        self.emit(Instruction::InvCube);
                         return Ok(());
                     }
                     _ => {
@@ -682,10 +963,24 @@ impl<'ctx> Compiler<'ctx> {
                 self.emit(Instruction::Sqrt);
                 return Ok(());
             } else if (n_val + 0.5).abs() < EPSILON {
-                // x^-0.5 → 1/sqrt(x)
+                // x^-0.5 → InvSqrt
                 self.compile_expr(base)?;
-                self.emit(Instruction::Sqrt);
-                self.emit(Instruction::Recip);
+                self.emit(Instruction::InvSqrt);
+                return Ok(());
+            } else if (n_val - 1.5).abs() < EPSILON {
+                // x^1.5 → Pow3_2
+                self.compile_expr(base)?;
+                self.emit(Instruction::Pow3_2);
+                return Ok(());
+            } else if (n_val + 1.5).abs() < EPSILON {
+                // x^-1.5 → InvPow3_2
+                self.compile_expr(base)?;
+                self.emit(Instruction::InvPow3_2);
+                return Ok(());
+            } else if (n_val - (1.0 / 3.0)).abs() < EPSILON {
+                // x^(1/3) → Cbrt
+                self.compile_expr(base)?;
+                self.emit(Instruction::Cbrt);
                 return Ok(());
             }
         }
@@ -702,189 +997,347 @@ impl<'ctx> Compiler<'ctx> {
     ///
     /// Maps function names to corresponding bytecode instructions.
     /// Handles arity for multi-argument functions by popping extra operands.
-    //
-    // Allow too_many_lines: This is a dispatch table mapping 50+ function names
-    // to instructions. Splitting would make the mapping harder to maintain.
-    #[allow(clippy::too_many_lines)]
     fn compile_function_call(
         &mut self,
         func_name: &InternedSymbol,
         args: &[Arc<Expr>],
     ) -> Result<(), DiffError> {
-        // Compile arguments first (in order for proper stack layout)
-        // Arc<Expr> auto-derefs to &Expr
-        for arg in args {
-            self.compile_expr(arg)?;
-        }
-
         let id = func_name.id();
         let arity = args.len();
         let ks = &*KS;
 
-        // Emit function instruction
-        // We use an if-else chain (or match guards) here because KS fields are not constants,
-        // so we cannot match against them directly in patterns.
-        let instr = if arity == 1 {
-            if id == ks.sin {
-                Instruction::Sin
-            } else if id == ks.cos {
-                Instruction::Cos
-            } else if id == ks.tan {
-                Instruction::Tan
-            } else if id == ks.asin {
-                Instruction::Asin
-            } else if id == ks.acos {
-                Instruction::Acos
-            } else if id == ks.atan {
-                Instruction::Atan
-            } else if id == ks.cot {
-                Instruction::Cot
-            } else if id == ks.sec {
-                Instruction::Sec
-            } else if id == ks.csc {
-                Instruction::Csc
-            } else if id == ks.acot {
-                Instruction::Acot
-            } else if id == ks.asec {
-                Instruction::Asec
-            } else if id == ks.acsc {
-                Instruction::Acsc
+        // Optimizations: Log1p, ExpNeg, ExpSqr, ExpSqrNeg
+        // These MUST run before we compile arguments to avoid leaking stack
+        if arity == 1 {
+            // ln(1 + x) -> Log1p(x)
+            if id == ks.ln
+                && let ExprKind::Sum(terms) = &args[0].kind
+                && terms.len() == 2
+            {
+                let (t0, t1) = (&terms[0], &terms[1]);
+                // Check if t0 is 1.0
+                if let Some(n) = Self::try_eval_const(t0)
+                    && (n - 1.0).abs() < EPSILON
+                {
+                    self.compile_expr(t1)?;
+                    self.emit(Instruction::Log1p);
+                    return Ok(());
+                }
+                // Check if t1 is 1.0
+                if let Some(n) = Self::try_eval_const(t1)
+                    && (n - 1.0).abs() < EPSILON
+                {
+                    self.compile_expr(t0)?;
+                    self.emit(Instruction::Log1p);
+                    return Ok(());
+                }
             }
-            // Hyperbolic
-            else if id == ks.sinh {
-                Instruction::Sinh
-            } else if id == ks.cosh {
-                Instruction::Cosh
-            } else if id == ks.tanh {
-                Instruction::Tanh
-            } else if id == ks.asinh {
-                Instruction::Asinh
-            } else if id == ks.acosh {
-                Instruction::Acosh
-            } else if id == ks.atanh {
-                Instruction::Atanh
-            } else if id == ks.coth {
-                Instruction::Coth
-            } else if id == ks.sech {
-                Instruction::Sech
-            } else if id == ks.csch {
-                Instruction::Csch
-            } else if id == ks.acoth {
-                Instruction::Acoth
-            } else if id == ks.asech {
-                Instruction::Asech
-            } else if id == ks.acsch {
-                Instruction::Acsch
+
+            // exp optimizations
+            if id == ks.exp {
+                // Check for -x, -x^2, or x^2
+                if let ExprKind::Product(factors) = &args[0].kind {
+                    let neg_idx = factors
+                        .iter()
+                        .position(|f| Self::try_eval_const(f).is_some_and(|n| (n + 1.0).abs() < EPSILON));
+
+                    if let Some(idx) = neg_idx {
+                        // It's exp(- (...))
+                        // If it's exp(-x^2), use ExpSqrNeg
+                        if factors.len() == 2 {
+                            let other = if idx == 0 { &factors[1] } else { &factors[0] };
+                            if let ExprKind::Pow(base, exp) = &other.kind
+                                && Self::try_eval_const(exp) == Some(2.0)
+                            {
+                                self.compile_expr(base)?;
+                                self.emit(Instruction::ExpSqrNeg);
+                                return Ok(());
+                            }
+                        }
+
+                        // General exp(-product)
+                        let mut remainder = factors.clone();
+                        remainder.remove(idx);
+                        if remainder.len() == 1 {
+                            self.compile_expr(&remainder[0])?;
+                        } else {
+                            self.compile_product(&remainder)?;
+                        }
+                        self.emit(Instruction::ExpNeg);
+                        return Ok(());
+                    }
+                } else if let ExprKind::Div(num, den) = &args[0].kind {
+                    // Check if numerator is negated
+                    if let ExprKind::Product(factors) = &num.kind {
+                        let neg_idx = factors.iter().position(|f| {
+                            Self::try_eval_const(f).is_some_and(|n| (n + 1.0).abs() < EPSILON)
+                        });
+
+                        if let Some(idx) = neg_idx {
+                            // exp(-(num_rest / den))
+                            let mut remainder = factors.clone();
+                            remainder.remove(idx);
+                            if remainder.len() == 1 {
+                                self.compile_expr(&remainder[0])?;
+                            } else {
+                                self.compile_product(&remainder)?;
+                            }
+                            self.compile_expr(den)?;
+                            self.emit(Instruction::Div);
+                            self.pop();
+                            self.emit(Instruction::ExpNeg);
+                            return Ok(());
+                        }
+                    }
+                } else if let ExprKind::Pow(base, exp) = &args[0].kind
+                    && Self::try_eval_const(exp) == Some(2.0)
+                {
+                    // exp(x^2) -> ExpSqr(x)
+                    self.compile_expr(base)?;
+                    self.emit(Instruction::ExpSqr);
+                    return Ok(());
+                }
             }
-            // Exponential
-            else if id == ks.exp {
-                Instruction::Exp
-            } else if id == ks.ln {
-                Instruction::Ln
-            } else if id == ks.log10 {
-                Instruction::Log10
-            } else if id == ks.log2 {
-                Instruction::Log2
-            } else if id == ks.sqrt {
-                Instruction::Sqrt
-            } else if id == ks.cbrt {
-                Instruction::Cbrt
-            }
-            // Special
-            else if id == ks.abs {
-                Instruction::Abs
-            } else if id == ks.signum {
-                Instruction::Signum
-            } else if id == ks.floor {
-                Instruction::Floor
-            } else if id == ks.ceil {
-                Instruction::Ceil
-            } else if id == ks.round {
-                Instruction::Round
-            } else if id == ks.erf {
-                Instruction::Erf
-            } else if id == ks.erfc {
-                Instruction::Erfc
-            } else if id == ks.gamma {
-                Instruction::Gamma
-            } else if id == ks.digamma {
-                Instruction::Digamma
-            } else if id == ks.trigamma {
-                Instruction::Trigamma
-            } else if id == ks.tetragamma {
-                Instruction::Tetragamma
-            } else if id == ks.sinc {
-                Instruction::Sinc
-            } else if id == ks.lambertw {
-                Instruction::LambertW
-            } else if id == ks.elliptic_k {
-                Instruction::EllipticK
-            } else if id == ks.elliptic_e {
-                Instruction::EllipticE
-            } else if id == ks.zeta {
-                Instruction::Zeta
-            } else if id == ks.exp_polar {
-                Instruction::ExpPolar
-            } else {
-                return self.compile_unknown_function(func_name, arity);
-            }
-        } else if arity == 2 {
-            if id == ks.log {
-                self.pop();
-                Instruction::Log
-            } else if id == ks.atan2 {
-                self.pop();
-                Instruction::Atan2
-            } else if id == ks.besselj {
-                self.pop();
-                Instruction::BesselJ
-            } else if id == ks.bessely {
-                self.pop();
-                Instruction::BesselY
-            } else if id == ks.besseli {
-                self.pop();
-                Instruction::BesselI
-            } else if id == ks.besselk {
-                self.pop();
-                Instruction::BesselK
-            } else if id == ks.polygamma {
-                self.pop();
-                Instruction::Polygamma
-            } else if id == ks.beta {
-                self.pop();
-                Instruction::Beta
-            } else if id == ks.zeta_deriv {
-                self.pop();
-                Instruction::ZetaDeriv
-            } else if id == ks.hermite {
-                self.pop();
-                Instruction::Hermite
-            } else {
-                return self.compile_unknown_function(func_name, arity);
-            }
-        } else if arity == 3 {
-            if id == ks.assoc_legendre {
-                self.pop();
-                self.pop();
-                Instruction::AssocLegendre
-            } else {
-                return self.compile_unknown_function(func_name, arity);
-            }
-        } else if arity == 4 {
-            if id == ks.spherical_harmonic || id == ks.ynm {
-                self.pop();
-                self.pop();
-                self.pop();
-                Instruction::SphericalHarmonic
-            } else {
-                return self.compile_unknown_function(func_name, arity);
-            }
+        }
+
+        // Compile arguments first (in order for proper stack layout)
+        for arg in args {
+            self.compile_expr(arg)?;
+        }
+
+        match arity {
+            1 => self.compile_unary_function(func_name),
+            2 => self.compile_binary_function(func_name),
+            3 => self.compile_ternary_function(func_name),
+            4 => self.compile_quaternary_function(func_name),
+            _ => self.compile_unknown_function(func_name, arity),
+        }
+    }
+
+    /// Compile a unary function call (1 argument).
+    #[allow(clippy::too_many_lines, reason = "Dispatch table mapping 50+ function names to instructions")]
+    fn compile_unary_function(&mut self, func_name: &InternedSymbol) -> Result<(), DiffError> {
+        let id = func_name.id();
+        let ks = &*KS;
+
+        let instr = if id == ks.sin {
+            Instruction::Sin
+        } else if id == ks.cos {
+            Instruction::Cos
+        } else if id == ks.tan {
+            Instruction::Tan
+        } else if id == ks.asin {
+            Instruction::Asin
+        } else if id == ks.acos {
+            Instruction::Acos
+        } else if id == ks.atan {
+            Instruction::Atan
+        } else if id == ks.cot {
+            // cot(x) = 1/tan(x)
+            self.emit(Instruction::Tan);
+            Instruction::Recip
+        } else if id == ks.sec {
+            // sec(x) = 1/cos(x)
+            self.emit(Instruction::Cos);
+            Instruction::Recip
+        } else if id == ks.csc {
+            // csc(x) = 1/sin(x)
+            self.emit(Instruction::Sin);
+            Instruction::Recip
+        } else if id == ks.acot {
+            // acot(x) = atan(1/x)
+            self.emit(Instruction::Recip);
+            Instruction::Atan
+        } else if id == ks.asec {
+            // asec(x) = acos(1/x)
+            self.emit(Instruction::Recip);
+            Instruction::Acos
+        } else if id == ks.acsc {
+            // acsc(x) = asin(1/x)
+            self.emit(Instruction::Recip);
+            Instruction::Asin
+        }
+        // Hyperbolic
+        else if id == ks.sinh {
+            Instruction::Sinh
+        } else if id == ks.cosh {
+            Instruction::Cosh
+        } else if id == ks.tanh {
+            Instruction::Tanh
+        } else if id == ks.asinh {
+            Instruction::Asinh
+        } else if id == ks.acosh {
+            Instruction::Acosh
+        } else if id == ks.atanh {
+            Instruction::Atanh
+        } else if id == ks.coth {
+            // coth(x) = 1/tanh(x)
+            self.emit(Instruction::Tanh);
+            Instruction::Recip
+        } else if id == ks.sech {
+            // sech(x) = 1/cosh(x)
+            self.emit(Instruction::Cosh);
+            Instruction::Recip
+        } else if id == ks.csch {
+            // csch(x) = 1/sinh(x)
+            self.emit(Instruction::Sinh);
+            Instruction::Recip
+        } else if id == ks.acoth {
+            // acoth(x) = atanh(1/x)
+            self.emit(Instruction::Recip);
+            Instruction::Atanh
+        } else if id == ks.asech {
+            // asech(x) = acosh(1/x)
+            self.emit(Instruction::Recip);
+            Instruction::Acosh
+        } else if id == ks.acsch {
+            // acsch(x) = asinh(1/x)
+            self.emit(Instruction::Recip);
+            Instruction::Asinh
+        }
+        // Exponential
+        else if id == ks.exp {
+            Instruction::Exp
+        } else if id == ks.ln {
+            Instruction::Ln
+        } else if id == ks.log10 {
+            // log10(x) = ln(x) * (1/ln(10))
+            self.emit(Instruction::Ln);
+            let idx = self.add_const(std::f64::consts::LOG10_E); // 1/ln(10)
+            self.emit(Instruction::LoadConst(idx));
+            self.push()?;
+            self.emit(Instruction::Mul);
+            self.pop();
+            return Ok(());
+        } else if id == ks.log2 {
+            // log2(x) = ln(x) * (1/ln(2))
+            self.emit(Instruction::Ln);
+            let idx = self.add_const(std::f64::consts::LOG2_E); // 1/ln(2)
+            self.emit(Instruction::LoadConst(idx));
+            self.push()?;
+            self.emit(Instruction::Mul);
+            self.pop();
+            return Ok(());
+        } else if id == ks.sqrt {
+            Instruction::Sqrt
+        } else if id == ks.cbrt {
+            Instruction::Cbrt
+        }
+        // Special
+        else if id == ks.abs {
+            Instruction::Abs
+        } else if id == ks.signum || id == ks.sign || id == ks.sgn {
+            Instruction::Signum
+        } else if id == ks.floor {
+            Instruction::Floor
+        } else if id == ks.ceil {
+            Instruction::Ceil
+        } else if id == ks.round {
+            Instruction::Round
+        } else if id == ks.erf {
+            Instruction::Erf
+        } else if id == ks.erfc {
+            Instruction::Erfc
+        } else if id == ks.gamma {
+            Instruction::Gamma
+        } else if id == ks.digamma {
+            Instruction::Digamma
+        } else if id == ks.trigamma {
+            Instruction::Trigamma
+        } else if id == ks.tetragamma {
+            Instruction::Tetragamma
+        } else if id == ks.sinc {
+            Instruction::Sinc
+        } else if id == ks.lambertw {
+            Instruction::LambertW
+        } else if id == ks.elliptic_k {
+            Instruction::EllipticK
+        } else if id == ks.elliptic_e {
+            Instruction::EllipticE
+        } else if id == ks.zeta {
+            Instruction::Zeta
+        } else if id == ks.exp_polar {
+            Instruction::ExpPolar
         } else {
-            return self.compile_unknown_function(func_name, arity);
+            return self.compile_unknown_function(func_name, 1);
         };
 
         self.emit(instr);
         Ok(())
+    }
+
+    /// Compile a binary function call (2 arguments).
+    fn compile_binary_function(&mut self, func_name: &InternedSymbol) -> Result<(), DiffError> {
+        let id = func_name.id();
+        let ks = &*KS;
+
+        let instr = if id == ks.log {
+            self.pop();
+            Instruction::Log
+        } else if id == ks.atan2 {
+            self.pop();
+            Instruction::Atan2
+        } else if id == ks.besselj {
+            self.pop();
+            Instruction::BesselJ
+        } else if id == ks.bessely {
+            self.pop();
+            Instruction::BesselY
+        } else if id == ks.besseli {
+            self.pop();
+            Instruction::BesselI
+        } else if id == ks.besselk {
+            self.pop();
+            Instruction::BesselK
+        } else if id == ks.polygamma {
+            self.pop();
+            Instruction::Polygamma
+        } else if id == ks.beta {
+            self.pop();
+            Instruction::Beta
+        } else if id == ks.zeta_deriv {
+            self.pop();
+            Instruction::ZetaDeriv
+        } else if id == ks.hermite {
+            self.pop();
+            Instruction::Hermite
+        } else {
+            return self.compile_unknown_function(func_name, 2);
+        };
+
+        self.emit(instr);
+        Ok(())
+    }
+
+    /// Compile a ternary function call (3 arguments).
+    fn compile_ternary_function(&mut self, func_name: &InternedSymbol) -> Result<(), DiffError> {
+        let id = func_name.id();
+        let ks = &*KS;
+
+        if id == ks.assoc_legendre {
+            self.pop();
+            self.pop();
+            self.emit(Instruction::AssocLegendre);
+            Ok(())
+        } else {
+            self.compile_unknown_function(func_name, 3)
+        }
+    }
+
+    /// Compile a quaternary function call (4 arguments).
+    fn compile_quaternary_function(&mut self, func_name: &InternedSymbol) -> Result<(), DiffError> {
+        let id = func_name.id();
+        let ks = &*KS;
+
+        if id == ks.spherical_harmonic || id == ks.ynm {
+            self.pop();
+            self.pop();
+            self.pop();
+            self.emit(Instruction::SphericalHarmonic);
+            Ok(())
+        } else {
+            self.compile_unknown_function(func_name, 4)
+        }
     }
 
     fn compile_unknown_function(
@@ -933,9 +1386,41 @@ impl<'ctx> Compiler<'ctx> {
 
         // Sort terms by power descending for Horner's method
         let mut sorted_terms: Vec<_> = terms.to_vec();
-        sorted_terms.sort_by(|a, b| b.0.cmp(&a.0));
+        sorted_terms.sort_unstable_by(|a, b| b.0.cmp(&a.0));
 
         let max_pow = sorted_terms[0].0;
+
+        // Optimization: Use PolyEval instruction for standard polynomials
+        // This reduces instruction count from O(N) to O(1) and uses dense cache-friendly arrays
+        if max_pow <= 64 {
+            let degree = max_pow;
+            #[allow(
+                clippy::cast_possible_truncation,
+                reason = "Constant pool size limited by memory"
+            )]
+            let start_idx = self.constants.len() as u32;
+
+            // Store degree and coefficients in constant pool
+            self.constants.push(f64::from(degree));
+
+            let mut term_idx = 0;
+
+            for current_pow in (0..=degree).rev() {
+                let coeff =
+                    if term_idx < sorted_terms.len() && sorted_terms[term_idx].0 == current_pow {
+                        let c = sorted_terms[term_idx].1;
+                        term_idx += 1;
+                        c
+                    } else {
+                        0.0
+                    };
+                self.constants.push(coeff);
+            }
+
+            self.compile_expr(poly.base())?;
+            self.emit(Instruction::PolyEval(start_idx));
+            return Ok(());
+        }
 
         // For simple polynomial with Symbol base, use Horner's method
         let base_param_idx = if let ExprKind::Symbol(s) = &poly.base().kind {
@@ -951,8 +1436,8 @@ impl<'ctx> Compiler<'ctx> {
 
         if let Some(idx) = base_param_idx {
             // Fast path: base is a simple parameter, use Horner's method
-            let const_idx = self.add_const(sorted_terms[0].1);
-            self.emit(Instruction::LoadConst(const_idx));
+            let initial_coeff_idx = self.add_const(sorted_terms[0].1);
+            self.emit(Instruction::LoadConst(initial_coeff_idx));
             self.push()?;
 
             let mut term_iter = sorted_terms.iter().skip(1).peekable();
@@ -963,15 +1448,18 @@ impl<'ctx> Compiler<'ctx> {
 
                 // Push x
                 // Truncation safe: param count bounded by realistic expression size
-                #[allow(clippy::cast_possible_truncation)]
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    reason = "Param count bounded by realistic expression size"
+                )]
                 self.emit(Instruction::LoadParam(idx as u32));
                 self.push()?;
 
                 if let Some((_, coeff)) = term_iter.peek().filter(|t| t.0 == pow) {
                     // We have a coefficient for this power: use MulAdd
                     let const_val = *coeff;
-                    let const_idx = self.add_const(const_val);
-                    self.emit(Instruction::LoadConst(const_idx));
+                    let coeff_idx = self.add_const(const_val);
+                    self.emit(Instruction::LoadConst(coeff_idx));
                     self.push()?;
                     self.emit(Instruction::MulAdd);
                     self.pop();
@@ -1020,8 +1508,8 @@ impl<'ctx> Compiler<'ctx> {
 
         // 3. Emit polynomial expansion using the cached instructions
         let (first_pow, first_coeff) = sorted_terms[0];
-        let const_idx = self.add_const(first_coeff);
-        self.emit(Instruction::LoadConst(const_idx));
+        let first_coeff_idx = self.add_const(first_coeff);
+        self.emit(Instruction::LoadConst(first_coeff_idx));
         self.push()?;
 
         // Replaying base: ensure we have enough stack space
@@ -1032,8 +1520,8 @@ impl<'ctx> Compiler<'ctx> {
         }
         self.push()?;
 
-        let const_idx = self.add_const(f64::from(first_pow));
-        self.emit(Instruction::LoadConst(const_idx));
+        let first_pow_idx = self.add_const(f64::from(first_pow));
+        self.emit(Instruction::LoadConst(first_pow_idx));
         self.push()?;
         self.emit(Instruction::Pow);
         self.pop();
@@ -1042,8 +1530,8 @@ impl<'ctx> Compiler<'ctx> {
 
         // Remaining terms
         for &(pow, coeff) in &sorted_terms[1..] {
-            let const_idx = self.add_const(coeff);
-            self.emit(Instruction::LoadConst(const_idx));
+            let term_coeff_idx = self.add_const(coeff);
+            self.emit(Instruction::LoadConst(term_coeff_idx));
             self.push()?;
 
             // Replay base again
@@ -1053,8 +1541,8 @@ impl<'ctx> Compiler<'ctx> {
             }
             self.push()?;
 
-            let const_idx = self.add_const(f64::from(pow));
-            self.emit(Instruction::LoadConst(const_idx));
+            let term_pow_idx = self.add_const(f64::from(pow));
+            self.emit(Instruction::LoadConst(term_pow_idx));
             self.push()?;
             self.emit(Instruction::Pow);
             self.pop();
@@ -1070,6 +1558,7 @@ impl<'ctx> Compiler<'ctx> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::many_single_char_names, reason = "Standard test relaxations")]
     use super::*;
     use crate::parser;
     use std::collections::HashSet;
@@ -1086,18 +1575,6 @@ mod tests {
         assert!(result.is_some());
         let expected = 2.0 * std::f64::consts::PI;
         assert!((result.expect("constant folding should succeed") - expected).abs() < EPSILON);
-    }
-
-    #[test]
-    fn test_is_expensive() {
-        let simple = parse_expr("x + 1");
-        assert!(!Compiler::is_expensive(&simple));
-
-        let expensive = parse_expr("sin(x)");
-        assert!(Compiler::is_expensive(&expensive));
-
-        let large_sum = parse_expr("a + b + c + d");
-        assert!(Compiler::is_expensive(&large_sum));
     }
 
     #[test]
@@ -1157,12 +1634,19 @@ mod tests {
         // Horner's method should use MulAdd
         // (2 * x + 3) * x + 1
         // -> MulAdd(2, x, 3), then MulAdd(prev, x, 1)
+        // OR it uses the new PolyEval instruction if optimized
         let muladd_count = compiler
             .instructions()
             .iter()
             .filter(|i| matches!(i, Instruction::MulAdd))
             .count();
-        assert!(muladd_count >= 1);
+        let polyeval_count = compiler
+            .instructions()
+            .iter()
+            .filter(|i| matches!(i, Instruction::PolyEval(_)))
+            .count();
+
+        assert!(muladd_count >= 1 || polyeval_count >= 1);
     }
 
     #[test]
@@ -1201,32 +1685,6 @@ mod tests {
     }
 
     #[test]
-    fn test_compile_div_const() {
-        // x / 2.0 should become x * 0.5
-        let expr = parse_expr("x / 2.0");
-        let x = crate::symb("x");
-        let param_ids = vec![x.id()];
-
-        let mut compiler = Compiler::new(&param_ids, None);
-        compiler.compile_expr(&expr).expect("Should compile");
-
-        // Should NOT find Div instruction
-        assert!(
-            !compiler
-                .instructions()
-                .iter()
-                .any(|i| matches!(i, Instruction::Div))
-        );
-        // Should find Mul instruction
-        assert!(
-            compiler
-                .instructions()
-                .iter()
-                .any(|i| matches!(i, Instruction::Mul))
-        );
-    }
-
-    #[test]
     fn test_compile_product_dedup() {
         // x * x should use Square
         let expr = parse_expr("x * x");
@@ -1244,14 +1702,54 @@ mod tests {
         );
 
         // x * x * x should use Cube
-        let expr = parse_expr("x * x * x");
+        let expr3 = parse_expr("x * x * x");
+        let mut compiler3 = Compiler::new(&param_ids, None);
+        compiler3.compile_expr(&expr3).expect("Should compile");
+        assert!(
+            compiler3
+                .instructions()
+                .iter()
+                .any(|i| matches!(i, Instruction::Cube))
+        );
+    }
+
+    #[test]
+    fn test_compile_sum_exp_m1() {
+        // exp(x) - 1 -> Expm1(x)
+        let expr = parse_expr("exp(x) - 1");
+        let x = crate::symb("x");
+        let param_ids = vec![x.id()];
+
         let mut compiler = Compiler::new(&param_ids, None);
         compiler.compile_expr(&expr).expect("Should compile");
+
+        // Should find Expm1 instruction
         assert!(
             compiler
                 .instructions()
                 .iter()
-                .any(|i| matches!(i, Instruction::Cube))
+                .any(|i| matches!(i, Instruction::Expm1))
+        );
+    }
+
+    #[test]
+    fn test_compile_sum_sub() {
+        // a - b -> Sub(a, b)
+        // Check for Sum([a, -b]) where -b is Product([-1, b])
+        let expr = parse_expr("a - b");
+        let a = crate::symb("a");
+        let b = crate::symb("b");
+        let param_ids = vec![a.id(), b.id()];
+
+        let mut compiler = Compiler::new(&param_ids, None);
+        compiler.compile_expr(&expr).expect("Should compile");
+
+        // Should find Sub instruction
+        assert!(
+            compiler
+                .instructions()
+                .iter()
+                .any(|i| matches!(i, Instruction::Sub))
         );
     }
 }

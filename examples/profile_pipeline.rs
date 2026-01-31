@@ -1,4 +1,9 @@
-#![allow(missing_docs, clippy::print_stdout, clippy::unwrap_used)]
+#![allow(
+    missing_docs,
+    clippy::print_stdout,
+    clippy::unwrap_used,
+    reason = "Example code allows missing docs, print stdout, and unwrap for simplicity"
+)]
 use std::collections::HashSet;
 use std::hint::black_box;
 use symb_anafis::{CompiledEvaluator, Diff, parse, symb};

@@ -162,7 +162,10 @@ impl From<i32> for Value {
 impl From<i64> for Value {
     fn from(n: i64) -> Self {
         // i64->f64: Python integers map naturally to floats
-        #[allow(clippy::cast_precision_loss)] // i64→f64: Python integers map naturally to floats
+        #[allow(
+            clippy::cast_precision_loss,
+            reason = "i64→f64: Python integers map naturally to floats"
+        )]
         Self::Num(n as f64)
     }
 }
@@ -228,7 +231,10 @@ impl EvalResult {
             Self::String(s) => s,
             Self::Expr(_) => {
                 // Clippy: Panic is justified here as this is an explicit 'unwrap' API that should only be called when sure of the variant
-                #[allow(clippy::panic)]
+                #[allow(
+                    clippy::panic,
+                    reason = "Explicit unwrap API, should only be called when sure of variant"
+                )]
                 // Explicit unwrap API, should only be called when sure of variant
                 {
                     panic!("Expected String, got Expr");
@@ -247,7 +253,10 @@ impl EvalResult {
             Self::Expr(e) => e,
             Self::String(_) => {
                 // Clippy: Panic is justified here as this is an explicit 'unwrap' API that should only be called when sure of the variant
-                #[allow(clippy::panic)]
+                #[allow(
+                    clippy::panic,
+                    reason = "Explicit unwrap API, should only be called when sure of variant"
+                )]
                 // Explicit unwrap API, should only be called when sure of variant
                 {
                     panic!("Expected Expr, got String");
@@ -313,7 +322,11 @@ pub fn evaluate_parallel(
 /// # Returns
 /// For each expression, a Vec of `EvalResult` at each point.
 // Parallel evaluation handles complex dispatch logic, length is justified
-#[allow(clippy::too_many_lines, clippy::needless_pass_by_value)] // Complex dispatch logic, Vec needed for multi-value per-expression
+#[allow(
+    clippy::too_many_lines,
+    clippy::needless_pass_by_value,
+    reason = "Complex dispatch logic, Vec needed for multi-value per-expression"
+)]
 #[inline]
 pub(crate) fn evaluate_parallel_with_hint(
     exprs: Vec<ExprInput>,
@@ -393,69 +406,58 @@ pub(crate) fn evaluate_parallel_with_hint(
                 );
 
                 if globally_numeric {
-                    // ULTRA-FAST PATH: Chunked SIMD evaluation with thread-local buffers
-                    // Each thread allocates its SIMD buffer ONCE, reuses across all chunks
-                    const CHUNK_SIZE: usize = 256;
-
-                    // Calculate chunk starts for ordered parallel processing
-                    let chunk_starts: Vec<usize> = (0..n_points).step_by(CHUNK_SIZE).collect();
-
-                    let chunks: Vec<Vec<EvalResult>> = chunk_starts
-                        .into_par_iter()
-                        // map_init: Allocate SIMD buffer once per thread (not per chunk!)
-                        .map_init(
-                            || Vec::with_capacity(evaluator.stack_size()),
-                            |simd_buffer, start| {
-                                let end = (start + CHUNK_SIZE).min(n_points);
-                                let len = end - start;
-
-                                // 1. Unpack columns for this chunk
-                                let mut chunk_cols: Vec<Vec<f64>> = Vec::with_capacity(n_vars);
-                                for var_vals in expr_values.iter().take(n_vars) {
-                                    let mut col = Vec::with_capacity(len);
-                                    for i in start..end {
-                                        let val = if i < var_vals.len() {
-                                            &var_vals[i]
-                                        } else {
-                                            var_vals.last().expect(
-                                                "Variable values cannot be empty if n_points > 0",
-                                            )
-                                        };
-
-                                        if let Value::Num(n) = val {
-                                            col.push(*n);
-                                        } else {
-                                            col.push(f64::NAN);
-                                        }
+                    // ULTRA-FAST PATH: Unpack to f64 and delegate to high-perf chunked evaluator
+                    // 1. Unpack all columns to contiguous f64 vectors upfront.
+                    // This avoids repeated allocation and indirection inside the parallel loop.
+                    let numeric_cols: Vec<Vec<f64>> = expr_values
+                        .iter()
+                        .take(n_vars)
+                        .map(|var_vals| {
+                            (0..n_points)
+                                .map(|i| {
+                                    let val = if i < var_vals.len() {
+                                        &var_vals[i]
+                                    } else {
+                                        var_vals.last().expect(
+                                            "Variable values cannot be empty if n_points > 0",
+                                        )
+                                    };
+                                    if let Value::Num(n) = val {
+                                        *n
+                                    } else {
+                                        // Should not be taken if globally_numeric is correct
+                                        f64::NAN
                                     }
-                                    chunk_cols.push(col);
-                                }
-
-                                let col_refs: Vec<&[f64]> =
-                                    chunk_cols.iter().map(std::vec::Vec::as_slice).collect();
-                                let mut chunk_out = vec![0.0; len];
-
-                                // 2. SIMD Batch Eval with thread-local buffer reuse
-                                evaluator
-                                    .eval_batch(&col_refs, &mut chunk_out, Some(simd_buffer))
-                                    .expect("eval_batch failed in parallel chunk");
-
-                                // 3. Convert back to EvalResult
-                                chunk_out
-                                    .into_iter()
-                                    .map(|n| {
-                                        if *was_string {
-                                            EvalResult::String(format_float(n))
-                                        } else {
-                                            EvalResult::Expr(crate::Expr::number(n))
-                                        }
-                                    })
-                                    .collect()
-                            },
-                        )
+                                })
+                                .collect()
+                        })
                         .collect();
 
-                    return Ok(chunks.into_iter().flatten().collect());
+                    let col_refs: Vec<&[f64]> =
+                        numeric_cols.iter().map(AsRef::as_ref).collect();
+
+                    // 2. Pre-allocate output and run the dedicated f64 evaluator
+                    let mut output = vec![0.0; n_points];
+                    super::eval_f64::run_chunked_evaluator(
+                        &evaluator,
+                        &col_refs,
+                        &mut output,
+                    )
+                    .expect("Chunked evaluation failed in parallel numeric path");
+
+                    // 3. Convert results back to the required EvalResult type
+                    let results = output
+                        .into_iter()
+                        .map(|n| {
+                            if *was_string {
+                                EvalResult::String(format_float(n))
+                            } else {
+                                EvalResult::Expr(crate::Expr::number(n))
+                            }
+                        })
+                        .collect();
+
+                    return Ok(results);
                 }
 
                 // FAST / HYBRID PATH: Use compiled evaluator where possible
@@ -520,7 +522,7 @@ pub(crate) fn evaluate_parallel_with_hint(
                                 }
 
                                 // Reuse stack buffer and cache
-                                let result = evaluator.evaluate_with_cache(params, stack, cache);
+                                let result = evaluator.evaluate_heap(params, stack, cache);
 
                                 Ok(if *was_string {
                                     EvalResult::String(format_float(result))
@@ -619,7 +621,10 @@ fn evaluate_slow_point(
 fn format_float(n: f64) -> String {
     if n.fract() == 0.0 && n.abs() < 1e15 {
         // Format as integer if it's a whole number
-        #[allow(clippy::cast_possible_truncation)] // Checked fract()==0.0, so cast is safe
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "Checked fract()==0.0, so cast is safe"
+        )]
         let n_int = n as i64;
         format!("{n_int}")
     } else {
@@ -807,6 +812,7 @@ mod tests {
 
         // Point 1: x=skip, y=5 → symbolic
         let result_str = eval_results[0][1].to_string();
-        assert!(result_str.contains('x') || result_str.contains('5'));
+        assert!(result_str.contains('x'));
+        assert!(result_str.contains('5'));
     }
 }

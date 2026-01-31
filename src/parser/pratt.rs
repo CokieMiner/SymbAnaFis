@@ -9,7 +9,7 @@ use crate::{DiffError, Expr};
 use crate::core::unified_context::Context;
 
 /// Parse tokens into an AST using Pratt parsing algorithm
-pub fn parse_expression(tokens: &[Token], context: Option<&Context>) -> Result<Expr, DiffError> {
+pub fn parse_expression(tokens: &[Token<'_>], context: Option<&Context>) -> Result<Expr, DiffError> {
     if tokens.is_empty() {
         return Err(DiffError::UnexpectedEndOfInput);
     }
@@ -23,14 +23,14 @@ pub fn parse_expression(tokens: &[Token], context: Option<&Context>) -> Result<E
     parser.parse_expr(0)
 }
 
-struct Parser<'tokens> {
-    tokens: &'tokens [Token],
+struct Parser<'tokens, 'src> {
+    tokens: &'tokens [Token<'src>],
     pos: usize,
     context: Option<&'tokens Context>,
 }
 
-impl Parser<'_> {
-    fn current(&self) -> Option<&Token> {
+impl<'src> Parser<'_, 'src> {
+    fn current(&self) -> Option<&Token<'src>> {
         self.tokens.get(self.pos)
     }
 
@@ -138,7 +138,10 @@ impl Parser<'_> {
         Ok(args)
     }
 
-    #[allow(clippy::too_many_lines)]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "Complex prefix parsing logic handles multiple token types"
+    )]
     fn parse_prefix(&mut self) -> Result<Expr, DiffError> {
         // Direct access enables borrowing token while mutating self.pos (via advance)
         // because we borrow from the underlying slice 'a, not from self
@@ -172,11 +175,11 @@ impl Parser<'_> {
                         });
                     }
 
-                    Ok(Expr::func_multi(name.clone(), args))
+                    Ok(Expr::func_multi(name, args))
                 } else if let Some(ctx) = self.context {
-                    Ok(ctx.symb(name).to_expr())
+                    Ok(ctx.symb(name.as_ref()).to_expr())
                 } else {
-                    Ok(Expr::symbol(name.clone()))
+                    Ok(Expr::symbol(name))
                 }
             }
 
@@ -264,8 +267,8 @@ impl Parser<'_> {
                         // Implicit dependency on the differentiation variable
                         // Implicit dependency on the differentiation variable
                         vec![self.context.map_or_else(
-                            || Expr::symbol(var.clone()),
-                            |ctx| ctx.symb(var).to_expr(),
+                            || Expr::symbol(var),
+                            |ctx| ctx.symb(var.as_ref()).to_expr(),
                         )]
                     } else {
                         // Parse the tokenized arguments
@@ -301,9 +304,9 @@ impl Parser<'_> {
                         exprs
                     };
 
-                let inner_expr = Expr::func_multi(func.clone(), arg_exprs);
+                let inner_expr = Expr::func_multi(func, arg_exprs);
 
-                Ok(Expr::derivative(inner_expr, var.clone(), *order))
+                Ok(Expr::derivative(inner_expr, var, *order))
             }
 
             _ => Err(DiffError::invalid_token(token.to_user_string())),
@@ -358,7 +361,8 @@ impl Parser<'_> {
     clippy::cast_precision_loss,
     clippy::items_after_statements,
     clippy::let_underscore_must_use,
-    clippy::no_effect_underscore_binding
+    clippy::no_effect_underscore_binding,
+    reason = "Standard test relaxations"
 )]
 mod tests {
     use super::*;
@@ -373,7 +377,7 @@ mod tests {
 
     #[test]
     fn test_parse_symbol() {
-        let tokens = vec![Token::Identifier("x".to_owned())];
+        let tokens = vec![Token::Identifier("x".into())];
         let ast = parse_expression(&tokens, None).unwrap();
         assert_eq!(ast, Expr::symbol("x"));
     }
@@ -393,7 +397,7 @@ mod tests {
     #[test]
     fn test_parse_multiplication() {
         let tokens = vec![
-            Token::Identifier("x".to_owned()),
+            Token::Identifier("x".into()),
             Token::Operator(Operator::Mul),
             Token::Number(2.0),
         ];
@@ -404,7 +408,7 @@ mod tests {
     #[test]
     fn test_parse_power() {
         let tokens = vec![
-            Token::Identifier("x".to_owned()),
+            Token::Identifier("x".into()),
             Token::Operator(Operator::Pow),
             Token::Number(2.0),
         ];
@@ -417,7 +421,7 @@ mod tests {
         let tokens = vec![
             Token::Operator(Operator::Sin),
             Token::LeftParen,
-            Token::Identifier("x".to_owned()),
+            Token::Identifier("x".into()),
             Token::RightParen,
         ];
         let ast = parse_expression(&tokens, None).unwrap();
@@ -428,7 +432,7 @@ mod tests {
     fn test_precedence() {
         // x + 2 * 3 should be x + 6 (2*3 evaluated, then combined with x)
         let tokens = vec![
-            Token::Identifier("x".to_owned()),
+            Token::Identifier("x".into()),
             Token::Operator(Operator::Add),
             Token::Number(2.0),
             Token::Operator(Operator::Mul),
@@ -457,7 +461,7 @@ mod tests {
         // (x + 1) * 2
         let tokens = vec![
             Token::LeftParen,
-            Token::Identifier("x".to_owned()),
+            Token::Identifier("x".into()),
             Token::Operator(Operator::Add),
             Token::Number(1.0),
             Token::RightParen,

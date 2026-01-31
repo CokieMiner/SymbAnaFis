@@ -20,7 +20,7 @@
 //! let expr = x.pow(2.0);
 //! ```
 
-use super::symbol::{InternedSymbol, NEXT_SYMBOL_ID, Symbol};
+use super::symbol::{InternedSymbol, Symbol};
 use crate::Expr;
 use std::collections::{HashMap, HashSet};
 use std::ops::RangeInclusive;
@@ -337,24 +337,25 @@ impl Context {
             return Symbol::from_id(existing.id());
         }
 
-        // Create new symbol with isolated ID
-        let interned = InternedSymbol::new_named_for_context(name, &NEXT_SYMBOL_ID);
-        let id = interned.id();
+        // Create a new symbol, registering it in the global ID map but not the global name map.
+        let symbol = crate::core::symbol::registry::symb_new_isolated(name);
 
-        // Register in global ID registry so Symbol::name() works
-        crate::core::symbol::register_in_id_registry(id, interned.clone());
+        // We need to get the InternedSymbol to store in the context's local map.
+        let interned =
+            crate::core::symbol::lookup_by_id(symbol.id()).expect("Symbol just created should exist");
 
-        // Save in local context
         inner.symbols.insert(name.to_owned(), interned);
-        drop(inner);
 
-        Symbol::from_id(id)
+        symbol
     }
 
     /// Register a symbol (mutating version).
     fn register_symbol(&self, name: &str) {
         // Side-effect of registration is the primary goal here
-        #[allow(clippy::let_underscore_must_use)] // Side-effect of registration is the goal
+        #[allow(
+            clippy::let_underscore_must_use,
+            reason = "Side-effect of registration is the goal"
+        )]
         // SAFETY: We only care about the registration side-effect in the isolated registry
         let _ = self.symb(name);
     }
@@ -500,7 +501,7 @@ impl Context {
         if let Some(sym) = crate::core::symbol::lookup_by_id(id)
             && let Some(name) = sym.name()
         {
-            return self.get_body(name); // Removed needless borrow &name
+            return self.get_body(name);
         }
         None
     }
@@ -512,7 +513,7 @@ impl Context {
         if let Some(sym) = crate::core::symbol::lookup_by_id(id)
             && let Some(name) = sym.name()
         {
-            return self.user_functions.get(name); // Removed needless deref &*name
+            return self.user_functions.get(name);
         }
         None
     }
@@ -604,7 +605,8 @@ impl std::fmt::Debug for Context {
     clippy::cast_precision_loss,
     clippy::items_after_statements,
     clippy::let_underscore_must_use,
-    clippy::no_effect_underscore_binding
+    clippy::no_effect_underscore_binding,
+    reason = "Standard test relaxations"
 )]
 mod tests {
     use super::*;

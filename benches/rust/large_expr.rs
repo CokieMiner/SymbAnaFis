@@ -4,7 +4,8 @@
     clippy::print_stdout,
     clippy::similar_names,
     clippy::unreachable,
-    clippy::too_many_lines
+    clippy::too_many_lines,
+    reason = "Benchmark: unwrap for setup, stdout for results, similar names for variables, unreachable for exhaustive patterns"
 )]
 //! Large Expression Benchmark
 

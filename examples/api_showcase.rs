@@ -5,7 +5,8 @@
     clippy::similar_names,
     clippy::redundant_type_annotations,
     clippy::use_debug,
-    clippy::items_after_statements
+    clippy::items_after_statements,
+    reason = "Showcase requirements: unwrap for demos, stdout/debug for display, similar names for math, explicit types for clarity"
 )]
 //! API Showcase: Complete `SymbAnaFis` Feature Demonstration (Rust)
 
@@ -18,7 +19,7 @@ use num_traits::Float;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-#[allow(unused_imports)]
+#[allow(unused_imports, reason = "Unused imports for API demonstration")]
 use symb_anafis::{
     CompiledEvaluator, Context, CovEntry, CovarianceMatrix, Diff, Dual, Expr, Simplify, Symbol,
     UserFunction, diff, evaluate_str, gradient, gradient_str, hessian, hessian_str, jacobian,
@@ -74,14 +75,14 @@ fn section_quick_start() {
     // 1.1 Differentiation
     println!("  1.1 Differentiation");
     println!("      Input:  diff(\"x^3 + sin(x)\", \"x\")");
-    let result = diff("x^3 + sin(x)", "x", &[], None).unwrap();
-    println!("      Output: {result}\n");
+    let diff_result = diff("x^3 + sin(x)", "x", &[], None).unwrap();
+    println!("      Output: {diff_result}\n");
 
     // 1.2 Simplification
     println!("  1.2 Simplification");
     println!("      Input:  simplify(\"sin(x)^2 + cos(x)^2\")");
-    let result = simplify("sin(x)^2 + cos(x)^2", &[], None).unwrap();
-    println!("      Output: {result}\n");
+    let simplify_result = simplify("sin(x)^2 + cos(x)^2", &[], None).unwrap();
+    println!("      Output: {simplify_result}\n");
 }
 
 // ======================================================================
@@ -146,14 +147,14 @@ fn section_core_functions() {
     // 3.1 diff(formula, var)
     println!("  3.1 diff(formula, var)");
     println!("      Differentiate x^2 + 2*x + 1 with respect to x");
-    let result = diff("x^2 + 2*x + 1", "x", &[], None).unwrap();
-    println!("      Result: {result}\n");
+    let diff_result3 = diff("x^2 + 2*x + 1", "x", &[], None).unwrap();
+    println!("      Result: {diff_result3}\n");
 
     // 3.2 simplify(formula)
     println!("  3.2 simplify(formula)");
     println!("      Simplify x^2 + 2*x + 1");
-    let result = simplify("x^2 + 2*x + 1", &[], None).unwrap();
-    println!("      Result: {result}\n");
+    let simplify_result3 = simplify("x^2 + 2*x + 1", &[], None).unwrap();
+    println!("      Result: {simplify_result3}\n");
 
     // 3.3 parse(formula)
     println!("  3.3 parse(formula)");
@@ -165,10 +166,10 @@ fn section_core_functions() {
     // 3.3 Type-Safe Expressions (Object-based API)
     println!("  3.3 Type-Safe Expressions");
     let x = symb("x");
-    let expr = x.pow(2.0) + x.sin(); // x² + sin(x)
+    let expr2 = x.pow(2.0) + x.sin(); // x² + sin(x)
     println!("      let x = symb(\"x\");");
     println!("      let expr = x.pow(2.0) + x.sin();");
-    println!("      Result: {expr}\n");
+    println!("      Result: {expr2}\n");
 }
 
 // ======================================================================
@@ -190,22 +191,22 @@ fn section_builder_pattern_api() {
 
     // 4.2 Diff Builder Options
     println!("  4.2 Diff Builder Options");
-    let result = Diff::new()
+    let result4 = Diff::new()
         .max_depth(100)
         .max_nodes(1000)
         .diff_str("x^3", "x", &[])
         .unwrap();
-    println!("      With max_depth=100, max_nodes=1000: {result}\n");
+    println!("      With max_depth=100, max_nodes=1000: {result4}\n");
 
     // 4.3 Simplify Builder
     println!("  4.3 Simplify Builder");
     println!("      Simplify::new().domain_safe(true).fixed_var(\"k\").simplify_str(...)");
-    let result = Simplify::new()
+    let result5 = Simplify::new()
         .domain_safe(true)
         .fixed_vars(&[&symb("x"), &symb("y")])
         .simplify_str("k*x + k*y", &["k"])
         .unwrap();
-    println!("      Simplify k*x + k*y: {result}\n");
+    println!("      Simplify k*x + k*y: {result5}\n");
 
     // 4.4 Differentiating Expression Objects
     println!("  4.4 Differentiating Expression Objects");
@@ -347,8 +348,8 @@ fn section_custom_functions() {
         .expect("valid arg");
 
     let sq_diff = Diff::new().user_fn("sq", sq_fn);
-    let result = sq_diff.diff_str("sq(x)", "x", &[]).unwrap();
-    println!("      d/dx[sq(x)] = {result}\n");
+    let result6 = sq_diff.diff_str("sq(x)", "x", &[]).unwrap();
+    println!("      d/dx[sq(x)] = {result6}\n");
 }
 
 // ======================================================================
@@ -361,13 +362,13 @@ fn section_evaluation() {
 
     // 8.1 evaluate_str() (full evaluation)
     println!("  8.1 evaluate_str() (full evaluation)");
-    let result = evaluate_str("x * y + 1", &[("x", 3.0), ("y", 2.0)]).unwrap();
-    println!("      x*y + 1 with x=3, y=2 = {result} (expected: 7)\n");
+    let result7 = evaluate_str("x * y + 1", &[("x", 3.0), ("y", 2.0)]).unwrap();
+    println!("      x*y + 1 with x=3, y=2 = {result7} (expected: 7)\n");
 
     // 8.2 evaluate_str() (partial evaluation)
     println!("  8.2 evaluate_str() (partial evaluation)");
-    let result = evaluate_str("x * y + 1", &[("x", 3.0)]).unwrap();
-    println!("      x*y + 1 with x=3 = {result}\n");
+    let result8 = evaluate_str("x * y + 1", &[("x", 3.0)]).unwrap();
+    println!("      x*y + 1 with x=3 = {result8}\n");
 
     // 8.3 Expr.evaluate()
     println!("  8.3 Expr.evaluate()");
@@ -379,9 +380,9 @@ fn section_evaluation() {
     vars.insert("x", 3.0);
     vars.insert("y", 4.0);
 
-    let result = expr.evaluate(&vars, &HashMap::new());
+    let result9 = expr.evaluate(&vars, &HashMap::new());
     println!("      x= + y= at (x=3, y=4)");
-    if let Some(n) = result.as_number() {
+    if let Some(n) = result9.as_number() {
         println!("      Result: {n} (expected: 25)\n");
     }
 }
@@ -442,22 +443,22 @@ fn section_automatic_differentiation() {
     println!("  10.2 Transcendental Functions");
     println!("      f(x) = sin(x) * exp(x) at x = 1");
 
-    let x = Dual::new(1.0, 1.0);
-    let fx = x.sin() * x.exp();
+    let x2 = Dual::new(1.0, 1.0);
+    let fx2 = x2.sin() * x2.exp();
 
-    println!("      f(1)  = {:.6}", fx.val);
-    println!("      f'(1) = {:.6}\n", fx.eps);
+    println!("      f(1)  = {:.6}", fx2.val);
+    println!("      f'(1) = {:.6}\n", fx2.eps);
 
     // 10.3 Chain Rule (Automatic)
     println!("  10.3 Chain Rule (Automatic)");
     println!("      f(x) = sin(x= + 1), f'(x) = cos(x= + 1) * 2x");
 
-    let x = Dual::new(1.5, 1.0);
-    let inner = x * x + Dual::new(1.0, 0.0); // x² + 1
-    let fx = inner.sin();
+    let x3 = Dual::new(1.5, 1.0);
+    let inner = x3 * x3 + Dual::new(1.0, 0.0); // x² + 1
+    let fx3 = inner.sin();
 
-    println!("      f(1.5)  = {:.6}", fx.val);
-    println!("      f'(1.5) = {:.6}\n", fx.eps);
+    println!("      f(1.5)  = {:.6}", fx3.val);
+    println!("      f'(1.5) = {:.6}\n", fx3.eps);
 }
 
 // ======================================================================

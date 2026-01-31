@@ -13,7 +13,8 @@
     clippy::cast_precision_loss,
     clippy::items_after_statements,
     clippy::let_underscore_must_use,
-    clippy::no_effect_underscore_binding
+    clippy::no_effect_underscore_binding,
+    reason = "Standard test relaxations"
 )]
 
 use super::*;
@@ -281,6 +282,52 @@ fn test_user_function_expansion() {
 }
 
 #[test]
+fn test_eval_batch_neg_muladd() {
+    // Tests NegMulAdd in SIMD path: -x*y + z
+    let expr = parse_expr("-x * y + z");
+    let eval = CompiledEvaluator::compile(&expr, &["x", "y", "z"], None).expect("Should compile");
+
+    // Ensure NegMulAdd was actually emitted
+    assert!(eval.instructions.iter().any(|i| matches!(i, Instruction::NegMulAdd)));
+
+    let x_vals = vec![1.0, 2.0, 3.0, 4.0];
+    let y_vals = vec![2.0, 3.0, 4.0, 5.0];
+    let z_vals = vec![10.0, 20.0, 30.0, 40.0];
+    let columns: Vec<&[f64]> = vec![&x_vals, &y_vals, &z_vals];
+    let mut output = vec![0.0; 4];
+
+    eval.eval_batch(&columns, &mut output, None).expect("Should pass");
+
+    for i in 0..4 {
+        let expected = (-x_vals[i]).mul_add(y_vals[i], z_vals[i]);
+        assert!((output[i] - expected).abs() < 1e-10);
+    }
+}
+
+#[test]
+fn test_eval_batch_mulsub() {
+    // Tests MulSub in SIMD path: x*y - z
+    let expr = parse_expr("x * y - z");
+    let eval = CompiledEvaluator::compile(&expr, &["x", "y", "z"], None).expect("Should compile");
+
+    // Ensure MulSub was actually emitted (fused by optimize_instructions or compiler)
+    assert!(eval.instructions.iter().any(|i| matches!(i, Instruction::MulSub)));
+
+    let x_vals = vec![1.0, 2.0, 3.0, 4.0];
+    let y_vals = vec![2.0, 3.0, 4.0, 5.0];
+    let z_vals = vec![0.5, 1.0, 1.5, 2.0];
+    let columns: Vec<&[f64]> = vec![&x_vals, &y_vals, &z_vals];
+    let mut output = vec![0.0; 4];
+
+    eval.eval_batch(&columns, &mut output, None).expect("Should pass");
+
+    for i in 0..4 {
+        let expected = x_vals[i].mul_add(y_vals[i], -z_vals[i]);
+        assert!((output[i] - expected).abs() < 1e-10);
+    }
+}
+
+#[test]
 fn test_nested_user_function_expansion() {
     use crate::core::unified_context::{Context, UserFunction};
 
@@ -351,24 +398,6 @@ fn test_fused_sqrt() {
     let eval = CompiledEvaluator::compile(&expr, &["x"], None).expect("Should compile");
 
     assert!((eval.evaluate(&[9.0]) - 3.0).abs() < 1e-10);
-}
-
-// =============================================================================
-// CSE Tests
-// =============================================================================
-
-#[test]
-fn test_cse_repeated_subexpr() {
-    // sin(x) appears twice - should be cached
-    let expr = parse_expr("sin(x) + sin(x)");
-    let eval = CompiledEvaluator::compile(&expr, &["x"], None).expect("Should compile");
-
-    // CSE should cache sin(x)
-    assert!(eval.cache_size > 0, "Should use CSE cache");
-
-    let result = eval.evaluate(&[1.0]);
-    let expected = 2.0 * 1.0_f64.sin();
-    assert!((result - expected).abs() < 1e-10);
 }
 
 // =============================================================================

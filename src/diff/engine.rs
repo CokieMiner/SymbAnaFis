@@ -44,7 +44,10 @@ impl Expr {
     /// # Panics
     /// Panics only if internal invariants are violated (never in normal use).
     #[must_use]
-    #[allow(clippy::too_many_lines)]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "Comprehensive differentiation logic handles many expression types"
+    )]
     pub fn derive(&self, var: &str, context: Option<&Context>) -> Self {
         // Use static empty context for None case to avoid allocation
         static EMPTY_CONTEXT: std::sync::OnceLock<Context> = std::sync::OnceLock::new();
@@ -75,16 +78,15 @@ impl Expr {
                 // Special handling for exponential function e^x
                 if name.id() == ks::KS.exp && args.len() == 1 {
                     let inner_deriv = args[0].derive(var, Some(ctx));
-                    return Self::product(vec![
+                    return Self::mul_expr(
                         Self::func_symbol(ks::get_symbol(ks::KS.exp), (*args[0]).clone()),
                         inner_deriv,
-                    ]);
+                    );
                 }
 
                 // Check Registry (built-in functions like sin, cos, etc.)
                 if let Some(def) = crate::functions::registry::Registry::get_by_symbol(name)
-                    && def.validate_arity(args.len())
-                {
+                    && def.validate_arity(args.len()) {
                     let arg_primes: Vec<Self> =
                         args.iter().map(|arg| arg.derive(var, Some(ctx))).collect();
                     return (def.derivative)(args, &arg_primes);
@@ -168,6 +170,28 @@ impl Expr {
                 }
                 if factors.len() == 1 {
                     return factors[0].derive(var, Some(ctx));
+                }
+
+                // Optimization: For large products, use logarithmic differentiation
+                // (fgh)' = fgh * (f'/f + g'/g + h'/h)
+                // This reduces node count from O(N²) to O(N)
+                if factors.len() > 10 {
+                    let mut log_terms = Vec::with_capacity(factors.len());
+                    for factor in factors {
+                        let prime = factor.derive(var, Some(ctx));
+                        if !prime.is_zero_num() {
+                            // term = f' / f
+                            log_terms.push(Self::div_from_arcs(Arc::new(prime), Arc::clone(factor)));
+                        }
+                    }
+                    
+                    if log_terms.is_empty() {
+                        return Self::number(0.0);
+                    }
+                    
+                    // Result = self * sum(f'/f)
+                    let sum_log = Self::sum(log_terms);
+                    return Self::mul_expr(self.clone(), sum_log);
                 }
 
                 let mut terms = Vec::new();
@@ -407,8 +431,7 @@ impl Expr {
         args: &[Arc<Self>],
         arg_index: usize,
     ) -> Self {
-        let args_vec: Vec<Self> = args.iter().map(|a| (**a).clone()).collect();
-        let inner_func = Self::func_multi(name.clone(), args_vec);
+        let inner_func = Self::func_multi_from_arcs_symbol(name.clone(), args.to_vec());
         Self::derivative(inner_func, format!("arg{arg_index}"), 1)
     }
 
@@ -430,21 +453,23 @@ impl Expr {
 
 #[cfg(test)]
 #[allow(
+    clippy::float_cmp,
     clippy::unwrap_used,
     clippy::panic,
     clippy::cast_precision_loss,
     clippy::items_after_statements,
     clippy::let_underscore_must_use,
-    clippy::no_effect_underscore_binding
+    clippy::no_effect_underscore_binding,
+    reason = "Standard test relaxations"
 )]
 mod tests {
     use super::*;
 
     #[test]
     fn test_derive_sinh() {
-        let expr = Expr::func("sinh", Expr::symbol("x"));
+        let expr = Expr::func_symbol(ks::get_symbol(ks::KS.sinh), Expr::symbol("x"));
         let result = expr.derive("x", None);
-        match result.kind {
+        match &result.kind {
             ExprKind::FunctionCall { name, .. } => assert_eq!(name.id(), ks::KS.cosh),
             ExprKind::Product(factors) => {
                 let has_cosh = factors.iter().any(
@@ -494,9 +519,9 @@ mod tests {
         let inner_func = Expr::func("f", Expr::symbol("x"));
         let derivative_expr = Expr::derivative(inner_func, "x", 1);
         let result = derivative_expr.derive("x", None);
-        match result.kind {
+        match &result.kind {
             ExprKind::Derivative { order, var, .. } => {
-                assert_eq!(order, 2);
+                assert_eq!(*order, 2);
                 assert_eq!(var.as_str(), "x");
             }
             _ => panic!("Expected Derivative, got {result:?}"),
@@ -514,10 +539,10 @@ mod tests {
         }
 
         let ninety_ninth_deriv = Expr::derivative(inner_func, "x", 99);
-        let result = ninety_ninth_deriv.derive("x", None);
-        match result.kind {
+        let result2 = ninety_ninth_deriv.derive("x", None);
+        match result2.kind {
             ExprKind::Derivative { order, .. } => assert_eq!(order, 100),
-            _ => panic!("Expected Derivative, got {result:?}"),
+            _ => panic!("Expected Derivative, got {result2:?}"),
         }
     }
 
@@ -560,9 +585,9 @@ mod tests {
         let inner_func = Expr::func_multi("f", vec![Expr::symbol("x"), Expr::symbol("y")]);
         let partial_deriv = Expr::derivative(inner_func, "x", 1);
         let result = partial_deriv.derive("x", None);
-        match result.kind {
+        match &result.kind {
             ExprKind::Derivative { order, var, .. } => {
-                assert_eq!(order, 2);
+                assert_eq!(*order, 2);
                 assert_eq!(var.as_str(), "x");
             }
             _ => panic!("Expected Derivative, got {result:?}"),
@@ -607,7 +632,7 @@ mod tests {
 
     #[test]
     fn test_derive_erfc() {
-        let expr = Expr::func("erfc", Expr::symbol("x"));
+        let expr = Expr::func_symbol(ks::get_symbol(ks::KS.erfc), Expr::symbol("x"));
         let result = expr.derive("x", None);
         let s = format!("{result}");
         assert!(s.contains("exp"), "Result should contain exp: {s}");
@@ -644,12 +669,12 @@ mod tests {
 
         // x^0: should be 0 (derivative of 1)
         let x_pow_zero = Expr::pow_static(Expr::symbol("x"), Expr::number(0.0));
-        let result = x_pow_zero.derive("x", None);
+        let result3 = x_pow_zero.derive("x", None);
         // Result might be 0*x^(-1) which simplifies to 0
-        let simplified = result.to_string();
+        let simplified = result3.to_string();
         // After simplification, should effectively be 0
         assert!(
-            simplified.contains('0') || result.as_number() == Some(0.0),
+            simplified.contains('0') || result3.as_number() == Some(0.0),
             "x^0 derivative should simplify to 0, got: {simplified}"
         );
     }

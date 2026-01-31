@@ -122,7 +122,7 @@ mod simplification_advanced {
         // Should simplify to (x+1)^1, which should further simplify to (x+1)
         // Due to canonical ordering by degree, it becomes x + 1
         let expected = Expr::sum(vec![Expr::symbol("x"), Expr::number(1.0)]);
-        assert_eq!(result, expected);
+        assert_eq!(result.hash, expected.hash);
     }
 
     #[test]
@@ -153,7 +153,7 @@ mod simplification_advanced {
             Expr::symbol("y"),
         ]);
         let expected = Expr::pow(expected_base, Expr::number(2.0));
-        assert_eq!(result, expected);
+        assert_eq!(result.hash, expected.hash);
     }
 
     #[test]

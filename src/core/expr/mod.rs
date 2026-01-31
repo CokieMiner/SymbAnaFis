@@ -50,6 +50,7 @@ mod evaluate;
 mod hash;
 mod ordering;
 
+use std::hash::Hasher;
 use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -86,6 +87,15 @@ pub(super) static EXPR_ONE: std::sync::LazyLock<Expr> = std::sync::LazyLock::new
     id: 0, // ID doesn't matter for comparison (not used in eq/hash)
     hash: *EXPR_ONE_HASH,
     kind: ExprKind::Number(1.0),
+});
+
+/// Cached Arc<Expr> for 0.0, used during Drop to swap out children without allocation
+static DUMMY_ARC: std::sync::LazyLock<Arc<Expr>> = std::sync::LazyLock::new(|| {
+    Arc::new(Expr {
+        id: 0,
+        hash: compute_expr_hash(&ExprKind::Number(0.0)),
+        kind: ExprKind::Number(0.0),
+    })
 });
 
 // =============================================================================
@@ -154,7 +164,10 @@ impl std::hash::Hash for Expr {
 /// This enum defines all possible expression types in the AST.
 /// Most variants use `Arc<Expr>` for efficient sharing and cloning.
 #[derive(Debug, Clone, PartialEq)]
-#[allow(private_interfaces)] // InternedSymbol is pub(crate) but exposed here for pattern matching
+#[allow(
+    private_interfaces,
+    reason = "InternedSymbol is pub(crate) but exposed here for pattern matching"
+)]
 pub enum ExprKind {
     /// Constant number (e.g., 3.14, 1e10)
     Number(f64),
@@ -173,12 +186,12 @@ pub enum ExprKind {
     },
 
     /// N-ary sum: a + b + c + ...
-    /// Stored flat and sorted for canonical form.
+    /// Stored flat and sorted into a canonical order during construction.
     /// Subtraction is represented as: a - b = Sum([a, Product([-1, b])])
     Sum(Vec<Arc<Expr>>),
 
     /// N-ary product: a * b * c * ...
-    /// Stored flat and sorted for canonical form.
+    /// Stored flat. Sorting/canonicalization is deferred to simplification.
     Product(Vec<Arc<Expr>>),
 
     /// Division (binary - not associative)
@@ -206,6 +219,55 @@ pub enum ExprKind {
 }
 
 // =============================================================================
+// DROP IMPLEMENTATION - Iterative drop to prevent stack overflow
+// =============================================================================
+
+impl Drop for Expr {
+    fn drop(&mut self) {
+        fn drain_children(kind: &mut ExprKind, queue: &mut Vec<Arc<Expr>>) {
+            match kind {
+                ExprKind::FunctionCall { args, .. } => {
+                    queue.extend(std::mem::take(args));
+                }
+                ExprKind::Sum(terms) => {
+                    queue.extend(std::mem::take(terms));
+                }
+                ExprKind::Product(factors) => {
+                    queue.extend(std::mem::take(factors));
+                }
+                ExprKind::Div(left, right) => {
+                    let dummy = Arc::clone(&DUMMY_ARC);
+                    queue.push(std::mem::replace(left, Arc::clone(&dummy)));
+                    queue.push(std::mem::replace(right, Arc::clone(&dummy)));
+                }
+                ExprKind::Pow(base, exp) => {
+                    let dummy = Arc::clone(&DUMMY_ARC);
+                    queue.push(std::mem::replace(base, Arc::clone(&dummy)));
+                    queue.push(std::mem::replace(exp, Arc::clone(&dummy)));
+                }
+                ExprKind::Derivative { inner, .. } => {
+                    let dummy = DUMMY_ARC.clone();
+                    queue.push(std::mem::replace(inner, dummy));
+                }
+                ExprKind::Poly(poly) => {
+                    queue.push(poly.take_base());
+                }
+                ExprKind::Number(_) | ExprKind::Symbol(_) => {}
+            }
+        }
+
+        let mut work_queue = Vec::new();
+        drain_children(&mut self.kind, &mut work_queue);
+
+        while let Some(child_arc) = work_queue.pop() {
+            if let Ok(mut child_expr) = Arc::try_unwrap(child_arc) {
+                drain_children(&mut child_expr.kind, &mut work_queue);
+            }
+        }
+    }
+}
+
+// =============================================================================
 // HASH FOR EXPRKIND
 // =============================================================================
 
@@ -213,23 +275,31 @@ impl std::hash::Hash for ExprKind {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         std::mem::discriminant(self).hash(state);
         match self {
-            Self::Number(n) => n.to_bits().hash(state),
+            Self::Number(n) => {
+                // Normalize -0.0 to 0.0 before hashing
+                let normalized = if *n == 0.0 { 0.0 } else { *n };
+                normalized.to_bits().hash(state);
+            }
             Self::Symbol(s) => s.hash(state),
             Self::FunctionCall { name, args } => {
                 name.hash(state);
                 args.hash(state);
             }
             Self::Sum(terms) => {
-                terms.len().hash(state);
+                // Commutative hash: hash of the sum of children hashes
+                let mut sum_hash: u64 = 0;
                 for t in terms {
-                    t.hash(state);
+                    sum_hash = sum_hash.wrapping_add(t.hash);
                 }
+                sum_hash.hash(state);
             }
             Self::Product(factors) => {
-                factors.len().hash(state);
+                // Commutative hash: hash of the sum of children hashes
+                let mut prod_hash: u64 = 0;
                 for f in factors {
-                    f.hash(state);
+                    prod_hash = prod_hash.wrapping_add(f.hash);
                 }
+                prod_hash.hash(state);
             }
             Self::Div(l, r) | Self::Pow(l, r) => {
                 l.hash(state);
@@ -241,13 +311,16 @@ impl std::hash::Hash for ExprKind {
                 order.hash(state);
             }
             Self::Poly(poly) => {
-                // Hash polynomial: base hash + terms
                 poly.base().hash.hash(state);
-                poly.terms().len().hash(state);
+                // Commutative hash for terms
+                let mut terms_hash: u64 = 0;
                 for &(pow, coeff) in poly.terms() {
-                    coeff.to_bits().hash(state);
-                    pow.hash(state);
+                    let mut term_hasher = ahash::AHasher::default();
+                    coeff.to_bits().hash(&mut term_hasher);
+                    pow.hash(&mut term_hasher);
+                    terms_hash = terms_hash.wrapping_add(term_hasher.finish());
                 }
+                terms_hash.hash(state);
             }
         }
     }
@@ -264,7 +337,8 @@ impl std::hash::Hash for ExprKind {
     clippy::cast_precision_loss,
     clippy::items_after_statements,
     clippy::let_underscore_must_use,
-    clippy::no_effect_underscore_binding
+    clippy::no_effect_underscore_binding,
+    reason = "Standard test relaxations"
 )]
 mod tests {
     use super::*;

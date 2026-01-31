@@ -435,7 +435,10 @@ impl<T: MathScalar + Float> Float for Dual<T> {
         Self::new(self.val.ln(), self.eps / self.val)
     }
 
-    #[allow(clippy::suboptimal_flops)]
+    #[allow(
+        clippy::suboptimal_flops,
+        reason = "Dual number logarithm requires division for clarity"
+    )]
     fn log(self, base: Self) -> Self {
         self.ln() / base.ln()
     }

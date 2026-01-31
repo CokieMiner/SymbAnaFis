@@ -31,7 +31,7 @@ rule_with_helpers_arc!(
                 && args.len() == 1
             {
                 // Exact check for expected power exponent
-                #[allow(clippy::float_cmp)] // Comparing against exact constant (power)
+                #[allow(clippy::float_cmp, reason = "Comparing against exact constant (power)")]
                 let matches_power = matches!(exp.kind, AstKind::Number(n) if n == power);
                 if matches_power {
                     return Some((name.clone(), Arc::clone(&args[0])));
@@ -107,7 +107,7 @@ rule_with_helpers_arc!(
                 && args.len() == 1
             {
                 // Exact check for expected power exponent
-                #[allow(clippy::float_cmp)] // Comparing against exact constant (power)
+                #[allow(clippy::float_cmp, reason = "Comparing against exact constant (power)")]
                 let matches_power = matches!(exp.kind, AstKind::Number(n) if n == power);
                 if matches_power {
                     return Some((name.clone(), Arc::clone(&args[0])));

@@ -26,17 +26,20 @@
 mod interned;
 mod math_methods;
 mod operators;
-mod registry;
+pub(crate) mod registry;
 
 // Re-exports
 pub use interned::InternedSymbol;
 pub use registry::{
-    NEXT_SYMBOL_ID, clear_symbols, lookup_by_id, register_in_id_registry, remove_symbol, symb,
-    symb_get, symb_interned, symb_new, symbol_count, symbol_exists, symbol_names,
+    clear_symbols, lookup_by_id, remove_symbol, symb, symb_get,
+    symb_interned, symb_new, symbol_count, symbol_exists, symbol_names,
 };
 
 use std::sync::Arc;
 
+use slotmap::{DefaultKey, Key};
+
+use crate::core::known_symbols as ks;
 use crate::Expr;
 
 // Re-export ArcExprExt from operators
@@ -93,38 +96,38 @@ impl std::error::Error for SymbolError {}
 /// assert!(format!("{}", expr).contains("symbol_doc_a"));
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct Symbol(pub(crate) u64); // Just the ID - lightweight and Copy!
+pub struct Symbol(pub(crate) DefaultKey); // The key from the SlotMap - lightweight and Copy!
 
 impl Symbol {
-    /// Create a Symbol from a raw ID.
-    ///
-    /// This is used by Context to create symbols from its isolated registry.
-    #[inline]
-    pub(crate) const fn from_id(id: u64) -> Self {
-        Self(id)
-    }
-
     /// Create a new anonymous symbol (always succeeds)
     ///
     /// Anonymous symbols have a unique ID but no string name.
     /// They cannot be retrieved by name and are useful for intermediate computations.
     #[must_use]
     pub fn anon() -> Self {
-        let interned = InternedSymbol::new_anon();
-        // Optimization: Don't register anonymous symbols in the global registry.
-        // This avoids:
-        // 1. Global Write Lock contention (performance)
-        // 2. Memory leaks (registry growing indefinitely with temp symbols)
-        //
-        // Symbol::to_expr() and name() handle missing registry entries gracefully
-        // by assuming they are anonymous.
-        Self(interned.id())
+        registry::symb_anon()
     }
 
-    /// Get the symbol's unique ID
+    /// Create a Symbol from its unique ID.
+    ///
+    /// This is used when a symbol needs to be reconstructed from a stored ID.
     #[inline]
     #[must_use]
-    pub const fn id(&self) -> u64 {
+    pub fn from_id(id: u64) -> Self {
+        Self(registry::key_from_id(id))
+    }
+
+    /// Get the symbol's unique ID as a u64 for display or FFI.
+    #[inline]
+    #[must_use]
+    pub fn id(&self) -> u64 {
+        self.0.data().as_ffi()
+    }
+
+    /// Get the symbol's internal key.
+    #[inline]
+    #[must_use]
+    pub const fn key(&self) -> DefaultKey {
         self.0
     }
 
@@ -139,15 +142,15 @@ impl Symbol {
     /// Get the name as an `Arc<str>` (avoiding String allocation)
     #[must_use]
     pub fn name_arc(&self) -> Option<Arc<str>> {
-        lookup_by_id(self.0).and_then(|s| s.name_arc())
+        lookup_by_id(self.id()).and_then(|s| s.name_arc())
     }
 
     /// Convert to an Expr
     #[must_use]
     pub fn to_expr(&self) -> Expr {
         // Look up the InternedSymbol from registry
-        lookup_by_id(self.0).map_or_else(
-            || Expr::from_interned(InternedSymbol::new_anon_with_id(self.0)),
+        lookup_by_id(self.id()).map_or_else(
+            || Expr::from_interned(InternedSymbol::new_anon_with_key(self.0)),
             Expr::from_interned,
         )
     }
@@ -162,32 +165,50 @@ impl Symbol {
     /// Polygamma function: ψ^(n)(x)
     /// `x.polygamma(n)` → `polygamma(n, x)`
     pub fn polygamma(&self, n: impl Into<Expr>) -> Expr {
-        Expr::func_multi("polygamma", vec![n.into(), self.to_expr()])
+        Expr::func_multi_symbol(
+            ks::get_symbol(ks::KS.polygamma),
+            vec![n.into(), self.to_expr()],
+        )
     }
 
     /// Beta function: B(a, b)
     pub fn beta(&self, other: impl Into<Expr>) -> Expr {
-        Expr::func_multi("beta", vec![self.to_expr(), other.into()])
+        Expr::func_multi_symbol(
+            ks::get_symbol(ks::KS.beta),
+            vec![self.to_expr(), other.into()],
+        )
     }
 
     /// Bessel function of the first kind: `J_n(x)`
     pub fn besselj(&self, n: impl Into<Expr>) -> Expr {
-        Expr::func_multi("besselj", vec![n.into(), self.to_expr()])
+        Expr::func_multi_symbol(
+            ks::get_symbol(ks::KS.besselj),
+            vec![n.into(), self.to_expr()],
+        )
     }
 
     /// Bessel function of the second kind: `Y_n(x)`
     pub fn bessely(&self, n: impl Into<Expr>) -> Expr {
-        Expr::func_multi("bessely", vec![n.into(), self.to_expr()])
+        Expr::func_multi_symbol(
+            ks::get_symbol(ks::KS.bessely),
+            vec![n.into(), self.to_expr()],
+        )
     }
 
     /// Modified Bessel function of the first kind: `I_n(x)`
     pub fn besseli(&self, n: impl Into<Expr>) -> Expr {
-        Expr::func_multi("besseli", vec![n.into(), self.to_expr()])
+        Expr::func_multi_symbol(
+            ks::get_symbol(ks::KS.besseli),
+            vec![n.into(), self.to_expr()],
+        )
     }
 
     /// Modified Bessel function of the second kind: `K_n(x)`
     pub fn besselk(&self, n: impl Into<Expr>) -> Expr {
-        Expr::func_multi("besselk", vec![n.into(), self.to_expr()])
+        Expr::func_multi_symbol(
+            ks::get_symbol(ks::KS.besselk),
+            vec![n.into(), self.to_expr()],
+        )
     }
 
     /// Logarithm with arbitrary base: `x.log(base)` → `log(base, x)`
@@ -200,22 +221,31 @@ impl Symbol {
     /// assert_eq!(format!("{}", log_base_2), "log(2, log_example_x)");
     /// ```
     pub fn log(&self, base: impl Into<Expr>) -> Expr {
-        Expr::func_multi("log", vec![base.into(), self.to_expr()])
+        Expr::func_multi_symbol(
+            ks::get_symbol(ks::KS.log),
+            vec![base.into(), self.to_expr()],
+        )
     }
 
     /// Two-argument arctangent: atan2(self, x) = angle to point (x, self)
     pub fn atan2(&self, x: impl Into<Expr>) -> Expr {
-        Expr::func_multi("atan2", vec![self.to_expr(), x.into()])
+        Expr::func_multi_symbol(ks::get_symbol(ks::KS.atan2), vec![self.to_expr(), x.into()])
     }
 
     /// Hermite polynomial `H_n(self)`
     pub fn hermite(&self, n: impl Into<Expr>) -> Expr {
-        Expr::func_multi("hermite", vec![n.into(), self.to_expr()])
+        Expr::func_multi_symbol(
+            ks::get_symbol(ks::KS.hermite),
+            vec![n.into(), self.to_expr()],
+        )
     }
 
     /// Associated Legendre polynomial `P_l^m(self)`
     pub fn assoc_legendre(&self, l: impl Into<Expr>, m: impl Into<Expr>) -> Expr {
-        Expr::func_multi("assoc_legendre", vec![l.into(), m.into(), self.to_expr()])
+        Expr::func_multi_symbol(
+            ks::get_symbol(ks::KS.assoc_legendre),
+            vec![l.into(), m.into(), self.to_expr()],
+        )
     }
 
     /// Spherical harmonic `Y_l^m(theta`, phi) where self is theta
@@ -225,20 +255,26 @@ impl Symbol {
         m: impl Into<Expr>,
         phi: impl Into<Expr>,
     ) -> Expr {
-        Expr::func_multi(
-            "spherical_harmonic",
+        Expr::func_multi_symbol(
+            ks::get_symbol(ks::KS.spherical_harmonic),
             vec![l.into(), m.into(), self.to_expr(), phi.into()],
         )
     }
 
     /// Alternative spherical harmonic notation `Y_l^m(theta`, phi)
     pub fn ynm(&self, l: impl Into<Expr>, m: impl Into<Expr>, phi: impl Into<Expr>) -> Expr {
-        Expr::func_multi("ynm", vec![l.into(), m.into(), self.to_expr(), phi.into()])
+        Expr::func_multi_symbol(
+            ks::get_symbol(ks::KS.ynm),
+            vec![l.into(), m.into(), self.to_expr(), phi.into()],
+        )
     }
 
     /// Derivative of Riemann zeta function: zeta^(n)(self)
     pub fn zeta_deriv(&self, n: impl Into<Expr>) -> Expr {
-        Expr::func_multi("zeta_deriv", vec![n.into(), self.to_expr()])
+        Expr::func_multi_symbol(
+            ks::get_symbol(ks::KS.zeta_deriv),
+            vec![n.into(), self.to_expr()],
+        )
     }
 }
 

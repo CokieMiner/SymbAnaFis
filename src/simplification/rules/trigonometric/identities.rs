@@ -23,13 +23,13 @@ rule_arc!(
                 (&u.kind, &v.kind)
                 && {
                     // Exact check for power 2.0 (square)
-                    #[allow(clippy::float_cmp)] // Comparing against exact constant 2.0
+                    #[allow(clippy::float_cmp, reason = "Comparing against exact constant 2.0")]
                     let is_two = matches!(&sin_exp.kind, AstKind::Number(n) if *n == 2.0);
                     is_two
                 }
                 && {
                     // Exact check for power 2.0 (square)
-                    #[allow(clippy::float_cmp)] // Comparing against exact constant 2.0
+                    #[allow(clippy::float_cmp, reason = "Comparing against exact constant 2.0")]
                     let is_two = matches!(&cos_exp.kind, AstKind::Number(n) if *n == 2.0);
                     is_two
                 }
@@ -57,13 +57,13 @@ rule_arc!(
                 (&u.kind, &v.kind)
                 && {
                     // Exact check for power 2.0 (square)
-                    #[allow(clippy::float_cmp)] // Comparing against exact constant 2.0
+                    #[allow(clippy::float_cmp, reason = "Comparing against exact constant 2.0")]
                     let is_two = matches!(&cos_exp.kind, AstKind::Number(n) if *n == 2.0);
                     is_two
                 }
                 && {
                     // Exact check for power 2.0 (square)
-                    #[allow(clippy::float_cmp)] // Comparing against exact constant 2.0
+                    #[allow(clippy::float_cmp, reason = "Comparing against exact constant 2.0")]
                     let is_two = matches!(&sin_exp.kind, AstKind::Number(n) if *n == 2.0);
                     is_two
                 }
@@ -113,7 +113,7 @@ rule_with_helpers_arc!(
             if let AstKind::Pow(base, exp) = &expr.kind
                 && {
                     // Exact check for power constant
-                    #[allow(clippy::float_cmp)] // Comparing against exact constant (power)
+                    #[allow(clippy::float_cmp, reason = "Comparing against exact constant (power)")]
                     let is_power = matches!(exp.kind, AstKind::Number(n) if n == power);
                     is_power
                 }
@@ -137,7 +137,7 @@ rule_with_helpers_arc!(
             // 1 + (-cos^2(x)) = sin^2(x)
             if {
                 // Exact check for constant 1.0
-                #[allow(clippy::float_cmp)] // Comparing against exact constant 1.0
+                #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
                 let is_one = matches!(&lhs.kind, AstKind::Number(n) if *n == 1.0);
                 is_one
             }
@@ -164,7 +164,7 @@ rule_with_helpers_arc!(
             // (-cos^2(x)) + 1 = sin^2(x)
             if {
                 // Exact check for constant 1.0
-                #[allow(clippy::float_cmp)] // Comparing against exact constant 1.0
+                #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
                 let is_one = matches!(&rhs.kind, AstKind::Number(n) if *n == 1.0);
                 is_one
             }
@@ -203,7 +203,7 @@ rule_with_helpers_arc!(
             if let AstKind::Pow(base, exp) = &expr.kind
                 && {
                     // Exact check for power constant
-                    #[allow(clippy::float_cmp)] // Comparing against exact constant (power)
+                    #[allow(clippy::float_cmp, reason = "Comparing against exact constant (power)")]
                     let is_power = matches!(exp.kind, AstKind::Number(n) if n == power);
                     is_power
                 }
@@ -231,7 +231,7 @@ rule_with_helpers_arc!(
                 && name.id() == KS.tan
                 && {
                     // Exact check for constant 1.0
-                    #[allow(clippy::float_cmp)] // Comparing against exact constant 1.0
+                    #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
                     let is_one = matches!(&rhs.kind, AstKind::Number(n) if *n == 1.0);
                     is_one
                 }
@@ -245,7 +245,7 @@ rule_with_helpers_arc!(
             // 1 + tan^2(x) = sec^2(x)
             if {
                 // Exact check for constant 1.0
-                #[allow(clippy::float_cmp)] // Comparing against exact constant 1.0
+                #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
                 let is_one = matches!(&lhs.kind, AstKind::Number(n) if *n == 1.0);
                 is_one
             }
@@ -263,7 +263,7 @@ rule_with_helpers_arc!(
                 && name.id() == KS.cot
                 && {
                     // Exact check for constant 1.0
-                    #[allow(clippy::float_cmp)] // Comparing against exact constant 1.0
+                    #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
                     let is_one = matches!(&rhs.kind, AstKind::Number(n) if *n == 1.0);
                     is_one
                 }
@@ -277,7 +277,7 @@ rule_with_helpers_arc!(
             // 1 + cot^2(x) = csc^2(x)
             if {
                 // Exact check for constant 1.0
-                #[allow(clippy::float_cmp)] // Comparing against exact constant 1.0
+                #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
                 let is_one = matches!(&lhs.kind, AstKind::Number(n) if *n == 1.0);
                 is_one
             }

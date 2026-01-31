@@ -2,6 +2,7 @@
 //!
 //! Provides all constructor methods for building expressions.
 
+use std::cmp::Ordering as CmpOrdering;
 use std::sync::Arc;
 
 use super::{EPSILON, Expr, ExprKind, compute_expr_hash, expr_cmp, next_id};
@@ -36,8 +37,8 @@ impl Expr {
     /// Consume the expression and return its kind
     #[inline]
     #[must_use]
-    pub fn into_kind(self) -> ExprKind {
-        self.kind
+    pub fn into_kind(mut self) -> ExprKind {
+        std::mem::replace(&mut self.kind, ExprKind::Number(0.0))
     }
 
     // -------------------------------------------------------------------------
@@ -120,8 +121,7 @@ impl Expr {
     // -------------------------------------------------------------------------
 
     /// Create a sum expression from terms.
-    /// Flattens nested sums. Sorting and like-term combination is deferred to simplification
-    /// for performance (avoids O(N²) cascade during differentiation).
+    /// Flattens nested sums and sorts terms into a canonical order.
     ///
     /// Auto-optimization: If 3+ terms form a pure polynomial (only numbers, symbols,
     /// products of coeff*symbol^n), converts to Poly for O(N) differentiation.
@@ -144,29 +144,22 @@ impl Expr {
         let mut numeric_sum: f64 = 0.0;
 
         for t in terms {
-            match t.kind {
-                ExprKind::Sum(inner) => flat.extend(inner),
-                ExprKind::Poly(poly) => {
-                    // Flatten Poly into its terms (they'll be merged later)
-                    for term_expr in poly.to_expr_terms() {
-                        flat.push(Arc::new(term_expr));
-                    }
+            if matches!(t.kind, ExprKind::Sum(_) | ExprKind::Number(_)) {
+                match t.into_kind() {
+                    ExprKind::Sum(inner) => flat.extend(inner),
+                    ExprKind::Number(n) => numeric_sum += n,
+                    // Invariant protected by if guard
+                    _ => {}
                 }
-                ExprKind::Number(n) => numeric_sum += n, // Combine numbers immediately
-                _ => flat.push(Arc::new(t)),
+            } else {
+                flat.push(Arc::new(t));
             }
         }
 
-        // Add accumulated numeric constant at the BEGINNING (canonical order: numbers first)
-        // Build new vector with capacity to avoid O(n) insert
-        let flat = if numeric_sum.abs() > EPSILON {
-            let mut with_num = Vec::with_capacity(flat.len() + 1);
-            with_num.push(Arc::new(Self::number(numeric_sum)));
-            with_num.extend(flat);
-            with_num
-        } else {
-            flat
-        };
+        // Add accumulated numeric constant (canonical order: numbers first)
+        if numeric_sum.abs() > EPSILON {
+            flat.push(Arc::new(Self::number(numeric_sum)));
+        }
 
         if flat.is_empty() {
             return Self::number(0.0);
@@ -180,64 +173,7 @@ impl Expr {
             .unwrap_or_else(|arc| (*arc).clone());
         }
 
-        // Streaming incremental Poly building: if term has same base as last, combine into Poly
-        // Since terms are canonically sorted, same-base terms are always adjacent
-        if flat.len() >= 2 {
-            let mut result: Vec<Arc<Self>> = Vec::new();
-            let mut last_base: Option<u64> = None;
-
-            for term in flat {
-                let current_base = get_poly_base_hash(&term);
-
-                if current_base.is_some() && current_base == last_base && !result.is_empty() {
-                    // Same base as last term - try to merge
-                    let last_arc = result.pop().expect("result cannot be empty here");
-
-                    // Unwrap locally to get ownership (or clone if shared)
-                    let mut last_expr = Arc::try_unwrap(last_arc).unwrap_or_else(|a| (*a).clone());
-
-                    // Try to parse current term as polynomial
-                    // Optimization: if term is simple, this is cheap
-                    if let Some(term_poly) = crate::core::poly::Polynomial::try_from_expr(&term) {
-                        // Case A: Last is already a Poly - try in-place add
-                        if let ExprKind::Poly(ref mut p) = last_expr.kind {
-                            if p.try_add_assign(&term_poly) {
-                                result.push(Arc::new(last_expr));
-                                continue;
-                            }
-                        }
-                        // Case B: Last is not a Poly yet, or merge failed (shouldn't if bases match)
-                        // Try to convert last to Poly and then merge
-                        else if let Some(dest_poly) =
-                            crate::core::poly::Polynomial::try_from_expr(&last_expr)
-                        {
-                            // Create new Poly from last
-                            let mut new_poly = dest_poly; // Move
-                            if new_poly.try_add_assign(&term_poly) {
-                                result.push(Arc::new(Self::poly(new_poly)));
-                                continue;
-                            }
-                        }
-                    }
-
-                    // Fallback: could not merge. Push both separately.
-                    // (Should not happen if get_poly_base_hash is correct)
-                    result.push(Arc::new(last_expr));
-                }
-                result.push(term);
-                last_base = current_base;
-            }
-
-            if result.len() == 1 {
-                return Arc::try_unwrap(
-                    result.pop().expect("result must have exactly one element"),
-                )
-                .unwrap_or_else(|arc| (*arc).clone());
-            }
-            return Self::new(ExprKind::Sum(result));
-        }
-
-        Self::new(ExprKind::Sum(flat))
+        finalize_sum(flat)
     }
 
     /// Create sum from Arc terms (flattens only, sorting deferred to simplification)
@@ -259,6 +195,14 @@ impl Expr {
             .unwrap_or_else(|arc| (*arc).clone());
         }
 
+        // Fast-path: if no term is a sum or number, skip flattening loop
+        if !terms
+            .iter()
+            .any(|t| matches!(t.kind, ExprKind::Sum(_) | ExprKind::Number(_)))
+        {
+            return finalize_sum(terms);
+        }
+
         // Flatten nested sums and combine numbers
         let mut flat: Vec<Arc<Self>> = Vec::with_capacity(terms.len());
         let mut numeric_sum: f64 = 0.0;
@@ -274,11 +218,11 @@ impl Expr {
             if matches!(t.kind, ExprKind::Sum(_)) {
                 // Try to unwrap to avoid cloning inner vector elements
                 match Arc::try_unwrap(t) {
-                    Ok(expr) => {
-                        if let ExprKind::Sum(inner) = expr.kind {
-                            flat.extend(inner);
-                        }
-                    }
+                    Ok(expr) => match expr.into_kind() {
+                        ExprKind::Sum(inner) => flat.extend(inner),
+                        // Guarded by matches!(t.kind, Sum)
+                        _ => {}
+                    },
                     Err(arc) => {
                         if let ExprKind::Sum(inner) = &arc.kind {
                             flat.extend(inner.iter().cloned());
@@ -292,16 +236,10 @@ impl Expr {
             flat.push(t);
         }
 
-        // Add accumulated numeric constant at the BEGINNING (canonical order: numbers first)
-        // Build new vector with capacity to avoid O(n) insert
-        let flat = if numeric_sum.abs() > EPSILON {
-            let mut with_num = Vec::with_capacity(flat.len() + 1);
-            with_num.push(Arc::new(Self::number(numeric_sum)));
-            with_num.extend(flat);
-            with_num
-        } else {
-            flat
-        };
+        // Add accumulated numeric constant (canonical order: numbers first)
+        if numeric_sum.abs() > EPSILON {
+            flat.push(Arc::new(Self::number(numeric_sum)));
+        }
 
         if flat.is_empty() {
             return Self::number(0.0);
@@ -315,7 +253,7 @@ impl Expr {
             .unwrap_or_else(|arc| (*arc).clone());
         }
 
-        Self::new(ExprKind::Sum(flat))
+        finalize_sum(flat)
     }
 
     // -------------------------------------------------------------------------
@@ -338,49 +276,7 @@ impl Expr {
                 .next()
                 .expect("Vec must have exactly one element");
         }
-
-        let mut flat: Vec<Arc<Self>> = Vec::with_capacity(factors.len());
-        let mut numeric_prod: f64 = 1.0;
-
-        for f in factors {
-            match f.kind {
-                ExprKind::Product(inner) => flat.extend(inner),
-                ExprKind::Number(n) => {
-                    if n == 0.0 {
-                        return Self::number(0.0); // Early exit for zero
-                    }
-                    numeric_prod *= n;
-                }
-                _ => flat.push(Arc::new(f)),
-            }
-        }
-
-        // Add numeric coefficient at the BEGINNING if not 1.0 (canonical order: numbers first)
-        // Build new vector with capacity to avoid O(n) insert
-        let mut flat = if (numeric_prod - 1.0).abs() > EPSILON {
-            let mut with_coeff = Vec::with_capacity(flat.len() + 1);
-            with_coeff.push(Arc::new(Self::number(numeric_prod)));
-            with_coeff.extend(flat);
-            with_coeff
-        } else {
-            flat
-        };
-
-        if flat.is_empty() {
-            return Self::number(1.0);
-        }
-        if flat.len() == 1 {
-            return Arc::try_unwrap(
-                flat.into_iter()
-                    .next()
-                    .expect("flat must have exactly one element"),
-            )
-            .unwrap_or_else(|arc| (*arc).clone());
-        }
-
-        // Sort for canonical form
-        flat.sort_by(|a, b| expr_cmp(a, b));
-        Self::new(ExprKind::Product(flat))
+        Self::product_from_arcs(factors.into_iter().map(Arc::new).collect())
     }
 
     /// Create product from Arc factors (flattens and sorts for canonical form)
@@ -402,22 +298,74 @@ impl Expr {
             .unwrap_or_else(|arc| (*arc).clone());
         }
 
-        // Flatten nested products
+        // Fast-path: if no term is a product or number, skip flattening/folding loop
+        if !factors
+            .iter()
+            .any(|f| matches!(f.kind, ExprKind::Product(_) | ExprKind::Number(_)))
+        {
+            let mut flat = factors;
+            flat.sort_unstable_by(|a, b| {
+                if Arc::ptr_eq(a, b) {
+                    CmpOrdering::Equal
+                } else {
+                    expr_cmp(a, b)
+                }
+            });
+            return Self::new(ExprKind::Product(flat));
+        }
+
+        // Flatten nested products and fold numbers
         let mut flat: Vec<Arc<Self>> = Vec::with_capacity(factors.len());
+        let mut numeric_prod: f64 = 1.0;
+
         for f in factors {
             match &f.kind {
-                ExprKind::Product(inner) => flat.extend(inner.clone()),
+                ExprKind::Product(_) => {
+                    // Try to unwrap to avoid cloning inner factors
+                    match Arc::try_unwrap(f) {
+                        Ok(expr) => match expr.into_kind() {
+                            ExprKind::Product(inner) => flat.extend(inner),
+                            // Guarded by matches!(f.kind, Product)
+                            _ => {}
+                        },
+                        Err(arc) => {
+                            if let ExprKind::Product(inner) = &arc.kind {
+                                flat.extend(inner.iter().cloned());
+                            }
+                        }
+                    }
+                }
+                ExprKind::Number(n) => {
+                    if *n == 0.0 {
+                        return Self::number(0.0);
+                    }
+                    numeric_prod *= *n;
+                }
                 _ => flat.push(f),
             }
         }
 
+        // Add numeric coefficient (canonical order: numbers first)
+        if (numeric_prod - 1.0).abs() > EPSILON {
+            flat.push(Arc::new(Self::number(numeric_prod)));
+        }
+
+        if flat.is_empty() {
+            return Self::number(1.0);
+        }
         if flat.len() == 1 {
             return Arc::try_unwrap(flat.pop().expect("Vec must have exactly one element"))
                 .unwrap_or_else(|arc| (*arc).clone());
         }
 
         // Sort for canonical form
-        flat.sort_by(|a, b| expr_cmp(a, b));
+        flat.sort_unstable_by(|a, b| {
+            if Arc::ptr_eq(a, b) {
+                CmpOrdering::Equal
+            } else {
+                expr_cmp(a, b)
+            }
+        });
         Self::new(ExprKind::Product(flat))
     }
 
@@ -428,6 +376,17 @@ impl Expr {
     /// Create addition: a + b → Sum([a, b])
     #[must_use]
     pub fn add_expr(left: Self, right: Self) -> Self {
+        // Optimization: 0 + x = x, x + 0 = x
+        if left.is_zero_num() {
+            return right;
+        }
+        if right.is_zero_num() {
+            return left;
+        }
+        // Optimization: Constant folding n + m = (n + m)
+        if let (Some(l), Some(r)) = (left.as_number(), right.as_number()) {
+            return Self::number(l + r);
+        }
         Self::sum(vec![left, right])
     }
 
@@ -519,7 +478,8 @@ impl Expr {
             return Self::number(1.0);
         }
         // m / n = result when both are numbers and m % n == 0
-        if let (Some(m), Some(n)) = (left.as_number(), right.as_number())
+        if let Some(m) = left.as_number()
+            && let Some(n) = right.as_number()
             && n != 0.0
             && m % n == 0.0
         {
@@ -715,6 +675,85 @@ impl Expr {
 // HELPER FUNCTIONS
 // =============================================================================
 
+fn finalize_sum(mut flat: Vec<Arc<Expr>>) -> Expr {
+    let len = flat.len();
+    if len == 2 {
+        let cmp = expr_cmp(&flat[0], &flat[1]);
+        if cmp == CmpOrdering::Greater {
+            flat.swap(0, 1);
+        }
+
+        // Check for poly merge (e.g. x + x, x + x^2)
+        let h1 = get_poly_base_hash(&flat[0]);
+        let h2 = get_poly_base_hash(&flat[1]);
+        if h1.is_some() && h1 == h2 && h1 != Some(0) {
+            let mut poly = crate::core::poly::Polynomial::try_from_expr(&flat[0])
+                .expect("base hash match should guarantee poly compatibility");
+            let next_poly = crate::core::poly::Polynomial::try_from_expr(&flat[1])
+                .expect("base hash match should guarantee poly compatibility");
+            poly.try_add_assign(&next_poly);
+            if poly.is_zero() {
+                return Expr::number(0.0);
+            }
+            return Expr::poly(poly);
+        }
+
+        return Expr::new(ExprKind::Sum(flat));
+    }
+
+    // Sort for canonical ordering
+    flat.sort_unstable_by(|a, b| {
+        if Arc::ptr_eq(a, b) {
+            CmpOrdering::Equal
+        } else {
+            expr_cmp(a, b)
+        }
+    });
+
+    let mut result: Vec<Arc<Expr>> = Vec::with_capacity(flat.len());
+    let mut it = flat.into_iter().peekable();
+
+    while let Some(term) = it.next() {
+        let h = get_poly_base_hash(&term);
+
+        if let Some(bh) = h
+            && bh != 0
+            && it
+                .peek()
+                .is_some_and(|next| get_poly_base_hash(next) == Some(bh))
+        {
+            // Group found! Merge into a Polynomial
+            let mut poly = crate::core::poly::Polynomial::try_from_expr(&term)
+                .expect("Poly conversion failed");
+            while it
+                .peek()
+                .is_some_and(|next| get_poly_base_hash(next) == Some(bh))
+            {
+                let next_term = it.next().expect("Iterator peeked successfully");
+                poly.try_add_assign(
+                    &crate::core::poly::Polynomial::try_from_expr(&next_term)
+                        .expect("Poly conversion failed"),
+                );
+            }
+            if !poly.is_zero() {
+                result.push(Arc::new(Expr::poly(poly)));
+            }
+            continue;
+        }
+        result.push(term);
+    }
+
+    if result.is_empty() {
+        return Expr::number(0.0);
+    }
+    if result.len() == 1 {
+        return Arc::try_unwrap(result.pop().expect("result cannot be empty"))
+            .unwrap_or_else(|arc| (*arc).clone());
+    }
+
+    Expr::new(ExprKind::Sum(result))
+}
+
 /// Extract the polynomial base structural hash from a term.
 /// For polynomial-like terms (x, x^2, 3*x^3, sin(x)^2, 2*cos(x)), returns a hash
 /// that identifies the base expression so adjacent terms with the same base can be merged.
@@ -723,6 +762,9 @@ fn get_poly_base_hash(expr: &Expr) -> Option<u64> {
     match &expr.kind {
         // Symbol x or FunctionCall like sin(x) → use its structural hash
         ExprKind::Symbol(_) | ExprKind::FunctionCall { .. } => Some(expr.hash),
+
+        // Already a Poly -> use its base's hash
+        ExprKind::Poly(p) => Some(p.base().hash),
 
         // base^n where n is a positive integer → base's hash
         ExprKind::Pow(base, exp) => {

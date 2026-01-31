@@ -80,7 +80,10 @@ impl CompiledEvaluator {
     /// eval.eval_batch(&columns, &mut output, None).expect("eval");
     /// // output = [2.0, 5.0, 10.0, 17.0, 26.0, 37.0, 50.0, 65.0]
     /// ```
-    #[allow(clippy::too_many_lines)]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "Batch evaluation function handles multiple cases and optimizations"
+    )]
     #[inline]
     pub fn eval_batch(
         &self,
@@ -114,13 +117,20 @@ impl CompiledEvaluator {
 
         // Process in chunks of 4 using SIMD
         // Intentional integer division for chunking
-        #[allow(clippy::integer_division)]
+        #[allow(
+            clippy::integer_division,
+            reason = "Intentional integer division for chunking"
+        )]
         let full_chunks = n_points / 4;
 
         // Use provided buffer or create local one
         let mut local_stack;
         // Match is clearer for mutable reference handling
-        #[allow(clippy::option_if_let_else, clippy::single_match_else)]
+        #[allow(
+            clippy::option_if_let_else,
+            clippy::single_match_else,
+            reason = "Match is clearer for mutable reference handling"
+        )]
         let simd_stack: &mut Vec<f64x4> = match simd_buffer {
             Some(buf) => buf,
             None => {
@@ -286,7 +296,10 @@ impl CompiledEvaluator {
     /// # Panics
     ///
     /// Panics if `eval_batch` fails internally (indicates a compiler bug).
-    #[allow(clippy::items_after_statements)] // MIN_PARALLEL_SIZE placed near its usage for clarity
+    #[allow(
+        clippy::items_after_statements,
+        reason = "MIN_PARALLEL_SIZE placed near its usage for clarity"
+    )]
     #[cfg(feature = "parallel")]
     pub fn eval_batch_parallel(&self, columns: &[&[f64]]) -> Result<Vec<f64>, DiffError> {
         use rayon::prelude::*;
@@ -360,8 +373,14 @@ impl CompiledEvaluator {
     //
     // Allow undocumented_unsafe_blocks: All ~30 unsafe blocks share the same invariant.
     // Allow too_many_lines: This is a dispatch function, splitting would hurt cache locality.
-    #[allow(clippy::undocumented_unsafe_blocks)]
-    #[allow(clippy::too_many_lines)]
+    #[allow(
+        clippy::undocumented_unsafe_blocks,
+        reason = "All ~30 unsafe blocks share the same invariant"
+    )]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "This is a dispatch function, splitting would hurt cache locality"
+    )]
     #[inline]
     fn exec_simd_instruction(
         instr: Instruction,
@@ -386,10 +405,38 @@ impl CompiledEvaluator {
                 ]));
             }
 
+            Instruction::Pop => unsafe {
+                stack::simd_stack_pop(stack);
+            },
+            Instruction::Swap => unsafe {
+                stack::simd_stack_swap(stack);
+            },
+
             // Binary operations
             Instruction::Add => unsafe { stack::simd_stack_binop_add(stack) },
             Instruction::Mul => unsafe { stack::simd_stack_binop_mul(stack) },
+            Instruction::MulConst(idx) => {
+                let top = unsafe { stack::simd_stack_top_mut(stack) };
+                let c = f64x4::splat(constants[idx as usize]);
+                *top *= c;
+            }
+            Instruction::AddConst(idx) => {
+                let top = unsafe { stack::simd_stack_top_mut(stack) };
+                let c = f64x4::splat(constants[idx as usize]);
+                *top += c;
+            }
+            Instruction::SubConst(idx) => {
+                let top = unsafe { stack::simd_stack_top_mut(stack) };
+                let c = f64x4::splat(constants[idx as usize]);
+                *top -= c;
+            }
+            Instruction::ConstSub(idx) => {
+                let top = unsafe { stack::simd_stack_top_mut(stack) };
+                let c = f64x4::splat(constants[idx as usize]);
+                *top = c - *top;
+            }
             Instruction::Div => unsafe { stack::simd_stack_binop_div(stack) },
+            Instruction::Sub => unsafe { stack::simd_stack_binop_sub(stack) },
             Instruction::Pow => unsafe { stack::simd_stack_binop_pow(stack) },
 
             // Unary operations
@@ -417,9 +464,38 @@ impl CompiledEvaluator {
                 let top = unsafe { stack::simd_stack_top_mut(stack) };
                 *top = top.exp();
             }
+            Instruction::Expm1 => {
+                let top = unsafe { stack::simd_stack_top_mut(stack) };
+                let arr = top.to_array();
+                *top = f64x4::new([
+                    arr[0].exp_m1(),
+                    arr[1].exp_m1(),
+                    arr[2].exp_m1(),
+                    arr[3].exp_m1(),
+                ]);
+            }
+            Instruction::ExpNeg => {
+                let top = unsafe { stack::simd_stack_top_mut(stack) };
+                *top = (-*top).exp();
+            }
+            Instruction::Pow3_2 => {
+                let top = unsafe { stack::simd_stack_top_mut(stack) };
+                let x = *top;
+                *top = x * x.sqrt();
+            }
             Instruction::Ln => {
                 let top = unsafe { stack::simd_stack_top_mut(stack) };
                 *top = top.ln();
+            }
+            Instruction::Log1p => {
+                let top = unsafe { stack::simd_stack_top_mut(stack) };
+                let arr = top.to_array();
+                *top = f64x4::new([
+                    arr[0].ln_1p(),
+                    arr[1].ln_1p(),
+                    arr[2].ln_1p(),
+                    arr[3].ln_1p(),
+                ]);
             }
             Instruction::Abs => {
                 let top = unsafe { stack::simd_stack_top_mut(stack) };
@@ -457,17 +533,58 @@ impl CompiledEvaluator {
                     arr[3].powi(n_i32),
                 ]);
             }
-            Instruction::SinCos => {
+            Instruction::MulAdd => unsafe { stack::simd_stack_muladd(stack) },
+            Instruction::MulSub => unsafe { stack::simd_stack_mulsub(stack) },
+            Instruction::NegMulAdd => unsafe { stack::simd_stack_neg_muladd(stack) },
+            Instruction::InvSqrt => {
+                let top = unsafe { stack::simd_stack_top_mut(stack) };
+                *top = f64x4::splat(1.0) / top.sqrt();
+            }
+            Instruction::InvSquare => {
+                let top = unsafe { stack::simd_stack_top_mut(stack) };
+                let x = *top;
+                *top = f64x4::splat(1.0) / (x * x);
+            }
+            Instruction::InvCube => {
+                let top = unsafe { stack::simd_stack_top_mut(stack) };
+                let x = *top;
+                *top = f64x4::splat(1.0) / (x * x * x);
+            }
+            Instruction::InvPow3_2 => {
+                let top = unsafe { stack::simd_stack_top_mut(stack) };
+                let x = *top;
+                *top = f64x4::splat(1.0) / (x * x.sqrt());
+            }
+            Instruction::ExpSqr => {
+                let top = unsafe { stack::simd_stack_top_mut(stack) };
+                let x = *top;
+                *top = (x * x).exp();
+            }
+            Instruction::ExpSqrNeg => {
+                let top = unsafe { stack::simd_stack_top_mut(stack) };
+                let x = *top;
+                *top = (-(x * x)).exp();
+            }
+            Instruction::RecipExpm1 => {
                 let top = unsafe { stack::simd_stack_top_mut(stack) };
                 let arr = top.to_array();
-                let (s0, c0) = arr[0].sin_cos();
-                let (s1, c1) = arr[1].sin_cos();
-                let (s2, c2) = arr[2].sin_cos();
-                let (s3, c3) = arr[3].sin_cos();
-                *top = f64x4::new([c0, c1, c2, c3]);
-                stack.push(f64x4::new([s0, s1, s2, s3]));
+                *top = f64x4::new([
+                    1.0 / arr[0].exp_m1(),
+                    1.0 / arr[1].exp_m1(),
+                    1.0 / arr[2].exp_m1(),
+                    1.0 / arr[3].exp_m1(),
+                ]);
             }
-            Instruction::MulAdd => unsafe { stack::simd_stack_muladd(stack) },
+            Instruction::Sinc => {
+                let top = unsafe { stack::simd_stack_top_mut(stack) };
+                let arr = top.to_array();
+                *top = f64x4::new([
+                    stack::eval_sinc(arr[0]),
+                    stack::eval_sinc(arr[1]),
+                    stack::eval_sinc(arr[2]),
+                    stack::eval_sinc(arr[3]),
+                ]);
+            }
 
             // Hyperbolic - common in physics
             Instruction::Sinh => {
@@ -487,6 +604,27 @@ impl CompiledEvaluator {
             }
 
             // CSE instructions
+            Instruction::PolyEval(idx) => {
+                let start = idx as usize;
+                // Constants are pre-validated by compiler
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    reason = "Degree is stored as f64 but always an integer, so cast is safe"
+                )]
+                let degree = constants[start] as usize;
+
+                // Initialize with c_N
+                let mut acc = f64x4::splat(constants[start + 1]);
+                let x_ptr = unsafe { stack::simd_stack_top_mut(stack) };
+                let x = *x_ptr;
+
+                for i in 0..degree {
+                    let coeff = f64x4::splat(constants[start + 2 + i]);
+                    acc = acc.mul_add(x, coeff);
+                }
+                *x_ptr = acc;
+            }
             Instruction::Dup => {
                 let top = unsafe { *stack::simd_stack_top_mut(stack) };
                 stack.push(top);
@@ -516,8 +654,14 @@ impl CompiledEvaluator {
     // Splitting would hurt code locality without meaningful abstraction benefit.
     // Allow undocumented_unsafe_blocks: All unsafe blocks share the same invariant
     // documented above - stack non-empty validated by compiler at compile time.
-    #[allow(clippy::too_many_lines)]
-    #[allow(clippy::undocumented_unsafe_blocks)]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "This is a dispatch function covering all special functions. Splitting would hurt code locality without meaningful abstraction benefit"
+    )]
+    #[allow(
+        clippy::undocumented_unsafe_blocks,
+        reason = "All unsafe blocks share the same invariant documented above - stack non-empty validated by compiler at compile time"
+    )]
     #[inline(never)]
     #[cold]
     fn exec_simd_slow_instruction(instr: Instruction, stack: &mut Vec<f64x4>) {
@@ -555,48 +699,6 @@ impl CompiledEvaluator {
                 let arr = top.to_array();
                 *top = f64x4::new([arr[0].atan(), arr[1].atan(), arr[2].atan(), arr[3].atan()]);
             }
-            Instruction::Acot => {
-                let top = top!();
-                let arr = top.to_array();
-                *top = f64x4::new([
-                    stack::eval_acot(arr[0]),
-                    stack::eval_acot(arr[1]),
-                    stack::eval_acot(arr[2]),
-                    stack::eval_acot(arr[3]),
-                ]);
-            }
-            Instruction::Asec => {
-                let top = top!();
-                let arr = top.to_array();
-                *top = f64x4::new([
-                    (1.0 / arr[0]).acos(),
-                    (1.0 / arr[1]).acos(),
-                    (1.0 / arr[2]).acos(),
-                    (1.0 / arr[3]).acos(),
-                ]);
-            }
-            Instruction::Acsc => {
-                let top = top!();
-                let arr = top.to_array();
-                *top = f64x4::new([
-                    (1.0 / arr[0]).asin(),
-                    (1.0 / arr[1]).asin(),
-                    (1.0 / arr[2]).asin(),
-                    (1.0 / arr[3]).asin(),
-                ]);
-            }
-            Instruction::Cot => {
-                let top = top!();
-                *top = f64x4::ONE / top.tan();
-            }
-            Instruction::Sec => {
-                let top = top!();
-                *top = f64x4::ONE / top.cos();
-            }
-            Instruction::Csc => {
-                let top = top!();
-                *top = f64x4::ONE / top.sin();
-            }
 
             // Inverse hyperbolic
             Instruction::Asinh => {
@@ -629,76 +731,8 @@ impl CompiledEvaluator {
                     arr[3].atanh(),
                 ]);
             }
-            Instruction::Coth => {
-                let top = top!();
-                let arr = top.to_array();
-                *top = f64x4::new([
-                    1.0 / arr[0].tanh(),
-                    1.0 / arr[1].tanh(),
-                    1.0 / arr[2].tanh(),
-                    1.0 / arr[3].tanh(),
-                ]);
-            }
-            Instruction::Sech => {
-                let top = top!();
-                let arr = top.to_array();
-                *top = f64x4::new([
-                    1.0 / arr[0].cosh(),
-                    1.0 / arr[1].cosh(),
-                    1.0 / arr[2].cosh(),
-                    1.0 / arr[3].cosh(),
-                ]);
-            }
-            Instruction::Csch => {
-                let top = top!();
-                let arr = top.to_array();
-                *top = f64x4::new([
-                    1.0 / arr[0].sinh(),
-                    1.0 / arr[1].sinh(),
-                    1.0 / arr[2].sinh(),
-                    1.0 / arr[3].sinh(),
-                ]);
-            }
-            Instruction::Acoth => {
-                let top = top!();
-                let arr = top.to_array();
-                *top = f64x4::new([
-                    stack::eval_acoth(arr[0]),
-                    stack::eval_acoth(arr[1]),
-                    stack::eval_acoth(arr[2]),
-                    stack::eval_acoth(arr[3]),
-                ]);
-            }
-            Instruction::Asech => {
-                let top = top!();
-                let arr = top.to_array();
-                *top = f64x4::new([
-                    (1.0 / arr[0]).acosh(),
-                    (1.0 / arr[1]).acosh(),
-                    (1.0 / arr[2]).acosh(),
-                    (1.0 / arr[3]).acosh(),
-                ]);
-            }
-            Instruction::Acsch => {
-                let top = top!();
-                let arr = top.to_array();
-                *top = f64x4::new([
-                    (1.0 / arr[0]).asinh(),
-                    (1.0 / arr[1]).asinh(),
-                    (1.0 / arr[2]).asinh(),
-                    (1.0 / arr[3]).asinh(),
-                ]);
-            }
 
             // Log functions
-            Instruction::Log10 => {
-                let top = top!();
-                *top = top.log10();
-            }
-            Instruction::Log2 => {
-                let top = top!();
-                *top = top.log2();
-            }
             Instruction::Cbrt => {
                 let top = top!();
                 *top = top.pow_f64x4(f64x4::splat(1.0 / 3.0));
@@ -857,7 +891,10 @@ impl CompiledEvaluator {
                 let x_arr = x.to_array();
                 let base_arr = base.to_array();
                 let log_fn = |b: f64, v: f64| -> f64 {
-                    #[allow(clippy::float_cmp)]
+                    #[allow(
+                        clippy::float_cmp,
+                        reason = "Comparing against exact constant 1.0 for logarithm base validation"
+                    )]
                     if b <= 0.0 || b == 1.0 || v <= 0.0 {
                         f64::NAN
                     } else {
@@ -888,7 +925,10 @@ impl CompiledEvaluator {
                 let n = top!();
                 let x_arr = x.to_array();
                 let n_arr = n.to_array();
-                #[allow(clippy::cast_possible_truncation)]
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    reason = "Bessel function order is always a small integer"
+                )]
                 {
                     *n = f64x4::new([
                         crate::math::bessel_j(n_arr[0].round() as i32, x_arr[0])
@@ -907,7 +947,10 @@ impl CompiledEvaluator {
                 let n = top!();
                 let x_arr = x.to_array();
                 let n_arr = n.to_array();
-                #[allow(clippy::cast_possible_truncation)]
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    reason = "Bessel function order is always a small integer"
+                )]
                 {
                     *n = f64x4::new([
                         crate::math::bessel_y(n_arr[0].round() as i32, x_arr[0])
@@ -926,7 +969,10 @@ impl CompiledEvaluator {
                 let n = top!();
                 let x_arr = x.to_array();
                 let n_arr = n.to_array();
-                #[allow(clippy::cast_possible_truncation)]
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    reason = "Bessel function order is always a small integer"
+                )]
                 {
                     *n = f64x4::new([
                         crate::math::bessel_i(n_arr[0].round() as i32, x_arr[0]),
@@ -941,7 +987,10 @@ impl CompiledEvaluator {
                 let n = top!();
                 let x_arr = x.to_array();
                 let n_arr = n.to_array();
-                #[allow(clippy::cast_possible_truncation)]
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    reason = "Bessel function order is always a small integer"
+                )]
                 {
                     *n = f64x4::new([
                         crate::math::bessel_k(n_arr[0].round() as i32, x_arr[0])
@@ -960,7 +1009,10 @@ impl CompiledEvaluator {
                 let n = top!();
                 let x_arr = x.to_array();
                 let n_arr = n.to_array();
-                #[allow(clippy::cast_possible_truncation)]
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    reason = "Polygamma order is always a small integer"
+                )]
                 {
                     *n = f64x4::new([
                         crate::math::eval_polygamma(n_arr[0].round() as i32, x_arr[0])
@@ -979,11 +1031,11 @@ impl CompiledEvaluator {
                 let a = top!();
                 let a_arr = a.to_array();
                 let b_arr = b.to_array();
-                let beta = |a: f64, b: f64| -> f64 {
+                let beta = |val_a: f64, val_b: f64| -> f64 {
                     match (
-                        crate::math::eval_gamma(a),
-                        crate::math::eval_gamma(b),
-                        crate::math::eval_gamma(a + b),
+                        crate::math::eval_gamma(val_a),
+                        crate::math::eval_gamma(val_b),
+                        crate::math::eval_gamma(val_a + val_b),
                     ) {
                         (Some(ga), Some(gb), Some(gab)) => ga * gb / gab,
                         _ => f64::NAN,
@@ -1001,7 +1053,10 @@ impl CompiledEvaluator {
                 let n = top!();
                 let s_arr = s.to_array();
                 let n_arr = n.to_array();
-                #[allow(clippy::cast_possible_truncation)]
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    reason = "Zeta derivative order is always a small integer"
+                )]
                 {
                     *n = f64x4::new([
                         crate::math::eval_zeta_deriv(n_arr[0].round() as i32, s_arr[0])
@@ -1020,7 +1075,10 @@ impl CompiledEvaluator {
                 let n = top!();
                 let x_arr = x.to_array();
                 let n_arr = n.to_array();
-                #[allow(clippy::cast_possible_truncation)]
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    reason = "Hermite polynomial degree is always a small integer"
+                )]
                 {
                     *n = f64x4::new([
                         crate::math::eval_hermite(n_arr[0].round() as i32, x_arr[0])
@@ -1043,7 +1101,10 @@ impl CompiledEvaluator {
                 let x_arr = x.to_array();
                 let m_arr = m.to_array();
                 let l_arr = l.to_array();
-                #[allow(clippy::cast_possible_truncation)]
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    reason = "Associated Legendre degree/order is always a small integer"
+                )]
                 {
                     *l = f64x4::new([
                         crate::math::eval_assoc_legendre(
@@ -1084,7 +1145,10 @@ impl CompiledEvaluator {
                 let theta_arr = theta.to_array();
                 let m_arr = m.to_array();
                 let l_arr = l.to_array();
-                #[allow(clippy::cast_possible_truncation)]
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    reason = "Spherical harmonic degree/order is always a small integer"
+                )]
                 {
                     *l = f64x4::new([
                         crate::math::eval_spherical_harmonic(
@@ -1142,8 +1206,14 @@ impl CompiledEvaluator {
     /// Stack operations validated at compile time, same as `exec_instruction`.
     //
     // Allow undocumented_unsafe_blocks: Same invariant as other exec functions.
-    #[allow(clippy::undocumented_unsafe_blocks)]
-    #[allow(clippy::too_many_lines)]
+    #[allow(
+        clippy::undocumented_unsafe_blocks,
+        reason = "Same invariant as other exec functions"
+    )]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "Complex evaluation logic requires all instructions in one function"
+    )]
     #[inline]
     fn exec_scalar_batch_instruction(
         instr: Instruction,
@@ -1185,6 +1255,23 @@ impl CompiledEvaluator {
                 let b = pop(stack, len);
                 *top_mut(stack, *len) *= b;
             }
+            Instruction::MulConst(idx) => {
+                *top_mut(stack, *len) *= constants[idx as usize];
+            }
+            Instruction::AddConst(idx) => {
+                *top_mut(stack, *len) += constants[idx as usize];
+            }
+            Instruction::SubConst(idx) => {
+                *top_mut(stack, *len) -= constants[idx as usize];
+            }
+            Instruction::ConstSub(idx) => {
+                let c = constants[idx as usize];
+                *top_mut(stack, *len) = c - *top_mut(stack, *len);
+            }
+            Instruction::Sub => {
+                let b = pop(stack, len);
+                *top_mut(stack, *len) -= b;
+            }
             Instruction::Div => {
                 let b = pop(stack, len);
                 *top_mut(stack, *len) /= b;
@@ -1198,6 +1285,15 @@ impl CompiledEvaluator {
             // Memory operations
             Instruction::LoadConst(idx) => push(stack, len, constants[idx as usize]),
             Instruction::LoadParam(p) => push(stack, len, columns[p as usize][point_idx]),
+
+            Instruction::Pop => {
+                pop(stack, len);
+            }
+            Instruction::Swap => unsafe {
+                // Inline swap for scalar batch
+                let ptr = stack.as_mut_ptr();
+                std::ptr::swap(ptr.add(*len - 1), ptr.add(*len - 2));
+            },
 
             // CSE operations
             Instruction::Dup => {
@@ -1228,9 +1324,21 @@ impl CompiledEvaluator {
                 let top = top_mut(stack, *len);
                 *top = top.exp();
             }
+            Instruction::Expm1 => {
+                let top = top_mut(stack, *len);
+                *top = top.exp_m1();
+            }
+            Instruction::ExpNeg => {
+                let top = top_mut(stack, *len);
+                *top = (-*top).exp();
+            }
             Instruction::Ln => {
                 let top = top_mut(stack, *len);
                 *top = top.ln();
+            }
+            Instruction::Log1p => {
+                let top = top_mut(stack, *len);
+                *top = top.ln_1p();
             }
             Instruction::Sin => {
                 let top = top_mut(stack, *len);
@@ -1244,11 +1352,17 @@ impl CompiledEvaluator {
                 let top = top_mut(stack, *len);
                 *top = top.tan();
             }
-            Instruction::SinCos => {
-                let x = *top_mut(stack, *len);
-                let (s, c) = x.sin_cos();
-                *top_mut(stack, *len) = c;
-                push(stack, len, s);
+            Instruction::Sinh => {
+                let top = top_mut(stack, *len);
+                *top = top.sinh();
+            }
+            Instruction::Cosh => {
+                let top = top_mut(stack, *len);
+                *top = top.cosh();
+            }
+            Instruction::Tanh => {
+                let top = top_mut(stack, *len);
+                *top = top.tanh();
             }
 
             // Fused & Optimized
@@ -1267,6 +1381,11 @@ impl CompiledEvaluator {
                 let x2 = x * x;
                 *top = x2 * x2;
             }
+            Instruction::Pow3_2 => {
+                let top = top_mut(stack, *len);
+                let x = *top;
+                *top = x * x.sqrt();
+            }
             Instruction::Recip => {
                 let top = top_mut(stack, *len);
                 *top = 1.0 / *top;
@@ -1275,14 +1394,61 @@ impl CompiledEvaluator {
                 let top = top_mut(stack, *len);
                 *top = top.powi(n);
             }
-            // TODO: v0.8.0 Hierarchical Power Optimizations (Pow3_2, InvPow3_2, Root2k, Cbrt)
             Instruction::MulAdd => {
                 let c = pop(stack, len);
                 let b = pop(stack, len);
                 let a = top_mut(stack, *len);
                 *a = a.mul_add(b, c);
             }
-
+            Instruction::MulSub => {
+                let c = pop(stack, len);
+                let b = pop(stack, len);
+                let a = top_mut(stack, *len);
+                *a = a.mul_add(b, -c);
+            }
+            Instruction::NegMulAdd => {
+                let c = pop(stack, len);
+                let b = pop(stack, len);
+                let a = top_mut(stack, *len);
+                *a = (-*a).mul_add(b, c);
+            }
+            Instruction::InvSqrt => {
+                let top = top_mut(stack, *len);
+                *top = 1.0 / top.sqrt();
+            }
+            Instruction::InvSquare => {
+                let top = top_mut(stack, *len);
+                let x = *top;
+                *top = 1.0 / (x * x);
+            }
+            Instruction::InvCube => {
+                let top = top_mut(stack, *len);
+                let x = *top;
+                *top = 1.0 / (x * x * x);
+            }
+            Instruction::InvPow3_2 => {
+                let top = top_mut(stack, *len);
+                let x = *top;
+                *top = 1.0 / (x * x.sqrt());
+            }
+            Instruction::ExpSqr => {
+                let top = top_mut(stack, *len);
+                let x = *top;
+                *top = (x * x).exp();
+            }
+            Instruction::ExpSqrNeg => {
+                let top = top_mut(stack, *len);
+                let x = *top;
+                *top = (-(x * x)).exp();
+            }
+            Instruction::RecipExpm1 => {
+                let top = top_mut(stack, *len);
+                *top = 1.0 / top.exp_m1();
+            }
+            Instruction::Sinc => {
+                let top = top_mut(stack, *len);
+                *top = stack::eval_sinc(*top);
+            }
             // Trigonometric & Hyperbolic (Common ones)
             Instruction::Asin => {
                 let t = top_mut(stack, *len);
@@ -1296,21 +1462,12 @@ impl CompiledEvaluator {
                 let t = top_mut(stack, *len);
                 *t = t.atan();
             }
-            Instruction::Sinh => {
-                let t = top_mut(stack, *len);
-                *t = t.sinh();
-            }
-            Instruction::Cosh => {
-                let t = top_mut(stack, *len);
-                *t = t.cosh();
-            }
-            Instruction::Tanh => {
-                let t = top_mut(stack, *len);
-                *t = t.tanh();
-            }
-
             // Fallback for rare instructions (completing the set)
             _ => {
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    reason = "Special functions take i32 parameters, truncation is expected for invalid inputs"
+                )]
                 match instr {
                     Instruction::Asinh => {
                         let t = top_mut(stack, *len);
@@ -1324,37 +1481,163 @@ impl CompiledEvaluator {
                         let t = top_mut(stack, *len);
                         *t = t.atanh();
                     }
-                    Instruction::Log10 => {
-                        let t = top_mut(stack, *len);
-                        *t = t.log10();
-                    }
-                    Instruction::Log2 => {
-                        let t = top_mut(stack, *len);
-                        *t = t.log2();
-                    }
+
                     Instruction::Erf => {
                         let t = top_mut(stack, *len);
                         *t = crate::math::eval_erf(*t);
+                    }
+                    Instruction::Erfc => {
+                        let t = top_mut(stack, *len);
+                        *t = 1.0 - crate::math::eval_erf(*t);
                     }
                     Instruction::Gamma => {
                         let t = top_mut(stack, *len);
                         *t = crate::math::eval_gamma(*t).unwrap_or(f64::NAN);
                     }
+                    Instruction::Digamma => {
+                        let t = top_mut(stack, *len);
+                        *t = crate::math::eval_digamma(*t).unwrap_or(f64::NAN);
+                    }
+                    Instruction::Trigamma => {
+                        let t = top_mut(stack, *len);
+                        *t = crate::math::eval_trigamma(*t).unwrap_or(f64::NAN);
+                    }
+                    Instruction::Tetragamma => {
+                        let t = top_mut(stack, *len);
+                        *t = crate::math::eval_polygamma(3, *t).unwrap_or(f64::NAN);
+                    }
+                    Instruction::LambertW => {
+                        let t = top_mut(stack, *len);
+                        *t = crate::math::eval_lambert_w(*t).unwrap_or(f64::NAN);
+                    }
+                    Instruction::EllipticK => {
+                        let t = top_mut(stack, *len);
+                        *t = crate::math::eval_elliptic_k(*t).unwrap_or(f64::NAN);
+                    }
+                    Instruction::EllipticE => {
+                        let t = top_mut(stack, *len);
+                        *t = crate::math::eval_elliptic_e(*t).unwrap_or(f64::NAN);
+                    }
+                    Instruction::Zeta => {
+                        let t = top_mut(stack, *len);
+                        *t = crate::math::eval_zeta(*t).unwrap_or(f64::NAN);
+                    }
+                    Instruction::ExpPolar => {
+                        let t = top_mut(stack, *len);
+                        *t = crate::math::eval_exp_polar(*t);
+                    }
                     Instruction::Log => {
                         let x = pop(stack, len);
                         let base = top_mut(stack, *len);
-                        #[allow(clippy::float_cmp)]
+                        #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
                         let invalid = *base <= 0.0 || *base == 1.0 || x <= 0.0;
                         *base = if invalid { f64::NAN } else { x.log(*base) };
+                    }
+                    Instruction::PolyEval(idx) => {
+                        let x_ptr = top_mut(stack, *len);
+                        let x = *x_ptr;
+                        let start = idx as usize;
+                        #[allow(
+                            clippy::cast_possible_truncation,
+                            clippy::cast_sign_loss,
+                            reason = "Degree is stored as f64 but always an integer, so cast is safe"
+                        )]
+                        let degree = constants[start] as usize;
+
+                        let mut res = constants[start + 1];
+                        for i in 0..degree {
+                            res = res.mul_add(x, constants[start + 2 + i]);
+                        }
+                        *x_ptr = res;
                     }
                     Instruction::Atan2 => {
                         let x = pop(stack, len);
                         let y = top_mut(stack, *len);
                         *y = y.atan2(x);
                     }
+                    Instruction::BesselJ => {
+                        let x = pop(stack, len);
+                        let n = top_mut(stack, *len);
+                        *n = crate::math::bessel_j((*n).round() as i32, x).unwrap_or(f64::NAN);
+                    }
+                    Instruction::BesselY => {
+                        let x = pop(stack, len);
+                        let n = top_mut(stack, *len);
+                        *n = crate::math::bessel_y((*n).round() as i32, x).unwrap_or(f64::NAN);
+                    }
+                    Instruction::BesselI => {
+                        let x = pop(stack, len);
+                        let n = top_mut(stack, *len);
+                        *n = crate::math::bessel_i((*n).round() as i32, x);
+                    }
+                    Instruction::BesselK => {
+                        let x = pop(stack, len);
+                        let n = top_mut(stack, *len);
+                        *n = crate::math::bessel_k((*n).round() as i32, x).unwrap_or(f64::NAN);
+                    }
+                    Instruction::Polygamma => {
+                        let x = pop(stack, len);
+                        let n = top_mut(stack, *len);
+                        *n = crate::math::eval_polygamma((*n).round() as i32, x).unwrap_or(f64::NAN);
+                    }
+                    Instruction::Beta => {
+                        let b = pop(stack, len);
+                        let a = top_mut(stack, *len);
+                        let ga = crate::math::eval_gamma(*a);
+                        let gb = crate::math::eval_gamma(b);
+                        let gab = crate::math::eval_gamma(*a + b);
+                        *a = match (ga, gb, gab) {
+                            (Some(ga), Some(gb), Some(gab)) => ga * gb / gab,
+                            _ => f64::NAN,
+                        };
+                    }
+                    Instruction::ZetaDeriv => {
+                        let s = pop(stack, len);
+                        let n = top_mut(stack, *len);
+                        *n = crate::math::eval_zeta_deriv((*n).round() as i32, s).unwrap_or(f64::NAN);
+                    }
+                    Instruction::Hermite => {
+                        let x = pop(stack, len);
+                        let n = top_mut(stack, *len);
+                        *n = crate::math::eval_hermite((*n).round() as i32, x).unwrap_or(f64::NAN);
+                    }
+                    Instruction::AssocLegendre => {
+                        let x = pop(stack, len);
+                        let m = pop(stack, len);
+                        let l = top_mut(stack, *len);
+                        *l = crate::math::eval_assoc_legendre((*l).round() as i32, m.round() as i32, x).unwrap_or(f64::NAN);
+                    }
+                    Instruction::SphericalHarmonic => {
+                        let phi = pop(stack, len);
+                        let theta = pop(stack, len);
+                        let m = pop(stack, len);
+                        let l = top_mut(stack, *len);
+                        *l = crate::math::eval_spherical_harmonic((*l).round() as i32, m.round() as i32, theta, phi).unwrap_or(f64::NAN);
+                    }
+                    Instruction::Cbrt => {
+                        let t = top_mut(stack, *len);
+                        *t = t.cbrt();
+                    }
+                    Instruction::Signum => {
+                        let t = top_mut(stack, *len);
+                        *t = t.signum();
+                    }
+                    Instruction::Floor => {
+                        let t = top_mut(stack, *len);
+                        *t = t.floor();
+                    }
+                    Instruction::Ceil => {
+                        let t = top_mut(stack, *len);
+                        *t = t.ceil();
+                    }
+                    Instruction::Round => {
+                        let t = top_mut(stack, *len);
+                        *t = t.round();
+                    }
                     _ => {
-                        // Poison with NaN and delegate to slower path if absolutely necessary
-                        // but actually we've covered almost all instructions here.
+                        // All instructions should be handled above.
+                        // If one is missing, return NaN and trigger debug_assert in dev.
+                        debug_assert!(false, "Unhandled instruction in exec_scalar_batch_instruction: {instr:?}");
                         *top_mut(stack, *len) = f64::NAN;
                     }
                 }

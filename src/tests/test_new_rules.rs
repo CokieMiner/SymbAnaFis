@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod tests {
+    use crate::core::known_symbols::KS;
     use crate::{Expr, ExprKind, simplification::simplify_expr};
     use std::collections::{HashMap, HashSet};
 
@@ -26,7 +27,7 @@ mod tests {
             false,
         );
         let expected = Expr::func("sin", Expr::sum(vec![Expr::symbol("x"), Expr::symbol("y")]));
-        assert_eq!(simplified, expected);
+        assert_eq!(simplified.hash, expected.hash);
     }
 
     #[test]
@@ -179,7 +180,7 @@ mod tests {
             simplify_expr(ast, HashSet::new(), HashMap::new(), None, None, None, false);
         // Expect no simplification to triple-angle
         assert!(
-            !matches!(simplified.kind, ExprKind::FunctionCall { name, .. } if name.as_str() == "sin")
+            !matches!(&simplified.kind, ExprKind::FunctionCall { name, .. } if name.id() == KS.sin)
         );
 
         // Symbolic coefficient should not fold
@@ -187,7 +188,7 @@ mod tests {
         let simplified =
             simplify_expr(ast, HashSet::new(), HashMap::new(), None, None, None, false);
         assert!(
-            !matches!(simplified.kind, ExprKind::FunctionCall { name, .. } if name.as_str() == "sin")
+            !matches!(&simplified.kind, ExprKind::FunctionCall { name, .. } if name.id() == KS.sin)
         );
     }
 

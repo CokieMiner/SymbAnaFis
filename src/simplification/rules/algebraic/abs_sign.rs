@@ -62,7 +62,7 @@ rule_arc!(
                 && let AstKind::Number(n) = &first.kind
                 // Exact check for -1.0 to identify negative argument
                 && {
-                    #[allow(clippy::float_cmp)] // Comparing against exact constant -1.0
+                    #[allow(clippy::float_cmp, reason = "Comparing against exact constant -1.0")]
                     let is_neg_one = *n == -1.0;
                     is_neg_one
                 }
@@ -96,7 +96,10 @@ rule_arc!(
                 if *n > 0.0 && n.fract() == 0.0 {
                     // Checked fract() == 0.0, so cast is safe
                     // Split logic to avoid experimental attribute on boolean expression
-                    #[allow(clippy::cast_possible_truncation)]
+                    #[allow(
+                        clippy::cast_possible_truncation,
+                        reason = "Checked fract()==0.0, so cast is safe"
+                    )]
                     // Checked fract()==0.0, so cast is safe
                     if (*n as i64) % 2 == 0 {
                         return Some(Arc::clone(&args[0]));
@@ -125,7 +128,10 @@ rule_arc!(
             // Check if exponent is a positive even integer
             if *n > 0.0 && n.fract() == 0.0 {
                 // Checked fract() == 0.0, so cast is safe
-                #[allow(clippy::cast_possible_truncation)] // Checked fract()==0.0, so cast is safe
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    reason = "Checked fract()==0.0, so cast is safe"
+                )]
                 if (*n as i64) % 2 == 0 {
                     return Some(Arc::new(Expr::pow_from_arcs(
                         Arc::clone(&args[0]),

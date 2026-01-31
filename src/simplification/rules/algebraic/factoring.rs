@@ -27,7 +27,10 @@ impl Rule for FractionCancellationRule {
     }
 
     // Fraction cancellation handles many expression patterns, length is justified
-    #[allow(clippy::too_many_lines)] // Complex fraction simplification logic
+    #[allow(
+        clippy::too_many_lines,
+        reason = "Complex fraction simplification logic"
+    )]
     fn apply(&self, expr: &Arc<Expr>, context: &RuleContext) -> Option<Arc<Expr>> {
         // For Product expressions, check if there's a Div nested inside
         if let AstKind::Product(factors) = &expr.kind {
@@ -172,7 +175,10 @@ impl Rule for FractionCancellationRule {
                             } else if n > 0.0 {
                                 let is_one_exponent = {
                                     // Exact check for 1.0 exponent
-                                    #[allow(clippy::float_cmp)]
+                                    #[allow(
+                                        clippy::float_cmp,
+                                        reason = "Comparing against exact constant 1.0"
+                                    )]
                                     // Comparing against exact constant 1.0
                                     let res = n == 1.0;
                                     res
@@ -191,7 +197,10 @@ impl Rule for FractionCancellationRule {
                                 let pos_n = -n;
                                 let is_one_exponent = {
                                     // Exact check for 1.0 exponent
-                                    #[allow(clippy::float_cmp)]
+                                    #[allow(
+                                        clippy::float_cmp,
+                                        reason = "Comparing against exact constant 1.0"
+                                    )]
                                     // Comparing against exact constant 1.0
                                     let res = pos_n == 1.0;
                                     res
@@ -226,7 +235,7 @@ impl Rule for FractionCancellationRule {
             // Add coefficients back
             let num_not_one = {
                 // Exact check for 1.0 coefficient
-                #[allow(clippy::float_cmp)] // Comparing against exact constant 1.0
+                #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
                 let res = num_coeff != 1.0;
                 res
             };
@@ -235,7 +244,7 @@ impl Rule for FractionCancellationRule {
             }
             let den_not_one = {
                 // Exact check for 1.0 coefficient
-                #[allow(clippy::float_cmp)] // Comparing against exact constant 1.0
+                #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
                 let res = den_coeff != 1.0;
                 res
             };
@@ -270,7 +279,7 @@ impl Rule for FractionCancellationRule {
             if let AstKind::Number(n) = &new_den.kind {
                 let is_one_denominator = {
                     // Exact check for 1.0 denominator
-                    #[allow(clippy::float_cmp)] // Comparing against exact constant 1.0
+                    #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
                     let res = *n == 1.0;
                     res
                 };
@@ -316,7 +325,7 @@ impl Rule for PerfectSquareRule {
         &[ExprKind::Sum, ExprKind::Poly]
     }
 
-    #[allow(clippy::too_many_lines)] // Complex polynomial GCD logic
+    #[allow(clippy::too_many_lines, reason = "Complex polynomial GCD logic")]
     fn apply(&self, expr: &Arc<Expr>, _context: &RuleContext) -> Option<Arc<Expr>> {
         fn apply_inner(expr: &Arc<Expr>) -> Option<Arc<Expr>> {
             fn extract_coeff_and_factors(term: &Arc<Expr>) -> (f64, Vec<Arc<Expr>>) {
@@ -657,7 +666,10 @@ rule_arc!(
                 .iter()
                 .map(|(c, _)| {
                     // GCD calculation safe for small integers, precision loss handled
-                    #[allow(clippy::cast_possible_truncation)]
+                    #[allow(
+                        clippy::cast_possible_truncation,
+                        reason = "Safe: checked fract()==0.0 before cast"
+                    )]
                     // Safe: checked fract()==0.0 before cast
                     (*c as i64)
                 })
@@ -678,13 +690,19 @@ rule_arc!(
 
             // Factor out the GCD
             // i64->f64: GCD values in symbolic math are typically small integers
-            #[allow(clippy::cast_precision_loss)] // GCD values are typically small integers
+            #[allow(
+                clippy::cast_precision_loss,
+                reason = "GCD values are typically small integers"
+            )]
             let gcd_expr = Arc::new(Expr::number(gcd as f64));
             let mut new_terms = Vec::new();
 
             for (coeff, term) in coeffs_and_terms {
                 // i64->f64: GCD values in symbolic math are typically small integers
-                #[allow(clippy::cast_precision_loss)] // GCD values are typically small integers
+                #[allow(
+                    clippy::cast_precision_loss,
+                    reason = "GCD values are typically small integers"
+                )]
                 let new_coeff = coeff / (gcd as f64);
                 if (new_coeff - 1.0).abs() < EPSILON {
                     new_terms.push(term);
@@ -1027,7 +1045,7 @@ rule_arc!(
                     && let AstKind::Number(n) = &exp.kind
                 {
                     // Exact check for cube exponent
-                    #[allow(clippy::float_cmp)] // Comparing against exact constant 3.0
+                    #[allow(clippy::float_cmp, reason = "Comparing against exact constant 3.0")]
                     let is_cube = *n == 3.0;
                     if is_cube {
                         return Some(Arc::clone(base));

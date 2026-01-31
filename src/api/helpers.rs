@@ -241,7 +241,7 @@ pub fn evaluate_str(formula: &str, vars: &[(&str, f64)]) -> Result<String, DiffE
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)] // Standard test relaxations
+#[allow(clippy::unwrap_used, reason = "Standard test relaxations")]
 mod tests {
     use super::*;
 

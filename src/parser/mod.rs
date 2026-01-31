@@ -55,14 +55,19 @@ pub fn parse<S: std::hash::BuildHasher + Clone>(
     custom_functions: &HashSet<String, S>,
     context: Option<&crate::core::unified_context::Context>,
 ) -> Result<Expr, DiffError> {
-    // Merge known_symbols and custom_functions from context if provided
-    let mut merged_symbols = known_symbols.clone();
-    let mut merged_custom_functions = custom_functions.clone();
+    let symbols_buf = context.map_or_else(|| None, |ctx| {
+        let mut buf = known_symbols.clone();
+        buf.extend(ctx.symbol_names());
+        Some(buf)
+    });
+    let symbols_ref = symbols_buf.as_ref().unwrap_or(known_symbols);
 
-    if let Some(ctx) = context {
-        merged_symbols.extend(ctx.symbol_names());
-        merged_custom_functions.extend(ctx.function_names());
-    }
+    let functions_buf = context.map_or_else(|| None, |ctx| {
+        let mut buf = custom_functions.clone();
+        buf.extend(ctx.function_names());
+        Some(buf)
+    });
+    let functions_ref = functions_buf.as_ref().unwrap_or(custom_functions);
 
     // Pipeline: validate -> balance -> lex -> implicit_mul -> parse
 
@@ -75,11 +80,11 @@ pub fn parse<S: std::hash::BuildHasher + Clone>(
     let balanced = lexer::balance_parentheses(input);
 
     // Step 3: Lexing (two-pass)
-    let tokens = lexer::lex(&balanced, &merged_symbols, &merged_custom_functions)?;
+    let tokens = lexer::lex(&balanced, symbols_ref, functions_ref)?;
 
     // Step 4: Insert implicit multiplication
     let tokens_with_mul =
-        implicit_mul::insert_implicit_multiplication(tokens, &merged_custom_functions);
+        implicit_mul::insert_implicit_multiplication(tokens, functions_ref);
 
     // Step 5: Build AST
     pratt::parse_expression(&tokens_with_mul, context)

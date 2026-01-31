@@ -3,7 +3,7 @@
 //! This module provides lazily-initialized symbol IDs for common function names.
 //! Comparison is O(1) - just a u64 integer comparison.
 
-use crate::core::symbol::{InternedSymbol, lookup_by_id, symb_interned};
+use crate::core::symbol::{lookup_by_id, symb_interned, InternedSymbol};
 use std::sync::LazyLock;
 
 /// Get the ID for an interned symbol (helper for the macro)

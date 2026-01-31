@@ -41,7 +41,7 @@ fn test_orbital_denominator_squared() {
     let result_ast = parse(&result, &fixed_vars, &custom_functions, None).unwrap();
 
     // Expect derivative denominator to be (1 + e*cos(theta))^2
-    if let ExprKind::Div(_, denom) = result_ast.kind {
+    if let ExprKind::Div(_, denom) = &result_ast.kind {
         if let ExprKind::Pow(base, exp) = &denom.kind {
             // base must be (1 + e*cos(theta)), exponent must be 2
             assert_eq!(exp.as_ref().clone(), Expr::number(2.0));

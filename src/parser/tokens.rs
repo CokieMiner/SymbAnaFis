@@ -2,24 +2,26 @@
 //!
 //! Defines [`Token`] for lexer output and [`Operator`] for arithmetic and built-in functions.
 
+use std::borrow::Cow;
+
 /// Token types produced by the lexer
 #[derive(Debug, Clone, PartialEq)]
-pub enum Token {
+pub enum Token<'src> {
     Number(f64),
-    Identifier(String),
+    Identifier(Cow<'src, str>),
     Operator(Operator),
     LeftParen,
     RightParen,
     Comma,
     Derivative {
         order: u32,
-        func: String,
+        func: Cow<'src, str>,
         args: Vec<Self>,
-        var: String,
+        var: Cow<'src, str>,
     },
 }
 
-impl Token {
+impl Token<'_> {
     /// Convert token to a user-friendly string for error messages
     pub fn to_user_string(&self) -> String {
         match self {
@@ -414,7 +416,8 @@ impl std::str::FromStr for Operator {
     clippy::cast_precision_loss,
     clippy::items_after_statements,
     clippy::let_underscore_must_use,
-    clippy::no_effect_underscore_binding
+    clippy::no_effect_underscore_binding,
+    reason = "Standard test relaxations"
 )]
 mod tests {
     use super::*;

@@ -112,8 +112,7 @@ impl Expr {
                 args.iter().any(|arg| arg.has_free_variables(excluded))
             }
             ExprKind::Derivative { inner, var, .. } => {
-                let var_str = var.as_str().to_owned();
-                !excluded.contains(&var_str) || inner.has_free_variables(excluded)
+                !excluded.contains(var.as_str()) || inner.has_free_variables(excluded)
             }
             ExprKind::Poly(poly) => poly.base().has_free_variables(excluded),
         }
@@ -197,7 +196,8 @@ impl Expr {
                 Self::derivative(inner.as_ref().deep_clone(), var.clone(), *order)
             }
             ExprKind::Poly(poly) => {
-                // Poly is expensive to deep clone, so we just clone it
+                // For performance, Poly is not recursively deep-cloned.
+                // This is safe as Polynomial is designed to be immutable.
                 Self::new(ExprKind::Poly(poly.clone()))
             }
         }

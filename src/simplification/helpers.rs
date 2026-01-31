@@ -302,84 +302,109 @@ pub fn prettify_roots(expr: Expr) -> Expr {
             // x^(1/2) -> sqrt(x)
             if let ExprKind::Div(num, den) = &exp_pretty.kind {
                 // Precise match for 1.0 and 2.0 is required for sqrt transformation
-                #[allow(clippy::float_cmp)]
+                #[allow(
+                    clippy::float_cmp,
+                    reason = "Precise match for 1.0 and 2.0 is required for sqrt transformation"
+                )]
                 if matches!(num.kind, ExprKind::Number(n) if n == 1.0)
                     && matches!(den.kind, ExprKind::Number(n) if n == 2.0)
                 {
-                    return Expr::func("sqrt", base_pretty);
+                    return Expr::func_symbol(ks::get_symbol(ks::KS.sqrt), base_pretty);
                 }
                 // x^(1/3) -> cbrt(x)
                 // Precise match for 1.0 and 3.0 is required for cbrt transformation
-                #[allow(clippy::float_cmp)]
+                #[allow(
+                    clippy::float_cmp,
+                    reason = "Precise match for 1.0 and 3.0 is required for cbrt transformation"
+                )]
                 if matches!(num.kind, ExprKind::Number(n) if n == 1.0)
                     && matches!(den.kind, ExprKind::Number(n) if n == 3.0)
                 {
-                    return Expr::func("cbrt", base_pretty);
+                    return Expr::func_symbol(ks::get_symbol(ks::KS.cbrt), base_pretty);
                 }
             }
             // x^0.5 -> sqrt(x)
             if let ExprKind::Number(n) = &exp_pretty.kind
                 && (n - 0.5).abs() < EPSILON
             {
-                return Expr::func("sqrt", base_pretty);
+                return Expr::func_symbol(ks::get_symbol(ks::KS.sqrt), base_pretty);
             }
 
             // Check if children changed
-            if base_pretty.id == base.id && exp_pretty.id == exp.id {
-                return expr; // No change, return original
+            if base_pretty.id != base.id || exp_pretty.id != exp.id {
+                return Expr::pow(base_pretty, exp_pretty);
             }
-            Expr::pow(base_pretty, exp_pretty)
         }
         ExprKind::Sum(terms) => {
-            let new_terms: Vec<Expr> = terms
-                .iter()
-                .map(|t| prettify_roots((**t).clone()))
-                .collect();
-            let changed = new_terms
-                .iter()
-                .zip(terms.iter())
-                .any(|(new, old)| new.id != old.id);
-            if !changed {
-                return expr;
+            let mut new_terms: Option<Vec<Expr>> = None;
+            for (i, term) in terms.iter().enumerate() {
+                let pretty_term = prettify_roots((**term).clone());
+
+                if new_terms.is_none() && pretty_term.id != term.id {
+                    let mut v = Vec::with_capacity(terms.len());
+                    v.extend(terms.iter().take(i).map(|t| (**t).clone()));
+                    new_terms = Some(v);
+                }
+
+                if let Some(v) = &mut new_terms {
+                    v.push(pretty_term);
+                }
             }
-            Expr::sum(new_terms)
+
+            if let Some(v) = new_terms {
+                return Expr::sum(v);
+            }
         }
         ExprKind::Product(factors) => {
-            let new_factors: Vec<Expr> = factors
-                .iter()
-                .map(|f| prettify_roots((**f).clone()))
-                .collect();
-            let changed = new_factors
-                .iter()
-                .zip(factors.iter())
-                .any(|(new, old)| new.id != old.id);
-            if !changed {
-                return expr;
+            let mut new_factors: Option<Vec<Expr>> = None;
+            for (i, factor) in factors.iter().enumerate() {
+                let pretty_factor = prettify_roots((**factor).clone());
+
+                if new_factors.is_none() && pretty_factor.id != factor.id {
+                    let mut v = Vec::with_capacity(factors.len());
+                    v.extend(factors.iter().take(i).map(|f| (**f).clone()));
+                    new_factors = Some(v);
+                }
+
+                if let Some(v) = &mut new_factors {
+                    v.push(pretty_factor);
+                }
             }
-            Expr::product(new_factors)
+            if let Some(v) = new_factors {
+                return Expr::product(v);
+            }
         }
         ExprKind::Div(u, v) => {
             let u_pretty = prettify_roots((**u).clone());
             let v_pretty = prettify_roots((**v).clone());
-            if u_pretty.id == u.id && v_pretty.id == v.id {
-                return expr;
+            if u_pretty.id != u.id || v_pretty.id != v.id {
+                return Expr::div_expr(u_pretty, v_pretty);
             }
-            Expr::div_expr(u_pretty, v_pretty)
         }
         ExprKind::FunctionCall { name, args } => {
-            let new_args: Vec<Expr> = args.iter().map(|a| prettify_roots((**a).clone())).collect();
-            let changed = new_args
-                .iter()
-                .zip(args.iter())
-                .any(|(new, old)| new.id != old.id);
-            if !changed {
-                return expr;
+            let mut new_args: Option<Vec<Expr>> = None;
+            for (i, arg) in args.iter().enumerate() {
+                let pretty_arg = prettify_roots((**arg).clone());
+
+                if new_args.is_none() && pretty_arg.id != arg.id {
+                    let mut v = Vec::with_capacity(args.len());
+                    v.extend(args.iter().take(i).map(|a| (**a).clone()));
+                    new_args = Some(v);
+                }
+
+                if let Some(v) = &mut new_args {
+                    v.push(pretty_arg);
+                }
             }
-            Expr::func_multi(name, new_args)
+            if let Some(v) = new_args {
+                return Expr::func_multi(name, v);
+            }
         }
         // Leaves: Number, Symbol, Poly, Derivative - no transformation needed
-        _ => expr,
+        _ => {}
     }
+
+    expr
 }
 
 /// Check if an expression is known to be non-negative for all real values of its variables.
@@ -397,7 +422,10 @@ pub fn is_known_non_negative(expr: &Expr) -> bool {
                 // Checked fract() == 0.0, so cast is safe
                 if *n > 0.0 && n.fract() == 0.0 {
                     let is_even = {
-                        #[allow(clippy::cast_possible_truncation)]
+                        #[allow(
+                            clippy::cast_possible_truncation,
+                            reason = "Checked fract() == 0.0, so cast is safe"
+                        )]
                         {
                             (*n as i64) % 2 == 0
                         }
@@ -452,7 +480,10 @@ pub fn is_fractional_root_exponent(expr: &Expr) -> bool {
             if let ExprKind::Number(d) = &den.kind {
                 // Check if denominator is an even integer
                 // Checked fract() == 0.0, so cast is safe
-                #[allow(clippy::cast_possible_truncation)]
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    reason = "Checked fract() == 0.0, so cast is safe"
+                )]
                 {
                     d.fract() == 0.0 && (*d as i64) % 2 == 0
                 }
@@ -486,7 +517,10 @@ pub const fn gcd(a: i64, b: i64) -> i64 {
         b = a % b;
         a = t;
     }
-    #[allow(clippy::cast_possible_wrap)]
+    #[allow(
+        clippy::cast_possible_wrap,
+        reason = "GCD values are typically small integers, wrap unlikely"
+    )]
     {
         a as i64
     }
