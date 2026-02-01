@@ -1190,7 +1190,7 @@ res = compiled_ctx.evaluate([3.0])  # 14.0
 | **Inverse Trig**           | `asin`, `acos`, `atan`, `atan2`, `acot`, `asec`, `acsc`                       |
 | **Hyperbolic**             | `sinh`, `cosh`, `tanh`, `coth`, `sech`, `csch`                                |
 | **Inverse Hyperbolic**     | `asinh`, `acosh`, `atanh`, `acoth`, `asech`, `acsch`                          |
-| **Exp/Log**                | `exp`, `ln`, `log(b, x)`, `log10`, `log2`, `exp_polar`                        |
+| **Exp/Log**                | `exp`, `ln`, `log(b, x)`, `log10`, `log2`, `exp_polar`¹                        |
 | **Roots**                  | `sqrt`, `cbrt`                                                                |
 | **Error Functions**        | `erf`, `erfc`                                                                 |
 | **Gamma Family**           | `gamma`, `digamma`, `trigamma`, `tetragamma`, `polygamma(n, x)`, `beta(a, b)` |
@@ -1200,6 +1200,8 @@ res = compiled_ctx.evaluate([3.0])  # 14.0
 | **Orthogonal Polynomials** | `hermite(n, x)`, `assoc_legendre(l, m, x)`                                    |
 | **Spherical Harmonics**    | `spherical_harmonic(l, m, θ, φ)`, `ynm(l, m, θ, φ)`                           |
 | **Other**                  | `abs`, `signum`, `sinc`, `lambertw`, `floor`, `ceil`, `round`                 |
+
+¹ `exp_polar` currently aliases `exp` (placeholder for future polar form support)
 
 > **Note:** All functions have both **numeric evaluation** and **symbolic differentiation** rules. Multi-argument functions like `besselj(n, x)` differentiate with respect to `x` (treating `n` as constant).
 

@@ -65,7 +65,7 @@ result = symb_anafis.simplify("sin(x)^2 + cos(x)^2")
 # → "1"
 
 # Handle constants automatically
-result = symb_anafis.diff("a*x^2", "x", fixed_vars=["a"])
+result = symb_anafis.diff("a*x^2", "x", known_symbols=["a"])
 # → "2*a*x"
 ```
 
@@ -147,7 +147,7 @@ SymbAnaFis supports over 50 built-in mathematical functions:
 | **Inverse Trig**           | `asin`, `acos`, `atan`, `atan2`, `acot`, `asec`, `acsc`                       |
 | **Hyperbolic**             | `sinh`, `cosh`, `tanh`, `coth`, `sech`, `csch`                                |
 | **Inverse Hyperbolic**     | `asinh`, `acosh`, `atanh`, `acoth`, `asech`, `acsch`                          |
-| **Exp/Log**                | `exp`, `ln`, `log(b, x)`, `log10`, `log2`, `exp_polar`(acts as exp for now)   |
+| **Exp/Log**                | `exp`, `ln`, `log(b, x)`, `log10`, `log2`, `exp_polar`¹   |
 | **Roots**                  | `sqrt`, `cbrt`                                                                |
 | **Error Functions**        | `erf`, `erfc`                                                                 |
 | **Gamma Family**           | `gamma`, `digamma`, `trigamma`, `tetragamma`, `polygamma(n, x)`, `beta(a, b)` |
@@ -157,6 +157,8 @@ SymbAnaFis supports over 50 built-in mathematical functions:
 | **Orthogonal Polynomials** | `hermite(n, x)`, `assoc_legendre(l, m, x)`                                    |
 | **Spherical Harmonics**    | `spherical_harmonic(l, m, θ, φ)`, `ynm(l, m, θ, φ)`                           |
 | **Other**                  | `abs`, `signum`, `sinc`, `lambertw`, `floor`, `ceil`, `round`                 |
+
+¹ `exp_polar` currently aliases `exp` (placeholder for future polar form support)
 
 ## Documentation
 
