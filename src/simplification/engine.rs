@@ -8,6 +8,7 @@ use crate::{Expr, ExprKind as AstKind};
 use rustc_hash::FxHashMap;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock};
+#[cfg(not(feature = "wasm"))]
 use std::time::{Duration, Instant};
 
 // =============================================================================
@@ -147,6 +148,7 @@ pub struct Simplifier {
     cache_capacity: usize,
     max_iterations: usize,
     max_depth: usize,
+    #[cfg(not(feature = "wasm"))]
     timeout: Option<Duration>,
     context: RuleContext,
     domain_safe: bool,
@@ -166,6 +168,7 @@ impl Simplifier {
             cache_capacity: DEFAULT_CACHE_CAPACITY,
             max_iterations: 1000,
             max_depth: 50,
+            #[cfg(not(feature = "wasm"))]
             timeout: None, // No timeout by default
             context: RuleContext::default(),
             domain_safe: false,
@@ -216,10 +219,13 @@ impl Simplifier {
         // `Expr` hash implementation uses the pre-computed hash, so this is still fast (O(1)),
         // but `HashSet` will verify structural equality on collision.
         let mut seen_exprs: HashSet<Arc<Expr>> = HashSet::new();
+
+        #[cfg(not(feature = "wasm"))]
         let start_time = Instant::now();
 
         loop {
             // Check timeout first
+            #[cfg(not(feature = "wasm"))]
             if let Some(timeout) = self.timeout
                 && start_time.elapsed() > timeout
             {

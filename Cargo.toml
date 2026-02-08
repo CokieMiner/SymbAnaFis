@@ -46,6 +46,7 @@ dotenvy = "0.15"
 default = []
 python = ["pyo3", "numpy"]
 parallel = ["rayon"]
+wasm = []
 
 [[bench]]
 name = "benchmark"
