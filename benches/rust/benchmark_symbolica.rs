@@ -28,6 +28,7 @@ use symbolica::{
 };
 
 // Setup license
+/// Setup Symbolica license from environment variable
 fn setup_license() {
     dotenv().ok();
     if let Ok(key) = env::var("SYMBOLICA_LICENSE") {
@@ -39,6 +40,7 @@ fn setup_license() {
 // Parsing Benchmarks
 // =============================================================================
 
+/// Benchmark parsing performance for all expressions using Symbolica
 fn bench_parse(c: &mut Criterion) {
     setup_license();
     let mut group = c.benchmark_group("1_parse");
@@ -56,6 +58,7 @@ fn bench_parse(c: &mut Criterion) {
 // Differentiation (String Pipeline)
 // =============================================================================
 
+/// Benchmark differentiation performance for all expressions using Symbolica
 fn bench_diff(c: &mut Criterion) {
     setup_license();
     let mut group = c.benchmark_group("2_diff");
@@ -79,6 +82,7 @@ fn bench_diff(c: &mut Criterion) {
 // Simplification Only Benchmarks
 // =============================================================================
 
+/// Benchmark simplification performance (not applicable for Symbolica)
 fn bench_simplify_only(_c: &mut Criterion) {
     setup_license();
     // Symbolica does not have explicit simplify API separate from other ops
@@ -88,6 +92,7 @@ fn bench_simplify_only(_c: &mut Criterion) {
 // Compilation Benchmarks
 // =============================================================================
 
+/// Benchmark compilation performance for expressions using Symbolica
 fn bench_compile(c: &mut Criterion) {
     setup_license();
     let mut group = c.benchmark_group("5_compile");
@@ -135,6 +140,7 @@ fn bench_compile(c: &mut Criterion) {
 // Evaluation Benchmarks
 // =============================================================================
 
+/// Benchmark evaluation performance for 1000 points using Symbolica
 fn bench_eval(c: &mut Criterion) {
     setup_license();
     let mut group = c.benchmark_group("6_eval_1000pts");
@@ -205,6 +211,7 @@ fn bench_eval(c: &mut Criterion) {
 // Full Pipeline
 // =============================================================================
 
+/// Benchmark full pipeline performance using Symbolica
 fn bench_full_pipeline(c: &mut Criterion) {
     setup_license();
     let mut group = c.benchmark_group("7_full_pipeline");

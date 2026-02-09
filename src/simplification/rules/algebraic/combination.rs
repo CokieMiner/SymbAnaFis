@@ -194,6 +194,7 @@ rule_arc!(
 );
 
 // Helper: Extract factor and addends from Product containing Sum
+/// Extracts a factor and addends from a product containing a sum.
 fn extract_product_with_sum(expr: &Expr) -> Option<(Expr, Vec<Expr>)> {
     if let AstKind::Product(factors) = &expr.kind {
         // Look for a Sum among the factors
@@ -227,6 +228,7 @@ fn extract_product_with_sum(expr: &Expr) -> Option<(Expr, Vec<Expr>)> {
 }
 
 // Helper: Check if expression contains a variable (not just numbers)
+/// Checks if the expression contains any variables (not just numbers).
 fn contains_variable(expr: &Expr) -> bool {
     match &expr.kind {
         AstKind::Symbol(_) => true,
@@ -245,6 +247,7 @@ fn contains_variable(expr: &Expr) -> bool {
 
 // Helper: Extract base and numeric exponent from an expression
 // x -> (x, 1.0), x^n -> (x, n)
+/// Extracts the base and numeric exponent from an expression.
 fn extract_base_and_exp(expr: &Expr) -> Option<(Expr, f64)> {
     match &expr.kind {
         AstKind::Symbol(_) => Some((expr.clone(), 1.0)),
@@ -260,6 +263,7 @@ fn extract_base_and_exp(expr: &Expr) -> Option<(Expr, f64)> {
 }
 
 // Helper: Combine variable expressions, handling x*x*x...->x^n
+/// Combines variable expressions, handling x*x*x...->x^n.
 fn combine_var_parts(a: Expr, b: Expr) -> Expr {
     // Try to extract base and exponent from both
     if let (Some((base_a, exp_a)), Some((base_b, exp_b))) =
@@ -280,6 +284,7 @@ fn combine_var_parts(a: Expr, b: Expr) -> Expr {
 }
 
 // Helper: Distribute a factor over addends and build canonical terms
+/// Distributes a factor over addends and builds canonical terms.
 fn distribute_factor(factor: &Expr, addends: &[Expr]) -> Vec<Expr> {
     addends
         .iter()

@@ -14,6 +14,7 @@ use crate::core::known_symbols as ks;
 // Operator Overloading Macro
 // ============================================================================
 
+/// Implement binary operations for symbols and expressions
 macro_rules! impl_binary_ops {
     (symbol_ops $lhs:ty, $rhs:ty, $to_lhs:expr, $to_rhs:expr) => {
         impl Add<$rhs> for $lhs {

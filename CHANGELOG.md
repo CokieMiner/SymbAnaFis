@@ -2,11 +2,20 @@
 
 All notable changes to symb_anafis will be documented in this file.
 
-## [unreleased]
+## [0.8.0] - 2026-02-09
 
-### Fogot to keep track so just know performance improved a lot and bugs were fixed. API should be the same if something broke pls report.
+### This version release notes are partial; performance improved and multiple correctness/stability fixes landed. The API is intended to remain compatible with 0.7.0; please report regressions.
 
 ### Added
+- **View API**: New stable, pattern-matchable API for expression inspection (`ExprView` and `Expr::view()`).
+  - Allows external tools to safely traverse expression structure.
+  - Transparently handles internal `Poly` optimizations by presenting them as `Sum`.
+  - Supports zero-cost viewing of Symbols and Numbers via `Cow`.
+  - Guarantees backward compatibility even if internal representation changes (e.g., to multivariate polynomials).
+  - Explicit handling of anonymous symbols via ID-based string generation (e.g., "$123").
+  - **Python bindings**: Full `ExprView` support with properties (`kind`, `children`, `value`, `name`) and helper methods (`is_sum()`, `is_product()`, etc.).
+  - **Symbol.anon()**: Exposed `Symbol::anon()` method in Python bindings for creating anonymous symbols.
+  - Examples: `view_api_demo.rs` (Rust) and `view_api_demo.py` (Python) demonstrating pattern matching and custom format conversion.
 - **Known Symbols (KS)**: Global `KS` registry for centralized management of mathematical functions and constants.
 - **Display System**: `DisplayContext` and expanded `Display` trait supporting sophisticated LaTeX, Unicode, and plain text formatting.
 - **UserFunction API**: Added `UserFunction::any_arity()` helper for registering variadic custom functions (0..=usize::MAX).
@@ -39,6 +48,11 @@ All notable changes to symb_anafis will be documented in this file.
 - **Context Safety**: Enhanced name collision detection in `Context`.
 - **Documentation**: Added warnings to vector calculus helpers regarding custom function support.
 - **Cosmetic**: Replaced Unicode box-drawing characters with ASCII in examples for better compatibility.
+- **CRITICAL: Python Binding Stability**: Fixed Python interpreter crash from `expect("PyO3 object conversion failed")` - now properly raises appropriate Python exceptions instead of aborting on OOM or conversion failures.
+- **CRITICAL: Parallel Evaluation Panic**: Fixed panic on empty columns in `evaluate_parallel` - now returns `EvalColumnLengthMismatch` error when n_points > 0 but any column is empty. Non-empty columns of different lengths continue to broadcast from the last value as before.
+- **Correctness: Dimension Validation**: Fixed `evaluate_parallel` to return proper `EvalColumnMismatch` error instead of silently returning `Ok(vec![])` when variable/value dimensions don't match (now matches documented API behavior).
+- **Correctness: Empty Column Handling**: Fixed slow path in `evaluate_parallel` to return proper error instead of silently producing NaN when accessing values from an empty column.
+- **PyO3 0.28.0 Compatibility**: Updated `#[pyclass]` attributes to add `from_py_object` option to resolve deprecation warnings for types implementing `Clone`.
 
 ## [0.7.0] - 2026-01-20
 

@@ -1,15 +1,15 @@
 # Benchmark Results
 
-**SymbAnaFis Version:** Unreleased Dev Build  
-**Date:** 2026-02-03
+**SymbAnaFis Version:** 0.7.1  
+**Date:** 2026-02-09
 ---
 
 ## System Specifications
 
 - **CPU:** AMD Ryzen AI 7 350 w/ Radeon 860M (8 cores, 16 threads)
-- **CPU Max:** 5.09 GHz
-- **RAM:** 32 GB (30 GiB total)
-- **OS:** Linux 6.17.12 (Fedora 43)
+- **CPU Max:** 5.04 GHz
+- **RAM:** 30 GB (30 GiB total)
+- **OS:** Linux 6.18.8-arch2-1 (Endeavour OS)
 - **Rust:** rustc 1.93.0
 - **Backend:** Plotters
 
@@ -33,27 +33,27 @@
 
 | Category                  | Avg Speedup (SA vs SY) | Notes                                   |
 |---------------------------|------------------------|-----------------------------------------|
-| Parsing                   |                  1.48x | SA 1.3x-1.6x faster                     |
-| Differentiation           |                  1.44x | SA 1.00x-2.03x faster                   |
-| Compilation               |                  7.0x  | SA 2.6x-19.4x faster                    |
-| Evaluation                |                  1.29x | SA competitive, faster on 6/8           |
-| Full Pipeline (No Simp)   |                  2.0x  | SA beats SY on all expressions          |
-| Full Pipeline (With Simp) |                  0.64x | SY faster due to SA deep simplification |
+| Parsing                   |                  1.43x | SA 1.26x-1.57x faster                   |
+| Differentiation           |                  1.35x | SA 0.92x-2.00x faster                   |
+| Compilation               |                  4.3x  | SA 1.3x-22.0x faster                    |
+| Evaluation                |                  1.21x | SA competitive, faster on 6/8           |
+| Full Pipeline (No Simp)   |                  1.82x | SA beats SY on all expressions          |
+| Full Pipeline (With Simp) |                  0.60x | SY faster due to SA deep simplification |
 ---
 
 ## 1. Parsing (String → AST)
 
 | Expression        | SymbAnaFis (SA) | Symbolica (SY) | Speedup (SA vs SY) |
 | ----------------- | --------------: | -------------: | -----------------: |
-| Normal PDF        |        2.782 µs |       4.472 µs |          **1.61x** |
-| Gaussian 2D       |        3.827 µs |       6.288 µs |          **1.64x** |
-| Maxwell-Boltzmann |        4.513 µs |       5.989 µs |          **1.33x** |
-| Lorentz Factor    |        1.565 µs |       2.318 µs |          **1.48x** |
-| Lennard-Jones     |        2.261 µs |       3.605 µs |          **1.59x** |
-| Logistic Sigmoid  |        1.594 µs |       2.170 µs |          **1.36x** |
-| Damped Oscillator |        1.812 µs |       2.549 µs |          **1.41x** |
-| Planck Blackbody  |        2.741 µs |       4.051 µs |          **1.48x** |
-| Bessel Wave       |        1.621 µs |       2.269 µs |          **1.40x** |
+| Normal PDF        |        2.814 µs |       4.378 µs |          **1.56x** |
+| Gaussian 2D       |        3.884 µs |       6.081 µs |          **1.57x** |
+| Maxwell-Boltzmann |        4.529 µs |       5.901 µs |          **1.30x** |
+| Lorentz Factor    |        1.574 µs |       2.227 µs |          **1.41x** |
+| Lennard-Jones     |        2.303 µs |       3.400 µs |          **1.48x** |
+| Logistic Sigmoid  |        1.639 µs |       2.063 µs |          **1.26x** |
+| Damped Oscillator |        1.743 µs |       2.487 µs |          **1.43x** |
+| Planck Blackbody  |        2.823 µs |       3.898 µs |          **1.38x** |
+| Bessel Wave       |        1.538 µs |       2.253 µs |          **1.47x** |
 
 > **Result:** SymbAnaFis parses **1.3x - 1.6x** faster than Symbolica.
 
@@ -63,29 +63,29 @@
 
 | Expression        | SA (diff_only) | Symbolica (diff) | SA Speedup |
 | ----------------- | -------------: | ---------------: | ---------: |
-| Normal PDF        |       1.318 µs |         1.650 µs |  **1.25x** |
-| Gaussian 2D       |       1.090 µs |         2.216 µs |  **2.03x** |
-| Maxwell-Boltzmann |       1.705 µs |         3.248 µs |  **1.90x** |
-| Lorentz Factor    |       1.442 µs |         1.818 µs |  **1.26x** |
-| Lennard-Jones     |       1.673 µs |         1.847 µs |  **1.10x** |
-| Logistic Sigmoid  |       0.824 µs |         1.125 µs |  **1.37x** |
-| Damped Oscillator |       1.168 µs |         1.597 µs |  **1.37x** |
-| Planck Blackbody  |       1.770 µs |         3.028 µs |  **1.71x** |
-| Bessel Wave       |       1.638 µs |         1.631 µs |  **1.00x** |
+| Normal PDF        |       1.380 µs |         1.614 µs |  **1.17x** |
+| Gaussian 2D       |       1.084 µs |         2.174 µs |  **2.00x** |
+| Maxwell-Boltzmann |       1.711 µs |         2.999 µs |  **1.75x** |
+| Lorentz Factor    |       1.484 µs |         1.793 µs |  **1.21x** |
+| Lennard-Jones     |       1.683 µs |         1.717 µs |  **1.02x** |
+| Logistic Sigmoid  |       0.855 µs |         1.119 µs |  **1.31x** |
+| Damped Oscillator |       1.202 µs |         1.472 µs |  **1.22x** |
+| Planck Blackbody  |       1.787 µs |         2.814 µs |  **1.58x** |
+| Bessel Wave       |       1.642 µs |         1.510 µs |  **0.92x** |
 
 ### SymbAnaFis Full Simplification Cost
 
 | Expression        | SA diff_only | SA diff+simplify |
 | ----------------- | -----------: | ---------------: |
-| Normal PDF        |     1.318 µs |        68.00 µs |
-| Gaussian 2D       |     1.090 µs |        64.68 µs |
-| Maxwell-Boltzmann |     1.705 µs |       122.30 µs |
-| Lorentz Factor    |     1.442 µs |       109.81 µs |
-| Lennard-Jones     |     1.673 µs |        17.12 µs |
-| Logistic Sigmoid  |     0.824 µs |        55.80 µs |
-| Damped Oscillator |     1.168 µs |        53.61 µs |
-| Planck Blackbody  |     1.770 µs |       146.29 µs |
-| Bessel Wave       |     1.638 µs |        61.89 µs |
+| Normal PDF        |     1.380 µs |        69.66 µs |
+| Gaussian 2D       |     1.084 µs |        66.25 µs |
+| Maxwell-Boltzmann |     1.711 µs |       127.25 µs |
+| Lorentz Factor    |     1.484 µs |       111.51 µs |
+| Lennard-Jones     |     1.683 µs |        17.28 µs |
+| Logistic Sigmoid  |     0.855 µs |        57.69 µs |
+| Damped Oscillator |     1.202 µs |        54.54 µs |
+| Planck Blackbody  |     1.787 µs |       150.10 µs |
+| Bessel Wave       |     1.642 µs |        63.50 µs |
 
 ---
 
@@ -95,29 +95,29 @@
 
 | Expression        | SymbAnaFis (Raw) | Symbolica (SY) | Speedup (SA vs SY) |
 | ----------------- | ---------------: | -------------: | -----------------: |
-| Normal PDF        |         1.455 µs |       8.836 µs |           **6.1x** |
-| Gaussian 2D       |         1.576 µs |       16.39 µs |          **10.4x** |
-| Maxwell-Boltzmann |         2.179 µs |       8.409 µs |           **3.9x** |
-| Lorentz Factor    |         1.409 µs |       4.866 µs |           **3.5x** |
-| Lennard-Jones     |         0.671 µs |       13.00 µs |          **19.4x** |
-| Logistic Sigmoid  |         0.974 µs |       4.864 µs |           **5.0x** |
-| Damped Oscillator |         1.420 µs |       7.395 µs |           **5.2x** |
-| Planck Blackbody  |         1.947 µs |       5.027 µs |           **2.6x** |
-| Bessel Wave       |         1.717 µs |    *(skipped)* |                  — |
+| Normal PDF        |         1.443 µs |       4.367 µs |           **3.0x** |
+| Gaussian 2D       |         1.592 µs |       4.736 µs |           **3.0x** |
+| Maxwell-Boltzmann |         2.140 µs |       7.722 µs |           **3.6x** |
+| Lorentz Factor    |         1.410 µs |       2.133 µs |           **1.5x** |
+| Lennard-Jones     |         0.651 µs |       12.83 µs |          **19.7x** |
+| Logistic Sigmoid  |         0.968 µs |       2.548 µs |           **2.6x** |
+| Damped Oscillator |         1.376 µs |       2.418 µs |           **1.8x** |
+| Planck Blackbody  |         1.916 µs |       4.779 µs |           **2.5x** |
+| Bessel Wave       |         1.707 µs |       2.211 µs |           **1.3x** |
 
 ### Simplified Compilation
 
 | Expression        | SymbAnaFis (Simplified) | Symbolica (SY) | Speedup (SA vs SY) |
 | ----------------- | ----------------------: | -------------: | -----------------: |
-| Normal PDF        |                1.210 µs |       8.836 µs |           **7.3x** |
-| Gaussian 2D       |                1.327 µs |       16.39 µs |          **12.4x** |
-| Maxwell-Boltzmann |                1.317 µs |       8.409 µs |           **6.4x** |
-| Lorentz Factor    |                1.146 µs |       4.866 µs |           **4.2x** |
-| Lennard-Jones     |                0.604 µs |       13.00 µs |          **21.5x** |
-| Logistic Sigmoid  |                1.121 µs |       4.864 µs |           **4.3x** |
-| Damped Oscillator |                1.151 µs |       7.395 µs |           **6.4x** |
-| Planck Blackbody  |                2.332 µs |       5.027 µs |           **2.2x** |
-| Bessel Wave       |                1.466 µs |    *(skipped)* |                  — |
+| Normal PDF        |                1.193 µs |       4.367 µs |           **3.7x** |
+| Gaussian 2D       |                1.331 µs |       4.736 µs |           **3.6x** |
+| Maxwell-Boltzmann |                1.300 µs |       7.722 µs |           **5.9x** |
+| Lorentz Factor    |                1.148 µs |       2.133 µs |           **1.9x** |
+| Lennard-Jones     |                0.583 µs |       12.83 µs |          **22.0x** |
+| Logistic Sigmoid  |                1.117 µs |       2.548 µs |           **2.3x** |
+| Damped Oscillator |                1.154 µs |       2.418 µs |           **2.1x** |
+| Planck Blackbody  |                2.310 µs |       4.779 µs |           **2.1x** |
+| Bessel Wave       |                1.468 µs |       2.211 µs |           **1.5x** |
 
 > **Result:** SymbAnaFis compiles **2.6x - 19.4x** faster than Symbolica (avg ~7.0x).
 
@@ -127,29 +127,29 @@
 
 | Expression        | SymbAnaFis (Raw) | Symbolica (SY) | SA vs SY |
 | ----------------- | ---------------: | -------------: | -------: |
-| Normal PDF        |         20.78 µs |       33.30 µs |    1.60x |
-| Gaussian 2D       |         23.30 µs |       33.83 µs |    1.45x |
-| Maxwell-Boltzmann |         34.47 µs |       42.55 µs |    1.23x |
-| Lorentz Factor    |         20.66 µs |       32.35 µs |    1.57x |
-| Lennard-Jones     |         29.36 µs |       34.63 µs |    1.18x |
-| Logistic Sigmoid  |         17.96 µs |       30.09 µs |    1.67x |
-| Damped Oscillator |         36.66 µs |       33.18 µs |    0.91x |
-| Planck Blackbody  |         44.18 µs |       32.54 µs |    0.74x |
-| Bessel Wave       |         92.81 µs |    *(skipped)* |        — |
+| Normal PDF        |         21.72 µs |       32.35 µs |    1.49x |
+| Gaussian 2D       |         24.57 µs |       33.98 µs |    1.38x |
+| Maxwell-Boltzmann |         39.49 µs |       41.50 µs |    1.05x |
+| Lorentz Factor    |         21.93 µs |       32.31 µs |    1.47x |
+| Lennard-Jones     |         32.23 µs |       34.83 µs |    1.08x |
+| Logistic Sigmoid  |         18.05 µs |       30.61 µs |    1.70x |
+| Damped Oscillator |         39.84 µs |       33.26 µs |    0.84x |
+| Planck Blackbody  |         48.62 µs |       32.22 µs |    0.66x |
+| Bessel Wave       |         91.54 µs |    *(skipped)* |        — |
 
 ### Simplified Evaluation
 
 | Expression        | SymbAnaFis (Simplified) | Symbolica (SY) | SA vs SY |
 | ----------------- | ----------------------: | -------------: | -------: |
-| Normal PDF        |                24.67 µs |       33.30 µs |    1.35x |
-| Gaussian 2D       |                23.93 µs |       33.83 µs |    1.41x |
-| Maxwell-Boltzmann |                37.09 µs |       42.55 µs |    1.15x |
-| Lorentz Factor    |                19.10 µs |       32.35 µs |    1.69x |
-| Lennard-Jones     |                29.15 µs |       34.63 µs |    1.19x |
-| Logistic Sigmoid  |                21.62 µs |       30.09 µs |    1.39x |
-| Damped Oscillator |                32.55 µs |       33.18 µs |    1.02x |
-| Planck Blackbody  |                48.79 µs |       32.54 µs |    0.67x |
-| Bessel Wave       |                79.50 µs |    *(skipped)* |        — |
+| Normal PDF        |                25.20 µs |       32.35 µs |    1.28x |
+| Gaussian 2D       |                25.87 µs |       33.98 µs |    1.31x |
+| Maxwell-Boltzmann |                40.41 µs |       41.50 µs |    1.03x |
+| Lorentz Factor    |                20.72 µs |       32.31 µs |    1.56x |
+| Lennard-Jones     |                31.71 µs |       34.83 µs |    1.10x |
+| Logistic Sigmoid  |                22.56 µs |       30.61 µs |    1.36x |
+| Damped Oscillator |                35.04 µs |       33.26 µs |    0.95x |
+| Planck Blackbody  |                51.67 µs |       32.22 µs |    0.62x |
+| Bessel Wave       |                81.78 µs |    *(skipped)* |        — |
 
 > **Result:** SymbAnaFis evaluation is competitive, with SA faster on 6/8 expressions (avg 1.29x vs SY).
 
@@ -159,15 +159,15 @@
 
 | Expression        | SA (Full Simp) | SA (No Simp) | Symbolica (SY) | SA Full vs SY | SA No-Simp vs SY |
 | ----------------- | -------------: | -----------: | -------------: | ------------: | ---------------: |
-| Normal PDF        |      110.89 µs |     26.88 µs |       49.29 µs |         0.44x |        **1.83x** |
-| Gaussian 2D       |      105.41 µs |     30.39 µs |       65.46 µs |         0.62x |        **2.15x** |
-| Maxwell-Boltzmann |      169.34 µs |     45.03 µs |      109.17 µs |         0.64x |        **2.43x** |
-| Lorentz Factor    |      133.12 µs |     25.62 µs |       53.96 µs |         0.41x |        **2.11x** |
-| Lennard-Jones     |       49.52 µs |     34.37 µs |       57.10 µs |         1.15x |        **1.66x** |
-| Logistic Sigmoid  |       81.22 µs |     22.12 µs |       43.08 µs |         0.53x |        **1.95x** |
-| Damped Oscillator |       90.64 µs |     41.52 µs |       75.45 µs |         0.83x |        **1.82x** |
-| Planck Blackbody  |      191.48 µs |     51.16 µs |       91.45 µs |         0.48x |        **1.79x** |
-| Bessel Wave       |      149.17 µs |     98.78 µs |    *(skipped)* |             — |                — |
+| Normal PDF        |      112.04 µs |     27.84 µs |       48.02 µs |         0.43x |        **1.72x** |
+| Gaussian 2D       |      106.53 µs |     31.75 µs |       54.29 µs |         0.51x |        **1.71x** |
+| Maxwell-Boltzmann |      179.36 µs |     48.03 µs |      108.55 µs |         0.60x |        **2.26x** |
+| Lorentz Factor    |      138.29 µs |     26.88 µs |       53.40 µs |         0.39x |        **1.99x** |
+| Lennard-Jones     |       52.68 µs |     37.03 µs |       57.71 µs |         1.10x |        **1.56x** |
+| Logistic Sigmoid  |       82.96 µs |     21.87 µs |       42.69 µs |         0.52x |        **1.95x** |
+| Damped Oscillator |       94.76 µs |     44.70 µs |       73.26 µs |         0.77x |        **1.64x** |
+| Planck Blackbody  |      207.38 µs |     57.71 µs |      100.03 µs |         0.48x |        **1.73x** |
+| Bessel Wave       |      154.79 µs |     99.91 µs |    *(skipped)* |             — |                — |
 
 > **Key Finding:** Without full simplification, SymbAnaFis beats Symbolica on **all 8 expressions** (avg **2.0x faster**).
 > The performance gap with full simplification is entirely due to deep algebraic restructuring (60-180µs overhead).
@@ -180,25 +180,25 @@
 
 | Operation                 | SymbAnaFis | Symbolica |      Speedup |
 | ------------------------- | ---------: | --------: | -----------: |
-| Parse                     |   84.75 µs | 106.74 µs | **SA 1.26x** |
-| Diff (no simplify)        |   65.11 µs | 115.44 µs | **SA 1.77x** |
-| Diff+Simplify             |   1.586 ms |         — |            — |
-| Compile (raw)             |  189.96 µs |  1.042 ms | **SA 5.49x** |
-| Compile (simplified)      |   82.71 µs |  1.042 ms | **SA 12.6x** |
-| Eval 1000pts (raw)        |   1.966 ms |  1.861 ms |      0.95x   |
-| Eval 1000pts (simplified) |   1.121 ms |  1.861 ms | **SA 1.66x** |
+| Parse                     |   80.47 µs |  90.27 µs | **SA 1.12x** |
+| Diff (no simplify)        |   64.93 µs |  79.46 µs | **SA 1.22x** |
+| Diff+Simplify             |   1.630 ms |         — |            — |
+| Compile (raw)             |  188.48 µs |  1.805 ms | **SA 9.58x** |
+| Compile (simplified)      |   81.52 µs |  1.805 ms | **SA 22.1x** |
+| Eval 1000pts (raw)        |   1.941 ms |  1.674 ms |      0.86x   |
+| Eval 1000pts (simplified) |   1.066 ms |  1.674 ms | **SA 1.57x** |
 
 ### 300 Terms
 
 | Operation                 | SymbAnaFis | Symbolica |      Speedup |
 | ------------------------- | ---------: | --------: | -----------: |
-| Parse                     |  276.57 µs | 343.46 µs | **SA 1.24x** |
-| Diff (no simplify)        |  205.93 µs | 379.91 µs | **SA 1.84x** |
-| Diff+Simplify             |   4.991 ms |         — |            — |
-| Compile (raw)             |   1.403 ms |  15.18 ms | **SA 10.8x** |
-| Compile (simplified)      |  455.28 µs |  15.18 ms | **SA 33.3x** |
-| Eval 1000pts (raw)        |   5.275 ms |  5.295 ms |      1.00x   |
-| Eval 1000pts (simplified) |   3.037 ms |  5.295 ms | **SA 1.74x** |
+| Parse                     |  263.68 µs | 273.34 µs | **SA 1.04x** |
+| Diff (no simplify)        |  204.02 µs | 234.66 µs | **SA 1.15x** |
+| Diff+Simplify             |   5.208 ms |         — |            — |
+| Compile (raw)             |   1.388 ms |   9.942 ms | **SA 7.16x** |
+| Compile (simplified)      |  445.63 µs |   9.942 ms | **SA 22.3x** |
+| Eval 1000pts (raw)        |   5.130 ms |   4.871 ms |      0.95x   |
+| Eval 1000pts (simplified) |   2.968 ms |   4.871 ms | **SA 1.64x** |
 
 ---
 
@@ -206,15 +206,15 @@
 
 | Expression        | Tree-Walk (1000 pts) | Compiled (1000 pts) |   Speedup |
 | ----------------- | -------------------: | ------------------: | --------: |
-| Normal PDF        |            484.91 µs |            26.20 µs | **18.5x** |
-| Gaussian 2D       |            502.91 µs |            26.25 µs | **19.2x** |
-| Maxwell-Boltzmann |            580.52 µs |            42.58 µs | **13.6x** |
-| Lorentz Factor    |            369.64 µs |            21.39 µs | **17.3x** |
-| Lennard-Jones     |            177.89 µs |            31.66 µs |  **5.6x** |
-| Logistic Sigmoid  |            483.30 µs |            22.90 µs | **21.1x** |
-| Damped Oscillator |            443.40 µs |            35.32 µs | **12.6x** |
-| Planck Blackbody  |            884.71 µs |            53.10 µs | **16.7x** |
-| Bessel Wave       |            564.91 µs |            82.01 µs |  **6.9x** |
+| Normal PDF        |            495.60 µs |            26.05 µs | **19.0x** |
+| Gaussian 2D       |            503.30 µs |            26.35 µs | **19.1x** |
+| Maxwell-Boltzmann |            583.32 µs |            42.02 µs | **13.9x** |
+| Lorentz Factor    |            373.72 µs |            21.80 µs | **17.1x** |
+| Lennard-Jones     |            180.37 µs |            31.31 µs |  **5.8x** |
+| Logistic Sigmoid  |            491.96 µs |            22.98 µs | **21.4x** |
+| Damped Oscillator |            451.07 µs |            35.90 µs | **12.6x** |
+| Planck Blackbody  |            884.91 µs |            52.27 µs | **16.9x** |
+| Bessel Wave       |            575.84 µs |            82.74 µs |  **7.0x** |
 
 ---
 
@@ -222,10 +222,10 @@
 
 | Points  | loop_evaluate | eval_batch (SIMD) |  Speedup |
 | ------- | ------------: | ----------------: | -------: |
-| 100     |      1.794 µs |          0.913 µs | **2.0x** |
-| 1,000   |      18.25 µs |          9.069 µs | **2.0x** |
-| 10,000  |     183.76 µs |         90.89  µs | **2.0x** |
-| 100,000 |      1.809 ms |          0.919 ms | **2.0x** |
+| 100     |      1.736 µs |          0.925 µs | **1.9x** |
+| 1,000   |      18.82 µs |          9.209 µs | **2.0x** |
+| 10,000  |     176.46 µs |         91.91 µs | **1.9x** |
+| 100,000 |      1.803 ms |          0.920 ms | **2.0x** |
 
 ---
 
@@ -233,9 +233,9 @@
 
 | Method                            |     Time | vs Sequential |
 | --------------------------------- | -------: | ------------: |
-| sequential_loops                  | 3.593 ms |      baseline |
-| eval_batch_per_expr (SIMD)        | 1.863 ms |   1.9x faster |
-| eval_f64_per_expr (SIMD+parallel) | 599.0 µs |   6.0x faster |
+| sequential_loops                  | 3.697 ms |      baseline |
+| eval_batch_per_expr (SIMD)        | 1.872 ms |   2.0x faster |
+| eval_f64_per_expr (SIMD+parallel) | 529.0 µs |   7.0x faster |
 
 ---
 
@@ -243,8 +243,8 @@
 
 | API                        |      Time |
 | -------------------------- | --------: |
-| `eval_f64` (SIMD+parallel) |  38.72 µs |
-| `evaluate_parallel`        | 231.63 µs |
+| `eval_f64` (SIMD+parallel) |  32.86 µs |
+| `evaluate_parallel`        | 176.29 µs |
 
 ---
 
@@ -264,4 +264,3 @@
 - Use `eval_f64` for single evaluations with SIMD+parallel benefits.
 - For batch evaluations, leverage `eval_batch` or `eval_f64_per_expr` for massive speedups.
 - SymbAnaFis excels in compilation and evaluation, especially without heavy simplification.
-

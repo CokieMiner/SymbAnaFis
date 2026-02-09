@@ -1,12 +1,17 @@
 use crate::simplification::rules::Rule;
 use std::sync::Arc;
 
+/// Angle-related trigonometric rules
 pub mod angles;
 /// Trigonometric simplification rules
 pub mod basic;
+/// Trigonometric identities
 pub mod identities;
+/// Inverse trigonometric function rules
 pub mod inverse;
+/// Trigonometric transformations
 pub mod transformations;
+/// Triple angle formulas
 pub mod triple_angle;
 
 /// Get all trigonometric rules in priority order

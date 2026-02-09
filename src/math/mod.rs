@@ -27,10 +27,14 @@
 use crate::core::traits::MathScalar;
 
 // Submodules for different function categories
+/// Bessel functions
 pub mod bessel;
 pub mod dual;
+/// Elliptic integrals
 pub mod elliptic;
+/// Polynomial functions
 pub mod polynomials;
+/// Special mathematical functions
 pub mod special;
 
 // Re-exports for backward compatibility

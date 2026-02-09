@@ -14,6 +14,7 @@ type PartialDerivativeFn = Arc<dyn Fn(&[Arc<RustExpr>]) -> RustExpr + Send + Syn
 /// Python wrapper for expression contexts
 #[pyclass(unsendable, name = "Context")]
 pub struct PyContext {
+    /// The inner Rust context
     pub inner: RustContext,
 }
 
@@ -164,6 +165,7 @@ impl PyContext {
         Ok(self_)
     }
 
+    /// Get string representation of the context
     fn __repr__(&self) -> String {
         format!(
             "Context(id={}, symbols={})",
@@ -185,6 +187,7 @@ pub struct PyFunctionContext {
 
 #[pymethods]
 impl PyFunctionContext {
+    /// Create a new `PyFunctionContext`
     #[new]
     fn new() -> Self {
         Self {

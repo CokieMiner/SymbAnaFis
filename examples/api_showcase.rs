@@ -67,6 +67,7 @@ fn main() {
 // ======================================================================
 // SECTION 1: QUICK START
 // ======================================================================
+/// Quick start section
 fn section_quick_start() {
     println!("================================================================");
     println!("1. QUICK START");
@@ -88,6 +89,7 @@ fn section_quick_start() {
 // ======================================================================
 // SECTION 2: SYMBOL MANAGEMENT
 // ======================================================================
+/// Symbol management section
 fn section_symbol_management() {
     println!("================================================================");
     println!("2. SYMBOL MANAGEMENT");
@@ -139,6 +141,7 @@ fn section_symbol_management() {
 // ======================================================================
 // SECTION 3: CORE FUNCTIONS
 // ======================================================================
+/// Core functions section
 fn section_core_functions() {
     println!("================================================================");
     println!("3. CORE FUNCTIONS");
@@ -175,6 +178,7 @@ fn section_core_functions() {
 // ======================================================================
 // SECTION 4: BUILDER PATTERN API
 // ======================================================================
+/// Builder pattern API section
 fn section_builder_pattern_api() {
     println!("================================================================");
     println!("4. BUILDER PATTERN API");
@@ -228,6 +232,7 @@ fn section_builder_pattern_api() {
 // ======================================================================
 // SECTION 5: EXPRESSION OUTPUT
 // ======================================================================
+/// Expression output section
 fn section_expression_output() {
     println!("================================================================");
     println!("5. EXPRESSION OUTPUT");
@@ -260,6 +265,7 @@ fn section_expression_output() {
 // ======================================================================
 // SECTION 6: UNCERTAINTY PROPAGATION
 // ======================================================================
+/// Uncertainty propagation section
 fn section_uncertainty_propagation() {
     println!("================================================================");
     println!("6. UNCERTAINTY PROPAGATION");
@@ -311,6 +317,7 @@ fn section_uncertainty_propagation() {
 // ======================================================================
 // SECTION 7: CUSTOM FUNCTIONS
 // ======================================================================
+/// Custom functions section
 fn section_custom_functions() {
     println!("================================================================");
     println!("7. CUSTOM FUNCTIONS");
@@ -355,6 +362,7 @@ fn section_custom_functions() {
 // ======================================================================
 // SECTION 8: EVALUATION
 // ======================================================================
+/// Evaluation section
 fn section_evaluation() {
     println!("================================================================");
     println!("8. EVALUATION");
@@ -390,6 +398,7 @@ fn section_evaluation() {
 // ======================================================================
 // SECTION 9: VECTOR CALCULUS
 // ======================================================================
+/// Vector calculus section
 fn section_vector_calculus() {
     println!("================================================================");
     println!("9. VECTOR CALCULUS");
@@ -420,6 +429,7 @@ fn section_vector_calculus() {
 // ======================================================================
 // SECTION 10: AUTOMATIC DIFFERENTIATION
 // ======================================================================
+/// Automatic differentiation section
 fn section_automatic_differentiation() {
     println!("================================================================");
     println!("10. AUTOMATIC DIFFERENTIATION");
@@ -465,6 +475,7 @@ fn section_automatic_differentiation() {
 // SECTION 11: PARALLEL EVALUATION (requires "parallel" feature)
 // ======================================================================
 #[cfg(feature = "parallel")]
+/// Parallel evaluation section
 fn section_parallel_evaluation() {
     use symb_anafis::eval_f64;
 
@@ -488,6 +499,7 @@ fn section_parallel_evaluation() {
 // ======================================================================
 // SECTION 12: COMPILATION & PERFORMANCE
 // ======================================================================
+/// Compilation and performance section
 fn section_compilation_and_performance() {
     println!("================================================================");
     println!("12. COMPILATION & PERFORMANCE");
@@ -537,6 +549,7 @@ fn section_compilation_and_performance() {
 // ======================================================================
 // SECTION 13: BUILT-IN FUNCTIONS
 // ======================================================================
+/// Built-in functions section
 fn section_builtin_functions() {
     println!("================================================================");
     println!("13. BUILT-IN FUNCTIONS");
@@ -594,6 +607,7 @@ fn section_builtin_functions() {
 // ======================================================================
 // SECTION 14: EXPRESSION SYNTAX
 // ======================================================================
+/// Expression syntax section
 fn section_expression_syntax() {
     println!("================================================================");
     println!("14. EXPRESSION SYNTAX");
@@ -634,6 +648,7 @@ fn section_expression_syntax() {
 // ======================================================================
 // SECTION 15: ERROR HANDLING
 // ======================================================================
+/// Error handling section
 fn section_error_handling() {
     println!("================================================================");
     println!("15. ERROR HANDLING");

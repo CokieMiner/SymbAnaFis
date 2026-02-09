@@ -328,6 +328,7 @@ rule!(
     }
 );
 
+/// Gets the hyperbolic function and its argument if the expression is a power of a hyperbolic function.
 fn get_hyperbolic_power(
     expr: &Expr,
     power: f64,
@@ -352,6 +353,7 @@ fn get_hyperbolic_power(
     None
 }
 
+/// Checks if the expression is cosh(x) - sinh(x).
 fn is_cosh_minus_sinh_term(expr: &Expr) -> Option<Expr> {
     // Sum([cosh(x), Product([-1, sinh(x)])])
     if let AstKind::Sum(terms) = &expr.kind
@@ -377,6 +379,7 @@ fn is_cosh_minus_sinh_term(expr: &Expr) -> Option<Expr> {
     None
 }
 
+/// Checks if the expression is cosh(x) + sinh(x).
 fn is_cosh_plus_sinh_term(expr: &Expr) -> Option<Expr> {
     // Sum([cosh(x), sinh(x)])
     if let AstKind::Sum(terms) = &expr.kind
@@ -522,6 +525,7 @@ rule!(
     }
 );
 
+/// Parses a function term to extract coefficient, argument, and power.
 fn parse_fn_term(
     expr: &Expr,
     func_name: &crate::core::symbol::InternedSymbol,

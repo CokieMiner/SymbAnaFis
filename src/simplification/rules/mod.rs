@@ -330,15 +330,24 @@ macro_rules! rule_with_helpers {
 /// Rules declare which expression kinds they can apply to
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum ExprKind {
+    /// Numeric literal
     Number,
+    /// Symbolic variable
     Symbol,
-    Sum,     // N-ary addition
-    Product, // N-ary multiplication
+    /// N-ary addition
+    Sum,
+    /// N-ary multiplication
+    Product,
+    /// Division
     Div,
+    /// Power/exponentiation
     Pow,
-    Function,   // Any function call
-    Derivative, // Partial derivative expression
-    Poly,       // Polynomial (don't trigger Sum rules)
+    /// Any function call
+    Function,
+    /// Partial derivative expression
+    Derivative,
+    /// Polynomial (don't trigger Sum rules)
+    Poly,
 }
 
 impl ExprKind {
@@ -361,14 +370,18 @@ impl ExprKind {
 
 /// Core trait for all simplification rules
 pub trait Rule {
+    /// Returns the unique name of this rule
     fn name(&self) -> &'static str;
+    /// Returns the priority of this rule (higher = applied first)
     fn priority(&self) -> i32;
     #[allow(
         dead_code,
         reason = "Legacy for categorizzation maybe useful in the future"
     )]
+    /// Returns the category of this rule
     fn category(&self) -> RuleCategory;
 
+    /// Returns whether this rule alters the domain of the expression (e.g., by removing singularities)
     fn alters_domain(&self) -> bool {
         false
     }
@@ -399,11 +412,17 @@ pub trait Rule {
 )]
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum RuleCategory {
-    Numeric,   // Constant folding, identities
-    Algebraic, // General algebraic rules
+    /// Constant folding, identities
+    Numeric,
+    /// General algebraic rules
+    Algebraic,
+    /// Trigonometric identities and simplifications
     Trigonometric,
+    /// Hyperbolic function rules
     Hyperbolic,
+    /// Exponential and logarithmic rules
     Exponential,
+    /// Root and radical simplifications
     Root,
 }
 
@@ -430,11 +449,16 @@ pub const ALL_EXPR_KINDS: &[ExprKind] = &[
 /// Uses `Arc<HashSet>` for cheap cloning (context is cloned per-node)
 #[derive(Clone, Default)]
 pub struct RuleContext {
+    /// Current recursion depth in the expression tree
     pub depth: usize,
+    /// Set of variable names in the expression
     pub variables: Arc<HashSet<String>>,
-    pub known_symbols: Arc<HashSet<String>>, // User-specified known symbols (parsing hints)
+    /// User-specified known symbols (parsing hints)
+    pub known_symbols: Arc<HashSet<String>>,
+    /// Whether to apply only domain-safe transformations
     pub domain_safe: bool,
-    pub custom_bodies: Arc<HashMap<String, BodyFn>>, // Custom function body definitions
+    /// Custom function body definitions
+    pub custom_bodies: Arc<HashMap<String, BodyFn>>,
 }
 
 impl std::fmt::Debug for RuleContext {
@@ -459,16 +483,19 @@ impl RuleContext {
         self.depth = depth;
     }
 
+    /// Sets the variables for this context.
     pub fn with_variables(mut self, variables: HashSet<String>) -> Self {
         self.variables = Arc::new(variables);
         self
     }
 
+    /// Sets the known symbols for this context.
     pub fn with_known_symbols(mut self, known_symbols: HashSet<String>) -> Self {
         self.known_symbols = Arc::new(known_symbols);
         self
     }
 
+    /// Sets the custom function bodies for this context.
     pub fn with_custom_bodies(mut self, custom_bodies: HashMap<String, BodyFn>) -> Self {
         self.custom_bodies = Arc::new(custom_bodies);
         self
@@ -495,6 +522,7 @@ pub mod hyperbolic;
 
 /// Rule Registry for dynamic loading and dependency management
 pub struct RuleRegistry {
+    /// All loaded rules in priority order
     pub(crate) rules: Vec<Arc<dyn Rule + Send + Sync>>,
     /// Rules indexed by expression kind for fast lookup
     rules_by_kind: HashMap<ExprKind, Vec<Arc<dyn Rule + Send + Sync>>>,
@@ -506,6 +534,7 @@ pub struct RuleRegistry {
 }
 
 impl RuleRegistry {
+    /// Creates a new empty rule registry.
     pub fn new() -> Self {
         Self {
             rules: Vec::new(),
@@ -515,6 +544,7 @@ impl RuleRegistry {
         }
     }
 
+    /// Loads all available simplification rules into the registry.
     pub fn load_all_rules(&mut self) {
         // Load rules from each category
         self.rules.extend(numeric::get_numeric_rules());
@@ -580,6 +610,7 @@ impl RuleRegistry {
     }
 
     #[inline]
+    /// Gets rules that specifically target the given function ID.
     pub fn get_specific_func_rules(&self, func_id: u64) -> &[Arc<dyn Rule + Send + Sync>] {
         self.rules_by_func
             .get(&func_id)
@@ -587,6 +618,7 @@ impl RuleRegistry {
     }
 
     #[inline]
+    /// Gets generic function rules that apply to all functions.
     pub fn get_generic_func_rules(&self) -> &[Arc<dyn Rule + Send + Sync>] {
         &self.generic_func_rules
     }

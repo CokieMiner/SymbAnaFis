@@ -311,6 +311,155 @@ def collect_variables(expr: Expr) -> set[str]:
     ...
 
 # =============================================================================
+# PyExprView Class
+# =============================================================================
+
+class PyExprView:
+    """
+    A view into an expression's structure for pattern matching and inspection.
+
+    This class provides a stable public API for examining expression structure
+    without exposing internal implementation details. It's useful for writing
+    custom export tools (e.g., LaTeX, Typst converters) or performing structural
+    analysis.
+
+    Properties:
+        kind: The expression kind ('Number', 'Symbol', 'Sum', 'Product', 'Div', 
+              'Pow', 'Function', 'Derivative')
+        value: For Number nodes, returns the numeric value (None for other kinds)
+        name: For Symbol/Function nodes, returns the name (None for other kinds)
+        children: For composite nodes, returns list of child Expr objects
+        derivative_var: For Derivative nodes, returns the variable name (None otherwise)
+        derivative_order: For Derivative nodes, returns the order (None otherwise)
+
+    Example:
+        >>> expr = parse("x^2 + sin(y)")
+        >>> view = expr.view()
+        >>> view.kind
+        'Sum'
+        >>> len(view.children)
+        2
+        >>> view.children[0].view().kind
+        'Pow'
+    """
+
+    @property
+    def kind(self) -> str:
+        """
+        The kind of expression node.
+        
+        Returns one of: 'Number', 'Symbol', 'Sum', 'Product', 'Div', 'Pow',
+        'Function', 'Derivative'
+        """
+        ...
+
+    @property
+    def value(self) -> Optional[float]:
+        """
+        For Number nodes, returns the numeric value.
+        
+        Returns None for non-number nodes.
+        """
+        ...
+
+    @property
+    def name(self) -> Optional[str]:
+        """
+        For Symbol or Function nodes, returns the name.
+        
+        For anonymous symbols, returns a string like "$123" where 123 is the ID.
+        Returns None for non-symbol/non-function nodes.
+        """
+        ...
+
+    @property
+    def children(self) -> List[Expr]:
+        """
+        For composite nodes (Sum, Product, Function, etc.), returns child expressions.
+        
+        Returns empty list for leaf nodes (Number, Symbol).
+        """
+        ...
+
+    @property
+    def derivative_var(self) -> Optional[str]:
+        """
+        For Derivative nodes, returns the variable being differentiated with respect to.
+        
+        Returns None for non-derivative nodes.
+        """
+        ...
+
+    @property
+    def derivative_order(self) -> Optional[int]:
+        """
+        For Derivative nodes, returns the order of differentiation.
+        
+        Returns None for non-derivative nodes.
+        """
+        ...
+
+    @property
+    def is_number(self) -> bool:
+        """Check if this is a Number node."""
+        ...
+
+    @property
+    def is_symbol(self) -> bool:
+        """Check if this is a Symbol node."""
+        ...
+
+    @property
+    def is_sum(self) -> bool:
+        """Check if this is a Sum node."""
+        ...
+
+    @property
+    def is_product(self) -> bool:
+        """Check if this is a Product node."""
+        ...
+
+    @property
+    def is_div(self) -> bool:
+        """Check if this is a Div (division) node."""
+        ...
+
+    @property
+    def is_pow(self) -> bool:
+        """Check if this is a Pow (power) node."""
+        ...
+
+    @property
+    def is_function(self) -> bool:
+        """Check if this is a Function node."""
+        ...
+
+    @property
+    def is_derivative(self) -> bool:
+        """Check if this is a Derivative node."""
+        ...
+
+    def __len__(self) -> int:
+        """Return the number of children (0 for leaf nodes)."""
+        ...
+
+    def __getitem__(self, idx: int) -> Expr:
+        """
+        Get a child expression by index.
+        
+        Raises IndexError if index is out of bounds.
+        """
+        ...
+
+    def __str__(self) -> str:
+        """String representation showing kind and basic info."""
+        ...
+
+    def __repr__(self) -> str:
+        """Detailed string representation."""
+        ...
+
+# =============================================================================
 # Parallel Evaluation (feature-gated)
 # =============================================================================
 
@@ -579,6 +728,23 @@ class Expr:
         """Simplify this expression."""
         ...
 
+    def view(self) -> "PyExprView":
+        """
+        Get a view of this expression's structure for pattern matching.
+
+        Returns a PyExprView that exposes the expression's kind and components
+        without accessing private internal representations.
+
+        Example:
+            >>> expr = parse("x + y")
+            >>> view = expr.view()
+            >>> view.kind
+            'Sum'
+            >>> len(view.children)
+            2
+        """
+        ...
+
 # =============================================================================
 # Diff Builder Class
 # =============================================================================
@@ -712,6 +878,24 @@ class Symbol:
 
     def __init__(self, name: str) -> None:
         """Create or get a symbol by name."""
+        ...
+
+    @staticmethod
+    def anon() -> "Symbol":
+        """
+        Create a new anonymous symbol.
+
+        Anonymous symbols have a unique ID but no string name.
+        They cannot be retrieved by name and are useful for intermediate computations.
+
+        Returns:
+            A new anonymous symbol.
+
+        Example:
+            >>> anon = Symbol.anon()
+            >>> expr = anon + 1
+            >>> print(expr)  # Shows as "$123" where 123 is the unique ID
+        """
         ...
 
     def __str__(self) -> str: ...

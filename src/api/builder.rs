@@ -26,12 +26,19 @@ use std::sync::Arc;
 /// Builder for differentiation operations
 #[derive(Clone, Default)]
 pub struct Diff {
+    /// Whether to apply only domain-safe transformations
     domain_safe: bool,
+    /// Whether to skip simplification after differentiation
     skip_simplification: bool,
+    /// User-defined functions
     user_fns: HashMap<String, UserFunction>,
+    /// Maximum recursion depth for differentiation
     max_depth: Option<usize>,
+    /// Maximum number of nodes in the expression tree
     max_nodes: Option<usize>,
+    /// Evaluation context
     context: Option<Context>,
+    /// Known symbols for parsing
     known_symbols: HashSet<String>,
 }
 
@@ -155,6 +162,7 @@ impl Diff {
         )
     }
 
+    /// Differentiates an expression with respect to a variable by name.
     pub(crate) fn differentiate_by_name(&self, expr: &Expr, var: &str) -> Result<Expr, DiffError> {
         if self.known_symbols.contains(var) {
             return Err(DiffError::VariableInBothFixedAndDiff {
@@ -260,11 +268,17 @@ impl Diff {
 /// Builder for simplification operations
 #[derive(Clone, Default)]
 pub struct Simplify {
+    /// Whether to apply only domain-safe transformations
     domain_safe: bool,
+    /// User-defined functions
     user_fns: HashMap<String, UserFunction>,
+    /// Maximum recursion depth for simplification
     max_depth: Option<usize>,
+    /// Maximum number of nodes in the expression tree
     max_nodes: Option<usize>,
+    /// Evaluation context
     context: Option<Context>,
+    /// Known symbols for parsing
     known_symbols: HashSet<String>,
 }
 

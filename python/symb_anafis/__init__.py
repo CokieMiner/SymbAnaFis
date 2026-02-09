@@ -32,6 +32,7 @@ from .symb_anafis import (  # type: ignore[import-not-found]
     Symbol,
     Context,
     CompiledEvaluator,
+    ExprView as PyExprView,
     # Multi-variable calculus (Expr API)
     gradient,
     hessian,
@@ -81,6 +82,7 @@ __all__ = [
     "Symbol",
     "Context",
     "CompiledEvaluator",
+    "PyExprView",
     # Multi-variable calculus (Expr API)
     "gradient",
     "hessian",

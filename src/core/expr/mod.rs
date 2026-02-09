@@ -73,8 +73,10 @@ pub use crate::core::traits::EPSILON;
 // EXPRESSION ID COUNTER AND CACHED CONSTANTS
 // =============================================================================
 
+/// Global counter for generating unique expression IDs
 static EXPR_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+/// Generate the next unique expression ID
 pub fn next_id() -> u64 {
     EXPR_ID_COUNTER.fetch_add(1, Ordering::Relaxed)
 }

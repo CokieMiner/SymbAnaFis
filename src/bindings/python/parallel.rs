@@ -109,61 +109,48 @@ pub mod parallel_impl {
             .collect();
 
         // Use the hint-based version to skip double-scan
-        parallel::evaluate_parallel_with_hint(exprs, vars, converted_values, Some(is_fully_numeric))
-            .map(|results| {
-                results
+        let results: Vec<Vec<parallel::EvalResult>> = parallel::evaluate_parallel_with_hint(
+            exprs,
+            vars,
+            converted_values,
+            Some(is_fully_numeric),
+        )?;
+
+        // Convert Rust results to Python objects
+        results
+            .into_iter()
+            .zip(was_expr.iter())
+            .map(|(expr_results, &input_was_expr)| {
+                expr_results
                     .into_iter()
-                    .zip(was_expr.iter())
-                    .map(|(expr_results, &input_was_expr)| {
-                        expr_results
-                            .into_iter()
-                            .map(|r| match r {
-                                // Result::map_or_else not suitable: both branches have side-effects
-                                #[allow(clippy::option_if_let_else, reason = "Result::map_or_else not suitable: both branches have side-effects")]
-                                parallel::EvalResult::String(s) => {
-                                    if let Ok(n) = s.parse::<f64>() {
-                                        // Numeric result → float
-                                        n.into_pyobject(py)
-                                            .expect("PyO3 object conversion failed")
-                                            .into_any()
-                                            .unbind()
-                                    } else {
-                                        // Symbolic result → str
-                                        s.into_pyobject(py)
-                                            .expect("PyO3 object conversion failed")
-                                            .into_any()
-                                            .unbind()
-                                    }
+                    .map(|r| -> PyResult<Py<PyAny>> {
+                        Ok(match r {
+                            parallel::EvalResult::String(s) => {
+                                if let Ok(n) = s.parse::<f64>() {
+                                    // Numeric result → float
+                                    n.into_pyobject(py)?.into_any().unbind()
+                                } else {
+                                    // Symbolic result → str
+                                    s.into_pyobject(py)?.into_any().unbind()
                                 }
-                                parallel::EvalResult::Expr(e) => {
-                                    if let crate::ExprKind::Number(n) = &e.kind {
-                                        // Numeric result → float
-                                        n.into_pyobject(py)
-                                            .expect("PyO3 object conversion failed")
-                                            .into_any()
-                                            .unbind()
-                                    } else if input_was_expr {
-                                        // Symbolic result, input was Expr → Expr
-                                        PyExpr(e)
-                                            .into_pyobject(py)
-                                            .expect("PyO3 object conversion failed")
-                                            .into_any()
-                                            .unbind()
-                                    } else {
-                                        // Symbolic result, input was str → str
-                                        e.to_string()
-                                            .into_pyobject(py)
-                                            .expect("PyO3 object conversion failed")
-                                            .into_any()
-                                            .unbind()
-                                    }
+                            }
+                            parallel::EvalResult::Expr(e) => {
+                                if let crate::ExprKind::Number(n) = &e.kind {
+                                    // Numeric result → float
+                                    n.into_pyobject(py)?.into_any().unbind()
+                                } else if input_was_expr {
+                                    // Symbolic result, input was Expr → Expr
+                                    PyExpr(e).into_pyobject(py)?.into_any().unbind()
+                                } else {
+                                    // Symbolic result, input was str → str
+                                    e.to_string().into_pyobject(py)?.into_any().unbind()
                                 }
-                            })
-                            .collect()
+                            }
+                        })
                     })
-                    .collect()
+                    .collect::<PyResult<Vec<_>>>()
             })
-            .map_err(Into::into)
+            .collect::<PyResult<Vec<_>>>()
     }
 
     /// High-performance parallel batch evaluation for multiple expressions.
@@ -262,11 +249,7 @@ pub mod parallel_impl {
             Ok(arr.into_any().unbind())
         } else {
             // Return standard Python list of lists
-            Ok(results
-                .into_pyobject(py)
-                .expect("PyO3 object conversion failed")
-                .into_any()
-                .unbind())
+            Ok(results.into_pyobject(py)?.into_any().unbind())
         }
     }
 }

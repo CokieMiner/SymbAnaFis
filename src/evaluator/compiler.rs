@@ -1359,6 +1359,7 @@ impl<'ctx> Compiler<'ctx> {
         }
     }
 
+    /// Compiles an unknown function by checking if it exists in the user-defined function context.
     fn compile_unknown_function(
         &self,
         func_name: &InternedSymbol,

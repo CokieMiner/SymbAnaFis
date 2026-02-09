@@ -23,6 +23,7 @@ use symb_anafis::{CompiledEvaluator, Diff, Simplify, parse, symb};
 // Parsing Benchmarks
 // =============================================================================
 
+/// Benchmark parsing performance for all expressions
 fn bench_parse(c: &mut Criterion) {
     let mut group = c.benchmark_group("1_parse");
     let empty = HashSet::new();
@@ -40,6 +41,7 @@ fn bench_parse(c: &mut Criterion) {
 // Differentiation Benchmarks
 // =============================================================================
 
+/// Benchmark differentiation performance for all expressions
 fn bench_diff(c: &mut Criterion) {
     let mut group = c.benchmark_group("2_diff");
     let empty = HashSet::new();
@@ -66,6 +68,7 @@ fn bench_diff(c: &mut Criterion) {
 // Differentiation + Simplification Benchmarks
 // =============================================================================
 
+/// Benchmark differentiation with simplification performance for all expressions
 fn bench_diff_simplified(c: &mut Criterion) {
     let mut group = c.benchmark_group("3_diff_simplified");
     let empty = HashSet::new();
@@ -92,6 +95,7 @@ fn bench_diff_simplified(c: &mut Criterion) {
 // Simplification Only Benchmarks
 // =============================================================================
 
+/// Benchmark simplification performance for all expressions
 fn bench_simplify_only(c: &mut Criterion) {
     let mut group = c.benchmark_group("4_simplify");
     let empty = HashSet::new();
@@ -120,6 +124,7 @@ fn bench_simplify_only(c: &mut Criterion) {
 // Compilation Benchmarks
 // =============================================================================
 
+/// Benchmark compilation performance for raw and simplified expressions
 fn bench_compile(c: &mut Criterion) {
     let mut group = c.benchmark_group("5_compile");
     let empty = HashSet::new();
@@ -163,6 +168,7 @@ fn bench_compile(c: &mut Criterion) {
 // Evaluation Benchmarks (1000 points)
 // =============================================================================
 
+/// Benchmark evaluation performance for 1000 points on compiled expressions
 fn bench_eval(c: &mut Criterion) {
     let mut group = c.benchmark_group("6_eval_1000pts");
     let empty = HashSet::new();
@@ -246,6 +252,7 @@ fn bench_eval(c: &mut Criterion) {
 // Full Pipeline Benchmark (End-to-End)
 // =============================================================================
 
+/// Benchmark full pipeline performance: parse, diff, simplify, compile, eval 1000 points
 fn bench_full_pipeline(c: &mut Criterion) {
     let mut group = c.benchmark_group("7_full_pipeline");
 
@@ -296,6 +303,7 @@ fn bench_full_pipeline(c: &mut Criterion) {
     group.finish();
 }
 
+/// Benchmark full pipeline performance without simplification: parse, `diff(no_simp)`, compile, eval 1000 points
 fn bench_full_pipeline_no_simp(c: &mut Criterion) {
     let mut group = c.benchmark_group("8_full_pipeline_no_simp");
 

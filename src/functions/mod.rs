@@ -4,6 +4,7 @@
 //! including their derivative formulas.
 
 pub mod definitions;
+/// Function registry and management
 pub mod registry;
 
 // ===== Helper functions for building derivative expressions =====

@@ -14,11 +14,13 @@ type PartialDerivativeFn = Arc<dyn Fn(&[Arc<RustExpr>]) -> RustExpr + Send + Syn
 /// Builder for differentiation operations
 #[pyclass(name = "Diff")]
 pub struct PyDiff {
+    /// The inner Rust Diff builder
     pub inner: builder::Diff,
 }
 
 #[pymethods]
 impl PyDiff {
+    /// Create a new Diff builder
     #[new]
     fn new() -> Self {
         Self {
@@ -26,11 +28,13 @@ impl PyDiff {
         }
     }
 
+    /// Set domain safety for differentiation
     fn domain_safe(mut self_: PyRefMut<'_, Self>, safe: bool) -> PyRefMut<'_, Self> {
         self_.inner = self_.inner.clone().domain_safe(safe);
         self_
     }
 
+    /// Set a fixed variable for differentiation
     fn fixed_var<'py>(
         mut self_: PyRefMut<'py, Self>,
         var: &Bound<'_, PyAny>,
@@ -47,6 +51,7 @@ impl PyDiff {
         Ok(self_)
     }
 
+    /// Set multiple fixed variables for differentiation
     fn fixed_vars<'py>(
         mut self_: PyRefMut<'py, Self>,
         vars: Vec<Bound<'_, PyAny>>,
@@ -65,16 +70,19 @@ impl PyDiff {
         Ok(self_)
     }
 
+    /// Set maximum depth for differentiation
     fn max_depth(mut self_: PyRefMut<'_, Self>, depth: usize) -> PyRefMut<'_, Self> {
         self_.inner = self_.inner.clone().max_depth(depth);
         self_
     }
 
+    /// Set maximum nodes for differentiation
     fn max_nodes(mut self_: PyRefMut<'_, Self>, nodes: usize) -> PyRefMut<'_, Self> {
         self_.inner = self_.inner.clone().max_nodes(nodes);
         self_
     }
 
+    /// Set context for differentiation
     fn with_context<'py>(
         mut self_: PyRefMut<'py, Self>,
         context: &'py super::context::PyContext,
@@ -157,10 +165,12 @@ impl PyDiff {
         Ok(self_)
     }
 
+    /// Differentiate a string formula
     fn diff_str(&self, formula: &str, var: &str) -> PyResult<String> {
         self.inner.diff_str(formula, var, &[]).map_err(Into::into)
     }
 
+    /// Differentiate an expression
     fn differentiate(
         &self,
         expr: &Bound<'_, PyAny>,
@@ -187,11 +197,13 @@ impl PyDiff {
 /// Builder for simplification operations
 #[pyclass(name = "Simplify")]
 pub struct PySimplify {
+    /// The inner Rust Simplify builder
     pub inner: builder::Simplify,
 }
 
 #[pymethods]
 impl PySimplify {
+    /// Create a new Simplify builder
     #[new]
     fn new() -> Self {
         Self {
@@ -199,11 +211,13 @@ impl PySimplify {
         }
     }
 
+    /// Set domain safety for simplification
     fn domain_safe(mut self_: PyRefMut<'_, Self>, safe: bool) -> PyRefMut<'_, Self> {
         self_.inner = self_.inner.clone().domain_safe(safe);
         self_
     }
 
+    /// Set a fixed variable for simplification
     fn fixed_var<'py>(
         mut self_: PyRefMut<'py, Self>,
         var: &Bound<'_, PyAny>,
@@ -220,6 +234,7 @@ impl PySimplify {
         Ok(self_)
     }
 
+    /// Set multiple fixed variables for simplification
     fn fixed_vars<'py>(
         mut self_: PyRefMut<'py, Self>,
         vars: Vec<Bound<'_, PyAny>>,
@@ -238,16 +253,19 @@ impl PySimplify {
         Ok(self_)
     }
 
+    /// Set maximum depth for simplification
     fn max_depth(mut self_: PyRefMut<'_, Self>, depth: usize) -> PyRefMut<'_, Self> {
         self_.inner = self_.inner.clone().max_depth(depth);
         self_
     }
 
+    /// Set maximum nodes for simplification
     fn max_nodes(mut self_: PyRefMut<'_, Self>, nodes: usize) -> PyRefMut<'_, Self> {
         self_.inner = self_.inner.clone().max_nodes(nodes);
         self_
     }
 
+    /// Set context for simplification
     fn with_context<'py>(
         mut self_: PyRefMut<'py, Self>,
         context: &'py super::context::PyContext,
@@ -256,6 +274,7 @@ impl PySimplify {
         self_
     }
 
+    /// Simplify an expression
     fn simplify(&self, expr: &Bound<'_, PyAny>) -> PyResult<super::expr::PyExpr> {
         let rust_expr = super::expr::extract_to_expr(expr)?;
         self.inner
@@ -264,6 +283,7 @@ impl PySimplify {
             .map_err(Into::into)
     }
 
+    /// Simplify a string formula
     fn simplify_str(&self, formula: &str) -> PyResult<String> {
         self.inner.simplify_str(formula, &[]).map_err(Into::into)
     }

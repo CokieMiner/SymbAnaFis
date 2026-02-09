@@ -41,6 +41,7 @@ struct HashKeyedCache {
 }
 
 impl HashKeyedCache {
+    /// Creates a new empty cache.
     fn new() -> Self {
         Self {
             entries: FxHashMap::default(),
@@ -91,10 +92,13 @@ impl HashKeyedCache {
     }
 
     #[inline]
+    /// Returns the total number of cached entries.
+    /// Returns the total number of cached entries.
     const fn len(&self) -> usize {
         self.len
     }
 
+    /// Clears all cached entries.
     fn clear(&mut self) {
         self.entries.clear();
         self.len = 0;
@@ -143,10 +147,15 @@ pub struct Simplifier {
     /// Per-rule caches using hash-keyed storage for O(1) lookups without Arc cloning.
     /// Uses &'static str keys since rule names are guaranteed to be static.
     rule_caches: FxHashMap<&'static str, HashKeyedCache>,
+    /// Maximum number of entries per rule cache
     cache_capacity: usize,
+    /// Maximum number of simplification iterations
     max_iterations: usize,
+    /// Maximum depth for recursive simplifications
     max_depth: usize,
+    /// Context containing variables, known symbols, and custom functions
     context: RuleContext,
+    /// Whether to apply only domain-safe transformations
     domain_safe: bool,
 }
 
@@ -157,6 +166,7 @@ impl Default for Simplifier {
 }
 
 impl Simplifier {
+    /// Creates a new simplifier with default settings.
     pub fn new() -> Self {
         // Use global registry instead of rebuilding each time
         Self {
@@ -169,31 +179,37 @@ impl Simplifier {
         }
     }
 
+    /// Sets the maximum number of simplification iterations.
     pub const fn with_max_iterations(mut self, max_iterations: usize) -> Self {
         self.max_iterations = max_iterations;
         self
     }
 
+    /// Sets the maximum depth for recursive simplifications.
     pub const fn with_max_depth(mut self, max_depth: usize) -> Self {
         self.max_depth = max_depth;
         self
     }
 
+    /// Enables or disables domain-safe transformations.
     pub const fn with_domain_safe(mut self, domain_safe: bool) -> Self {
         self.domain_safe = domain_safe;
         self
     }
 
+    /// Sets the variables to consider during simplification.
     pub fn with_variables(mut self, variables: HashSet<String>) -> Self {
         self.context = self.context.with_variables(variables);
         self
     }
 
+    /// Sets the known symbols for simplification.
     pub fn with_known_symbols(mut self, known_symbols: HashSet<String>) -> Self {
         self.context = self.context.with_known_symbols(known_symbols);
         self
     }
 
+    /// Sets custom function bodies.
     pub fn with_custom_bodies(
         mut self,
         custom_bodies: HashMap<String, crate::core::unified_context::BodyFn>,

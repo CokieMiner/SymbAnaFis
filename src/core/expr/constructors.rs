@@ -679,6 +679,7 @@ impl Expr {
 // HELPER FUNCTIONS
 // =============================================================================
 
+/// Finalize a sum expression from a flattened list of terms
 fn finalize_sum(mut flat: Vec<Arc<Expr>>) -> Expr {
     let len = flat.len();
     if len == 2 {

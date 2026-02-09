@@ -53,22 +53,25 @@ pub fn symb_new_isolated(name: &str) -> Symbol {
 // Global Symbol Registry
 // ============================================================================
 
+/// Number of shards for the symbol registry
 const NUM_SHARDS: usize = 16;
 
+/// A shard of the symbol registry for name-to-key mapping
 struct RegistryShard {
-    // Use FxHashMap for faster lookups with short symbol names
+    /// Mapping from symbol names to their keys
     name_to_symbol_key: FxHashMap<String, DefaultKey>,
 }
 
 /// Unified symbol registry storage
 struct SymbolRegistry {
-    // Shards for Name -> Symbol mapping to reduce contention
+    /// Shards for Name -> Symbol mapping to reduce contention
     shards: [Mutex<RegistryShard>; NUM_SHARDS],
-    // ID -> Symbol mapping using SlotMap for memory efficiency and safe key generation
+    /// ID -> Symbol mapping using `SlotMap` for memory efficiency and safe key generation
     id_to_data: RwLock<SlotMap<DefaultKey, InternedSymbol>>,
 }
 
 impl SymbolRegistry {
+    /// Create a new symbol registry
     fn new() -> Self {
         let shards: [Mutex<RegistryShard>; NUM_SHARDS] = std::array::from_fn(|_| {
             Mutex::new(RegistryShard {

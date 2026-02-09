@@ -298,6 +298,7 @@ impl Rule for FractionCancellationRule {
 }
 
 // Helper function to get factors from an expression
+/// Gets the factors from an expression, returning them as Arc<Expr>.
 fn get_factors_arcs(expr: &Arc<Expr>) -> Vec<Arc<Expr>> {
     match &expr.kind {
         AstKind::Product(factors) => factors.clone(),

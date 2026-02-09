@@ -38,13 +38,16 @@ flowchart TB
 
     subgraph "Core AST"
         C1["Expr"]
-        C2["ExprKind
+        C2["ExprKind (Private)
         Number | Symbol | Sum | Product
         Div | Pow | FunctionCall | Poly
         Derivative"]
         C3["InternedSymbol
         (Copy, O(1) compare)
         Used for symbols AND function names"]
+        C4["ExprView (Public Facade)
+        Number | Symbol | Sum | Product
+        Div | Pow | Function | Derivative"]
     end
 
     subgraph "Differentiation Engine"
@@ -85,7 +88,10 @@ flowchart TB
 
     P1 --> P2 --> P3 --> P4 --> C1
     C1 --> C2
+    C1 -->|"view()"| C4
+    C2 -.->|"Abstraction"| C4
     C2 --> C3
+    C4 -.-> C3
 
     B1 --> D1
     D1 --> D2 --> D3 --> D4 --> D5
@@ -178,7 +184,7 @@ flowchart TB
     O4 --> Result["Expr (unsimplified)"]
 ```
 
-### Key Differentation Features
+### Key Differentiation Features
 
 | Feature                         | Implementation                                                             |
 | ------------------------------- | -------------------------------------------------------------------------- |
@@ -670,6 +676,54 @@ pub enum ExprKind {
 - **`Arc<Expr>`** for sharing subexpressions (e.g., in `x + x`)
 - **Binary operators** as separate variants (faster pattern matching than n-ary)
 - **`Derivative`** variant for unevaluated partial derivatives
+
+### 1.5 View API Implementation (`core/visitor.rs`)
+
+The `ExprView` enum acts as a **public facade** over the internal `ExprKind`.
+
+```mermaid
+classDiagram
+    class Expr {
+        +kind: ExprKind
+        +view() ExprView
+    }
+
+    class ExprKind {
+        <<Internal>>
+        Sum(Vec)
+        Poly(Poly)
+        Symbol(Interned)
+    }
+
+    class ExprView {
+        <<Public Facade>>
+        Sum(Cow)
+        Symbol(Cow)
+    }
+
+    Expr --> ExprKind : Stores
+    Expr --> ExprView : Creates on view()
+    ExprKind ..> ExprView : Maps Poly -> Sum
+```
+
+**Architecture Strategy:**
+1.  **Optimization Hiding**: `ExprKind::Poly` is a highly optimized internal format (Horner's form, dense coefficients). The View API exposes it as `ExprView::Sum` so users see logical terms.
+2.  **Zero-Cost Abstraction**: `ExprView` uses `Cow<'a, [Arc<Expr>]>`. For normal `Sum` variants, it returns `Cow::Borrowed`. For `Poly`, it allocates a temporary `Vec` and returns `Cow::Owned`.
+3.  **Stability**: We can change `Poly` to `MultivariatePoly` later without breaking the `ExprView::Sum` public contract.
+
+### 1.6 Traversal Semantics: Visitor vs. View
+
+There is an intentional divergence in how traversal works between the optimized internal structure and the logical view, particularly for Polynomials.
+
+| Feature | `Visitor` API (`walk_expr`) | `View` API (`expr.view()`) |
+| :--- | :--- | :--- |
+| **Perspective** | **Structural / Memory** | **Logical / Mathematical** |
+| **Poly Handling** | Visits the **Base Variable** only | Expands to **Sum of Terms** |
+| **Node Count** | `x + x^2` (Poly) → **1 node** (x) | `x + x^2` (Sum) → **2 terms** (+ their children) |
+
+**Why?**
+*   **Visitor:** Needs to be fast and reflect actual memory usage. Traversing the internal `Poly` structure (just the base `x` and coefficients) is O(1) regarding terms.
+*   **View:** Needs to be consistent for external tools. Users expect `x + x^2` to look like a sum, regardless of whether the engine optimized it into a Horner polynomial internally.
 
 ### 2. Symbol System (`symbol.rs`)
 

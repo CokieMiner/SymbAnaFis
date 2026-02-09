@@ -396,6 +396,24 @@ pub use uncertainty::{CovEntry, CovarianceMatrix, relative_uncertainty, uncertai
 /// Advanced APIs for extending functionality.
 ///
 /// - [`visitor`] - Visitor pattern for custom AST traversal and transformation
+/// - [`visitor::ExprView`] - Pattern-matchable view of expressions
+/// - [`Expr::view()`] - Get an `ExprView` for pattern matching without exposing internals
+///
+/// # Expression Inspection
+///
+/// Use `expr.view()` to pattern match on expression structure:
+///
+/// ```rust
+/// # use symb_anafis::{symb, visitor::ExprView};
+/// let x = symb("inspect_x");
+/// let expr = x.pow(2.0) + x;
+///
+/// match expr.view() {
+///     ExprView::Sum(terms) => { /* handle sum */ }
+///     ExprView::Number(n) => { /* handle number */ }
+///     _ => { /* other cases */ }
+/// }
+/// ```
 pub use core::visitor;
 
 // === Optional Features ===

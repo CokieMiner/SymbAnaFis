@@ -78,6 +78,7 @@ fn symb_anafis(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyDual>()?;
     m.add_class::<PyDiff>()?;
     m.add_class::<PySimplify>()?;
+    m.add_class::<PyExprView>()?;
 
     // Add functions
     m.add_function(wrap_pyfunction!(diff, m)?)?;

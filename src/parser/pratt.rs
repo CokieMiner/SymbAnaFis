@@ -27,23 +27,30 @@ pub fn parse_expression(
     parser.parse_expr(0)
 }
 
+/// Pratt parser for expressions
 struct Parser<'tokens, 'src> {
+    /// The tokens to parse
     tokens: &'tokens [Token<'src>],
+    /// Current position in the token stream
     pos: usize,
+    /// Optional context for parsing
     context: Option<&'tokens Context>,
 }
 
 impl<'src> Parser<'_, 'src> {
+    /// Get the current token
     #[inline]
     fn current(&self) -> Option<&Token<'src>> {
         self.tokens.get(self.pos)
     }
 
+    /// Advance to the next token
     #[inline]
     const fn advance(&mut self) {
         self.pos += 1;
     }
 
+    /// Parse an expression with precedence
     fn parse_expr(&mut self, min_precedence: u8) -> Result<Expr, DiffError> {
         // Parse left side (prefix)
         let mut left = self.parse_prefix()?;
@@ -114,6 +121,7 @@ impl<'src> Parser<'_, 'src> {
         }
     }
 
+    /// Parse function arguments
     fn parse_arguments(&mut self) -> Result<Vec<Expr>, DiffError> {
         let mut args = Vec::new();
 
@@ -144,6 +152,7 @@ impl<'src> Parser<'_, 'src> {
         Ok(args)
     }
 
+    /// Parse a prefix expression
     #[allow(
         clippy::too_many_lines,
         reason = "Complex prefix parsing logic handles multiple token types"
@@ -319,6 +328,7 @@ impl<'src> Parser<'_, 'src> {
         }
     }
 
+    /// Parse infix operator expression
     fn parse_infix(&mut self, left: Expr, precedence: u8) -> Result<Expr, DiffError> {
         let token = self
             .tokens

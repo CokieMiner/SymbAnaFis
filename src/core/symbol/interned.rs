@@ -11,7 +11,9 @@ use slotmap::{DefaultKey, Key};
 /// This is Clone-cheap because it only contains a key and an Arc.
 #[derive(Debug, Clone)]
 pub struct InternedSymbol {
+    /// The unique key for this symbol
     key: DefaultKey,
+    /// The optional name of the symbol
     name: Option<Arc<str>>,
 }
 
@@ -92,6 +94,9 @@ impl std::fmt::Display for InternedSymbol {
 // Allow conversion to &str for APIs that need it
 impl AsRef<str> for InternedSymbol {
     fn as_ref(&self) -> &str {
+        // Note: For anonymous symbols, we can't return a $ID string here
+        // because this must return &str, not String. The Display trait
+        // handles formatting anonymous symbols as "$ID".
         self.name.as_deref().unwrap_or("")
     }
 }

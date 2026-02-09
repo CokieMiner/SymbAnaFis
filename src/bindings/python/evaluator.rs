@@ -10,6 +10,7 @@ use pyo3::prelude::*;
 /// Python wrapper for compiled evaluators
 #[pyclass(unsendable, name = "CompiledEvaluator")]
 pub struct PyCompiledEvaluator {
+    /// The underlying Rust compiled evaluator
     evaluator: RustCompiledEvaluator,
 }
 
@@ -98,12 +99,8 @@ impl PyCompiledEvaluator {
             // Return NumPy array (this copies the result, but input was zero-copy)
             Ok(PyArray1::from_vec(py, output).into_any().unbind())
         } else {
-            // Return standard Python list
-            Ok(output
-                .into_pyobject(py)
-                .expect("PyO3 object conversion failed")
-                .into_any()
-                .unbind())
+            // Return standard Python list - use ? to preserve PyO3's error type
+            Ok(output.into_pyobject(py)?.into_any().unbind())
         }
     }
 

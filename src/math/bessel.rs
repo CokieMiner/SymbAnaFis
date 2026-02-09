@@ -658,6 +658,7 @@ pub fn bessel_k0<T: MathScalar>(x: T) -> T {
     }
 }
 
+/// Computes the modified Bessel function of the second kind of order 1.
 pub fn bessel_k1<T: MathScalar>(x: T) -> T {
     const COEFFS: [f64; 7] = [
         1.0,

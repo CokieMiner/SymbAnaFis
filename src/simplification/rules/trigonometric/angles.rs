@@ -194,6 +194,7 @@ rule_with_helpers_arc!(
     }
 );
 
+/// Checks if the expression is cos(x) - sin(x).
 fn is_cos_minus_sin(expr: &Expr) -> bool {
     // In n-ary, cos(x) - sin(x) = Sum([cos(x), Product([-1, sin(x)])])
     // Or with new ordering: Sum([Product([-1, sin(x)]), cos(x)])
@@ -226,6 +227,7 @@ fn is_cos_minus_sin(expr: &Expr) -> bool {
     false
 }
 
+/// Checks if the expression is cos(x) + sin(x).
 fn is_cos_plus_sin(expr: &Expr) -> bool {
     // cos(x) + sin(x) can appear as either [cos, sin] or [sin, cos]
     if let AstKind::Sum(terms) = &expr.kind {
@@ -239,14 +241,17 @@ fn is_cos_plus_sin(expr: &Expr) -> bool {
     }
 }
 
+/// Checks if the expression is cos(x).
 fn is_cos(expr: &Expr) -> bool {
     matches!(&expr.kind, AstKind::FunctionCall { name, args } if name.id() == KS.cos && args.len() == 1)
 }
 
+/// Checks if the expression is sin(x).
 fn is_sin(expr: &Expr) -> bool {
     matches!(&expr.kind, AstKind::FunctionCall { name, args } if name.id() == KS.sin && args.len() == 1)
 }
 
+/// Gets the argument of a cos function as Arc<Expr>.
 fn get_cos_arg_arc(expr: &Expr) -> Option<Arc<Expr>> {
     if let AstKind::FunctionCall { name, args } = &expr.kind {
         (name.id() == KS.cos && args.len() == 1).then(|| Arc::clone(&args[0]))
@@ -263,6 +268,7 @@ fn get_cos_arg_arc(expr: &Expr) -> Option<Arc<Expr>> {
     }
 }
 
+/// Gets the argument of a sin function as Arc<Expr>.
 fn get_sin_arg_arc(expr: &Expr) -> Option<Arc<Expr>> {
     if let AstKind::FunctionCall { name, args } = &expr.kind {
         (name.id() == KS.sin && args.len() == 1).then(|| Arc::clone(&args[0]))

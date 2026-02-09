@@ -213,7 +213,9 @@ For fine-grained control, use `Diff` and `Simplify` builders.
 ### `Diff` Builder
 
 ```rust
-use symb_anafis::{Diff, symb, UserFunction};
+use symb_anafis::{Context, Diff, symb, UserFunction};
+
+let ctx = Context::new();
 
 let result = Diff::new()
     .domain_safe(true)       // Preserve mathematical domains
@@ -226,7 +228,7 @@ let result = Diff::new()
     .diff_str("a * f(x)", "x", &[])?;
 ```
 
-| `with_context(&Context)`      | Sets the symbol context for variable resolution.                                                                            |
+| `with_context(&Context)`      | Sets the symbol context for variable resolution.|
 
 > [!TIP]
 > **Python API:** `fixed_var` and `fixed_vars` support duck typing. You can pass either strings or `Symbol` objects. `differentiate` also accepts both strings and `Symbol` objects for the variable argument.
@@ -244,7 +246,7 @@ let result = Simplify::new()
 // Without: "x + a"
 ```
 
-| `with_context(&Context)`      | Sets the symbol context.                                  |
+| `with_context(&Context)`      |Sets the symbol context.                        |
 
 > [!TIP]
 > **Python API:** `fixed_var` and `fixed_vars` in `Simplify` also support duck typing (Strings or `Symbol` objects).
@@ -1266,7 +1268,7 @@ All functions return `Result<T, DiffError>`:
 use symb_anafis::{Diff, DiffError};
 
 let diff = Diff::new();
-match diff.diff_str("invalid syntax ((", "x") {
+match diff.diff_str("invalid syntax ((", "x")) {
     Ok(result) => println!("Result: {}", result),
     Err(DiffError::InvalidSyntax { msg, .. }) => println!("Parse error: {}", msg),
     Err(e) => println!("Other error: {:?}", e),

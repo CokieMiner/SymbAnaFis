@@ -10,6 +10,7 @@ use crate::core::traits::EPSILON;
 /// e^x has argument x, e^(-x) has argument -x, 1/e^x has argument -x
 #[derive(Debug, Clone)]
 pub struct ExpTerm {
+    /// The argument of the exponential term
     pub arg: Expr,
 }
 

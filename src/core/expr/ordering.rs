@@ -70,6 +70,7 @@ const fn type_order(kind: &ExprKind) -> u8 {
 // Helper to get the sorting "base" of an expression.
 // e.g., for `3*x^2`, the base is `x`. For `sin(t)`, the base is `sin(t)`.
 #[inline]
+/// Get the sorting base of an expression
 fn get_base(e: &Expr) -> &Expr {
     match &e.kind {
         ExprKind::Pow(b, _) => b.as_ref(),
@@ -86,6 +87,7 @@ fn get_base(e: &Expr) -> &Expr {
 // Helper to get the sorting "exponent" of an expression.
 // e.g., for `3*x^2`, the exponent is `2`. For `x`, it's `1`.
 #[inline]
+/// Get the sorting exponent of an expression
 fn get_exponent(e: &Expr) -> &Expr {
     match &e.kind {
         ExprKind::Pow(_, exp) => exp.as_ref(),
@@ -101,6 +103,7 @@ fn get_exponent(e: &Expr) -> &Expr {
 // Helper to get the coefficient of an expression.
 // e.g., for `3*x^2`, the coeff is `3.0`. For `x`, it's `1.0`.
 #[inline]
+/// Get the coefficient of an expression
 fn get_coeff(e: &Expr) -> f64 {
     match &e.kind {
         ExprKind::Product(factors) if factors.len() == 2 => {

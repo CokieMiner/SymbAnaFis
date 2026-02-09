@@ -14,93 +14,158 @@ fn intern_id(name: &str) -> u64 {
 /// Collection of pre-interned symbol IDs for all built-in mathematical functions.
 pub struct KnownSymbols {
     // Roots
+    /// Square root function
     pub sqrt: u64,
+    /// Cube root function
     pub cbrt: u64,
 
     // Exponential / Log
+    /// Exponential function
     pub exp: u64,
+    /// Natural logarithm
     pub ln: u64,
+    /// General logarithm
     pub log: u64,
+    /// Base-10 logarithm
     pub log10: u64,
+    /// Base-2 logarithm
     pub log2: u64,
 
     // Trigonometric
+    /// Sine function
     pub sin: u64,
+    /// Cosine function
     pub cos: u64,
+    /// Tangent function
     pub tan: u64,
+    /// Cotangent function
     pub cot: u64,
+    /// Secant function
     pub sec: u64,
+    /// Cosecant function
     pub csc: u64,
 
     // Inverse Trigonometric
+    /// Inverse sine
     pub asin: u64,
+    /// Inverse cosine
     pub acos: u64,
+    /// Inverse tangent
     pub atan: u64,
+    /// Two-argument inverse tangent
     pub atan2: u64,
+    /// Inverse cotangent
     pub acot: u64,
+    /// Inverse secant
     pub asec: u64,
+    /// Inverse cosecant
     pub acsc: u64,
 
     // Hyperbolic
+    /// Hyperbolic sine
     pub sinh: u64,
+    /// Hyperbolic cosine
     pub cosh: u64,
+    /// Hyperbolic tangent
     pub tanh: u64,
+    /// Hyperbolic cotangent
     pub coth: u64,
+    /// Hyperbolic secant
     pub sech: u64,
+    /// Hyperbolic cosecant
     pub csch: u64,
 
     // Inverse Hyperbolic
+    /// Inverse hyperbolic sine
     pub asinh: u64,
+    /// Inverse hyperbolic cosine
     pub acosh: u64,
+    /// Inverse hyperbolic tangent
     pub atanh: u64,
+    /// Inverse hyperbolic cotangent
     pub acoth: u64,
+    /// Inverse hyperbolic secant
     pub asech: u64,
+    /// Inverse hyperbolic cosecant
     pub acsch: u64,
 
     // Special
+    /// Absolute value
     pub abs: u64,
+    /// Sign function
     pub signum: u64,
 
     // Rounding functions
+    /// Floor function
     pub floor: u64,
+    /// Ceiling function
     pub ceil: u64,
+    /// Round function
     pub round: u64,
 
     // Aliases found in codebase (for compatibility)
+    /// Sign function alias
     pub sign: u64,
+    /// Sign function alias
     pub sgn: u64,
 
     // Other special functions
+    /// Error function
     pub erf: u64,
+    /// Complementary error function
     pub erfc: u64,
+    /// Gamma function
     pub gamma: u64,
+    /// Digamma function
     pub digamma: u64,
+    /// Trigamma function
     pub trigamma: u64,
+    /// Beta function
     pub beta: u64,
+    /// Bessel function of the first kind
     pub besselj: u64,
+    /// Bessel function of the second kind
     pub bessely: u64,
+    /// Modified Bessel function of the first kind
     pub besseli: u64,
+    /// Modified Bessel function of the second kind
     pub besselk: u64,
+    /// Polygamma function
     pub polygamma: u64,
+    /// Tetragamma function
     pub tetragamma: u64,
+    /// Sinc function
     pub sinc: u64,
+    /// Lambert W function
     pub lambertw: u64,
+    /// Complete elliptic integral of the first kind
     pub elliptic_k: u64,
+    /// Complete elliptic integral of the second kind
     pub elliptic_e: u64,
+    /// Riemann zeta function
     pub zeta: u64,
+    /// Derivative of Riemann zeta function
     pub zeta_deriv: u64,
+    /// Hermite polynomial
     pub hermite: u64,
+    /// Associated Legendre polynomial
     pub assoc_legendre: u64,
+    /// Spherical harmonic
     pub spherical_harmonic: u64,
+    /// Spherical harmonic Ynm
     pub ynm: u64,
+    /// Exponential in polar form
     pub exp_polar: u64,
 
     // Constants sometimes used as symbols
+    /// Pi constant
     pub pi: u64,
+    /// Euler's number
     pub e: u64,
 }
 
 impl KnownSymbols {
+    /// Create a new instance of `KnownSymbols`
     fn new() -> Self {
         Self {
             sqrt: intern_id("sqrt"),

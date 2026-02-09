@@ -98,9 +98,6 @@ Use the Builder pattern to configure safety limits and behavior.
 ```rust
 use symb_anafis::{Diff, Simplify};
 
-```rust
-use symb_anafis::{Diff, Simplify};
-
 Diff::new()
     .domain_safe(true)     // Prevent unsafe simplifications (e.g., x/x != 1 if x=0)
     .max_depth(200)        // Prevent stack overflows on massive expressions
@@ -151,7 +148,7 @@ Diff::new()
         // Clone the Arc (cheap), then multiply
         2.0 * args[0].clone()  
     }).unwrap())
-    .diff_str("f(x^2)", "x", &[])?; // → 4*x
+    .diff_str("f(x^2)", "x", &[])?; // → 4*x^3
 ```
 
 ## Supported Functions
@@ -196,7 +193,7 @@ If you use SymbAnaFis in academic work, please cite:
   title        = {SymbAnaFis: High-Performance Symbolic Mathematics Library},
   year         = {2026},
   url          = {https://github.com/CokieMiner/SymbAnaFis},
-  version      = {0.7.0}
+  version      = {0.8.0}
 }
 ```
 

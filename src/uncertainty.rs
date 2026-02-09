@@ -68,6 +68,7 @@ impl From<Expr> for CovEntry {
 /// The diagonal elements are the variances: Cov(x, x) = `σ_x²`
 #[derive(Debug, Clone)]
 pub struct CovarianceMatrix {
+    /// The covariance matrix entries
     entries: Vec<Vec<CovEntry>>,
 }
 

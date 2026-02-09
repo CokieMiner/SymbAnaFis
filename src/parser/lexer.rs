@@ -33,6 +33,7 @@ use std::collections::HashSet;
 // Keeping them separate allows the lexer to work with raw strings without needing
 // to know about the Operator type's internal structure. If you add a new function,
 // add it to BOTH this list AND the Operator enum in tokens.rs.
+/// List of builtin function names for lexical analysis
 const BUILTINS: &[&str] = &[
     "sin",
     "sen",
@@ -104,6 +105,7 @@ use std::sync::OnceLock;
 /// Initialized once on first access
 static BUILTINS_SET: OnceLock<HashSet<&'static str>> = OnceLock::new();
 
+/// Get the set of builtin function names
 fn get_builtins_set() -> &'static HashSet<&'static str> {
     BUILTINS_SET.get_or_init(|| BUILTINS.iter().copied().collect())
 }
@@ -189,12 +191,19 @@ fn parse_number(s: &str) -> Result<f64, DiffError> {
 /// Raw token before symbol resolution
 #[derive(Debug, Clone)]
 enum RawToken<'src> {
+    /// Numeric literal
     Number(f64),
-    Sequence(Cow<'src, str>),   // Multi-char sequence to be resolved
-    Operator(char),             // Single-char operator: +, *, ^
-    Derivative(Cow<'src, str>), // Derivative notation starting with ∂
+    /// Multi-character sequence to be resolved
+    Sequence(Cow<'src, str>),
+    /// Single-character operator: +, *, ^
+    Operator(char),
+    /// Derivative notation starting with ∂
+    Derivative(Cow<'src, str>),
+    /// Left parenthesis
     LeftParen,
+    /// Right parenthesis
     RightParen,
+    /// Comma separator
     Comma,
 }
 

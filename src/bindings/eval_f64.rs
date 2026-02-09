@@ -105,6 +105,7 @@ pub fn run_chunked_evaluator(
     Ok(())
 }
 
+/// Evaluates a single expression in chunks for parallel processing.
 fn eval_single_expr_chunked<V: ToParamName>(
     expr: &Expr,
     vars: &[V],

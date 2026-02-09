@@ -15,6 +15,7 @@ use std::collections::HashSet;
 use symb_anafis::{CompiledEvaluator, Diff, parse, symb};
 
 // Benchmark expressions (copied from benches/rust/expressions.rs)
+/// Array of benchmark expressions with names, formulas, differentiation variables, and parameters
 const ALL_EXPRESSIONS: &[(&str, &str, &str, &[&str])] = &[
     (
         "Normal PDF",

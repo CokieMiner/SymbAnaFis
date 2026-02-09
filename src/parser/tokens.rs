@@ -7,16 +7,27 @@ use std::borrow::Cow;
 /// Token types produced by the lexer
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token<'src> {
+    /// Numeric literal
     Number(f64),
+    /// Variable or function name
     Identifier(Cow<'src, str>),
+    /// Binary or unary operator
     Operator(Operator),
+    /// Left parenthesis
     LeftParen,
+    /// Right parenthesis
     RightParen,
+    /// Argument separator
     Comma,
+    /// Derivative notation like d^n f(x)/dx^n
     Derivative {
+        /// Derivative order
         order: u32,
+        /// Function name
         func: Cow<'src, str>,
+        /// Function arguments
         args: Vec<Self>,
+        /// Differentiation variable
         var: Cow<'src, str>,
     },
 }
@@ -44,95 +55,159 @@ impl Token<'_> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Operator {
     // Arithmetic
+    /// Addition operator
     Add,
+    /// Subtraction operator
     Sub,
+    /// Multiplication operator
     Mul,
+    /// Division operator
     Div,
+    /// Power operator (both ^ and **)
     Pow, // Both ^ and **
 
     // Trigonometric
+    /// Sine function
     Sin,
+    /// Cosine function
     Cos,
+    /// Tangent function
     Tan,
+    /// Cotangent function
     Cot,
+    /// Secant function
     Sec,
+    /// Cosecant function
     Csc,
 
     // Inverse Trigonometric
+    /// Inverse sine function
     Asin,
+    /// Inverse cosine function
     Acos,
+    /// Inverse tangent function
     Atan,
+    /// Two-argument inverse tangent function
     Atan2,
+    /// Inverse cotangent function
     Acot,
+    /// Inverse secant function
     Asec,
+    /// Inverse cosecant function
     Acsc,
 
     // Logarithmic/Exponential
+    /// Natural logarithm function
     Ln,
+    /// Exponential function
     Exp,
 
     // Hyperbolic
+    /// Hyperbolic sine function
     Sinh,
+    /// Hyperbolic cosine function
     Cosh,
+    /// Hyperbolic tangent function
     Tanh,
+    /// Hyperbolic cotangent function
     Coth,
+    /// Hyperbolic secant function
     Sech,
+    /// Hyperbolic cosecant function
     Csch,
 
     // Inverse Hyperbolic (Tier 2)
+    /// Inverse hyperbolic sine function
     Asinh,
+    /// Inverse hyperbolic cosine function
     Acosh,
+    /// Inverse hyperbolic tangent function
     Atanh,
+    /// Inverse hyperbolic cotangent function
     Acoth,
+    /// Inverse hyperbolic secant function
     Asech,
+    /// Inverse hyperbolic cosecant function
     Acsch,
 
     // Roots
+    /// Square root function
     Sqrt,
+    /// Cube root function
     Cbrt,
 
     // Logarithmic variants (Tier 2)
+    /// General logarithm function with base
     Log, // log(x, base) - needs multi-arg support
+    /// Logarithm base 10 function
     Log10,
+    /// Logarithm base 2 function
     Log2,
 
     // Special (Tier 2)
+    /// Sinc function
     Sinc,
+    /// Exponential in polar form
     ExpPolar,
 
     // Utility Functions
+    /// Absolute value function
     Abs,
+    /// Signum function
     Signum,
+    /// Floor function
     Floor,
+    /// Ceiling function
     Ceil,
+    /// Round function
     Round,
 
     // Error & Probability (Tier 3)
+    /// Error function
     Erf,
+    /// Complementary error function
     Erfc,
 
     // Gamma functions (Tier 3)
+    /// Gamma function
     Gamma,
+    /// Digamma function
     Digamma,
+    /// Trigamma function
     Trigamma,
+    /// Tetragamma function
     Tetragamma,
+    /// Polygamma function
     Polygamma,
+    /// Beta function
     Beta,
+    /// Riemann zeta function
     Zeta,
+    /// Derivative of Riemann zeta function
     ZetaDeriv,
 
     // Bessel functions (Tier 3)
+    /// Bessel function of the first kind
     BesselJ,
+    /// Bessel function of the second kind
     BesselY,
+    /// Modified Bessel function of the first kind
     BesselI,
+    /// Modified Bessel function of the second kind
     BesselK,
 
     // Advanced (Tier 3)
+    /// Lambert W function
     LambertW,
+    /// Spherical harmonic function Y_{n,m}(theta, phi)
     Ynm,
+    /// Associated Legendre polynomial `P_n^m(x)`
     AssocLegendre,
+    /// Hermite polynomial `H_n(x)`
     Hermite,
+    /// Complete elliptic integral of the second kind E(k)
     EllipticE,
+    /// Complete elliptic integral of the first kind K(k)
     EllipticK,
 }
 

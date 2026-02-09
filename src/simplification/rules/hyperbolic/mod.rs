@@ -1,9 +1,13 @@
 use crate::simplification::rules::Rule;
 use std::sync::Arc;
 
+/// Hyperbolic function conversions
 pub mod conversions;
+/// Helper functions for hyperbolic rules
 mod helpers;
+/// Hyperbolic function identities
 pub mod identities;
+/// Hyperbolic function ratios
 pub mod ratios;
 
 pub use conversions::*;

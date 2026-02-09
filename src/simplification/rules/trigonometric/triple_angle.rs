@@ -3,6 +3,7 @@ use crate::core::known_symbols::{KS, get_symbol};
 use crate::core::traits::EPSILON;
 use crate::simplification::rules::{ExprKind, Rule, RuleCategory, RuleContext};
 
+/// Checks for the triple angle pattern 3*sin(x) - 4*sin^3(x).
 fn check_sin_triple(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
     // Check for 3*sin(x) - 4*sin^3(x) pattern
     if let AstKind::Product(factors) = &u.kind {
@@ -28,6 +29,7 @@ fn check_sin_triple(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
     None
 }
 
+/// Checks for the triple angle addition pattern 3*sin(x) + 4*sin^3(x).
 fn check_sin_triple_add(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
     // Check for 3*sin(x) + (-4*sin^3(x)) pattern
     if let AstKind::Product(factors) = &u.kind
@@ -72,6 +74,7 @@ fn check_sin_triple_add(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
     None
 }
 
+/// Checks for the triple angle pattern 4*cos^3(x) - 3*cos(x).
 fn check_cos_triple(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
     // Check for 4*cos^3(x) - 3*cos(x) pattern
     if let AstKind::Product(factors) = &u.kind
@@ -103,6 +106,7 @@ fn check_cos_triple(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
     None
 }
 
+/// Checks for the triple angle addition pattern 4*cos^3(x) + 3*cos(x).
 fn check_cos_triple_add(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
     // Check for 4*cos^3(x) + (-3*cos(x)) pattern
     if let AstKind::Product(factors) = &u.kind
@@ -162,7 +166,7 @@ fn check_cos_triple_add(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
     }
     None
 }
-
+/// Extracts sin^3(x) from an expression.
 fn extract_sin_cubed(expr: &Expr, x: &std::sync::Arc<Expr>, _eps: f64) -> Option<(f64, bool)> {
     // Match c * sin^3(x) pattern
     if let AstKind::Product(factors) = &expr.kind
@@ -184,7 +188,7 @@ fn extract_sin_cubed(expr: &Expr, x: &std::sync::Arc<Expr>, _eps: f64) -> Option
     }
     None
 }
-
+/// Extracts cos(x) from an expression.
 fn extract_cos(expr: &Expr, x: &std::sync::Arc<Expr>, _eps: f64) -> Option<(f64, bool)> {
     // Match c * cos(x) pattern
     if let AstKind::Product(factors) = &expr.kind

@@ -7,10 +7,11 @@ This directory contains examples demonstrating SymbAnaFis capabilities.
 | Example                       | Description                                 | Run With                                        |
 | ----------------------------- | ------------------------------------------- | ----------------------------------------------- |
 | **quickstart**                | Minimal 25-line demo                        | `cargo run --example quickstart`                |
-| **api_showcase**              | Complete API tour (15 sections)             | `cargo run --example api_showcase`              |
+| **api_showcase**              | Complete API tour (16 sections)             | `cargo run --example api_showcase`              |
 | **dual_autodiff**             | Automatic differentiation with dual numbers | `cargo run --example dual_autodiff`             |
 | **applications**              | Physics & engineering                       | `cargo run --example applications`              |
 | **simplification_comparison** | Compare against Symbolica CAS               | `cargo run --example simplification_comparison` |
+| **view_api_demo**             | View API pattern matching (Rust)            | `cargo run --example view_api_demo`             |
 
 ## Visual Benchmarks
 
@@ -112,4 +113,46 @@ Compares SymbAnaFis differentiation quality against the commercial Symbolica eng
 Input: 1/(1+exp(-k*(x-x0)))
 SymbAnaFis (Simplified): exp(-k*(x - x0))*k/(1 + exp(-k*(x - x0)))^2
 Symbolica:               k*(exp(-k*(x-x0))+1)^-2*exp(-k*(x-x0))
+```
+
+## view_api_demo.rs - Expression Structure Inspection (Rust)
+
+Demonstrates the View API for safe pattern matching on expression structure in Rust. Shows how to:
+- Inspect expression types without accessing internals
+- Recursively traverse expression trees
+- Convert expressions to custom formats (e.g., JSON-like)
+- Handle anonymous symbols
+- Use helper methods (`is_number()`, `is_symbol()`, etc.)
+
+The View API ensures your code won't break when internal optimizations change (e.g., polynomial representations).
+
+```bash
+cargo run --example view_api_demo
+```
+
+**Sample Output:**
+```text
+1. POLYNOMIAL: x^2 + 2*x + 1
+----------------------------------------------------------------------
+Expression: 1 + (2*x + x^2)
+View kind: "Sum"
+
+Structure:
+Sum (2 terms):
+  Number: 1
+  Sum (2 terms):
+    Product (2 factors):
+      Number: 2
+      Symbol: x
+    Power:
+      Base:
+        Symbol: x
+      Exponent:
+        Number: 2
+
+6. ANONYMOUS SYMBOLS
+----------------------------------------------------------------------
+Expression:   1 + $4294967362
+Symbol name:  $4294967362
+             (Note: anonymous symbols show as '$ID')
 ```

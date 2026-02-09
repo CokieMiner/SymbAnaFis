@@ -29,6 +29,7 @@ use symb_anafis::{CompiledEvaluator, parse};
 // Evaluation Method Comparison (1000 points)
 // =============================================================================
 
+/// Benchmark comparison of evaluation methods for 1000 points
 fn bench_eval_methods(c: &mut Criterion) {
     let mut group = c.benchmark_group("eval_methods_1000pts");
     let empty = HashSet::new();
@@ -140,6 +141,7 @@ fn bench_eval_methods(c: &mut Criterion) {
 // Scaling Benchmarks (varying point counts)
 // =============================================================================
 
+/// Benchmark evaluation scaling with varying point counts
 fn bench_eval_scaling(c: &mut Criterion) {
     let mut group = c.benchmark_group("eval_scaling");
     let empty = HashSet::new();
@@ -148,10 +150,11 @@ fn bench_eval_scaling(c: &mut Criterion) {
     // We use Lorentz factor: 1/sqrt(1 - v^2/c^2) with c=1, so only v is variable
     let expr_str = "1 / sqrt(1 - v^2)";
     let var = "v";
+    let no_fixed: &[&str] = &[][..];
 
-    let diff_str = symb_anafis::diff(expr_str, var, &[], None).unwrap();
+    let diff_str = symb_anafis::diff(expr_str, var, no_fixed, None).unwrap();
     let diff_expr = parse(&diff_str, &empty, &empty, None).unwrap();
-    let evaluator = CompiledEvaluator::compile(&diff_expr, &[var], None).unwrap();
+    let evaluator = CompiledEvaluator::compile(&diff_expr, &[var][..], None).unwrap();
 
     let point_counts = [100, 1000, 10_000, 100_000];
 
@@ -198,6 +201,7 @@ fn bench_eval_scaling(c: &mut Criterion) {
 // Multi-Expression Batch Benchmarks
 // =============================================================================
 
+/// Benchmark multi-expression batch evaluation
 fn bench_multi_expr(c: &mut Criterion) {
     let mut group = c.benchmark_group("multi_expr_batch");
     let empty = HashSet::new();
@@ -216,11 +220,12 @@ fn bench_multi_expr(c: &mut Criterion) {
     let mut evaluators = Vec::new();
     let mut vars = Vec::new();
     let mut test_data: Vec<Vec<f64>> = Vec::new();
+    let no_fixed: &[&str] = &[][..];
 
     for (_, expr_str, var) in &exprs_str {
-        let diff_str = symb_anafis::diff(expr_str, var, &[], None).unwrap();
+        let diff_str = symb_anafis::diff(expr_str, var, no_fixed, None).unwrap();
         let diff_expr = parse(&diff_str, &empty, &empty, None).unwrap();
-        if let Ok(eval) = CompiledEvaluator::compile(&diff_expr, &[var], None) {
+        if let Ok(eval) = CompiledEvaluator::compile(&diff_expr, &[var][..], None) {
             diff_exprs.push(diff_expr);
             evaluators.push(eval);
             vars.push(*var);
@@ -296,6 +301,7 @@ fn bench_multi_expr(c: &mut Criterion) {
 // eval_f64 vs evaluate_parallel Comparison
 // =============================================================================
 
+/// Benchmark comparison of `eval_f64` vs `evaluate_parallel` APIs
 fn bench_eval_apis(c: &mut Criterion) {
     let mut group = c.benchmark_group("eval_api_comparison");
     let empty = HashSet::new();
@@ -303,8 +309,9 @@ fn bench_eval_apis(c: &mut Criterion) {
     // Use a single-variable expression for fair comparison
     let expr_str = "1 / sqrt(1 - v^2)";
     let var = "v";
+    let no_fixed: &[&str] = &[][..];
 
-    let diff_str = symb_anafis::diff(expr_str, var, &[], None).unwrap();
+    let diff_str = symb_anafis::diff(expr_str, var, no_fixed, None).unwrap();
     let diff_expr = parse(&diff_str, &empty, &empty, None).unwrap();
 
     // Generate 10000 test points in valid domain
@@ -334,10 +341,10 @@ fn bench_eval_apis(c: &mut Criterion) {
         let exprs = vec![ExprInput::Parsed(diff_expr.clone())];
 
         b.iter(|| {
-            // Build values for each point
+            // Build values in correct format: values[expr_idx][var_idx][point_idx]
             let var_names = vec![vec![VarInput::from(var)]];
             let values: Vec<Vec<Vec<Value>>> =
-                vec![test_points.iter().map(|&v| vec![Value::Num(v)]).collect()];
+                vec![vec![test_points.iter().map(|&v| Value::Num(v)).collect()]];
 
             let result = evaluate_parallel(exprs.clone(), var_names, values).unwrap();
             // Sum results (extract f64 from EvalResult)

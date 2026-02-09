@@ -38,14 +38,18 @@ use std::sync::Arc;
 /// Internal display mode to consolidate redundant formatting logic
 #[derive(Clone, Copy)]
 enum FormatMode {
+    /// Standard mathematical notation
     Standard,
+    /// LaTeX mathematical notation
     Latex,
+    /// Unicode mathematical notation
     Unicode,
 }
 
 /// Cache for symbol names to avoid repetitive global registry lookups
 type SymbolCache = FxHashMap<u64, Arc<str>>;
 
+/// Collects all symbol names from an expression into a cache.
 fn collect_symbol_names(expr: &Expr, cache: &mut SymbolCache) {
     match &expr.kind {
         ExprKind::Symbol(s) => {
@@ -76,8 +80,11 @@ fn collect_symbol_names(expr: &Expr, cache: &mut SymbolCache) {
 }
 
 #[derive(Clone, Copy)]
+/// Context for determining when parentheses are needed in display
 enum ParenContext {
+    /// Within a sum or product expression
     SumOrProduct,
+    /// As the base of a power expression
     PowerBase,
 }
 
@@ -215,25 +222,30 @@ fn format_symbol_expr(
         return Err(fmt::Error);
     };
 
-    let name = cache.map_or_else(
+    let name_str = cache.map_or_else(
         || s.as_ref(),
         |c| c.get(&s.id()).map_or_else(|| s.as_ref(), Arc::as_ref),
     );
 
+    // Handle anonymous symbols (empty name)
+    if name_str.is_empty() {
+        return write!(f, "${}", s.id());
+    }
+
     match mode {
-        FormatMode::Standard => write!(f, "{name}"),
+        FormatMode::Standard => write!(f, "{name_str}"),
         FormatMode::Latex => {
-            if let Some(greek) = greek_to_latex(name) {
+            if let Some(greek) = greek_to_latex(name_str) {
                 write!(f, "{greek}")
             } else {
-                write!(f, "{name}")
+                write!(f, "{name_str}")
             }
         }
         FormatMode::Unicode => {
-            if let Some(greek) = greek_to_unicode(name) {
+            if let Some(greek) = greek_to_unicode(name_str) {
                 write!(f, "{greek}")
             } else {
-                write!(f, "{name}")
+                write!(f, "{name_str}")
             }
         }
     }
@@ -307,6 +319,7 @@ fn format_sum_expr(
     Ok(())
 }
 
+/// Format the negative part of an expression
 fn format_negative_part(
     f: &mut fmt::Formatter<'_>,
     neg: NegativeExtraction<'_>,
@@ -1108,8 +1121,11 @@ impl fmt::Display for Expr {
 // LATEX FORMATTER
 // =============================================================================
 
+/// LaTeX formatter for expressions
 pub struct LatexFormatter<'expr> {
+    /// The expression to format
     pub(crate) expr: &'expr Expr,
+    /// Optional symbol cache for formatting
     pub(crate) cache: Option<&'expr SymbolCache>,
 }
 
@@ -1124,6 +1140,7 @@ impl fmt::Display for LatexFormatter<'_> {
     clippy::too_many_lines,
     reason = "Display format naturally lengthy due to many expr kinds"
 )]
+/// Format an expression in LaTeX
 fn format_latex(
     expr: &Expr,
     f: &mut fmt::Formatter<'_>,
@@ -1175,8 +1192,11 @@ fn format_latex(
 // UNICODE FORMATTER
 // =============================================================================
 
+/// Unicode formatter for expressions
 pub struct UnicodeFormatter<'expr> {
+    /// The expression to format
     pub(crate) expr: &'expr Expr,
+    /// Optional symbol cache for formatting
     pub(crate) cache: Option<&'expr SymbolCache>,
 }
 
@@ -1187,6 +1207,7 @@ impl fmt::Display for UnicodeFormatter<'_> {
 }
 
 #[inline]
+/// Convert a character to its superscript equivalent
 const fn to_superscript(c: char) -> char {
     match c {
         '0' => '\u{2070}',
@@ -1208,6 +1229,7 @@ const fn to_superscript(c: char) -> char {
 }
 
 #[inline]
+/// Convert a number to its superscript string representation
 fn num_to_superscript(n: f64) -> String {
     if {
         #[allow(clippy::float_cmp, reason = "Checking for exact integer via trunc")]
@@ -1228,6 +1250,7 @@ fn num_to_superscript(n: f64) -> String {
     clippy::too_many_lines,
     reason = "Display format naturally lengthy due to many expr kinds"
 )]
+/// Format an expression in Unicode
 fn format_unicode(
     expr: &Expr,
     f: &mut fmt::Formatter<'_>,

@@ -2,12 +2,84 @@
 //!
 //! Provides methods for analyzing expression structure: `node_count`, depth, variables, etc.
 
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::sync::Arc;
 
 use super::{Expr, ExprKind};
 
 impl Expr {
+    // -------------------------------------------------------------------------
+    // View API - Public pattern matching
+    // -------------------------------------------------------------------------
+
+    /// Get a pattern-matchable view of this expression.
+    ///
+    /// Returns an `ExprView` that can be matched on without exposing internal
+    /// implementation details. This is the recommended way to inspect expression
+    /// structure from external code.
+    ///
+    /// # Important
+    ///
+    /// Polynomial expressions (`ExprKind::Poly`) are **always** presented as `Sum`
+    /// in the view. This ensures forward compatibility when the internal polynomial
+    /// representation changes (e.g., from univariate to multivariate).
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use symb_anafis::{symb, visitor::ExprView};
+    ///
+    /// let x = symb("view_api_x");
+    /// let expr = x.pow(2.0) + 2.0*x + 1.0;
+    ///
+    /// match expr.view() {
+    ///     ExprView::Sum(terms) => {
+    ///         println!("Converting sum with {} terms", terms.len());
+    ///     }
+    ///     ExprView::Number(n) => println!("Just a number: {}", n),
+    ///     ExprView::Symbol(name) => println!("Variable: {}", name),
+    ///     ExprView::Pow(base, exp) => println!("Power expression"),
+    ///     _ => println!("Other expression type"),
+    /// }
+    /// ```
+    ///
+    /// # Performance
+    ///
+    /// This method is zero-cost for most expression types (returns references).
+    /// Only polynomial expressions require allocation to expand into sum form.
+    #[must_use]
+    pub fn view(&self) -> crate::core::visitor::ExprView<'_> {
+        use crate::core::visitor::ExprView;
+
+        match &self.kind {
+            ExprKind::Number(n) => ExprView::Number(*n),
+            ExprKind::Symbol(s) => s.name().map_or_else(
+                || ExprView::Symbol(Cow::Owned(s.to_string())),
+                |name| ExprView::Symbol(Cow::Borrowed(name)),
+            ),
+            ExprKind::FunctionCall { name, args } => ExprView::Function {
+                name: name.as_str(),
+                args,
+            },
+            ExprKind::Sum(terms) => ExprView::Sum(Cow::Borrowed(terms)),
+            ExprKind::Product(factors) => ExprView::Product(Cow::Borrowed(factors)),
+            ExprKind::Div(l, r) => ExprView::Div(l, r),
+            ExprKind::Pow(l, r) => ExprView::Pow(l, r),
+            ExprKind::Derivative { inner, var, order } => ExprView::Derivative {
+                inner,
+                var: var.as_str(),
+                order: *order,
+            },
+            // Poly is expanded to Sum for external API stability
+            ExprKind::Poly(poly) => {
+                let terms: Vec<Arc<Self>> =
+                    poly.to_expr_terms().into_iter().map(Arc::new).collect();
+                ExprView::Sum(Cow::Owned(terms))
+            }
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Analysis methods
     // -------------------------------------------------------------------------
@@ -129,6 +201,7 @@ impl Expr {
         vars
     }
 
+    /// Collect all variable names used in this expression
     fn collect_variables(&self, vars: &mut HashSet<String>) {
         match &self.kind {
             ExprKind::Symbol(s) => {

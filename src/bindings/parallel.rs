@@ -77,7 +77,9 @@ impl From<String> for ExprInput {
 /// Internally stores the interned symbol ID for efficient lookup.
 #[derive(Debug, Clone)]
 pub struct VarInput {
+    /// The interned symbol ID.
     id: u64,
+    /// The symbol name.
     name: std::sync::Arc<str>,
 }
 
@@ -366,7 +368,10 @@ pub(crate) fn evaluate_parallel_with_hint(
 
             // Validate dimensions
             if vars.len() != expr_values.len() {
-                return Ok(vec![]);
+                return Err(DiffError::EvalColumnMismatch {
+                    expected: vars.len(),
+                    got: expr_values.len(),
+                });
             }
 
             let n_vars = vars.len();
@@ -387,6 +392,13 @@ pub(crate) fn evaluate_parallel_with_hint(
                 .unwrap_or(0);
             if n_points == 0 {
                 return Ok(vec![]);
+            }
+
+            // SAFETY: Validate that no columns are empty when n_points > 0
+            // This prevents panics in the fast paths that use .last().expect()
+            // Broadcasting from the last value is only valid if the column has at least one value
+            if expr_values.iter().any(std::vec::Vec::is_empty) {
+                return Err(DiffError::EvalColumnLengthMismatch);
             }
 
             // =========================================================
@@ -422,8 +434,10 @@ pub(crate) fn evaluate_parallel_with_hint(
                                     let val = if i < var_vals.len() {
                                         &var_vals[i]
                                     } else {
+                                        // SAFETY: .expect() is safe here because we validated
+                                        // that no columns are empty when n_points > 0
                                         var_vals.last().expect(
-                                            "Variable values cannot be empty if n_points > 0",
+                                            "Column cannot be empty (validated earlier)",
                                         )
                                     };
                                     if let Value::Num(n) = val {
@@ -492,7 +506,7 @@ pub(crate) fn evaluate_parallel_with_hint(
                                             break;
                                         }
                                     } else {
-                                        // No values at all? Should be caught earlier
+                                        // SAFETY: Column cannot be empty (validated upfront)
                                         all_numeric = false;
                                         break;
                                     }
@@ -509,8 +523,10 @@ pub(crate) fn evaluate_parallel_with_hint(
                                     let val = if point_idx < var_vals.len() {
                                         &var_vals[point_idx]
                                     } else {
+                                        // SAFETY: .expect() is safe here because we validated
+                                        // that no columns are empty when n_points > 0
                                         var_vals.last().expect(
-                                            "var_vals cannot be empty if point_idx is valid",
+                                            "Column cannot be empty (validated earlier)",
                                         )
                                     };
 
@@ -535,13 +551,13 @@ pub(crate) fn evaluate_parallel_with_hint(
                                 })
                             } else {
                                 // SLOW PATH: Fallback for this point (symbolic inputs/skips)
-                                Ok(evaluate_slow_point(
+                                evaluate_slow_point(
                                     expr,
                                     &vars,
                                     expr_values,
                                     point_idx,
                                     *was_string,
-                                ))
+                                )
                             }
                         },
                     )
@@ -554,7 +570,7 @@ pub(crate) fn evaluate_parallel_with_hint(
                     .map(|point_idx| {
                         evaluate_slow_point(expr, &vars, expr_values, point_idx, *was_string)
                     })
-                    .collect();
+                    .collect::<Result<Vec<_>, _>>()?;
                 Ok(pts)
             }
         })
@@ -570,7 +586,7 @@ fn evaluate_slow_point(
     var_values: &[Vec<Value>],
     point_idx: usize,
     was_string: bool,
-) -> EvalResult {
+) -> Result<EvalResult, DiffError> {
     let n_vars = vars.len();
     let mut var_map: HashMap<&str, f64> = HashMap::new();
     let mut expr_subs: Vec<(&str, &Expr)> = Vec::with_capacity(n_vars);
@@ -579,16 +595,11 @@ fn evaluate_slow_point(
         let val = if point_idx < var_values[var_idx].len() {
             &var_values[var_idx][point_idx]
         } else {
-            match var_values[var_idx].last() {
-                Some(v) => v,
-                None => {
-                    return if was_string {
-                        EvalResult::String("NaN".to_owned())
-                    } else {
-                        EvalResult::Expr(Expr::number(f64::NAN))
-                    };
-                }
-            }
+            // Broadcast from last value
+            // SAFETY: Column cannot be empty (validated upfront in evaluate_parallel_with_hint)
+            var_values[var_idx]
+                .last()
+                .ok_or(DiffError::EvalColumnLengthMismatch)?
         };
 
         match val {
@@ -614,11 +625,11 @@ fn evaluate_slow_point(
     let evaluated = result.evaluate(&var_map, &HashMap::new());
 
     // Convert to appropriate result type
-    if was_string {
+    Ok(if was_string {
         EvalResult::String(evaluated.to_string())
     } else {
         EvalResult::Expr(evaluated)
-    }
+    })
 }
 
 /// Format a float for string output (helper for compiled evaluator results)
