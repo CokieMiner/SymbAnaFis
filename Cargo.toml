@@ -83,7 +83,7 @@ broken_intra_doc_links = "deny"
 
 [lints.clippy]
 # Base: Ativa todos os avisos standard
-all = "deny"
+all = { level = "deny", priority = -1 }
 
 # =============================================================================
 # QUALITY & STYLE (PEDANTIC)
@@ -158,7 +158,7 @@ verbose_file_reads = "warn"              # Use fs::read_to_string when appropria
 # =============================================================================
 # PERFORMANCE (HPC FOCUSED) 
 # =============================================================================
-perf = "deny"
+perf = { level = "deny", priority = -1 }
 suboptimal_flops = "deny"   # Mathematical precision is critical (upgraded)
 large_stack_arrays = "deny" # Prevent stack overflows (upgraded)
 

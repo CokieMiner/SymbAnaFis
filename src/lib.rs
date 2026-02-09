@@ -701,6 +701,8 @@ pub fn simplify(
 
 // ExprKind is NOT re-exported at the crate root to encourage use of Expr constructors
 // (Expr::sum, Expr::product, etc.) instead of direct ExprKind construction.
-// It IS still public via `use symb_anafis::core::ExprKind` for pattern matching.
+// IMPORTANT: ExprKind is currently NOT accessible from outside this crate because
+// the `core` module is private. This means users cannot pattern match on ExprKind
+// variants or write custom formatters/backparsers. See issue for discussion and for future plans to expose ExprKind in a controlled way if needed:
 // This pub(crate) re-export is only for internal crate usage.
 pub(crate) use core::ExprKind;
