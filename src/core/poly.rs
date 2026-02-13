@@ -168,8 +168,23 @@ impl Polynomial {
 
     /// Get the base expression
     #[inline]
-    pub fn base(&self) -> &Expr {
+    pub const fn base(&self) -> &Arc<Expr> {
         &self.base
+    }
+
+    /// Get a clone of the base expression Arc
+    #[inline]
+    pub fn base_arc(&self) -> Arc<Expr> {
+        Arc::clone(&self.base)
+    }
+
+    /// Create a new polynomial with a different base
+    #[inline]
+    pub fn with_base(&self, base: Arc<Expr>) -> Self {
+        Self {
+            base,
+            terms: self.terms.clone(),
+        }
     }
 
     /// Update the base expression

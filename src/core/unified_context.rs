@@ -20,7 +20,7 @@
 //! let expr = x.pow(2.0);
 //! ```
 
-use super::symbol::{InternedSymbol, Symbol};
+use super::symbol::{InternedSymbol, Symbol, symb_interned};
 use crate::Expr;
 use std::collections::{HashMap, HashSet};
 use std::ops::RangeInclusive;
@@ -268,8 +268,10 @@ pub struct Context {
     id: u64,
     /// Thread-safe symbol registry (isolated per context)
     inner: Arc<RwLock<ContextInner>>,
-    /// User-defined functions
-    user_functions: HashMap<String, UserFunction>,
+    /// User-defined functions keyed by interned symbol ID
+    user_functions: HashMap<u64, UserFunction>,
+    /// Reverse mapping from name to ID for user functions (for display/serialization)
+    fn_name_to_id: HashMap<String, u64>,
 }
 
 impl Default for Context {
@@ -285,6 +287,7 @@ impl Context {
             id: NEXT_CONTEXT_ID.fetch_add(1, Ordering::Relaxed),
             inner: Arc::new(RwLock::new(ContextInner::default())),
             user_functions: HashMap::new(),
+            fn_name_to_id: HashMap::new(),
         }
     }
 
@@ -333,14 +336,17 @@ impl Context {
     pub fn symb(&self, name: &str) -> Symbol {
         let mut inner = self.inner.write().expect("Context lock poisoned");
 
+        // 1. Check context's local map first
         if let Some(existing) = inner.symbols.get(name) {
             return Symbol::from_id(existing.id());
         }
 
-        // Create a new symbol, registering it in the global ID map but not the global name map.
-        let symbol = crate::core::symbol::registry::symb_new_isolated(name);
+        // 2. Check global registry (without creating)
+        // 2. Check global registry (without creating), else create isolated
+        let symbol = crate::core::symbol::registry::symb_get(name)
+            .unwrap_or_else(|_| crate::core::symbol::registry::symb_new_isolated(name));
 
-        // We need to get the InternedSymbol to store in the context's local map.
+        // Track in context's local map
         let interned = crate::core::symbol::lookup_by_id(symbol.id())
             .expect("Symbol just created should exist");
 
@@ -424,7 +430,9 @@ impl Context {
     /// Register a user-defined function (builder pattern).
     #[must_use]
     pub fn with_function(mut self, name: &str, func: UserFunction) -> Self {
-        self.user_functions.insert(name.to_owned(), func);
+        let id = symb_interned(name).id();
+        self.user_functions.insert(id, func);
+        self.fn_name_to_id.insert(name.to_owned(), id);
         self
     }
 
@@ -434,10 +442,11 @@ impl Context {
     /// an evaluation or derivative definition.
     #[must_use]
     pub fn with_function_name(mut self, name: &str) -> Self {
-        if !self.user_functions.contains_key(name) {
+        let id = symb_interned(name).id();
+        if let std::collections::hash_map::Entry::Vacant(e) = self.user_functions.entry(id) {
             // Create a placeholder with default arity (any number of args)
-            self.user_functions
-                .insert(name.to_owned(), UserFunction::new(0..=usize::MAX));
+            e.insert(UserFunction::new(0..=usize::MAX));
+            self.fn_name_to_id.insert(name.to_owned(), id);
         }
         self
     }
@@ -459,63 +468,67 @@ impl Context {
     #[inline]
     #[must_use]
     pub fn get_user_fn(&self, name: &str) -> Option<&UserFunction> {
-        self.user_functions.get(name)
+        let id = symb_interned(name).id();
+        self.user_functions.get(&id)
     }
 
     /// Check if a function is registered.
     #[inline]
     #[must_use]
     pub fn has_function(&self, name: &str) -> bool {
-        self.user_functions.contains_key(name)
+        let id = symb_interned(name).id();
+        self.user_functions.contains_key(&id)
     }
 
     /// Get all registered function names.
     #[must_use]
     pub fn function_names(&self) -> HashSet<String> {
-        self.user_functions.keys().cloned().collect()
+        self.fn_name_to_id.keys().cloned().collect()
+    }
+
+    /// Get the name-to-id mapping for user functions.
+    #[must_use]
+    pub const fn fn_name_to_id(&self) -> &HashMap<String, u64> {
+        &self.fn_name_to_id
     }
 
     /// Get the body function for a user function.
     #[inline]
     #[must_use]
     pub fn get_body(&self, name: &str) -> Option<&BodyFn> {
-        self.user_functions.get(name).and_then(|f| f.body.as_ref())
+        let id = symb_interned(name).id();
+        self.user_functions.get(&id).and_then(|f| f.body.as_ref())
+    }
+
+    /// Get the body function for a user function by symbol ID.
+    #[inline]
+    #[must_use]
+    pub fn get_body_by_id(&self, id: u64) -> Option<&BodyFn> {
+        self.user_functions.get(&id).and_then(|f| f.body.as_ref())
     }
 
     /// Get the partial derivative function for a user function argument.
     #[inline]
     #[must_use]
     pub fn get_partial(&self, name: &str, arg_idx: usize) -> Option<&PartialFn> {
+        let id = symb_interned(name).id();
         self.user_functions
-            .get(name)
+            .get(&id)
             .and_then(|f| f.partials.get(&arg_idx))
     }
 
-    /// Get the body function by symbol ID (for `CompiledEvaluator`).
-    ///
-    /// Looks up the symbol name from the global registry, then finds the user function.
-    #[inline]
-    #[must_use]
-    pub fn get_body_by_id(&self, id: u64) -> Option<&BodyFn> {
-        // Look up symbol name from global registry
-        if let Some(sym) = crate::core::symbol::lookup_by_id(id)
-            && let Some(name) = sym.name()
-        {
-            return self.get_body(name);
-        }
-        None
-    }
-
-    /// Get a user function by symbol ID (for `CompiledEvaluator`).
+    /// Get a user function by symbol ID. O(1) direct map lookup.
     #[inline]
     #[must_use]
     pub fn get_user_fn_by_id(&self, id: u64) -> Option<&UserFunction> {
-        if let Some(sym) = crate::core::symbol::lookup_by_id(id)
-            && let Some(name) = sym.name()
-        {
-            return self.user_functions.get(name);
-        }
-        None
+        self.user_functions.get(&id)
+    }
+
+    /// Check if context has any user-defined functions with bodies that could be expanded.
+    #[inline]
+    #[must_use]
+    pub fn has_expandable_functions(&self) -> bool {
+        self.user_functions.values().any(|f| f.body.is_some())
     }
 
     // =========================================================================
@@ -539,7 +552,11 @@ impl Context {
     /// Remove a specific user-defined function from this context.
     /// Returns true if it was removed.
     pub fn remove_function(&mut self, name: &str) -> bool {
-        self.user_functions.remove(name).is_some()
+        if let Some(id) = self.fn_name_to_id.remove(name) {
+            self.user_functions.remove(&id).is_some()
+        } else {
+            false
+        }
     }
 
     /// Clear all symbols from this context.
@@ -557,6 +574,7 @@ impl Context {
     /// Clear all user-defined functions from this context.
     pub fn clear_functions(&mut self) {
         self.user_functions.clear();
+        self.fn_name_to_id.clear();
     }
 
     /// Clear everything from this context (symbols, functions).
@@ -592,7 +610,7 @@ impl std::fmt::Debug for Context {
             .field("symbols", &self.symbol_names())
             .field(
                 "user_functions",
-                &self.user_functions.keys().collect::<Vec<_>>(),
+                &self.fn_name_to_id.keys().collect::<Vec<_>>(),
             )
             .finish_non_exhaustive()
     }
@@ -627,12 +645,14 @@ mod tests {
 
     #[test]
     fn test_context_symbol_isolation() {
-        let ctx1 = Context::new().with_symbol("x");
-        let ctx2 = Context::new().with_symbol("x");
+        // Use unique names that won't exist in the global registry,
+        // so the 3-tier lookup creates isolated symbols in each context.
+        let ctx1 = Context::new().with_symbol("__iso_test_var1__");
+        let ctx2 = Context::new().with_symbol("__iso_test_var1__");
 
-        // Same name, different IDs (isolated)
-        let x1 = ctx1.symb("x");
-        let x2 = ctx2.symb("x");
+        // Same name, different IDs (isolated since not in global registry)
+        let x1 = ctx1.symb("__iso_test_var1__");
+        let x2 = ctx2.symb("__iso_test_var1__");
         assert_ne!(x1.id(), x2.id());
     }
 

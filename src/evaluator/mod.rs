@@ -72,7 +72,8 @@ pub use instruction::Instruction;
 use crate::core::error::DiffError;
 use crate::core::unified_context::Context;
 use crate::{Expr, ExprKind, Symbol};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
+use wide::f64x4;
 
 // =============================================================================
 // ToParamName trait - allows compile methods to accept strings or symbols
@@ -153,19 +154,26 @@ impl ToParamName for &Symbol {
 /// | `eval_batch` | Multiple points | ~25ns/point with SIMD |
 /// | `eval_batch_parallel` | Large datasets | Scales with cores |
 #[derive(Clone)]
+#[repr(align(64))]
+#[allow(
+    clippy::partial_pub_fields,
+    reason = "Public evaluator metadata is API surface; internal SIMD cache should remain private"
+)]
 pub struct CompiledEvaluator {
     /// Bytecode instructions (immutable after compilation)
     pub instructions: Box<[Instruction]>,
-    /// Required stack depth for evaluation
-    pub stack_size: usize,
+    /// Constant pool for numeric literals
+    pub constants: Box<[f64]>,
     /// Parameter names in order (for mapping `HashMap` → array)
     pub param_names: Box<[String]>,
+    /// Required stack depth for evaluation
+    pub stack_size: usize,
     /// Number of parameters expected
     pub param_count: usize,
     /// Number of CSE cache slots required
     pub cache_size: usize,
-    /// Constant pool for numeric literals
-    pub constants: Box<[f64]>,
+    /// Lazily cached SIMD-splatted constants (one f64x4 per scalar constant).
+    simd_constants: OnceLock<Arc<[f64x4]>>,
 }
 
 impl CompiledEvaluator {
@@ -199,7 +207,7 @@ impl CompiledEvaluator {
     ///
     /// Returns `DiffError` if:
     /// - `UnboundVariable`: Symbol not in parameter list and not a known constant
-    /// - `StackOverflow`: Expression too deeply nested (> 1024 depth)
+    /// - (Previously `StackOverflow`, now removed — the evaluator stack is heap-allocated)
     /// - `UnsupportedFunction`: Unknown function name
     /// - `UnsupportedExpression`: Unevaluated derivatives
     pub fn compile<P: ToParamName>(
@@ -238,11 +246,12 @@ impl CompiledEvaluator {
 
         Ok(Self {
             instructions: optimized_instructions.into_boxed_slice(),
-            stack_size: max_stack,
+            constants: constants.into_boxed_slice(),
             param_names: param_names.into_boxed_slice(),
+            stack_size: max_stack,
             param_count,
             cache_size,
-            constants: constants.into_boxed_slice(),
+            simd_constants: OnceLock::new(),
         })
     }
 
@@ -276,7 +285,10 @@ impl CompiledEvaluator {
         let vars = expr.variables();
         let mut param_order: Vec<String> = vars
             .into_iter()
-            .filter(|v| !crate::core::known_symbols::is_known_constant(v.as_str()))
+            .filter(|v| {
+                let id = crate::core::symbol::symb_interned(v.as_str()).id();
+                !crate::core::known_symbols::is_known_constant_by_id(id)
+            })
             .collect();
         param_order.sort(); // Consistent ordering
 
@@ -451,184 +463,366 @@ impl CompiledEvaluator {
     }
 
     /// Perform local peephole optimizations.
+    ///
+    /// Uses a single-pass approach (building a new Vec) instead of in-place
+    /// `Vec::remove()` calls, giving O(n) instead of O(n²) per pass.
+    /// Loops until convergence for cascading optimizations.
     #[allow(
         clippy::too_many_lines,
         clippy::collapsible_if,
-        reason = "function is complex and splitting it would reduce readability; logic is clearer with nested ifs"
+        clippy::match_same_arms,
+        clippy::branches_sharing_code,
+        reason = "function is complex and splitting it would reduce readability; match arms kept separate for self-documenting per-pattern comments"
     )]
     fn peephole_optimize(instructions: &mut Vec<Instruction>, constants: &mut Vec<f64>) {
-        let mut i = 0;
-        while i + 1 < instructions.len() {
-            // Pattern: x * x * x → Cube (if not already detected)
-            if i + 2 < instructions.len() {
-                if (instructions[i], instructions[i + 1], instructions[i + 2])
-                    == (Instruction::Dup, Instruction::Mul, Instruction::Mul)
-                {
-                    instructions[i] = Instruction::Cube;
-                    instructions.remove(i + 1);
-                    instructions.remove(i + 1);
-                    continue;
+        loop {
+            let mut result = Vec::with_capacity(instructions.len());
+            let mut changed = false;
+            let mut i = 0;
+
+            while i < instructions.len() {
+                // 3-instruction patterns (check before 2-instruction for longer match priority)
+                if i + 2 < instructions.len() {
+                    // 4-instruction pattern: (-a) + b -> b - a
+                    // Catches bytecode like [LoadA, Neg, LoadB, Add].
+                    if i + 3 < instructions.len() {
+                        match (
+                            instructions[i],
+                            instructions[i + 1],
+                            instructions[i + 2],
+                            instructions[i + 3],
+                        ) {
+                            (
+                                load_a,
+                                Instruction::Neg,
+                                load_b,
+                                Instruction::Add,
+                            ) if matches!(
+                                load_a,
+                                Instruction::LoadParam(_)
+                                    | Instruction::LoadCached(_)
+                                    | Instruction::LoadConst(_)
+                            ) && matches!(
+                                load_b,
+                                Instruction::LoadParam(_)
+                                    | Instruction::LoadCached(_)
+                                    | Instruction::LoadConst(_)
+                            ) =>
+                            {
+                                result.push(load_b);
+                                result.push(load_a);
+                                result.push(Instruction::Sub);
+                                i += 4;
+                                changed = true;
+                                continue;
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    match (instructions[i], instructions[i + 1], instructions[i + 2]) {
+                        // x * x * x → Cube
+                        (Instruction::Dup, Instruction::Mul, Instruction::Mul) => {
+                            result.push(Instruction::Cube);
+                            i += 3;
+                            changed = true;
+                            continue;
+                        }
+                        // LoadConst + Swap + Sub → ConstSub or Neg
+                        (Instruction::LoadConst(idx), Instruction::Swap, Instruction::Sub) => {
+                            if constants[idx as usize] == 0.0 {
+                                result.push(Instruction::Neg);
+                            } else {
+                                result.push(Instruction::ConstSub(idx));
+                            }
+                            i += 3;
+                            changed = true;
+                            continue;
+                        }
+                        // LoadConst(1.0) + Swap + Div → Recip
+                        (Instruction::LoadConst(idx), Instruction::Swap, Instruction::Div)
+                            if (constants[idx as usize] - 1.0).abs() < f64::EPSILON =>
+                        {
+                            result.push(Instruction::Recip);
+                            i += 3;
+                            changed = true;
+                            continue;
+                        }
+                        // LoadConst + LoadX + Add → LoadX + AddConst (commute to fuse)
+                        (Instruction::LoadConst(idx), load_instr, Instruction::Add)
+                            if matches!(
+                                load_instr,
+                                Instruction::LoadParam(_)
+                                    | Instruction::LoadCached(_)
+                                    | Instruction::LoadConst(_)
+                            ) && constants[idx as usize] != 0.0 =>
+                        {
+                            result.push(load_instr);
+                            result.push(Instruction::AddConst(idx));
+                            i += 3;
+                            changed = true;
+                            continue;
+                        }
+                        // LoadConst + LoadX + Mul → LoadX + MulConst (commute to fuse)
+                        (Instruction::LoadConst(idx), load_instr, Instruction::Mul)
+                            if matches!(
+                                load_instr,
+                                Instruction::LoadParam(_)
+                                    | Instruction::LoadCached(_)
+                                    | Instruction::LoadConst(_)
+                            ) =>
+                        {
+                            let val = constants[idx as usize];
+                            if (val - 1.0).abs() < f64::EPSILON {
+                                // C * x where C=1 → just x
+                                result.push(load_instr);
+                            } else if (val + 1.0).abs() < f64::EPSILON {
+                                // C * x where C=-1 → -x
+                                result.push(load_instr);
+                                result.push(Instruction::Neg);
+                            } else {
+                                result.push(load_instr);
+                                result.push(Instruction::MulConst(idx));
+                            }
+                            i += 3;
+                            changed = true;
+                            continue;
+                        }
+                        // (x / y) then Neg then Exp  ->  (x / y) then ExpNeg
+                        // This catches normalized forms from compile_division where negation
+                        // is intentionally moved after division.
+                        (Instruction::Div, Instruction::Neg, Instruction::Exp) => {
+                            result.push(Instruction::Div);
+                            result.push(Instruction::ExpNeg);
+                            i += 3;
+                            changed = true;
+                            continue;
+                        }
+                        _ => {}
+                    }
                 }
+
+                // 2-instruction patterns
+                if i + 1 < instructions.len() {
+                    let mut matched = true;
+                    match (instructions[i], instructions[i + 1]) {
+                        // Consecutive identical loads → Load + Dup
+                        (Instruction::LoadParam(a), Instruction::LoadParam(b)) if a == b => {
+                            result.push(Instruction::LoadParam(a));
+                            result.push(Instruction::Dup);
+                        }
+                        (Instruction::LoadConst(a), Instruction::LoadConst(b)) if a == b => {
+                            result.push(Instruction::LoadConst(a));
+                            result.push(Instruction::Dup);
+                        }
+                        (Instruction::LoadCached(a), Instruction::LoadCached(b)) if a == b => {
+                            result.push(Instruction::LoadCached(a));
+                            result.push(Instruction::Dup);
+                        }
+                        // (-x)² = x² → remove Neg before Square
+                        (Instruction::Neg, Instruction::Square) => {
+                            result.push(Instruction::Square);
+                        }
+                        // Neg + Exp → ExpNeg
+                        (Instruction::Neg, Instruction::Exp) => {
+                            result.push(Instruction::ExpNeg);
+                        }
+                        // Inverse function cancellation
+                        (Instruction::Exp, Instruction::Ln)
+                        | (Instruction::Ln, Instruction::Exp) => {
+                            // remove both
+                        }
+                        (Instruction::Sqrt, Instruction::Square) => {
+                            // sqrt(x)² = x for x >= 0 (which is sqrt's domain)
+                            // remove both
+                        }
+                        // x * x → Square
+                        (Instruction::Dup, Instruction::Mul) => {
+                            result.push(Instruction::Square);
+                        }
+                        // Bubble Negation forward (outward) through Mul/Div to enable ExpNeg/cancellation
+                        // Case 1: (-a) * b → -(a * b) OR (-a) / b → -(a / b)
+                        (Instruction::Neg, load_instr)
+                            if matches!(
+                                load_instr,
+                                Instruction::LoadParam(_)
+                                    | Instruction::LoadCached(_)
+                                    | Instruction::LoadConst(_)
+                            ) =>
+                        {
+                            // Peek ahead for Mul/Div
+                            if i + 2 < instructions.len() {
+                                match instructions[i + 2] {
+                                    Instruction::Mul | Instruction::Div => {
+                                        result.push(load_instr);
+                                        result.push(instructions[i + 2]);
+                                        result.push(Instruction::Neg);
+                                        i += 3; // consumed Neg, Load, Op
+                                        changed = true;
+                                        continue;
+                                    }
+                                    _ => {} // Not a bubble-able op
+                                }
+                            }
+                            // Fallback if no match
+                            if matched {
+                                // If we fell through from a previous match that set matched=true,
+                                // we shouldn't be here. But in this structure, we are in a match arm.
+                                // We need to be careful not to consume instructions if we didn't transform.
+                                // Actually, this arm matched (Neg, Load). We must emit them if we don't fuse.
+                                result.push(Instruction::Neg);
+                                result.push(load_instr);
+                                i += 2;
+                                continue;
+                            }
+                        }
+                        // Case 2: a * (-b) → -(a * b) OR a / (-b) → -(a / b)
+                        (load_instr, Instruction::Neg)
+                            if matches!(
+                                load_instr,
+                                Instruction::LoadParam(_)
+                                    | Instruction::LoadCached(_)
+                                    | Instruction::LoadConst(_)
+                            ) =>
+                        {
+                            // Peek ahead for Mul/Div
+                            if i + 2 < instructions.len() {
+                                match instructions[i + 2] {
+                                    Instruction::Mul | Instruction::Div => {
+                                        result.push(load_instr);
+                                        result.push(instructions[i + 2]);
+                                        result.push(Instruction::Neg);
+                                        i += 3; // consumed Load, Neg, Op
+                                        changed = true;
+                                        continue;
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            // Not a bubble-able pattern — emit both as-is
+                            matched = false;
+                        }
+                        // LoadConst + Mul optimizations
+                        (Instruction::LoadConst(idx), Instruction::Mul) => {
+                            let val = constants[idx as usize];
+                            if (val - 1.0).abs() < f64::EPSILON {
+                                // x * 1.0 = x → remove both
+                            } else if (val + 1.0).abs() < f64::EPSILON {
+                                // x * -1.0 = -x
+                                result.push(Instruction::Neg);
+                            } else if val == 0.0 {
+                                // x * 0.0 → Pop, LoadConst(0)
+                                result.push(Instruction::Pop);
+                                result.push(Instruction::LoadConst(idx));
+                            } else {
+                                result.push(Instruction::MulConst(idx));
+                            }
+                        }
+                        // LoadConst + Add optimizations
+                        (Instruction::LoadConst(idx), Instruction::Add) => {
+                            if constants[idx as usize] == 0.0 {
+                                // x + 0.0 = x → remove both
+                            } else {
+                                result.push(Instruction::AddConst(idx));
+                            }
+                        }
+                        // LoadConst + Sub optimizations
+                        (Instruction::LoadConst(idx), Instruction::Sub) => {
+                            if constants[idx as usize] == 0.0 {
+                                // x - 0.0 = x → remove both
+                            } else {
+                                result.push(Instruction::SubConst(idx));
+                            }
+                        }
+                        // LoadConst + Div optimizations
+                        (Instruction::LoadConst(idx), Instruction::Div) => {
+                            let val = constants[idx as usize];
+                            if (val - 1.0).abs() < f64::EPSILON {
+                                // x / 1.0 = x → remove both
+                            } else if (val + 1.0).abs() < f64::EPSILON {
+                                // x / -1.0 = -x
+                                result.push(Instruction::Neg);
+                            } else if val != 0.0 {
+                                // x / C = x * (1/C)
+                                let inv_val = 1.0 / val;
+                                #[allow(
+                                    clippy::cast_possible_truncation,
+                                    reason = "Constant pool index safe"
+                                )]
+                                let new_idx = constants.len() as u32;
+                                constants.push(inv_val);
+                                result.push(Instruction::MulConst(new_idx));
+                            } else {
+                                // div by zero constant, keep as-is
+                                matched = false;
+                            }
+                        }
+                        // LoadCached(s) + StoreCached(s) → Dup
+                        (Instruction::LoadCached(s1), Instruction::StoreCached(s2)) if s1 == s2 => {
+                            result.push(Instruction::Dup);
+                        }
+                        // Square + Sqrt → Abs
+                        (Instruction::Square, Instruction::Sqrt) => {
+                            result.push(Instruction::Abs);
+                        }
+                        // Square + Square → Pow4
+                        (Instruction::Square, Instruction::Square) => {
+                            result.push(Instruction::Pow4);
+                        }
+                        // Square + Recip → InvSquare
+                        (Instruction::Square, Instruction::Recip) => {
+                            result.push(Instruction::InvSquare);
+                        }
+                        // Cube + Recip → InvCube
+                        (Instruction::Cube, Instruction::Recip) => {
+                            result.push(Instruction::InvCube);
+                        }
+                        // Sqrt + Recip → InvSqrt
+                        (Instruction::Sqrt, Instruction::Recip) => {
+                            result.push(Instruction::InvSqrt);
+                        }
+                        // (-x)^4 = x^4 → remove Neg before Pow4
+                        (Instruction::Neg, Instruction::Pow4) => {
+                            result.push(Instruction::Pow4);
+                        }
+                        // Double inverse/negation → identity (remove both)
+                        (Instruction::Recip, Instruction::Recip)
+                        | (Instruction::Neg, Instruction::Neg) => {
+                            // remove both → push nothing
+                        }
+                        // Neg + Add → Sub
+                        (Instruction::Neg, Instruction::Add) => {
+                            result.push(Instruction::Sub);
+                        }
+                        // Neg + Sub → Add
+                        (Instruction::Neg, Instruction::Sub) => {
+                            result.push(Instruction::Add);
+                        }
+                        // Neg + AddConst → ConstSub: -x + C = C - x
+                        (Instruction::Neg, Instruction::AddConst(idx)) => {
+                            result.push(Instruction::ConstSub(idx));
+                        }
+                        _ => {
+                            matched = false;
+                        }
+                    }
+
+                    if matched {
+                        i += 2;
+                        changed = true;
+                        continue;
+                    }
+                }
+
+                // No pattern matched — emit instruction as-is
+                result.push(instructions[i]);
+                i += 1;
             }
 
-            // Pattern: LoadConst(0), Add → NOP (remove)
-            if let (Instruction::LoadConst(idx), Instruction::Add) =
-                (instructions[i], instructions[i + 1])
-            {
-                if constants[idx as usize] == 0.0 {
-                    instructions.remove(i);
-                    instructions.remove(i); // i+1 becomes i after first removal
-                    continue;
-                }
+            *instructions = result;
+            if !changed {
+                break;
             }
-
-            // LoadConst + Op -> OpConst
-            match (instructions[i], instructions[i + 1]) {
-                (Instruction::LoadConst(idx), Instruction::Mul) => {
-                    let val = constants[idx as usize];
-                    if (val - 1.0).abs() < f64::EPSILON {
-                        // x * 1.0 = x
-                        instructions.remove(i);
-                        instructions.remove(i);
-                        continue;
-                    }
-                    if (val + 1.0).abs() < f64::EPSILON {
-                        // x * -1.0 = -x
-                        instructions[i] = Instruction::Neg;
-                        instructions.remove(i + 1);
-                        continue;
-                    }
-                    if val == 0.0 {
-                        // x * 0.0 = 0.0
-                        // Need to pop x and load 0.0
-                        instructions[i] = Instruction::Pop;
-                        instructions[i + 1] = Instruction::LoadConst(idx);
-                        continue;
-                    }
-                    instructions[i] = Instruction::MulConst(idx);
-                    instructions.remove(i + 1);
-                    continue;
-                }
-                (Instruction::LoadConst(idx), Instruction::Add) => {
-                    if constants[idx as usize] == 0.0 {
-                        // x + 0.0 = x
-                        instructions.remove(i);
-                        instructions.remove(i);
-                        continue;
-                    }
-                    instructions[i] = Instruction::AddConst(idx);
-                    instructions.remove(i + 1);
-                    continue;
-                }
-                (Instruction::LoadConst(idx), Instruction::Sub) => {
-                    if constants[idx as usize] == 0.0 {
-                        // x - 0.0 = x
-                        instructions.remove(i);
-                        instructions.remove(i);
-                        continue;
-                    }
-                    instructions[i] = Instruction::SubConst(idx);
-                    instructions.remove(i + 1);
-                    continue;
-                }
-                (Instruction::LoadConst(idx), Instruction::Div) => {
-                    let val = constants[idx as usize];
-                    if (val - 1.0).abs() < f64::EPSILON {
-                        // x / 1.0 = x
-                        instructions.remove(i);
-                        instructions.remove(i);
-                        continue;
-                    }
-                    if (val + 1.0).abs() < f64::EPSILON {
-                        // x / -1.0 = -x
-                        instructions[i] = Instruction::Neg;
-                        instructions.remove(i + 1);
-                        continue;
-                    }
-                    if val != 0.0 {
-                        // x / C = x * (1/C)
-                        let inv_val = 1.0 / val;
-                        #[allow(
-                            clippy::cast_possible_truncation,
-                            reason = "Constant pool index safe"
-                        )]
-                        let new_idx = constants.len() as u32;
-                        constants.push(inv_val);
-                        instructions[i] = Instruction::MulConst(new_idx);
-                        instructions.remove(i + 1);
-                        continue;
-                    }
-                }
-                _ => {}
-            }
-
-            // Patterns involving 3 instructions
-            if i + 2 < instructions.len() {
-                // LoadConst + Swap + Sub -> ConstSub (C - x)
-                if let (Instruction::LoadConst(idx), Instruction::Swap, Instruction::Sub) =
-                    (instructions[i], instructions[i + 1], instructions[i + 2])
-                {
-                    if constants[idx as usize] == 0.0 {
-                        // 0.0 - x = -x
-                        instructions[i] = Instruction::Neg;
-                        instructions.remove(i + 1);
-                        instructions.remove(i + 1);
-                        continue;
-                    }
-                    instructions[i] = Instruction::ConstSub(idx);
-                    instructions.remove(i + 1);
-                    instructions.remove(i + 1);
-                    continue;
-                }
-
-                // LoadConst(1.0) + Swap + Div -> Recip (1.0 / x)
-                if let (Instruction::LoadConst(idx), Instruction::Swap, Instruction::Div) =
-                    (instructions[i], instructions[i + 1], instructions[i + 2])
-                    && (constants[idx as usize] - 1.0).abs() < f64::EPSILON
-                {
-                    instructions[i] = Instruction::Recip;
-                    instructions.remove(i + 1);
-                    instructions.remove(i + 1);
-                    continue;
-                }
-            }
-
-            // LoadCached(s) + StoreCached(s) -> Dup
-            if let (Instruction::LoadCached(s1), Instruction::StoreCached(s2)) =
-                (instructions[i], instructions[i + 1])
-                && s1 == s2
-            {
-                instructions[i] = Instruction::Dup;
-                instructions.remove(i + 1);
-                continue;
-            }
-
-            // Unary patterns
-            match (instructions[i], instructions[i + 1]) {
-                (Instruction::Square, Instruction::Sqrt) => {
-                    instructions[i] = Instruction::Abs;
-                    instructions.remove(i + 1);
-                    continue;
-                }
-                (Instruction::Recip, Instruction::Recip) | (Instruction::Neg, Instruction::Neg) => {
-                    instructions.remove(i);
-                    instructions.remove(i);
-                    continue;
-                }
-                (Instruction::Neg, Instruction::Add) => {
-                    instructions[i] = Instruction::Sub;
-                    instructions.remove(i + 1);
-                    continue;
-                }
-                (Instruction::Neg, Instruction::Sub) => {
-                    instructions[i] = Instruction::Add;
-                    instructions.remove(i + 1);
-                    continue;
-                }
-                _ => {}
-            }
-
-            i += 1;
         }
     }
 
@@ -721,13 +915,19 @@ impl CompiledEvaluator {
     fn expand_user_functions(
         expr: &Expr,
         ctx: &Context,
-        expanding: &mut std::collections::HashSet<String>,
+        expanding: &mut std::collections::HashSet<u64>,
         depth: usize,
     ) -> Expr {
         const MAX_EXPANSION_DEPTH: usize = 100;
 
         if depth > MAX_EXPANSION_DEPTH {
             // Return unexpanded to prevent stack overflow
+            return expr.clone();
+        }
+
+        // Fast path: if the context has no user-defined functions with bodies,
+        // there's nothing to expand — skip the entire recursive traversal.
+        if depth == 0 && !ctx.has_expandable_functions() {
             return expr.clone();
         }
 
@@ -769,28 +969,28 @@ impl CompiledEvaluator {
                     .map(|a| Self::expand_user_functions(a, ctx, expanding, depth + 1))
                     .collect();
 
-                let fn_name = name.as_str().to_owned();
+                let fn_id = name.id();
 
                 // Check for recursion and if this is a user function with a body
-                if !expanding.contains(&fn_name)
-                    && let Some(user_fn) = ctx.get_user_fn(&fn_name)
+                if !expanding.contains(&fn_id)
+                    && let Some(user_fn) = ctx.get_user_fn_by_id(fn_id)
                     && user_fn.accepts_arity(expanded_args.len())
                     && let Some(body_fn) = &user_fn.body
                 {
                     // Mark as expanding to prevent infinite recursion
-                    expanding.insert(fn_name.clone());
+                    expanding.insert(fn_id);
 
                     let arc_args: Vec<Arc<Expr>> =
                         expanded_args.iter().map(|a| Arc::new(a.clone())).collect();
                     let body_expr = body_fn(&arc_args);
                     let result = Self::expand_user_functions(&body_expr, ctx, expanding, depth + 1);
 
-                    expanding.remove(&fn_name);
+                    expanding.remove(&fn_id);
                     return result;
                 }
 
                 // Not expandable - return as-is with expanded args
-                Expr::func_multi(name.as_str(), expanded_args)
+                Expr::func_multi_symbol(name.clone(), expanded_args)
             }
 
             ExprKind::Poly(poly) => {
@@ -835,6 +1035,20 @@ impl CompiledEvaluator {
     pub fn instruction_count(&self) -> usize {
         self.instructions.len()
     }
+
+    /// Get constants as SIMD vectors, computed once and cached.
+    #[inline]
+    pub(crate) fn simd_constants(&self) -> &[f64x4] {
+        self.simd_constants
+            .get_or_init(|| {
+                self.constants
+                    .iter()
+                    .map(|&c| f64x4::splat(c))
+                    .collect::<Vec<_>>()
+                    .into()
+            })
+            .as_ref()
+    }
 }
 
 impl std::fmt::Debug for CompiledEvaluator {
@@ -846,6 +1060,7 @@ impl std::fmt::Debug for CompiledEvaluator {
             .field("stack_size", &self.stack_size)
             .field("cache_size", &self.cache_size)
             .field("constant_count", &self.constants.len())
+            .field("simd_constants_cached", &self.simd_constants.get().is_some())
             .finish()
     }
 }

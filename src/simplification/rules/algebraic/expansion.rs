@@ -72,14 +72,12 @@ rule!(
                 && *n > 1.0
                 && n.fract() == 0.0
                 && {
-                    // Checked fract() == 0.0, so cast is safe. Limit expansion to small powers.
                     #[allow(
                         clippy::cast_possible_truncation,
-                        reason = "Checked fract()==0.0, limit to small powers"
+                        reason = "n is integer-checked and bounded by small_pow < 10"
                     )]
-                    // Checked fract()==0.0, limit to small powers
-                    let small_pow = (*n as i64) < 10;
-                    small_pow
+                    let small_pow: i64 = (*n).trunc() as i64;
+                    small_pow < 10
                 }
             {
                 // Check if expansion would enable simplification
@@ -120,14 +118,12 @@ rule!(
                 && *n > 1.0
                 && n.fract() == 0.0
                 && {
-                    // Checked fract() == 0.0, so cast is safe. Limit expansion to small powers.
                     #[allow(
                         clippy::cast_possible_truncation,
-                        reason = "Checked fract()==0.0, limit to small powers"
+                        reason = "n is integer-checked and bounded by small_pow < 10"
                     )]
-                    // Checked fract()==0.0, limit to small powers
-                    let small_pow = (*n as i64) < 10;
-                    small_pow
+                    let small_pow: i64 = (*n).trunc() as i64;
+                    small_pow < 10
                 }
             {
                 // Helper to check if a term would simplify when raised to power n

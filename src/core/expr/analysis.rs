@@ -410,9 +410,10 @@ impl Expr {
     /// Substitute a variable with another expression
     #[must_use]
     pub fn substitute(&self, var: &str, replacement: &Self) -> Self {
+        let var_id = crate::core::symbol::symb_interned(var).id();
         self.map(|node| {
             if let ExprKind::Symbol(s) = &node.kind
-                && s.as_str() == var
+                && s.id() == var_id
             {
                 return replacement.clone();
             }

@@ -454,21 +454,19 @@ This will print each rule application to stderr, showing:
 
 This is useful for diagnosing rule interaction issues and understanding the simplification process.
 
-## Fixed Variables Support
+## Constant Handling and Symbols
 
-The simplification system supports "fixed variables" - symbols that should be treated as user-specified constants rather than mathematical constants like `e` (Euler's number).
+The simplification system handles mathematical constants (`e`, `pi`, `tau`, `inf`) consistently using stable UIDs. 
 
-When a variable is marked as "fixed":
-- Rules like `e_pow_ln` and `e_pow_mul_ln` will NOT apply special handling for `e`
-- The symbol `e` will be treated as a regular variable/constant
+### Multi-character Symbols
 
-### Usage
+If you use multi-character symbols in your expressions (e.g., `alpha`, `beta`), you must pass them to the **parser** so it doesn't treat them as `a*l*p*h*a`. However, once parsed into an `Expr`, the simplifier treats all symbols (other than constants) as variables.
 
-```rust
-// In diff() or simplify() functions, pass fixed variables:
-diff("e*x", "x", Some(&["e"]), None)?;
-// Here "e" is treated as a constant coefficient, not Euler's number
-```
+### "e" vs Variables
+
+In older versions, `known_symbols` was used to distinguish between Euler's number `e` and a user variable named `e`. This is no longer necessary:
+- The symbol `e` is **always** Euler's number in the simplifier context.
+- If you need a variable named `e`, it is recommended to use a different name to avoid ambiguity with the mathematical constant.
 
 ## Rule Count Summary
 

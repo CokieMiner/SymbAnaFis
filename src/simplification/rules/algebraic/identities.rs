@@ -73,11 +73,10 @@ rule_arc!(ExpMulLnRule, "exp_mul_ln", 80, Algebraic, &[ExprKind::Function], alte
     None
 });
 
-rule_arc!(EPowLnRule, "e_pow_ln", 85, Algebraic, &[ExprKind::Pow], alters_domain: true, |expr: &Expr, context: &RuleContext| {
+rule_arc!(EPowLnRule, "e_pow_ln", 85, Algebraic, &[ExprKind::Pow], alters_domain: true, |expr: &Expr, _context: &RuleContext| {
     if let AstKind::Pow(base, exp) = &expr.kind
         && let AstKind::Symbol(s) = &base.kind
         && s.id() == KS.e
-        && !context.known_symbols.contains("e")
         && let AstKind::FunctionCall { name, args } = &exp.kind
         && name.id() == KS.ln
         && args.len() == 1
@@ -87,11 +86,10 @@ rule_arc!(EPowLnRule, "e_pow_ln", 85, Algebraic, &[ExprKind::Pow], alters_domain
     None
 });
 
-rule_arc!(EPowMulLnRule, "e_pow_mul_ln", 85, Algebraic, &[ExprKind::Pow], alters_domain: true, |expr: &Expr, context: &RuleContext| {
+rule_arc!(EPowMulLnRule, "e_pow_mul_ln", 85, Algebraic, &[ExprKind::Pow], alters_domain: true, |expr: &Expr, _context: &RuleContext| {
     if let AstKind::Pow(base, exp) = &expr.kind
         && let AstKind::Symbol(s) = &base.kind
         && s.id() == KS.e
-        && !context.known_symbols.contains("e")
     {
         // Check if exponent is a Product containing ln(x)
         if let AstKind::Product(factors) = &exp.kind {

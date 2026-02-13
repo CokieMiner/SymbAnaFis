@@ -344,7 +344,8 @@ rule_arc!(
                 if extract_product_with_sum(term).is_none() {
                     let (_, base) =
                         crate::simplification::helpers::extract_coeff_arc(term.as_ref());
-                    existing_hashes.insert(crate::simplification::helpers::get_term_hash(&base));
+                    existing_hashes
+                        .insert(crate::simplification::helpers::get_term_hash(base.as_ref()));
                 }
             }
 
@@ -392,47 +393,51 @@ rule_arc!(
 
             // Original like-term combination logic
             // Group terms by their structure (ignoring coefficients)
-            // Use HashMap<u64, Vec<Arc<Expr>>>
+            // Use HashMap<u64, Vec<Arc<Expr>>> for initial grouping by hash
             let mut like_terms: std::collections::HashMap<u64, Vec<Arc<Expr>>> =
                 std::collections::HashMap::new();
 
             for term in terms_vec {
-                let key = crate::simplification::helpers::get_term_hash(term);
+                let key = crate::simplification::helpers::get_term_hash(term.as_ref());
                 like_terms.entry(key).or_default().push(Arc::clone(term));
             }
 
-            // Combine like terms
+            // Combine like terms, with structural verification to handle hash collisions
             let mut combined_terms = Vec::new();
             for (_signature, group_terms) in like_terms {
                 if group_terms.len() == 1 {
                     combined_terms.push(Arc::clone(&group_terms[0]));
                 } else {
-                    // Sum the coefficients of like terms
-                    let mut total_coeff = 0.0;
-                    let mut base_term = None;
-
-                    for term in group_terms {
+                    // Sub-group by actual structural base using HashMap (O(n) amortized).
+                    // Expr's Hash+PartialEq handles hash collisions via structural equality.
+                    let mut sub_groups: std::collections::HashMap<Arc<Expr>, f64> =
+                        std::collections::HashMap::new();
+                    for term in &group_terms {
                         let (coeff, var_part) =
                             crate::simplification::helpers::extract_coeff_arc(term.as_ref());
-                        total_coeff += coeff;
-                        if base_term.is_none() {
-                            base_term = Some(var_part);
+                        *sub_groups.entry(var_part).or_insert(0.0) += coeff;
+                    }
+
+                    for (base_term, total_coeff) in sub_groups {
+                        if total_coeff.abs() < EPSILON {
+                            // Terms cancel out
+                            continue;
                         }
-                    }
 
-                    if (total_coeff - 0.0).abs() < EPSILON {
-                        // Terms cancel out
-                        continue;
-                    }
-
-                    let base_term = base_term.expect("Base term guaranteed to exist");
-                    if (total_coeff - 1.0).abs() < EPSILON {
-                        combined_terms.push(base_term);
-                    } else {
-                        combined_terms.push(Arc::new(Expr::product_from_arcs(vec![
-                            Arc::new(Expr::number(total_coeff)),
-                            base_term,
-                        ])));
+                        if (total_coeff - 1.0).abs() < EPSILON {
+                            combined_terms.push(base_term);
+                        } else if let AstKind::Number(n) = &base_term.kind {
+                            if (*n - 1.0).abs() < EPSILON {
+                                combined_terms.push(Arc::new(Expr::number(total_coeff)));
+                            } else {
+                                combined_terms.push(Arc::new(Expr::number(total_coeff * n)));
+                            }
+                        } else {
+                            combined_terms.push(Arc::new(Expr::product_from_arcs(vec![
+                                Arc::new(Expr::number(total_coeff)),
+                                base_term,
+                            ])));
+                        }
                     }
                 }
             }

@@ -189,12 +189,14 @@ fn bench_eval(c: &mut Criterion) {
             |b, points| {
                 b.iter(|| {
                     let mut sum = 0.0;
+                    // Re-use buffer to avoid 1000 allocations, matching benchmark.rs
+                    let mut input = vec![1.0; 1 + fixed_vals.len()];
                     for &x in points {
-                        // MATCHING BEHAVIOR: allocating per point as done in benchmark.rs
-                        // This ensures fair comparison including allocation overhead.
-                        let mut input = Vec::with_capacity(1 + fixed_vals.len());
-                        input.push(x);
-                        input.extend_from_slice(&fixed_vals);
+                        input[0] = x;
+                        // For Gaussian 2D, fixed_vals contains [y=1.0]
+                        // The order here depends on how params were constructed:
+                        // params = vec![var_atom]; params.push(f_atom);
+                        // So var is at index 0.
 
                         // evaluate_single takes a slice matching params
                         sum += evaluator.evaluate_single(&input);

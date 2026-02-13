@@ -896,28 +896,25 @@ rule_arc!(
             }
 
             // Collect all (base, exponent) pairs from power terms
-            let mut base_exponents: std::collections::HashMap<u64, Vec<(f64, Arc<Expr>)>> =
+            let mut base_exponents: std::collections::HashMap<Arc<Expr>, Vec<(f64, Arc<Expr>)>> =
                 std::collections::HashMap::new();
 
             for term in terms {
-                let (_, base_expr) = crate::simplification::helpers::extract_coeff(term);
+                let (_, base_expr_extracted) = crate::simplification::helpers::extract_coeff(term);
 
-                if let AstKind::Pow(base, exp) = &base_expr.kind {
+                if let AstKind::Pow(base, exp) = &base_expr_extracted.kind {
                     if let AstKind::Number(exp_val) = &exp.kind
                         && *exp_val > 0.0
                         && exp_val.fract() == 0.0
                     {
-                        let base_key = crate::simplification::helpers::get_term_hash(base);
                         base_exponents
-                            .entry(base_key)
+                            .entry(Arc::clone(base))
                             .or_default()
                             .push((*exp_val, Arc::clone(term)));
                     }
-                } else if let AstKind::Symbol(_s) = &base_expr.kind {
-                    // Use get_term_hash for consistency
-                    let base_key = crate::simplification::helpers::get_term_hash(&base_expr);
+                } else if let AstKind::Symbol(_s) = &base_expr_extracted.kind {
                     base_exponents
-                        .entry(base_key)
+                        .entry(Arc::new(base_expr_extracted))
                         .or_default()
                         .push((1.0, Arc::clone(term)));
                 }

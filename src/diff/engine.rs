@@ -53,13 +53,26 @@ impl Expr {
         static EMPTY_CONTEXT: std::sync::OnceLock<Context> = std::sync::OnceLock::new();
         let ctx = context.unwrap_or_else(|| EMPTY_CONTEXT.get_or_init(Context::new));
 
+        // Intern the var name ONCE for O(1) UID comparisons throughout recursion
+        let var_id = crate::core::symbol::symb_interned(var).id();
+
+        self.derive_impl(var, var_id, ctx)
+    }
+
+    /// Inner recursive implementation that carries pre-computed `var_id`
+    /// to avoid re-interning the variable name at each node.
+    #[allow(
+        clippy::too_many_lines,
+        reason = "Comprehensive differentiation logic handles many expression types"
+    )]
+    fn derive_impl(&self, var: &str, var_id: u64, ctx: &Context) -> Self {
         match &self.kind {
             // Base cases
             ExprKind::Number(_) => Self::number(0.0),
 
             ExprKind::Symbol(name) => {
                 // d/dx(x) = 1, d/dx(y) = 0 (anything else is constant)
-                if name.as_str() == var {
+                if name.id() == var_id {
                     Self::number(1.0)
                 } else {
                     Self::number(0.0)
@@ -77,7 +90,7 @@ impl Expr {
 
                 // Special handling for exponential function e^x
                 if name.id() == ks::KS.exp && args.len() == 1 {
-                    let inner_deriv = args[0].derive(var, Some(ctx));
+                    let inner_deriv = args[0].derive_impl(var, var_id, ctx);
                     return Self::mul_expr(
                         Self::func_symbol(ks::get_symbol(ks::KS.exp), (*args[0]).clone()),
                         inner_deriv,
@@ -88,18 +101,20 @@ impl Expr {
                 if let Some(def) = crate::functions::registry::Registry::get_by_symbol(name)
                     && def.validate_arity(args.len())
                 {
-                    let arg_primes: Vec<Self> =
-                        args.iter().map(|arg| arg.derive(var, Some(ctx))).collect();
+                    let arg_primes: Vec<Self> = args
+                        .iter()
+                        .map(|arg| arg.derive_impl(var, var_id, ctx))
+                        .collect();
                     return (def.derivative)(args, &arg_primes);
                 }
 
                 // Check for user-defined function partials in context
-                if let Some(user_fn) = ctx.get_user_fn(name.as_str()) {
+                if let Some(user_fn) = ctx.get_user_fn_by_id(name.id()) {
                     // Multi-arg chain rule: dF/dx = Σ (∂F/∂arg[i]) * (darg[i]/dx)
                     let mut terms = Vec::new();
 
                     for (i, arg) in args.iter().enumerate() {
-                        let arg_prime = arg.derive(var, Some(ctx));
+                        let arg_prime = arg.derive_impl(var, var_id, ctx);
 
                         // Skip if derivative is zero
                         if arg_prime.is_zero_num() {
@@ -127,7 +142,7 @@ impl Expr {
                 // Unknown function - symbolic partial derivative using chain rule
                 let mut terms = Vec::new();
                 for (i, arg) in args.iter().enumerate() {
-                    let arg_prime = arg.derive(var, Some(ctx));
+                    let arg_prime = arg.derive_impl(var, var_id, ctx);
                     if arg_prime.is_zero_num() {
                         continue;
                     }
@@ -148,7 +163,7 @@ impl Expr {
             ExprKind::Sum(terms) => {
                 let derivs: Vec<Self> = terms
                     .iter()
-                    .map(|t| t.derive(var, Some(ctx)))
+                    .map(|t| t.derive_impl(var, var_id, ctx))
                     .filter(|d| !d.is_zero_num())
                     .collect();
 
@@ -170,7 +185,7 @@ impl Expr {
                     return Self::number(0.0);
                 }
                 if factors.len() == 1 {
-                    return factors[0].derive(var, Some(ctx));
+                    return factors[0].derive_impl(var, var_id, ctx);
                 }
 
                 // Optimization: For large products, use logarithmic differentiation
@@ -179,7 +194,7 @@ impl Expr {
                 if factors.len() > 10 {
                     let mut log_terms = Vec::with_capacity(factors.len());
                     for factor in factors {
-                        let prime = factor.derive(var, Some(ctx));
+                        let prime = factor.derive_impl(var, var_id, ctx);
                         if !prime.is_zero_num() {
                             // term = f' / f
                             log_terms
@@ -204,7 +219,7 @@ impl Expr {
                         continue;
                     }
 
-                    let factor_prime = factors[i].derive(var, Some(ctx));
+                    let factor_prime = factors[i].derive_impl(var, var_id, ctx);
 
                     // Skip zero terms
                     if factor_prime.is_zero_num() {
@@ -245,7 +260,7 @@ impl Expr {
                 // Fast-path 1: Constant numerator (n/f) → -n*f'/f²
                 // Skip computing u' since we know it's 0
                 if let ExprKind::Number(n) = &u.kind {
-                    let v_prime = v.derive(var, Some(ctx));
+                    let v_prime = v.derive_impl(var, var_id, ctx);
                     if v_prime.is_zero_num() {
                         return Self::number(0.0);
                     }
@@ -258,13 +273,13 @@ impl Expr {
                 // Fast-path 2: Constant denominator (u/n) → u'/n
                 // Skip computing v' since we know it's 0
                 if let ExprKind::Number(_) = &v.kind {
-                    let u_prime = u.derive(var, Some(ctx));
+                    let u_prime = u.derive_impl(var, var_id, ctx);
                     return Self::div_from_arcs(Arc::new(u_prime), Arc::clone(v));
                 }
 
                 // General case: compute both derivatives
-                let u_prime = u.derive(var, Some(ctx));
-                let v_prime = v.derive(var, Some(ctx));
+                let u_prime = u.derive_impl(var, var_id, ctx);
+                let v_prime = v.derive_impl(var, var_id, ctx);
 
                 let u_is_zero = u_prime.is_zero_num();
                 let v_is_zero = v_prime.is_zero_num();
@@ -315,7 +330,7 @@ impl Expr {
                         return Self::number(0.0);
                     }
 
-                    let u_prime = u.derive(var, Some(ctx));
+                    let u_prime = u.derive_impl(var, var_id, ctx);
 
                     if u_prime.is_zero_num() {
                         Self::number(0.0)
@@ -332,7 +347,7 @@ impl Expr {
                     }
                 } else if !u_contains_var {
                     // Case 2: a^v, base is constant
-                    let v_prime = v.derive(var, Some(ctx));
+                    let v_prime = v.derive_impl(var, var_id, ctx);
 
                     if v_prime.is_zero_num() {
                         Self::number(0.0)
@@ -348,8 +363,8 @@ impl Expr {
                     }
                 } else {
                     // Case 3: u^v, both variable - use logarithmic differentiation
-                    let u_prime = u.derive(var, Some(ctx));
-                    let v_prime = v.derive(var, Some(ctx));
+                    let u_prime = u.derive_impl(var, var_id, ctx);
+                    let v_prime = v.derive_impl(var, var_id, ctx);
 
                     let ln_u = Self::func_symbol(ks::get_symbol(ks::KS.ln), (**u).clone());
 
@@ -401,7 +416,7 @@ impl Expr {
                 var: deriv_var,
                 order,
             } => {
-                if deriv_var.as_str() == var {
+                if deriv_var.id() == var_id {
                     Self::derivative_interned(inner.as_ref().clone(), deriv_var.clone(), order + 1)
                 } else if !inner.contains_var(var) {
                     Self::number(0.0)

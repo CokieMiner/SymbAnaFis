@@ -15,18 +15,11 @@ pub fn expr_cmp(a: &Expr, b: &Expr) -> CmpOrdering {
         return CmpOrdering::Equal;
     }
 
-    // Fast path: different types can be ordered immediately
-    let disc_a = std::mem::discriminant(&a.kind);
-    let disc_b = std::mem::discriminant(&b.kind);
-    if disc_a != disc_b {
-        return type_order(&a.kind).cmp(&type_order(&b.kind));
-    }
-
-    // Same type: compare base expressions
+    // Compare bases first to ensure adjacency of like terms (Phase 10 optimization)
     let base_a = get_base(a);
     let base_b = get_base(b);
 
-    // If bases are same pointer, skip recursive comparison
+    // If bases are different, use strict type comparison on bases
     if !std::ptr::eq(base_a, base_b) {
         let base_cmp = expr_cmp_type_strict(base_a, base_b);
         if base_cmp != CmpOrdering::Equal {
@@ -34,10 +27,11 @@ pub fn expr_cmp(a: &Expr, b: &Expr) -> CmpOrdering {
         }
     }
 
+    // Bases are equal (e.g., x vs x^2 vs 2*x)
+    // Compare exponents next (e.g., x^2 > x)
     let exp_a = get_exponent(a);
     let exp_b = get_exponent(b);
 
-    // If exponents are same pointer, skip recursive comparison
     if !std::ptr::eq(exp_a, exp_b) {
         let exp_cmp = expr_cmp(exp_a, exp_b);
         if exp_cmp != CmpOrdering::Equal {
@@ -45,26 +39,12 @@ pub fn expr_cmp(a: &Expr, b: &Expr) -> CmpOrdering {
         }
     }
 
+    // Exponents are equal (e.g., 2*x vs 3*x)
+    // Compare coefficients last
     let coeff_a = get_coeff(a);
     let coeff_b = get_coeff(b);
 
     coeff_a.partial_cmp(&coeff_b).unwrap_or(CmpOrdering::Equal)
-}
-
-/// Get a numeric ordering for expression types (for fast discriminant comparison)
-#[inline]
-const fn type_order(kind: &ExprKind) -> u8 {
-    match kind {
-        ExprKind::Number(_) => 0,
-        ExprKind::Symbol(_) => 1,
-        ExprKind::Sum(_) => 2,
-        ExprKind::FunctionCall { .. } => 3,
-        ExprKind::Product(_) => 4,
-        ExprKind::Pow(_, _) => 5,
-        ExprKind::Div(_, _) => 6,
-        ExprKind::Derivative { .. } => 7,
-        ExprKind::Poly(_) => 8,
-    }
 }
 
 // Helper to get the sorting "base" of an expression.

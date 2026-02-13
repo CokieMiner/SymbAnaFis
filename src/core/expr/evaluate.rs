@@ -250,7 +250,7 @@ impl Expr {
                         }
                     }
                     Self::number(total)
-                } else if base_result == *poly.base() {
+                } else if base_result == *poly.base_arc() {
                     self.clone()
                 } else {
                     let mut new_poly = poly.clone();

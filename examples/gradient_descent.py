@@ -16,6 +16,8 @@ import matplotlib.animation as animation
 import matplotlib.gridspec as gridspec
 import time
 import warnings
+from pathlib import Path
+from video_writer import save_animation_mp4
 warnings.filterwarnings('ignore')
 
 # ================= CONFIGURATION =================
@@ -24,6 +26,8 @@ N_BALLS = 500_000
 STEPS = 600      
 LR = 0.05
 LIMIT = 8.0 
+GENERATE_VIDEO = False
+REQUIRE_ALL_ENGINES = True
 
 # Complex terrain h(x,y)
 EXPR_STR = "sin(x) * cos(y) + 0.1 * (x^2 + y^2) - 0.2 * cos(1.5 * x - 1.0) * sin(2.0 * y) + 0.2 * erf(x/2.0) * erf(y/2.0)"
@@ -89,17 +93,12 @@ def setup_symengine():
         try:
             grad_fn_inner = se.Lambdify([x, y], [dh_dx, dh_dy], backend='llvm')
             print("   (LLVM Backend)")
-            def evaluate(x_arr, y_arr):
-                inp = np.column_stack((x_arr, y_arr))
-                out = grad_fn_inner(inp)
-                return out[:,0], out[:,1]
-        except:
-            grad_fn_inner = se.Lambdify([x, y], [dh_dx, dh_dy])
-            print("   (Default Backend)")
-            def evaluate(x_arr, y_arr):
-                inp = np.column_stack((x_arr, y_arr))
-                out = grad_fn_inner(inp)
-                return out[:,0], out[:,1]
+        except Exception as exc:
+            raise RuntimeError("SymEngine LLVM backend is required for fair comparison.") from exc
+        def evaluate(x_arr, y_arr):
+            inp = np.column_stack((x_arr, y_arr))
+            out = grad_fn_inner(inp)
+            return out[:,0], out[:,1]
                 
         comp_time = time.perf_counter() - comp_t0
         setup_time = time.perf_counter() - t0
@@ -140,6 +139,15 @@ def setup_symbanafis():
     except ImportError:
         print("   ❌ SymbAnaFis not found!")
         return None, 0, 0
+
+def print_metric_summary(results):
+    print("\n📊 Metrics (prep/run/total)")
+    print("-" * 52)
+    for res in results:
+        prep = res["prep_time"]
+        run = res["run_time"]
+        total = prep + run
+        print(f"{res['name']:<12} prep={prep:>8.4f}s  run={run:>8.4f}s  total={total:>8.4f}s")
 
 # ================= SIMULATION =================
 
@@ -219,6 +227,7 @@ def main():
                 "name": name,
                 "diff_time": dt,
                 "comp_time": ct,
+                "prep_time": dt + ct,
                 "run_time": run_time,
                 "total_time": dt + ct + run_time,
                 "history": hist,
@@ -229,6 +238,13 @@ def main():
 
     if not results:
         print("No results to plot.")
+        return
+    if REQUIRE_ALL_ENGINES and len(results) != len(engines):
+        raise RuntimeError("Not all engines completed. Aborting to keep benchmark fair.")
+    print_metric_summary(results)
+
+    if not GENERATE_VIDEO:
+        print("\n🎥 Video generation disabled (GENERATE_VIDEO=False).")
         return
 
     # --- QUAD-VIEW VIDEO ---
@@ -345,24 +361,10 @@ def main():
         
     ani = animation.FuncAnimation(fig, update, frames=STEPS, interval=30, blit=False)
     
-    try:
-        from matplotlib.animation import FFMpegWriter
-        from pathlib import Path
-        video_dir = Path(__file__).parent.parent / 'videos'
-        video_dir.mkdir(exist_ok=True)
-        out_path = video_dir / 'gradient_descent_quad.mp4'
-        writer = FFMpegWriter(fps=30, codec='h264_nvenc', 
-                              extra_args=['-preset', 'fast', '-rc', 'vbr', '-cq', '24'])
-        ani.save(str(out_path), writer=writer, dpi=100)
-        print(f"✨ Saved {out_path} (GPU)")
-    except Exception as e:
-        from pathlib import Path
-        video_dir = Path(__file__).parent.parent / 'videos'
-        video_dir.mkdir(exist_ok=True)
-        out_path = video_dir / 'gradient_descent_quad.mp4'
-        print(f"   GPU encoding failed ({e}), using CPU...")
-        ani.save(str(out_path), fps=30, dpi=100)
-        print(f"✨ Saved {out_path} (CPU)")
+    video_dir = Path(__file__).parent.parent / 'videos'
+    out_path = video_dir / 'gradient_descent_quad.mp4'
+    backend = save_animation_mp4(ani, out_path, fps=30, dpi=100, cq=24)
+    print(f"✨ Saved {out_path} ({backend})")
 
 if __name__ == "__main__":
     main()

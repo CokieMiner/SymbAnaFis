@@ -11,21 +11,22 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 /// Type alias for custom body function map (symbolic expansion)
-pub type CustomBodyMap = HashMap<String, BodyFn>;
+pub type CustomBodyMap = HashMap<u64, BodyFn>;
 
 /// Simplify an expression with user-specified options
 ///
 /// # Arguments
 /// - `expr`: The expression to simplify
-/// - `known_symbols`: known symbol names (passed through for simplifier context)
-/// - `custom_bodies`: custom function body definitions for symbolic expansion
+/// - `_known_symbols`: (Deprecated/Unused) Previously used for parsing hints.
+///   Constants like 'e' are now always handled consistently via UIDs.
+/// - `custom_bodies`: Map of custom function bodies for numeric evaluation
 /// - `max_depth`: maximum tree depth during simplification (None = use default 50)
 /// - `max_iterations`: maximum simplification iterations (None = use default 1000)
 /// - `context`: optional unified Context (merges its function bodies)
 /// - `domain_safe`: if true, avoids transformations that can change expression domain
 pub fn simplify_expr(
     expr: Expr,
-    known_symbols: HashSet<String>,
+    _known_symbols: HashSet<String>,
     mut custom_bodies: CustomBodyMap,
     max_depth: Option<usize>,
     max_iterations: Option<usize>,
@@ -36,19 +37,15 @@ pub fn simplify_expr(
     if let Some(ctx) = context {
         // Context symbols are parsing hints, not simplification constants
         // But we still merge function bodies
-        for name in ctx.function_names() {
-            if let Some(body) = ctx.get_body(&name) {
-                custom_bodies.insert(name, Arc::clone(body));
+        for id in ctx.fn_name_to_id().values() {
+            if let Some(body) = ctx.get_body_by_id(*id) {
+                custom_bodies.insert(*id, Arc::clone(body));
             }
         }
     }
 
-    let variables = expr.variables();
-
     let mut simplifier = engine::Simplifier::new()
         .with_domain_safe(domain_safe)
-        .with_variables(variables)
-        .with_known_symbols(known_symbols)
         .with_custom_bodies(custom_bodies);
 
     if let Some(depth) = max_depth {

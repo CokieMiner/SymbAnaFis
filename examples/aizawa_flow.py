@@ -14,15 +14,19 @@ import matplotlib.animation as animation
 import matplotlib.gridspec as gridspec
 import time
 import warnings
+from pathlib import Path
+from video_writer import save_animation_mp4
 warnings.filterwarnings('ignore')
 
 # CONFIGURATION
 N_PARTICLES = 500_000
 N_STEPS = 600
 DT = 0.01
+GENERATE_VIDEO = False
 
 # Aizawa parameters
 A, B, C, D, E, F = 0.95, 0.7, 0.6, 3.5, 0.25, 0.1
+REQUIRE_ALL_ENGINES = True
 
 def setup_sympy():
     try:
@@ -61,9 +65,8 @@ def setup_symengine():
         try:
             func = se.Lambdify([x, y, z], [dx, dy, dz], backend='llvm')
             print("   (LLVM)")
-        except:
-            func = se.Lambdify([x, y, z], [dx, dy, dz])
-            print("   (Default)")
+        except Exception as exc:
+            raise RuntimeError("SymEngine LLVM backend is required for fair comparison.") from exc
             
         setup_time = time.perf_counter() - t0
         print(f"   ✓ Setup: {setup_time*1000:.1f} ms")
@@ -76,6 +79,15 @@ def setup_symengine():
             
         return evaluate, setup_time
     except ImportError: return None, 0
+
+def print_metric_summary(results):
+    print("\n📊 Metrics (prep/run/total)")
+    print("-" * 52)
+    for res in results:
+        prep = res["prep_time"]
+        run = res["run_time"]
+        total = prep + run
+        print(f"{res['name']:<12} prep={prep:>8.4f}s  run={run:>8.4f}s  total={total:>8.4f}s")
 
 def setup_symbanafis():
     try:
@@ -156,11 +168,19 @@ def main():
         print(f"   ✓ Time: {run_time:.4f}s")
         
         results.append({
-            "name": name, "run_time": run_time, "color": color,
+            "name": name, "prep_time": s_time, "run_time": run_time, "color": color,
             "hx": hx, "hy": hy, "hz": hz
         })
-        
-    if not results: return
+
+    if not results:
+        return
+    if REQUIRE_ALL_ENGINES and len(results) != len(engines):
+        raise RuntimeError("Not all engines completed. Aborting to keep benchmark fair.")
+    print_metric_summary(results)
+
+    if not GENERATE_VIDEO:
+        print("\n🎥 Video generation disabled (GENERATE_VIDEO=False).")
+        return
 
     # --- QUAD-VIEW VIDEO ---
     print("\n🎥 Generating Quad-View Video...")
@@ -222,29 +242,15 @@ def main():
             z = sub['hz'][frame_idx]  # type: ignore[index]
             
             sub['scat']._offsets3d = (x, y, z)  # type: ignore[attr-defined]
-            sub['ax'].view_init(elev=30, azim=frame)  # type: ignore[index]
             
         return []
         
     ani = animation.FuncAnimation(fig, update, frames=N_STEPS, interval=40, blit=False)
     
-    try:
-        from matplotlib.animation import FFMpegWriter
-        from pathlib import Path
-        video_dir = Path(__file__).parent.parent / 'videos'
-        video_dir.mkdir(exist_ok=True)
-        out_path = video_dir / 'aizawa_quad.mp4'
-        writer = FFMpegWriter(fps=30, codec='h264_nvenc', 
-                              extra_args=['-preset', 'fast', '-rc', 'vbr', '-cq', '26'])
-        ani.save(str(out_path), writer=writer, dpi=100)
-        print(f"✨ Saved {out_path} (GPU)")
-    except:
-        from pathlib import Path
-        video_dir = Path(__file__).parent.parent / 'videos'
-        video_dir.mkdir(exist_ok=True)
-        out_path = video_dir / 'aizawa_quad.mp4'
-        ani.save(str(out_path), fps=30, dpi=100)
-        print(f"✨ Saved {out_path} (CPU)")
+    video_dir = Path(__file__).parent.parent / 'videos'
+    out_path = video_dir / 'aizawa_quad.mp4'
+    backend = save_animation_mp4(ani, out_path, fps=30, dpi=100, cq=26)
+    print(f"✨ Saved {out_path} ({backend})")
 
 if __name__ == "__main__":
     main()

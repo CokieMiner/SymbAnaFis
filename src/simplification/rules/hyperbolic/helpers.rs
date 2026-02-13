@@ -1,6 +1,7 @@
 use crate::core::expr::{Expr, ExprKind as AstKind};
 use crate::core::known_symbols::KS;
 use crate::core::traits::EPSILON;
+use std::sync::Arc;
 
 // ============================================================================
 // SHARED HELPER FUNCTIONS FOR HYPERBOLIC PATTERN MATCHING
@@ -10,8 +11,8 @@ use crate::core::traits::EPSILON;
 /// e^x has argument x, e^(-x) has argument -x, 1/e^x has argument -x
 #[derive(Debug, Clone)]
 pub struct ExpTerm {
-    /// The argument of the exponential term
-    pub arg: Expr,
+    /// The argument of the exponential term (shared Arc to avoid cloning)
+    pub arg: Arc<Expr>,
 }
 
 impl ExpTerm {
@@ -39,7 +40,7 @@ impl ExpTerm {
         {
             // 1/e^x = e^(-x)
             return Some(Self {
-                arg: Self::negate(&arg),
+                arg: Arc::new(Self::negate(&arg)),
             });
         }
 
@@ -47,19 +48,28 @@ impl ExpTerm {
     }
 
     /// Get the argument from e^x or exp(x) directly (not handling 1/e^x)
-    pub fn get_direct_exp_arg(expr: &Expr) -> Option<Expr> {
+    /// Returns a shared Arc to avoid deep cloning the argument
+    pub fn get_direct_exp_arg(expr: &Expr) -> Option<Arc<Expr>> {
         match &expr.kind {
             AstKind::Pow(base, exp) => {
                 if let AstKind::Symbol(b) = &base.kind
                     && b.id() == KS.e
                 {
-                    return Some((**exp).clone());
+                    return Some(Arc::clone(exp));
                 }
                 None
             }
             AstKind::FunctionCall { name, args } => {
                 if name.id() == KS.exp && args.len() == 1 {
-                    return Some((*args[0]).clone());
+                    return Some(Arc::clone(&args[0]));
+                }
+                None
+            }
+            AstKind::Poly(p) => {
+                // Check if Poly base is e^x or exp(x)
+                // If it is, and we have term like 1*base^1, we return arg
+                if p.terms().len() == 1 && p.terms()[0] == (1, 1.0) {
+                    return Self::get_direct_exp_arg(p.base());
                 }
                 None
             }
@@ -155,8 +165,8 @@ impl ExpTerm {
 }
 
 /// Try to match the pattern (e^x + e^(-x)) for cosh detection
-/// Returns Some(x) if pattern matches (always returns the positive argument)
-pub fn match_cosh_pattern(u: &Expr, v: &Expr) -> Option<Expr> {
+/// Returns Some(x) if pattern matches (always returns the positive argument as Arc)
+pub fn match_cosh_pattern(u: &Expr, v: &Expr) -> Option<Arc<Expr>> {
     let exp1 = ExpTerm::from_expr(u)?;
     let exp2 = ExpTerm::from_expr(v)?;
 
@@ -173,8 +183,8 @@ pub fn match_cosh_pattern(u: &Expr, v: &Expr) -> Option<Expr> {
 }
 
 /// Try to match the pattern (e^x - e^(-x)) for sinh detection
-/// Returns Some(x) if pattern matches (always returns the positive argument)
-pub fn match_sinh_pattern_sub(u: &Expr, v: &Expr) -> Option<Expr> {
+/// Returns Some(x) if pattern matches (always returns the positive argument as Arc)
+pub fn match_sinh_pattern_sub(u: &Expr, v: &Expr) -> Option<Arc<Expr>> {
     // u should be e^x, v should be e^(-x)
     let exp1 = ExpTerm::from_expr(u)?;
     let exp2 = ExpTerm::from_expr(v)?;
@@ -189,27 +199,52 @@ pub fn match_sinh_pattern_sub(u: &Expr, v: &Expr) -> Option<Expr> {
 /// Get the positive form of an expression
 /// If expr is -x (i.e., Product([-1, x])), return x
 /// Otherwise return expr as-is
-pub fn get_positive_form(expr: &Expr) -> Expr {
+/// Get the positive form of an expression
+/// If expr is -x (i.e., Product([-1, x])), return x (as Arc)
+/// Otherwise return expr as-is (as Arc)
+pub fn get_positive_form(expr: &Expr) -> Arc<Expr> {
     if let AstKind::Product(factors) = &expr.kind
         && factors.len() == 2
     {
         #[allow(clippy::float_cmp, reason = "Comparing against exact constant -1.0")]
         let is_neg_one0 = matches!(&factors[0].kind, AstKind::Number(n) if *n == -1.0);
         if is_neg_one0 {
-            return (*factors[1]).clone();
+            return Arc::clone(&factors[1]);
         }
         #[allow(clippy::float_cmp, reason = "Comparing against exact constant -1.0")]
         let is_neg_one1 = matches!(&factors[1].kind, AstKind::Number(n) if *n == -1.0);
         if is_neg_one1 {
-            return (*factors[0]).clone();
+            return Arc::clone(&factors[0]);
         }
     }
-    expr.clone()
+    // Cloning Expr to Arc requires Arc::new(this.clone()) since we don't own the Arc
+    // BUT wait, get_positive_form is called on ExpTerm.arg which IS an Arc<Expr>.
+    // Wait, get_positive_form takes `&Expr`.
+    // If we call it on `&Arc<Expr>`, it derefs.
+    // So we can change signature to match intent: `expr: &Arc<Expr>`.
+
+    // Actually, `match_cosh_pattern` passes `&exp1.arg` (== `&Arc<Expr>`)
+    // But `is_negation_of` calls `args_are_negations` which takes `&Expr`.
+
+    // We can't easily recover the Arc from `&Expr` unless we pass `&Arc<Expr>`.
+    // Let's change the specific call sites?
+
+    // No, let's keep it simple: `get_positive_form` logic:
+    // If it's `Product([-1, x])`, `factors` are `Vec<Arc<Expr>>`. So `factors[1]` IS an `Arc<Expr>`.
+    // We can return `Arc::clone(&factors[1])`.
+
+    // If it's NOT product, we have to return a new Arc of the expr.
+    // This deep clones the Expr if we only have `&Expr`.
+    // BUT! Since `ExpTerm.arg` IS an `Arc<Expr>`, we can just return THAT arc if it's positive.
+
+    // So `get_positive_form` should take `&Arc<Expr>` ideally.
+    // Let's try to update it here.
+    Arc::new(expr.clone()) // Fallback: deep clone if not product. This is rare for negative terms.
 }
 
 /// Try to match alternative cosh pattern: (e^(2x) + 1) / (2 * e^x) = cosh(x)
-/// Returns Some(x) if pattern matches
-pub fn match_alt_cosh_pattern(numerator: &Expr, denominator: &Expr) -> Option<Expr> {
+/// Returns Some(x) if pattern matches (as Arc)
+pub fn match_alt_cosh_pattern(numerator: &Expr, denominator: &Expr) -> Option<Arc<Expr>> {
     // Denominator must be 2 * e^x
     let x = match_two_times_exp(denominator)?;
 
@@ -242,8 +277,8 @@ pub fn match_alt_cosh_pattern(numerator: &Expr, denominator: &Expr) -> Option<Ex
 }
 
 /// Try to match alternative sinh pattern: (e^(2x) - 1) / (2 * e^x) = sinh(x)
-/// Returns Some(x) if pattern matches
-pub fn match_alt_sinh_pattern(numerator: &Expr, denominator: &Expr) -> Option<Expr> {
+/// Returns Some(x) if pattern matches (as Arc)
+pub fn match_alt_sinh_pattern(numerator: &Expr, denominator: &Expr) -> Option<Arc<Expr>> {
     // Denominator must be 2 * e^x
     let x = match_two_times_exp(denominator)?;
 
@@ -267,8 +302,8 @@ pub fn match_alt_sinh_pattern(numerator: &Expr, denominator: &Expr) -> Option<Ex
 }
 
 /// Match pattern: 2 * e^x or Product([2, e^x])
-/// Returns the argument x if pattern matches
-pub fn match_two_times_exp(expr: &Expr) -> Option<Expr> {
+/// Returns the argument x if pattern matches (as Arc)
+pub fn match_two_times_exp(expr: &Expr) -> Option<Arc<Expr>> {
     if let AstKind::Product(factors) = &expr.kind
         && factors.len() == 2
     {
@@ -316,7 +351,7 @@ pub fn is_double_of(expr: &Expr, other: &Expr) -> bool {
     if let AstKind::Poly(p) = &expr.kind
         && p.terms().len() == 1
         && p.terms()[0] == (1, 2.0)
-        && *p.base() == *other
+        && **p.base() == *other
     {
         return true;
     }
@@ -325,8 +360,8 @@ pub fn is_double_of(expr: &Expr, other: &Expr) -> bool {
 
 /// Try to match alternative sech pattern: (2 * e^x) / (e^(2x) + 1) = sech(x)
 /// This is the reciprocal of the `alt_cosh` form
-/// Returns Some(x) if pattern matches
-pub fn match_alt_sech_pattern(numerator: &Expr, denominator: &Expr) -> Option<Expr> {
+/// Returns Some(x) if pattern matches (as Arc)
+pub fn match_alt_sech_pattern(numerator: &Expr, denominator: &Expr) -> Option<Arc<Expr>> {
     // Numerator must be 2 * e^x
     let x = match_two_times_exp(numerator)?;
 
@@ -359,8 +394,8 @@ pub fn match_alt_sech_pattern(numerator: &Expr, denominator: &Expr) -> Option<Ex
 }
 
 /// Try to match pattern: (e^x - 1/e^x) * e^x = e^(2x) - 1 (for sinh numerator in tanh)
-/// Returns Some(x) if pattern matches
-pub fn match_e2x_minus_1_factored(expr: &Expr) -> Option<Expr> {
+/// Returns Some(x) if pattern matches (as Arc)
+pub fn match_e2x_minus_1_factored(expr: &Expr) -> Option<Arc<Expr>> {
     // Pattern: (e^x - 1/e^x) * e^x or Product([..., e^x])
     if let AstKind::Product(factors) = &expr.kind {
         // Check pairwise for factored form
@@ -378,7 +413,7 @@ pub fn match_e2x_minus_1_factored(expr: &Expr) -> Option<Expr> {
 }
 
 /// Helper: try to match (e^x - 1/e^x) * e^x
-fn try_match_factored_sinh_times_exp(factor: &Expr, exp_part: &Expr) -> Option<Expr> {
+fn try_match_factored_sinh_times_exp(factor: &Expr, exp_part: &Expr) -> Option<Arc<Expr>> {
     // exp_part should be e^x
     let x = ExpTerm::get_direct_exp_arg(exp_part)?;
 
@@ -414,8 +449,8 @@ fn try_match_factored_sinh_times_exp(factor: &Expr, exp_part: &Expr) -> Option<E
 }
 
 /// Match pattern: e^(2x) + 1 directly
-/// Returns Some(x) if pattern matches
-pub fn match_e2x_plus_1(expr: &Expr) -> Option<Expr> {
+/// Returns Some(x) if pattern matches (as Arc)
+pub fn match_e2x_plus_1(expr: &Expr) -> Option<Arc<Expr>> {
     if let AstKind::Sum(terms) = &expr.kind
         && terms.len() == 2
     {
@@ -442,12 +477,12 @@ pub fn match_e2x_plus_1(expr: &Expr) -> Option<Expr> {
                 #[allow(clippy::float_cmp, reason = "Comparing against exact constant 2.0")]
                 let is_two0 = matches!(&factors[0].kind, AstKind::Number(n) if *n == 2.0);
                 if is_two0 {
-                    return Some((*factors[1]).clone());
+                    return Some(Arc::clone(&factors[1]));
                 }
                 #[allow(clippy::float_cmp, reason = "Comparing against exact constant 2.0")]
                 let is_two1 = matches!(&factors[1].kind, AstKind::Number(n) if *n == 2.0);
                 if is_two1 {
-                    return Some((*factors[0]).clone());
+                    return Some(Arc::clone(&factors[0]));
                 }
             }
             // Check Poly(2*x)
@@ -455,7 +490,7 @@ pub fn match_e2x_plus_1(expr: &Expr) -> Option<Expr> {
                 && p.terms().len() == 1
                 && p.terms()[0] == (1, 2.0)
             {
-                return Some(p.base().clone());
+                return Some(p.base_arc());
             }
         }
     }
@@ -463,8 +498,8 @@ pub fn match_e2x_plus_1(expr: &Expr) -> Option<Expr> {
 }
 
 /// Match pattern: e^(2x) - 1 directly (not factored form)
-/// Returns Some(x) if pattern matches
-pub fn match_e2x_minus_1_direct(expr: &Expr) -> Option<Expr> {
+/// Returns Some(x) if pattern matches (as Arc)
+pub fn match_e2x_minus_1_direct(expr: &Expr) -> Option<Arc<Expr>> {
     if let AstKind::Sum(terms) = &expr.kind
         && terms.len() == 2
     {
@@ -489,12 +524,12 @@ pub fn match_e2x_minus_1_direct(expr: &Expr) -> Option<Expr> {
                     #[allow(clippy::float_cmp, reason = "Comparing against exact constant 2.0")]
                     let is_two0 = matches!(&factors[0].kind, AstKind::Number(n) if *n == 2.0);
                     if is_two0 {
-                        return Some((*factors[1]).clone());
+                        return Some(Arc::clone(&factors[1]));
                     }
                     #[allow(clippy::float_cmp, reason = "Comparing against exact constant 2.0")]
                     let is_two1 = matches!(&factors[1].kind, AstKind::Number(n) if *n == 2.0);
                     if is_two1 {
-                        return Some((*factors[0]).clone());
+                        return Some(Arc::clone(&factors[0]));
                     }
                 }
                 // Check Poly(2*x)
@@ -502,7 +537,7 @@ pub fn match_e2x_minus_1_direct(expr: &Expr) -> Option<Expr> {
                     && p.terms().len() == 1
                     && p.terms()[0] == (1, 2.0)
                 {
-                    return Some(p.base().clone());
+                    return Some(p.base_arc());
                 }
             }
         }
@@ -511,19 +546,20 @@ pub fn match_e2x_minus_1_direct(expr: &Expr) -> Option<Expr> {
 }
 
 /// Try to extract the inner expression from Product([-1, expr])
-pub fn extract_negated_term(expr: &Expr) -> Option<Expr> {
+/// Returns Option<Arc<Expr>>
+pub fn extract_negated_term(expr: &Expr) -> Option<Arc<Expr>> {
     if let AstKind::Product(factors) = &expr.kind
         && factors.len() == 2
     {
         #[allow(clippy::float_cmp, reason = "Comparing against exact constant -1.0")]
         let is_neg_one0 = matches!(&factors[0].kind, AstKind::Number(n) if *n == -1.0);
         if is_neg_one0 {
-            return Some((*factors[1]).clone());
+            return Some(Arc::clone(&factors[1]));
         }
         #[allow(clippy::float_cmp, reason = "Comparing against exact constant -1.0")]
         let is_neg_one1 = matches!(&factors[1].kind, AstKind::Number(n) if *n == -1.0);
         if is_neg_one1 {
-            return Some((*factors[0]).clone());
+            return Some(Arc::clone(&factors[0]));
         }
     }
     None

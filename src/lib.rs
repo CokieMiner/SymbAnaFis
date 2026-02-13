@@ -476,7 +476,8 @@ pub(crate) const DEFAULT_MAX_NODES: usize = 10_000;
 /// # Arguments
 /// * `formula` - Mathematical expression to differentiate (e.g., "x^2 + sin(y)")
 /// * `var_to_diff` - Variable to differentiate with respect to (e.g., "x")
-/// * `known_symbols` - Multi-character symbols for parsing (e.g., `&["alpha", "beta"]`)
+/// * `known_symbols` - Multi-character symbols for parsing (e.g., `&["alpha", "beta"]`).
+///   These are hints to the parser and do NOT affect simplification logic.
 /// * `custom_functions` - User-defined function names (e.g., `Some(&["f", "g"])`)
 ///
 /// # Returns
@@ -582,7 +583,7 @@ pub fn diff(
 ///
 /// # Arguments
 /// * `formula` - Mathematical expression to simplify (e.g., "x + x + sin(x)^2 + cos(x)^2")
-/// * `known_symbols` - Multi-character symbols for parsing (e.g., `&["alpha", "beta"]`)
+/// * `known_symbols` - Multi-character symbols for parsing (e.g., `&["alpha", "beta"]`). These are hints to the parser and do NOT affect simplification logic.
 /// * `custom_functions` - User-defined function names (e.g., `Some(&["f", "g"])`)
 ///
 /// # Returns
@@ -646,7 +647,7 @@ pub fn diff(
 /// # use symb_anafis::simplify;
 ///
 /// let result = simplify("alpha + alpha + beta", &["alpha", "beta"], None)?;
-/// assert_eq!(result, "beta + (2*alpha)"); // Order may vary
+/// assert_eq!(result, "(2*alpha) + beta"); // Order may vary
 /// # Ok::<(), symb_anafis::DiffError>(())
 /// ```
 ///

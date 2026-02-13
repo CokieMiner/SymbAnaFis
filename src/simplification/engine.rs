@@ -197,22 +197,10 @@ impl Simplifier {
         self
     }
 
-    /// Sets the variables to consider during simplification.
-    pub fn with_variables(mut self, variables: HashSet<String>) -> Self {
-        self.context = self.context.with_variables(variables);
-        self
-    }
-
-    /// Sets the known symbols for simplification.
-    pub fn with_known_symbols(mut self, known_symbols: HashSet<String>) -> Self {
-        self.context = self.context.with_known_symbols(known_symbols);
-        self
-    }
-
     /// Sets custom function bodies.
     pub fn with_custom_bodies(
         mut self,
-        custom_bodies: HashMap<String, crate::core::unified_context::BodyFn>,
+        custom_bodies: HashMap<u64, crate::core::unified_context::BodyFn>,
     ) -> Self {
         self.context = self.context.with_custom_bodies(custom_bodies);
         self

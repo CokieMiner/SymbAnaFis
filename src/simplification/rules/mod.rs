@@ -6,7 +6,7 @@
 use crate::Expr;
 use crate::ExprKind as AstKind;
 use crate::core::unified_context::BodyFn;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Macro to define a simplification rule with minimal boilerplate
@@ -451,22 +451,16 @@ pub const ALL_EXPR_KINDS: &[ExprKind] = &[
 pub struct RuleContext {
     /// Current recursion depth in the expression tree
     pub depth: usize,
-    /// Set of variable names in the expression
-    pub variables: Arc<HashSet<String>>,
-    /// User-specified known symbols (parsing hints)
-    pub known_symbols: Arc<HashSet<String>>,
     /// Whether to apply only domain-safe transformations
     pub domain_safe: bool,
     /// Custom function body definitions
-    pub custom_bodies: Arc<HashMap<String, BodyFn>>,
+    pub custom_bodies: Arc<HashMap<u64, BodyFn>>,
 }
 
 impl std::fmt::Debug for RuleContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RuleContext")
             .field("depth", &self.depth)
-            .field("variables", &self.variables)
-            .field("known_symbols", &self.known_symbols)
             .field("domain_safe", &self.domain_safe)
             .field(
                 "custom_bodies",
@@ -483,20 +477,8 @@ impl RuleContext {
         self.depth = depth;
     }
 
-    /// Sets the variables for this context.
-    pub fn with_variables(mut self, variables: HashSet<String>) -> Self {
-        self.variables = Arc::new(variables);
-        self
-    }
-
-    /// Sets the known symbols for this context.
-    pub fn with_known_symbols(mut self, known_symbols: HashSet<String>) -> Self {
-        self.known_symbols = Arc::new(known_symbols);
-        self
-    }
-
     /// Sets the custom function bodies for this context.
-    pub fn with_custom_bodies(mut self, custom_bodies: HashMap<String, BodyFn>) -> Self {
+    pub fn with_custom_bodies(mut self, custom_bodies: HashMap<u64, BodyFn>) -> Self {
         self.custom_bodies = Arc::new(custom_bodies);
         self
     }

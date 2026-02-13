@@ -160,8 +160,14 @@ pub struct KnownSymbols {
     // Constants sometimes used as symbols
     /// Pi constant
     pub pi: u64,
+    /// Pi constant (uppercase variant)
+    pub pi_upper: u64,
+    /// Pi constant (title-case variant)
+    pub pi_title: u64,
     /// Euler's number
     pub e: u64,
+    /// Euler's number (uppercase variant)
+    pub e_upper: u64,
 }
 
 impl KnownSymbols {
@@ -231,7 +237,10 @@ impl KnownSymbols {
             ynm: intern_id("ynm"),
             exp_polar: intern_id("exp_polar"),
             pi: intern_id("pi"),
+            pi_upper: intern_id("PI"),
+            pi_title: intern_id("Pi"),
             e: intern_id("e"),
+            e_upper: intern_id("E"),
         }
     }
 }
@@ -256,8 +265,33 @@ pub fn get_symbol(id: u64) -> InternedSymbol {
     get_interned(id)
 }
 
+/// Check if a symbol ID is a known mathematical constant (pi, e, etc.)
+/// O(1) comparison using pre-interned UIDs.
+#[inline]
+pub fn is_known_constant_by_id(id: u64) -> bool {
+    let ks = &*KS;
+    id == ks.pi || id == ks.pi_upper || id == ks.pi_title || id == ks.e || id == ks.e_upper
+}
+
+/// Get the numeric value of a known constant by symbol ID.
+/// Returns `Some(value)` for known constants, `None` otherwise.
+/// O(1) comparison using pre-interned UIDs.
+#[inline]
+pub fn get_constant_value_by_id(id: u64) -> Option<f64> {
+    let ks = &*KS;
+    if id == ks.pi || id == ks.pi_upper || id == ks.pi_title {
+        Some(std::f64::consts::PI)
+    } else if id == ks.e || id == ks.e_upper {
+        Some(std::f64::consts::E)
+    } else {
+        None
+    }
+}
+
 /// Check if a name is a known mathematical constant (pi, e, etc.)
 /// Returns true for any case variation: "pi", "PI", "Pi", "e", "E"
+///
+/// Prefer `is_known_constant_by_id` when you already have a symbol ID.
 #[inline]
 pub fn is_known_constant(name: &str) -> bool {
     matches!(name, "pi" | "PI" | "Pi" | "e" | "E")
@@ -265,6 +299,8 @@ pub fn is_known_constant(name: &str) -> bool {
 
 /// Get the numeric value of a known constant, if it matches.
 /// Returns `Some(value)` for known constants, `None` otherwise.
+///
+/// Prefer `get_constant_value_by_id` when you already have a symbol ID.
 #[inline]
 pub fn get_constant_value(name: &str) -> Option<f64> {
     match name {

@@ -138,7 +138,12 @@ impl Diff {
     fn build_bodies_map(&self) -> simplification::CustomBodyMap {
         self.user_fns
             .iter()
-            .filter_map(|(name, func)| func.body.as_ref().map(|b| (name.clone(), Arc::clone(b))))
+            .filter_map(|(name, func)| {
+                func.body.as_ref().map(|b| {
+                    let id = crate::core::symbol::symb_interned(name).id();
+                    (id, Arc::clone(b))
+                })
+            })
             .collect()
     }
 
@@ -358,7 +363,12 @@ impl Simplify {
     fn build_bodies_map(&self) -> simplification::CustomBodyMap {
         self.user_fns
             .iter()
-            .filter_map(|(name, func)| func.body.as_ref().map(|b| (name.clone(), Arc::clone(b))))
+            .filter_map(|(name, func)| {
+                func.body.as_ref().map(|b| {
+                    let id = crate::core::symbol::symb_interned(name).id();
+                    (id, Arc::clone(b))
+                })
+            })
             .collect()
     }
 
@@ -397,7 +407,8 @@ impl Simplify {
     ///
     /// # Arguments
     /// * `formula` - The mathematical expression to simplify
-    /// * `known_symbols` - Known multi-character symbol names for parsing
+    /// * `known_symbols` - Known multi-character symbol names for parsing (e.g. `alpha`).
+    ///   Does NOT affect simplification logic.
     ///
     /// # Example
     /// ```

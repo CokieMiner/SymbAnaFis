@@ -2,6 +2,58 @@
 
 All notable changes to symb_anafis will be documented in this file.
 
+## [unreleased]
+
+### Added
+- **Evaluator fuzz coverage**: Added `src/tests/fuzz.rs` and `src/tests/fuzz_evaluator.rs` with stress tests for simplification and evaluator parity across scalar, SIMD batch, and parallel code paths.
+- **Normalization diagnostic test**: Added `src/tests/normalization_check.rs` for parser normalization inspection and expression memory-size sanity checks.
+- **Large-expression benchmark example**: Added `examples/expr_with_4649517_caracters-comparison.rs` for multi-phase SymbAnaFis vs Symbolica comparison on very large input.
+- **Video export helper**: Added `examples/video_writer.py` with NVENC detection and automatic CPU fallback for Matplotlib animations.
+- **Large expression fixture tracked**: Added `examples/symblica_exp/big_expr.txt` to stage the real benchmark input used by the new comparison flow.
+
+### Changed
+- **Evaluator parameter semantics**: `CompiledEvaluator::evaluate` now treats missing parameters as `0.0` and ignores extra trailing parameters.
+- **Evaluator fast paths**:
+  - Added constant-expression fast path (`LoadConst` only) to bypass stack execution.
+  - Added specialized `Powi` handling for common exponents (`5`, `6`, `7`, `-1..-4`).
+  - Expanded inline execution coverage for rare/special instructions (Gamma family, Bessel family, Zeta family, Legendre, spherical harmonic, etc.) to reduce heap fallback.
+- **Compiler/CSE pipeline**:
+  - Removed hard `MAX_STACK_DEPTH` overflow limit.
+  - CSE cache now stores `(Expr, slot)` and verifies structural equality on hash hits to avoid collision miscompiles.
+  - Adjusted expensive-expression heuristics (including caching of powers over symbols).
+  - Reworked large-sum compilation to an iterative "emit-all-then-fold" strategy with MulAdd/NegMulAdd pattern lowering and no recursive sum-chain growth.
+- **Constant handling by symbol ID**:
+  - Compiler constant folding now uses ID-based constant lookup.
+  - Added ID-based helpers in known symbols (`is_known_constant_by_id`, `get_constant_value_by_id`) and support for `pi`/`PI`/`Pi` and `e`/`E`.
+- **Context and custom function plumbing**:
+  - `Context` user functions moved from string-keyed maps to interned-ID keyed maps.
+  - Added explicit name↔ID tracking (`fn_name_to_id`) for lookup/serialization paths.
+  - Diff/Simplify builders now pass custom bodies as ID-keyed maps.
+- **Simplification context model**:
+  - `CustomBodyMap` and `RuleContext.custom_bodies` changed to `HashMap<u64, BodyFn>`.
+  - Removed `variables`/`known_symbols` from rule context and simplified rule API around UID-based constant behavior.
+  - `known_symbols` is now explicitly treated as parser hints (not simplifier behavior switches) in docs and API comments.
+- **Core expression/canonicalization updates**:
+  - `Expr::substitute` now compares symbols by interned ID instead of string.
+  - Product finalization now merges exponent groups (`x * x^2 * x^a`) via base-aware grouping and exponent summation.
+  - Sum/poly merge paths now include structural compatibility checks before polynomial fusion.
+  - Ordering logic now compares base → exponent → coefficient to keep like terms adjacent.
+  - Polynomial API updated with `base_arc()`/`with_base()` support and Arc-oriented base access.
+- **Differentiation engine**: `derive` pre-interns the differentiation variable once and threads `var_id` through recursive derivation for O(1) symbol comparisons.
+- **Benchmark/examples workflow**:
+  - Updated `benches/BENCHMARK_RESULTS.md` to version `0.8.1` data dated `2026-02-11`.
+  - Updated `benches/rust/benchmark_symbolica.rs` to reuse evaluation buffers for fairer cross-engine measurement.
+  - Updated Python benchmarks (`aizawa_flow.py`, `clifford_benchmark.py`, `double_pendulum_benchmark.py`, `gradient_descent.py`) with explicit prep/run metrics, optional video generation toggle, strict "all engines must pass" mode, and shared MP4 writing helper.
+- **Dev dependencies**: Added `ahash` and `rand`;
+
+### Fixed
+- **Custom function expansion mismatch**: Numeric simplification now resolves custom bodies by function symbol ID (`name.id()`), fixing missed expansions caused by string-key lookups.
+- **CSE hash-collision safety**: Prevented incorrect cache reuse by validating structural equality after hash match.
+- **Like-term collision correctness**: Algebraic combination now verifies structural bases inside hash buckets, avoiding false merges on hash collisions.
+- **Polynomial merge correctness**: Sum/product canonicalization now checks structural compatibility before merging terms sharing hashes.
+- **Factoring collision correctness**: Exponent factoring grouping now keys by structural base expression instead of hash-only grouping.
+- **SIMD/scalar parity regressions**: Added regression tests covering non-finite trig behavior and a complex NaN-producing special-function expression to ensure batch paths match scalar semantics.
+
 ## [0.8.0] - 2026-02-09
 
 ### This version release notes are partial; performance improved and multiple correctness/stability fixes landed. The API is intended to remain compatible with 0.7.0; please report regressions.

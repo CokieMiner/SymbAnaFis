@@ -34,7 +34,7 @@ rule!(
     Exponential,
     &[ExprKind::Function],
     targets: &[KS.ln],
-    |expr: &Expr, context: &RuleContext| {
+    |expr: &Expr, _context: &RuleContext| {
         if let AstKind::FunctionCall { name, args } = &expr.kind
             && name.id() == KS.ln
             && args.len() == 1
@@ -60,7 +60,6 @@ rule!(
             // Check for ln(e) where e is a symbol (and not a user-defined variable)
             if let AstKind::Symbol(s) = &args[0].kind
                 && s.id() == KS.e
-                && !context.known_symbols.contains("e")
             {
                 return Some(Expr::number(1.0));
             }

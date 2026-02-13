@@ -38,14 +38,6 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
 
-/// Maximum allowed stack depth to prevent deeply nested expressions from causing issues.
-///
-/// This limit (1024) is chosen to:
-/// - Handle realistic mathematical expressions (rarely exceed 50-100 depth)
-/// - Provide a safety buffer for extreme cases
-/// - Keep memory usage bounded for stack pre-allocation
-pub const MAX_STACK_DEPTH: usize = 1024;
-
 /// Internal compiler state for transforming expressions to bytecode.
 ///
 /// The compiler performs a single pass over the expression tree, emitting
@@ -64,8 +56,10 @@ pub struct Compiler<'ctx> {
     max_stack: usize,
     /// Optional context for user function expansion
     function_context: Option<&'ctx Context>,
-    /// CSE: Map from expression hash → cache slot index
-    cse_cache: HashMap<u64, usize>,
+    /// CSE: Map from expression hash → (original expr, cache slot index)
+    /// Stores Expr for structural equality verification on lookup to prevent
+    /// hash collisions. `Expr::clone()` is cheap: only Arc refcount bumps.
+    cse_cache: HashMap<u64, (Expr, usize)>,
     /// Number of CSE cache slots allocated
     cache_size: usize,
     /// Constant pool for numeric literals
@@ -110,7 +104,7 @@ impl<'ctx> Compiler<'ctx> {
             Entry::Occupied(o) => *o.get(),
             Entry::Vacant(v) => {
                 // SAFETY: Constants pool size is bounded by expression complexity,
-                // which is limited by MAX_STACK_DEPTH. Realistically < 2^16 constants.
+                // Constants pool size is bounded by expression complexity. Realistically < 2^16 constants.
                 #[allow(
                     clippy::cast_possible_truncation,
                     reason = "Constants pool size is bounded by expression complexity, realistically < 2^16 constants"
@@ -123,22 +117,21 @@ impl<'ctx> Compiler<'ctx> {
         }
     }
 
-    /// Track a push operation, validating stack depth.
+    /// Track a push operation on the evaluator's virtual stack.
     ///
-    /// Internal function for stack management during compilation.
+    /// The evaluator stack is heap-allocated, so there is no hard depth limit.
+    /// This function tracks the maximum depth for pre-allocation purposes.
     ///
     /// # Errors
     ///
-    /// Returns `DiffError::StackOverflow` if the stack would exceed `MAX_STACK_DEPTH`.
+    /// This function is infallible but returns `Result` for API compatibility.
     #[inline]
+    #[allow(
+        clippy::unnecessary_wraps,
+        reason = "Returns Result for API consistency with compile_expr"
+    )]
     pub(crate) fn push(&mut self) -> Result<(), DiffError> {
         self.current_stack += 1;
-        if self.current_stack > MAX_STACK_DEPTH {
-            return Err(DiffError::StackOverflow {
-                depth: self.current_stack,
-                limit: MAX_STACK_DEPTH,
-            });
-        }
         self.max_stack = self.max_stack.max(self.current_stack);
         Ok(())
     }
@@ -212,12 +205,13 @@ impl<'ctx> Compiler<'ctx> {
                 if Self::try_eval_const(exp).is_none_or(|n| (n - n.round()).abs() > EPSILON) {
                     true
                 } else {
-                    // If base is not a simple number or symbol, it's worth caching the result of the power
-                    !matches!(base.kind, ExprKind::Number(_) | ExprKind::Symbol(_))
+                    // If base is not a simple number, it's worth caching the result of the power.
+                    // Even for symbols, caching avoids repeated multiplications (e.g. x^2).
+                    !matches!(base.kind, ExprKind::Number(_))
                 }
             }
 
-            // Cache sums/products with 3+ terms or if at least one term is expensive.
+            // Cache sums/products with 2+ terms or if at least one term is expensive.
             // This avoids caching trivial 2-term operations where cache overhead
             // might exceed re-computation cost.
             ExprKind::Sum(terms) | ExprKind::Product(terms) => {
@@ -240,7 +234,7 @@ impl<'ctx> Compiler<'ctx> {
     pub(crate) fn try_eval_const(expr: &Expr) -> Option<f64> {
         match &expr.kind {
             ExprKind::Number(n) => Some(*n),
-            ExprKind::Symbol(s) => crate::core::known_symbols::get_constant_value(s.as_str()),
+            ExprKind::Symbol(s) => crate::core::known_symbols::get_constant_value_by_id(s.id()),
             ExprKind::Sum(terms) => {
                 let mut sum = 0.0;
                 for term in terms {
@@ -334,7 +328,7 @@ impl<'ctx> Compiler<'ctx> {
     ///
     /// Returns errors for:
     /// - `UnboundVariable`: Symbol not in parameter list and not a known constant
-    /// - `StackOverflow`: Expression too deeply nested
+    /// - `UnboundVariable`: Symbol not in parameter list
     /// - `UnsupportedFunction`: Unknown function name
     /// - `UnsupportedExpression`: Derivatives (must be simplified first)
     // Compilation handles many expression kinds; length is justified
@@ -352,10 +346,9 @@ impl<'ctx> Compiler<'ctx> {
                 return Ok(());
             }
             ExprKind::Symbol(s) => {
-                let name = s.as_str();
                 let sym_id = s.id();
                 // Handle known constants (pi, e, etc.)
-                if let Some(value) = crate::core::known_symbols::get_constant_value(name) {
+                if let Some(value) = crate::core::known_symbols::get_constant_value_by_id(sym_id) {
                     let idx = self.add_const(value);
                     self.emit(Instruction::LoadConst(idx));
                     self.push()?;
@@ -368,7 +361,7 @@ impl<'ctx> Compiler<'ctx> {
                     self.emit(Instruction::LoadParam(idx as u32));
                     self.push()?;
                 } else {
-                    return Err(DiffError::UnboundVariable(name.to_owned()));
+                    return Err(DiffError::UnboundVariable(s.as_str().to_owned()));
                 }
                 return Ok(());
             }
@@ -380,16 +373,20 @@ impl<'ctx> Compiler<'ctx> {
         let cache_this = Self::is_expensive(expr);
 
         // Only check for expensive expressions to avoid HashMap overhead
-        if cache_this && let Some(&slot) = self.cse_cache.get(&expr.hash) {
-            // Cache hit! Load from cache instead of recompiling
-            // Truncation safe: cache slots bounded by expression complexity
-            #[allow(
-                clippy::cast_possible_truncation,
-                reason = "Cache slots bounded by expression complexity"
-            )]
-            self.emit(Instruction::LoadCached(slot as u32));
-            self.push()?;
-            return Ok(());
+        if cache_this && let Some((cached_expr, slot)) = self.cse_cache.get(&expr.hash) {
+            // Structural equality verification to prevent hash collisions
+            if cached_expr == expr {
+                // Cache hit! Load from cache instead of recompiling
+                // Truncation safe: cache slots bounded by expression complexity
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    reason = "Cache slots bounded by expression complexity"
+                )]
+                self.emit(Instruction::LoadCached(*slot as u32));
+                self.push()?;
+                return Ok(());
+            }
+            // Hash collision with different expression — fall through to recompile
         }
 
         // Try constant folding for compound expressions
@@ -449,183 +446,288 @@ impl<'ctx> Compiler<'ctx> {
                 reason = "Cache slots bounded by expression complexity"
             )]
             self.emit(Instruction::StoreCached(slot as u32));
-            self.cse_cache.insert(expr.hash, slot);
+            self.cse_cache.insert(expr.hash, (expr.clone(), slot));
         }
 
         Ok(())
     }
 
     /// Compile a sum expression: `a + b + c + ...`
+    ///
+    /// This method is **iterative** — `compile_sum` never recurses into itself.
+    /// Individual terms are compiled via `compile_expr` (bounded by tree depth,
+    /// not term count), so this is safe for sums with millions of terms.
+    ///
+    /// # Strategy: "emit-all-then-fold"
+    ///
+    /// To get optimal MulAdd/NegMulAdd fusion *without* Swap overhead, we emit
+    /// all product factor-pairs first, then base terms, then fold with
+    /// MulAdd/NegMulAdd in reverse order.  This produces the **same bytecode**
+    /// as the old recursive approach.
+    ///
+    /// # Pattern Detection
+    ///
+    /// - `exp(x) + (−1)` → `Expm1` (pre-scan)
+    /// - `a*b − c` (2-term) → `MulSub`
+    /// - Product terms → `MulAdd` / `NegMulAdd` (via emit-all-then-fold)
+    /// - `(−1)*x` → `Sub`
     #[allow(
         clippy::too_many_lines,
-        reason = "Complex pattern matching logic for sum optimizations requires detailed implementation"
+        reason = "Iterative sum compilation with pattern detection"
     )]
     fn compile_sum(&mut self, terms: &[Arc<Expr>]) -> Result<(), DiffError> {
         if terms.is_empty() {
             let idx = self.add_const(0.0);
             self.emit(Instruction::LoadConst(idx));
             self.push()?;
-        } else {
-            // Optimization: Patterns for Expm1 and Sub
-            // We look for these even in larger sums to maximize fused ops
-            let mut expm1_idx = None;
-            let mut neg_one_idx = None;
-            let mut sub_idx = None;
+            return Ok(());
+        }
 
-            for (i, term) in terms.iter().enumerate() {
-                if let ExprKind::FunctionCall { name, args } = &term.kind {
-                    if name.id() == KS.exp && args.len() == 1 {
-                        expm1_idx = Some(i);
-                    }
-                } else if let Some(n) = Self::try_eval_const(term) {
-                    if (n - -1.0).abs() < EPSILON {
-                        neg_one_idx = Some(i);
-                    }
-                } else if let ExprKind::Product(factors) = &term.kind
-                    && factors.len() == 2
-                    && let Some(n) = Self::try_eval_const(&factors[0])
-                    && (n - -1.0).abs() < EPSILON
-                {
-                    sub_idx = Some(i);
+        if terms.len() == 1 {
+            return self.compile_expr(&terms[0]);
+        }
+
+        // ── Pre-scan for Expm1: exp(x) + (−1) ──────────────────────────
+        let mut expm1_idx = None;
+        let mut neg_one_idx = None;
+
+        for (i, term) in terms.iter().enumerate() {
+            if let ExprKind::FunctionCall { name, args } = &term.kind {
+                if name.id() == KS.exp && args.len() == 1 {
+                    expm1_idx = Some(i);
                 }
-            }
-
-            // Pattern: exp(x) - 1 -> Expm1(x)
-            if let (Some(e_idx), Some(n_idx)) = (expm1_idx, neg_one_idx)
-                && let ExprKind::FunctionCall { args, .. } = &terms[e_idx].kind
+            } else if let Some(n) = Self::try_eval_const(term)
+                && (n - -1.0).abs() < EPSILON
             {
-                self.compile_expr(&args[0])?;
-                self.emit(Instruction::Expm1);
-
-                // Compile remainder of the sum
-                let mut remainder = Vec::with_capacity(terms.len() - 2);
-                for (i, t) in terms.iter().enumerate() {
-                    if i != e_idx && i != n_idx {
-                        remainder.push(Arc::clone(t));
-                    }
-                }
-                if !remainder.is_empty() {
-                    self.compile_sum(&remainder)?;
-                    self.emit(Instruction::Add);
-                    self.pop();
-                }
-                return Ok(());
+                neg_one_idx = Some(i);
             }
+        }
 
-            // Pattern: a - b -> Sub(a, b)
-            if let Some(s_idx) = sub_idx {
-                // Compile remainder (the "a" part)
-                let mut remainder = Vec::with_capacity(terms.len() - 1);
-                for (i, t) in terms.iter().enumerate() {
-                    if i != s_idx {
-                        remainder.push(Arc::clone(t));
-                    }
-                }
+        if let (Some(e_idx), Some(n_idx)) = (expm1_idx, neg_one_idx)
+            && let ExprKind::FunctionCall { args, .. } = &terms[e_idx].kind
+        {
+            self.compile_expr(&args[0])?;
+            self.emit(Instruction::Expm1);
 
-                if !remainder.is_empty() {
-                    // Optimization: Detect MulSub (a*b - c)
-                    if remainder.len() == 1
-                        && let ExprKind::Product(factors) = &remainder[0].kind
-                        && factors.len() == 2
-                        && let ExprKind::Product(s_factors) = &terms[s_idx].kind
-                    {
-                        self.compile_expr(&factors[0])?;
-                        self.compile_expr(&factors[1])?;
-                        self.compile_expr(&s_factors[1])?;
-                        self.emit(Instruction::MulSub);
-                        self.pop();
-                        self.pop();
-                        return Ok(());
-                    }
+            let remainder: Vec<_> = terms
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| *i != e_idx && *i != n_idx)
+                .map(|(_, t)| Arc::clone(t))
+                .collect();
 
-                    self.compile_sum(&remainder)?;
-                    if let ExprKind::Product(factors) = &terms[s_idx].kind {
-                        self.compile_expr(&factors[1])?;
-                        self.emit(Instruction::Sub);
-                        self.pop();
-                        return Ok(());
-                    }
-                }
-            }
-
-            // Optimization: Detect patterns for MulAdd [a, b, c] -> a * b + c
-            // We look for any term that is a product.
-            let mut best_pattern = None;
-            for (i, term) in terms.iter().enumerate() {
-                match &term.kind {
-                    ExprKind::Product(factors) if factors.len() >= 2 => {
-                        best_pattern = Some(i);
-                        break;
-                    }
-                    _ => {}
-                }
-            }
-
-            if let Some(idx) = best_pattern.filter(|_| terms.len() >= 2) {
-                let term = &terms[idx];
-                if let ExprKind::Product(factors) = &term.kind {
-                    // Check for negative MulAdd: -a*b + c -> NegMulAdd(a, b, c)
-                    // Pattern: Product([-1, a, b]) + c
-                    if factors.len() == 3
-                        && matches!(factors[0].kind, ExprKind::Number(n) if (n - -1.0).abs() < EPSILON)
-                    {
-                        // -1 * a * b
-                        self.compile_expr(&factors[1])?;
-                        self.compile_expr(&factors[2])?;
-
-                        // Compile remainder
-                        let mut remainder = Vec::with_capacity(terms.len() - 1);
-                        for (i, t) in terms.iter().enumerate() {
-                            if i != idx {
-                                remainder.push(Arc::clone(t));
-                            }
-                        }
-                        self.compile_sum(&remainder)?;
-
-                        // Stack: [a, b, c] -> -a*b + c
-                        self.emit(Instruction::NegMulAdd);
-                        self.pop();
-                        self.pop();
-                        return Ok(());
-                    }
-
-                    // Standard MulAdd: a * b * c + remainder -> (a * b) * c + remainder
-                    if factors.len() == 2 {
-                        self.compile_expr(&factors[0])?;
-                        self.compile_expr(&factors[1])?;
-                    } else {
-                        // Group: (factors[0..n-1]) * factors[n-1]
-                        let head = Expr::product_from_arcs(factors[0..factors.len() - 1].to_vec());
-                        self.compile_expr(&head)?;
-                        self.compile_expr(&factors[factors.len() - 1])?;
-                    }
-
-                    // Compile remainder
-                    let mut remainder = Vec::with_capacity(terms.len() - 1);
-                    for (i, t) in terms.iter().enumerate() {
-                        if i != idx {
-                            remainder.push(Arc::clone(t));
-                        }
-                    }
-                    self.compile_sum(&remainder)?;
-
-                    // Stack: [a, b, remainder_sum]
-                    self.emit(Instruction::MulAdd);
-                    self.pop();
-                    self.pop();
-                    return Ok(());
-                }
-            }
-
-            // Fallback to iterative addition
-            self.compile_expr(&terms[0])?;
-            for term in &terms[1..] {
-                self.compile_expr(term)?;
+            if !remainder.is_empty() {
+                self.compile_sum_optimal(&remainder)?;
                 self.emit(Instruction::Add);
                 self.pop();
             }
+            return Ok(());
         }
+
+        // ── 2-term MulSub: a*b − c ─────────────────────────────────────
+        if terms.len() == 2 {
+            let (pos_idx, neg_idx) = if Self::is_negated_term(&terms[1]) {
+                (0, 1)
+            } else if Self::is_negated_term(&terms[0]) {
+                (1, 0)
+            } else {
+                (usize::MAX, usize::MAX)
+            };
+
+            if pos_idx != usize::MAX
+                && let ExprKind::Product(pos_factors) = &terms[pos_idx].kind
+                && pos_factors.len() == 2
+                && let Some(neg_inner) = Self::negated_inner(&terms[neg_idx])
+            {
+                self.compile_expr(&pos_factors[0])?;
+                self.compile_expr(&pos_factors[1])?;
+                self.compile_expr(neg_inner)?;
+                self.emit(Instruction::MulSub);
+                self.pop();
+                self.pop();
+                return Ok(());
+            }
+
+            // Generic 2-term subtraction: a + (-b) -> a - b
+            if pos_idx != usize::MAX
+                && let Some(neg_inner) = Self::negated_inner(&terms[neg_idx])
+            {
+                self.compile_expr(&terms[pos_idx])?;
+                self.compile_expr(neg_inner)?;
+                self.emit(Instruction::Sub);
+                self.pop();
+                return Ok(());
+            }
+        }
+
+        // ── Main iterative compilation ──────────────────────────────────
+        self.compile_sum_optimal(terms)
+    }
+
+    /// Emit-all-then-fold: generates the same bytecode as the old recursive
+    /// `compile_sum` without O(N) OS recursion.
+    ///
+    /// 1. **Classify** terms into *fused* (products → MulAdd/NegMulAdd) and
+    ///    *base* (everything else → Add/Sub).
+    /// 2. **Emit factor pairs** for every fused term (each pushes 2 values).
+    /// 3. **Emit base terms** (folded with Add/Sub into a single value).
+    /// 4. **Fold** with MulAdd/NegMulAdd in reverse order.
+    ///
+    /// The evaluator stack depth is the same as the old recursive approach
+    /// (O(products + bases)), and no Swap instructions are emitted.
+    #[allow(
+        clippy::too_many_lines,
+        reason = "Iterative sum compilation with emit-all-then-fold strategy"
+    )]
+    fn compile_sum_optimal(&mut self, terms: &[Arc<Expr>]) -> Result<(), DiffError> {
+        debug_assert!(!terms.is_empty());
+
+        // ── 1. Classify terms ───────────────────────────────────────────
+        //
+        // fused: products with 2+ real factors → MulAdd / NegMulAdd
+        // base:  everything else                → Add / Sub
+        let mut fused_indices: Vec<usize> = Vec::new();
+        let mut base_indices: Vec<usize> = Vec::new();
+
+        for (i, term) in terms.iter().enumerate() {
+            if let ExprKind::Product(factors) = &term.kind
+                && factors.len() >= 2
+            {
+                // (-1)*x is a simple negation, not a fusable product
+                let is_simple_neg = factors.len() == 2
+                    && Self::try_eval_const(&factors[0]).is_some_and(|n| (n + 1.0).abs() < EPSILON);
+
+                if is_simple_neg {
+                    base_indices.push(i);
+                } else {
+                    fused_indices.push(i);
+                }
+            } else {
+                base_indices.push(i);
+            }
+        }
+
+        // Fast path: no products to fuse → simple iterative Add/Sub
+        if fused_indices.is_empty() {
+            self.compile_expr(&terms[base_indices[0]])?;
+            for &idx in &base_indices[1..] {
+                self.compile_sum_base_term(&terms[idx])?;
+            }
+            return Ok(());
+        }
+
+        // ── 2. Emit factor pairs for all fused terms ────────────────────
+        //
+        // Each fused term pushes exactly 2 values (head, tail).
+        // `fused_neg[i]` records whether the i-th fused term is negated.
+        let mut fused_neg: Vec<bool> = Vec::with_capacity(fused_indices.len());
+
+        for &idx in &fused_indices {
+            let ExprKind::Product(factors) = &terms[idx].kind else {
+                // SAFETY: We only push to fused_indices when the term matches ExprKind::Product
+                #[allow(
+                    clippy::unreachable,
+                    reason = "Invariant: fused_indices only contains Product terms"
+                )]
+                {
+                    unreachable!("Classified as fused but not Product")
+                }
+            };
+
+            // Strip leading -1 if present
+            let (real_factors, neg) =
+                if Self::try_eval_const(&factors[0]).is_some_and(|n| (n + 1.0).abs() < EPSILON) {
+                    (&factors[1..], true)
+                } else {
+                    (&factors[..], false)
+                };
+
+            fused_neg.push(neg);
+
+            // Emit head (all real factors except last) and tail (last factor)
+            if real_factors.len() == 2 {
+                self.compile_expr(&real_factors[0])?;
+                self.compile_expr(&real_factors[1])?;
+            } else {
+                let head = Expr::product_from_arcs(real_factors[..real_factors.len() - 1].to_vec());
+                self.compile_expr(&head)?;
+                self.compile_expr(&real_factors[real_factors.len() - 1])?;
+            }
+        }
+
+        // ── 3. Emit base terms (the addend for the innermost MulAdd) ────
+        if base_indices.is_empty() {
+            // No base terms: the last fused term uses Mul instead of MulAdd
+            let last_neg = fused_neg
+                .pop()
+                .expect("compile_sum_optimal: at least one fused term");
+            self.emit(Instruction::Mul);
+            self.pop();
+            if last_neg {
+                self.emit(Instruction::Neg);
+            }
+        } else {
+            // First base term compiled directly
+            self.compile_expr(&terms[base_indices[0]])?;
+            // Remaining base terms folded with Add/Sub
+            for &idx in &base_indices[1..] {
+                self.compile_sum_base_term(&terms[idx])?;
+            }
+        }
+
+        // ── 4. Fold with MulAdd/NegMulAdd (inner → outer = reverse) ────
+        for &neg in fused_neg.iter().rev() {
+            if neg {
+                self.emit(Instruction::NegMulAdd);
+            } else {
+                self.emit(Instruction::MulAdd);
+            }
+            self.pop();
+            self.pop();
+        }
+
         Ok(())
+    }
+
+    /// Emit a single base term and combine with the accumulator on the stack.
+    ///
+    /// Detects `(−1)*x` → `Sub`, otherwise `Add`.
+    fn compile_sum_base_term(&mut self, term: &Expr) -> Result<(), DiffError> {
+        if let ExprKind::Product(factors) = &term.kind
+            && factors.len() == 2
+            && Self::try_eval_const(&factors[0]).is_some_and(|n| (n + 1.0).abs() < EPSILON)
+        {
+            self.compile_expr(&factors[1])?;
+            self.emit(Instruction::Sub);
+        } else {
+            self.compile_expr(term)?;
+            self.emit(Instruction::Add);
+        }
+        self.pop();
+        Ok(())
+    }
+
+    /// Check whether a term is negated: `(−1) * something`.
+    fn is_negated_term(term: &Expr) -> bool {
+        if let ExprKind::Product(factors) = &term.kind
+            && factors.len() == 2
+        {
+            Self::try_eval_const(&factors[0]).is_some_and(|n| (n + 1.0).abs() < EPSILON)
+        } else {
+            false
+        }
+    }
+
+    /// Extract the inner expression from a negated term `(−1) * x` → `x`.
+    fn negated_inner(term: &Expr) -> Option<&Expr> {
+        if let ExprKind::Product(factors) = &term.kind
+            && factors.len() == 2
+            && Self::try_eval_const(&factors[0]).is_some_and(|n| (n + 1.0).abs() < EPSILON)
+        {
+            Some(&factors[1])
+        } else {
+            None
+        }
     }
 
     /// Compile a product expression: `a * b * c * ...`
@@ -750,6 +852,17 @@ impl<'ctx> Compiler<'ctx> {
             let idx = self.add_const(1.0);
             self.emit(Instruction::LoadConst(idx));
             self.push()?;
+            return Ok(());
+        }
+
+        // Pattern 1b: (-E)/D -> -(E/D)
+        // Emitting Neg after Div enables downstream fusions such as Neg + Exp -> ExpNeg.
+        if let Some(inner) = Self::negated_inner(num) {
+            self.compile_expr(inner)?;
+            self.compile_expr(den)?;
+            self.emit(Instruction::Div);
+            self.pop();
+            self.emit(Instruction::Neg);
             return Ok(());
         }
 
@@ -1444,11 +1557,11 @@ impl<'ctx> Compiler<'ctx> {
 
         // For simple polynomial with Symbol base, use Horner's method
         let base_param_idx = if let ExprKind::Symbol(s) = &poly.base().kind {
-            let name = s.as_str();
             let sym_id = s.id();
-            match name {
-                _ if crate::core::known_symbols::is_known_constant(name) => None,
-                _ => self.param_ids.iter().position(|&id| id == sym_id),
+            if crate::core::known_symbols::is_known_constant_by_id(sym_id) {
+                None
+            } else {
+                self.param_ids.iter().position(|&id| id == sym_id)
             }
         } else {
             None

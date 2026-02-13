@@ -5,7 +5,7 @@
 use std::cmp::Ordering as CmpOrdering;
 use std::sync::Arc;
 
-use super::{EPSILON, Expr, ExprKind, compute_expr_hash, expr_cmp, next_id};
+use super::{EPSILON, EXPR_ONE, Expr, ExprKind, compute_expr_hash, expr_cmp, next_id};
 use crate::core::symbol::{InternedSymbol, symb_interned};
 
 impl Expr {
@@ -102,6 +102,15 @@ impl Expr {
         Self::new(ExprKind::FunctionCall {
             name,
             args: vec![Arc::new(arg)],
+        })
+    }
+
+    /// Create a function call from an already-interned symbol (single Arc argument)
+    /// Avoids deep cloning the argument if it's already an Arc.
+    pub(crate) fn func_symbol_arc(name: InternedSymbol, arg: Arc<Self>) -> Self {
+        Self::new(ExprKind::FunctionCall {
+            name,
+            args: vec![arg],
         })
     }
 
@@ -315,7 +324,7 @@ impl Expr {
                     expr_cmp(a, b)
                 }
             });
-            return Self::new(ExprKind::Product(flat));
+            return finalize_product(flat);
         }
 
         // Flatten nested products and fold numbers
@@ -370,7 +379,8 @@ impl Expr {
                 expr_cmp(a, b)
             }
         });
-        Self::new(ExprKind::Product(flat))
+
+        finalize_product(flat)
     }
 
     // -------------------------------------------------------------------------
@@ -692,16 +702,22 @@ fn finalize_sum(mut flat: Vec<Arc<Expr>>) -> Expr {
         // Check for poly merge (e.g. x + x, x + x^2)
         let h1 = get_poly_base_hash(&flat[0]);
         let h2 = get_poly_base_hash(&flat[1]);
-        if h1.is_some() && h1 == h2 && h1 != Some(0) {
-            let mut poly = crate::core::poly::Polynomial::try_from_expr(&flat[0])
-                .expect("base hash match should guarantee poly compatibility");
-            let next_poly = crate::core::poly::Polynomial::try_from_expr(&flat[1])
-                .expect("base hash match should guarantee poly compatibility");
-            poly.try_add_assign(&next_poly);
-            if poly.is_zero() {
-                return Expr::number(0.0);
+        if h1.is_some()
+            && h1 == h2
+            && h1 != Some(0)
+            && let (Some(mut poly), Some(next_poly)) = (
+                crate::core::poly::Polynomial::try_from_expr(&flat[0]),
+                crate::core::poly::Polynomial::try_from_expr(&flat[1]),
+            )
+        {
+            // Verify structural compatibility (hash match alone is insufficient)
+            if poly.try_add_assign(&next_poly) {
+                if poly.is_zero() {
+                    return Expr::number(0.0);
+                }
+                return Expr::poly(poly);
             }
-            return Expr::poly(poly);
+            // Hash collision: different bases, fall through to plain Sum
         }
 
         return Expr::new(ExprKind::Sum(flat));
@@ -728,22 +744,34 @@ fn finalize_sum(mut flat: Vec<Arc<Expr>>) -> Expr {
                 .peek()
                 .is_some_and(|next| get_poly_base_hash(next) == Some(bh))
         {
-            // Group found! Merge into a Polynomial
-            let mut poly = crate::core::poly::Polynomial::try_from_expr(&term)
-                .expect("Poly conversion failed");
-            while it
-                .peek()
-                .is_some_and(|next| get_poly_base_hash(next) == Some(bh))
-            {
-                let next_term = it.next().expect("Iterator peeked successfully");
-                poly.try_add_assign(
-                    &crate::core::poly::Polynomial::try_from_expr(&next_term)
-                        .expect("Poly conversion failed"),
-                );
+            // Group found! Try to merge into a Polynomial
+            if let Some(mut poly) = crate::core::poly::Polynomial::try_from_expr(&term) {
+                let mut unmerged: Vec<Arc<Expr>> = Vec::new();
+                while it
+                    .peek()
+                    .is_some_and(|next| get_poly_base_hash(next) == Some(bh))
+                {
+                    let next_term = it.next().expect("Iterator peeked successfully");
+                    if let Some(next_poly) =
+                        crate::core::poly::Polynomial::try_from_expr(&next_term)
+                    {
+                        // Verify structural compatibility (hash match alone is insufficient)
+                        if !poly.try_add_assign(&next_poly) {
+                            // Hash collision: different bases, keep as separate term
+                            unmerged.push(next_term);
+                        }
+                    } else {
+                        unmerged.push(next_term);
+                    }
+                }
+                if !poly.is_zero() {
+                    result.push(Arc::new(Expr::poly(poly)));
+                }
+                result.extend(unmerged);
+                continue;
             }
-            if !poly.is_zero() {
-                result.push(Arc::new(Expr::poly(poly)));
-            }
+            // Poly conversion failed for the first term, just push it
+            result.push(term);
             continue;
         }
         result.push(term);
@@ -819,4 +847,85 @@ fn get_poly_base_hash(expr: &Expr) -> Option<u64> {
 
         _ => None,
     }
+}
+
+/// Extract the base expression and its exponent from a factor for product merging.
+/// e.g., `x` -> `(x, 1)`, `x^2` -> `(x, 2)`
+fn get_factor_base_and_exponent(expr: &Arc<Expr>) -> (Arc<Expr>, Expr) {
+    match &expr.kind {
+        ExprKind::Pow(base, exp) => (Arc::clone(base), (**exp).clone()),
+        _ => (Arc::clone(expr), EXPR_ONE.clone()),
+    }
+}
+
+/// Extract a base hash for product grouping.
+/// Includes all Powers by using their base's hash, enabling merging of x * x^2 * x^a.
+fn get_product_base_hash(expr: &Expr) -> Option<u64> {
+    match &expr.kind {
+        ExprKind::Number(_) => None, // Don't merge numbers (already folded)
+        ExprKind::Pow(base, _) => Some(base.hash),
+        _ => Some(expr.hash),
+    }
+}
+
+/// Finalize a product expression from a flattened and sorted list of factors
+fn finalize_product(mut flat: Vec<Arc<Expr>>) -> Expr {
+    if flat.is_empty() {
+        return Expr::number(1.0);
+    }
+    if flat.len() == 1 {
+        return Arc::try_unwrap(flat.pop().expect("Vec not empty"))
+            .unwrap_or_else(|arc| (*arc).clone());
+    }
+
+    let mut result: Vec<Arc<Expr>> = Vec::with_capacity(flat.len());
+    let mut it = flat.into_iter().peekable();
+
+    while let Some(factor) = it.next() {
+        let bh = get_product_base_hash(&factor);
+
+        if let Some(bh_val) = bh
+            && it
+                .peek()
+                .is_some_and(|next| get_product_base_hash(next) == Some(bh_val))
+        {
+            // Group found! Collect all exponents for this base
+            let (base, first_exp) = get_factor_base_and_exponent(&factor);
+            let mut group_exps = vec![first_exp];
+            let mut unmerged: Vec<Arc<Expr>> = Vec::new();
+
+            while it
+                .peek()
+                .is_some_and(|next| get_product_base_hash(next) == Some(bh_val))
+            {
+                let next_factor = it.next().expect("Iterator peeked successfully");
+                let (next_base, next_exp) = get_factor_base_and_exponent(&next_factor);
+                // Verify structural equality (hash match alone is insufficient)
+                if *next_base == *base {
+                    group_exps.push(next_exp);
+                } else {
+                    // Hash collision: different bases, keep as separate factor
+                    unmerged.push(next_factor);
+                }
+            }
+
+            // Merge all exponents into one via a single call to sum()
+            // This is more efficient than repeated add_expr() as it flattens/sorts once.
+            let total_exp = Expr::sum(group_exps);
+            result.push(Arc::new(Expr::pow_static(
+                Arc::try_unwrap(base).unwrap_or_else(|arc| (*arc).clone()),
+                total_exp,
+            )));
+            result.extend(unmerged);
+            continue;
+        }
+        result.push(factor);
+    }
+
+    if result.len() == 1 {
+        return Arc::try_unwrap(result.pop().expect("result not empty"))
+            .unwrap_or_else(|arc| (*arc).clone());
+    }
+
+    Expr::new(ExprKind::Product(result))
 }

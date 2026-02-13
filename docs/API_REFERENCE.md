@@ -185,13 +185,19 @@ diff("alpha * x^2", "x", &["alpha"], None)?;
 
 Simplify an expression algebraically.
 
+| Parameter          | Type              | Description                                |
+| ------------------ | ----------------- | ------------------------------------------ |
+| `formula`          | `&str`            | Expression to simplify                     |
+| `known_symbols`    | `&[&str]`         | Known symbols (parsing hints)              |
+| `custom_functions` | `Option<&[&str]>` | User-defined function names                |
+
 ```rust
 simplify("x + x + x", &[], None)?;
 // Result: "3*x"
 ```
 
 > [!NOTE]
-> **Python API:** `simplify()` returns a string. Both `diff()` and `simplify()` in Python accept a string `formula`.
+> **Python API:** `simplify()` returns a string. Both `diff()` and `simplify()` in Python accept a string `formula`. The `known_symbols` parameter is used for parsing hints.
 
 ### `parse(formula, known_symbols, custom_functions, context)`
 
@@ -240,16 +246,15 @@ use symb_anafis::Simplify;
 
 let result = Simplify::new()
     .domain_safe(true)
-    .fixed_var(&symb("a"))
-    .simplify_str("sqrt(x^2) + a")?;
-// With domain_safe: "abs(x) + a"
-// Without: "x + a"
+    .simplify_str("sqrt(x^2)")?;
+// With domain_safe: "abs(x)"
+// Without: "x"
 ```
 
-| `with_context(&Context)`      |Sets the symbol context.                        |
+| `with_context(&Context)`      |Sets the symbol context (parsing hints).        |
 
 > [!TIP]
-> **Python API:** `fixed_var` and `fixed_vars` in `Simplify` also support duck typing (Strings or `Symbol` objects).
+> **Python API:** `Simplify` supports domain safety and maximum iterations.
 
 ### Type-Safe Expressions
 

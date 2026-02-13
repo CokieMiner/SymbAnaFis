@@ -556,7 +556,7 @@ rule!(
                     numeric_args.push(*n);
                 } else {
                     // Not all numeric - check if we have a body to expand symbolically
-                    if let Some(body_fn) = context.custom_bodies.get(name.as_str()) {
+                    if let Some(body_fn) = context.custom_bodies.get(&name.id()) {
                         // Expand the function body with the given arguments
                         return Some(body_fn(args));
                     }
@@ -584,7 +584,7 @@ rule!(
             }
 
             // Fallback: check custom_bodies in context and expand symbolically
-            if let Some(body_fn) = context.custom_bodies.get(name.as_str()) {
+            if let Some(body_fn) = context.custom_bodies.get(&name.id()) {
                 // Expand the function body with the given arguments
                 return Some(body_fn(args));
             }
