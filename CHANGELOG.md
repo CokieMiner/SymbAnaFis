@@ -2,9 +2,10 @@
 
 All notable changes to symb_anafis will be documented in this file.
 
-## [unreleased]
+## [0.8.1] - 2026-02-15
 
 ### Added
+- **Math module fuzz coverage**: Added `src/tests/fuzz_math_modules.rs` with comprehensive stress tests for Bessel functions (J, Y, I, K), elliptic integrals, gamma functions, Lambert W, associated Legendre polynomials, and spherical harmonics. Tests verify parity relations, recurrence formulas, and domain-specific edge cases.
 - **Evaluator fuzz coverage**: Added `src/tests/fuzz.rs` and `src/tests/fuzz_evaluator.rs` with stress tests for simplification and evaluator parity across scalar, SIMD batch, and parallel code paths.
 - **Normalization diagnostic test**: Added `src/tests/normalization_check.rs` for parser normalization inspection and expression memory-size sanity checks.
 - **Large-expression benchmark example**: Added `examples/expr_with_4649517_caracters-comparison.rs` for multi-phase SymbAnaFis vs Symbolica comparison on very large input.
@@ -12,10 +13,12 @@ All notable changes to symb_anafis will be documented in this file.
 - **Large expression fixture tracked**: Added `examples/symblica_exp/big_expr.txt` to stage the real benchmark input used by the new comparison flow.
 
 ### Changed
+- **Compiler parameter lookup optimization**: Parameter index lookup changed from O(n) linear search to O(1) HashMap lookup via new `param_index` field in `Compiler` struct.
 - **Evaluator parameter semantics**: `CompiledEvaluator::evaluate` now treats missing parameters as `0.0` and ignores extra trailing parameters.
 - **Evaluator fast paths**:
   - Added constant-expression fast path (`LoadConst` only) to bypass stack execution.
-  - Added specialized `Powi` handling for common exponents (`5`, `6`, `7`, `-1..-4`).
+  - Simplified `Powi` instruction handling to delegate directly to `f64::powi` (removed specialized inline exponent patterns).
+  - Changed `Tetragamma` instruction to call dedicated `eval_tetragamma` instead of generic `eval_polygamma(3, ...)`.
   - Expanded inline execution coverage for rare/special instructions (Gamma family, Bessel family, Zeta family, Legendre, spherical harmonic, etc.) to reduce heap fallback.
 - **Compiler/CSE pipeline**:
   - Removed hard `MAX_STACK_DEPTH` overflow limit.

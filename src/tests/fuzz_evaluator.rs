@@ -13,7 +13,7 @@ use crate::bindings::eval_f64::eval_f64;
 use crate::{CompiledEvaluator, Expr, Symbol, symb};
 use rand::prelude::*;
 use rand::rngs::StdRng;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 const NUM_VARS: usize = 5;
 const MAX_DEPTH: usize = 6;
@@ -62,7 +62,6 @@ impl ExprGenerator {
     }
 
     fn generate_unary(&mut self, depth: usize) -> Expr {
-        let arg = self.generate(depth + 1);
         let funcs = [
             // Trig
             "sin",
@@ -121,7 +120,17 @@ impl ExprGenerator {
             "elliptic_e",
         ];
         let func = funcs[self.rng.random_range(0..funcs.len())];
-        Expr::func(func, arg)
+        if matches!(func, "digamma" | "trigamma" | "tetragamma") {
+            // Keep arguments in (0.1, 1.1] to avoid poles and huge-asymptotic tails
+            // while still fuzzing nontrivial composed expressions.
+            let raw = self.generate(depth + 1);
+            let stable_arg =
+                Expr::func("exp", Expr::negate(Expr::func("abs", raw))) + Expr::number(0.1);
+            Expr::func(func, stable_arg)
+        } else {
+            let arg = self.generate(depth + 1);
+            Expr::func(func, arg)
+        }
     }
 
     fn generate_binary(&mut self, depth: usize) -> Expr {
@@ -139,37 +148,59 @@ impl ExprGenerator {
             5 => rhs.log(lhs),   // x.log(base) -> log(lhs, rhs)
             6 => lhs.atan2(rhs), // atan2(y, x)
             7 => lhs.beta(rhs),
-            8 => lhs.polygamma(rhs), // polygamma(n, x) usually, here random
-            9 => lhs.besselj(rhs),
-            10 => lhs.bessely(rhs),
-            11 => lhs.besseli(rhs),
-            12 => lhs.besselk(rhs),
-            13 => lhs.zeta_deriv(rhs),
-            14 => lhs.hermite(rhs),
+            8 => {
+                let order = Expr::number(f64::from(self.rng.random_range(0..=6)));
+                lhs.polygamma(order)
+            }
+            9 => {
+                let order = Expr::number(f64::from(self.rng.random_range(-6..=6)));
+                lhs.besselj(order)
+            }
+            10 => {
+                let order = Expr::number(f64::from(self.rng.random_range(-6..=6)));
+                lhs.bessely(order)
+            }
+            11 => {
+                let order = Expr::number(f64::from(self.rng.random_range(-6..=6)));
+                lhs.besseli(order)
+            }
+            12 => {
+                let order = Expr::number(f64::from(self.rng.random_range(-6..=6)));
+                lhs.besselk(order)
+            }
+            13 => {
+                let order = Expr::number(f64::from(self.rng.random_range(0..=6)));
+                lhs.zeta_deriv(order)
+            }
+            14 => {
+                let degree = Expr::number(f64::from(self.rng.random_range(0..=12)));
+                lhs.hermite(degree)
+            }
             _ => lhs + rhs, // Fallback
         }
     }
 
     fn generate_ternary(&mut self, depth: usize) -> Expr {
-        let a = self.generate(depth + 1);
-        let b = self.generate(depth + 1);
-        let c = self.generate(depth + 1);
+        let x = self.generate(depth + 1);
+        let l = self.rng.random_range(0..=10);
+        let m = self.rng.random_range(-l..=l);
 
-        // assoc_legendre(l, m, x)
-        // We'll trust the evaluator to handle domain errors (returning NaN is fine)
-        a.assoc_legendre(b, c)
+        // assoc_legendre(l, m, x): keep l,m bounded integers to avoid overflow panics.
+        x.assoc_legendre(Expr::number(f64::from(l)), Expr::number(f64::from(m)))
     }
 
     fn generate_quaternary(&mut self, depth: usize) -> Expr {
-        let a = self.generate(depth + 1);
-        let b = self.generate(depth + 1);
-        let c = self.generate(depth + 1);
-        let d = self.generate(depth + 1);
+        let theta = self.generate(depth + 1);
+        let phi = self.generate(depth + 1);
+        let l = self.rng.random_range(0..=8);
+        let m = self.rng.random_range(-l..=l);
+        let l_expr = Expr::number(f64::from(l));
+        let m_expr = Expr::number(f64::from(m));
 
         if self.rng.random_bool(0.5) {
-            a.spherical_harmonic(b, c, d)
+            theta.spherical_harmonic(l_expr, m_expr, phi)
         } else {
-            a.ynm(b, c, d)
+            theta.ynm(l_expr, m_expr, phi)
         }
     }
 }
@@ -196,6 +227,11 @@ fn close_enough(a: f64, b: f64) -> bool {
     }
 }
 
+fn parse_expr_or_panic(expr: &str) -> Expr {
+    crate::parser::parse(expr, &HashSet::new(), &HashSet::new(), None)
+        .unwrap_or_else(|e| panic!("Failed to parse fuzz corpus expression '{expr}': {e}"))
+}
+
 #[test]
 fn fuzz_comprehensive_evaluator() {
     const STACK_SIZE_BYTES: usize = 16 * 1024 * 1024;
@@ -208,6 +244,82 @@ fn fuzz_comprehensive_evaluator() {
         .expect("fuzz worker thread panicked");
 }
 
+#[test]
+fn fuzz_simd_instruction_surface_differential() {
+    let seed: u64 = rand::random();
+    let mut rng = StdRng::seed_from_u64(seed);
+
+    let corpus: [(&str, &[&str]); 35] = [
+        ("asin(x/10)", &["x"]),
+        ("acos(x/10)", &["x"]),
+        ("atan(x)", &["x"]),
+        ("asinh(x)", &["x"]),
+        ("acosh(abs(x)+1.1)", &["x"]),
+        ("atanh(x/10)", &["x"]),
+        ("erf(x)", &["x"]),
+        ("erfc(x)", &["x"]),
+        ("gamma(abs(x)+1.2)", &["x"]),
+        ("digamma(abs(x)+1.2)", &["x"]),
+        ("trigamma(abs(x)+1.2)", &["x"]),
+        ("tetragamma(abs(x)+1.2)", &["x"]),
+        ("lambertw(x/10)", &["x"]),
+        ("elliptic_k(x/2)", &["x"]),
+        ("elliptic_e(x/2)", &["x"]),
+        ("zeta(abs(x)+2.0)", &["x"]),
+        ("exp_polar(x)", &["x"]),
+        ("cbrt(x)", &["x"]),
+        ("signum(x)", &["x"]),
+        ("floor(x)", &["x"]),
+        ("ceil(x)", &["x"]),
+        ("round(x)", &["x"]),
+        ("besselj(2, x)", &["x"]),
+        ("bessely(2, abs(x)+0.5)", &["x"]),
+        ("besseli(2, x)", &["x"]),
+        ("besselk(2, abs(x)+0.5)", &["x"]),
+        ("polygamma(2, abs(x)+1.2)", &["x"]),
+        ("beta(abs(x)+1.1, abs(y)+1.2)", &["x", "y"]),
+        ("zeta_deriv(1, abs(x)+2.0)", &["x"]),
+        ("hermite(5, x)", &["x"]),
+        ("log(2, abs(x)+1.1)", &["x"]),
+        ("atan2(y, x)", &["x", "y"]),
+        ("assoc_legendre(3, 1, x/2)", &["x"]),
+        ("spherical_harmonic(3, 1, abs(x)+0.2, y)", &["x", "y"]),
+        ("ynm(3, 1, abs(x)+0.2, y)", &["x", "y"]),
+    ];
+
+    for (expr_str, vars) in &corpus {
+        let expr = parse_expr_or_panic(expr_str);
+        let compiled = CompiledEvaluator::compile(&expr, vars, None)
+            .unwrap_or_else(|e| panic!("Compilation failed (seed {seed}) for {expr_str}: {e}"));
+
+        let n_points = 16;
+        let mut columns_owned: Vec<Vec<f64>> = vec![vec![0.0; n_points]; vars.len()];
+        for col in &mut columns_owned {
+            for v in col.iter_mut() {
+                *v = rng.random_range(-4.0..4.0);
+            }
+        }
+        let columns: Vec<&[f64]> = columns_owned.iter().map(Vec::as_slice).collect();
+
+        let mut batch_out = vec![0.0; n_points];
+        compiled
+            .eval_batch(&columns, &mut batch_out, None)
+            .unwrap_or_else(|e| {
+                panic!("eval_batch failed (seed {seed}) for {expr_str}: {e}");
+            });
+
+        for row in 0..n_points {
+            let params: Vec<f64> = columns_owned.iter().map(|col| col[row]).collect();
+            let scalar = compiled.evaluate(&params);
+            assert!(
+                close_enough(scalar, batch_out[row]),
+                "SIMD surface mismatch (seed {seed}) for {expr_str} at row {row}: scalar={scalar}, simd={}",
+                batch_out[row]
+            );
+        }
+    }
+}
+
 fn fuzz_comprehensive_evaluator_impl() {
     let num_tests = std::env::var("SYMB_FUZZ_NUM_TESTS")
         .ok()
@@ -218,7 +330,8 @@ fn fuzz_comprehensive_evaluator_impl() {
         .and_then(|v| v.parse::<usize>().ok())
         .unwrap_or(BATCH_SIZE_DEFAULT);
 
-    let mut generator = ExprGenerator::new(12345);
+    let seed: u64 = rand::random();
+    let mut generator = ExprGenerator::new(seed);
     let var_names: Vec<String> = (0..NUM_VARS).map(|i| format!("x{i}")).collect();
     let var_strs: Vec<&str> = var_names.iter().map(|s| s.as_str()).collect();
 
@@ -252,7 +365,7 @@ fn fuzz_comprehensive_evaluator_impl() {
             Ok(c) => c,
             Err(e) => {
                 // Compilation error (e.g. unknown function) - skip if valid error, fail otherwise
-                println!("Compilation failed for {}: {}", expr, e);
+                println!("Compilation failed (seed {seed}) for {}: {}", expr, e);
                 continue;
             }
         };
@@ -262,7 +375,8 @@ fn fuzz_comprehensive_evaluator_impl() {
 
         assert!(
             close_enough(ground_truth, scalar_compiled),
-            "Scalar mismatch!\nExpr: {}\nVars: {:?}\nGround Truth: {}\nCompiled: {}",
+            "Scalar mismatch (seed {})!\nExpr: {}\nVars: {:?}\nGround Truth: {}\nCompiled: {}",
+            seed,
             expr,
             data_map,
             ground_truth,
@@ -278,7 +392,8 @@ fn fuzz_comprehensive_evaluator_impl() {
 
         assert!(
             close_enough(ground_truth, single_batch_out[0]),
-            "SIMD Single mismatch!\nExpr: {}\nVars: {:?}\nGround Truth: {}\nSIMD: {}",
+            "SIMD Single mismatch (seed {})!\nExpr: {}\nVars: {:?}\nGround Truth: {}\nSIMD: {}",
+            seed,
             expr,
             data_map,
             ground_truth,
@@ -309,8 +424,8 @@ fn fuzz_comprehensive_evaluator_impl() {
                     .map(|(i, &name)| (name, batch_columns[i][row]))
                     .collect();
                 panic!(
-                    "SIMD Batch mismatch at row {}!\nExpr: {}\nVars: {:?}\nGround Truth: {}\nSIMD: {}",
-                    row, expr, row_vars, batch_ground_truth[row], batch_out[row]
+                    "SIMD Batch mismatch (seed {}) at row {}!\nExpr: {}\nVars: {:?}\nGround Truth: {}\nSIMD: {}",
+                    seed, row, expr, row_vars, batch_ground_truth[row], batch_out[row]
                 );
             }
         }
@@ -333,8 +448,8 @@ fn fuzz_comprehensive_evaluator_impl() {
                         .map(|(i, &name)| (name, batch_columns[i][row]))
                         .collect();
                     panic!(
-                        "Parallel Batch mismatch at row {}!\nExpr: {}\nVars: {:?}\nGround Truth: {}\nParallel: {}",
-                        row, expr, row_vars, batch_ground_truth[row], parallel_out[row]
+                        "Parallel Batch mismatch (seed {}) at row {}!\nExpr: {}\nVars: {:?}\nGround Truth: {}\nParallel: {}",
+                        seed, row, expr, row_vars, batch_ground_truth[row], parallel_out[row]
                     );
                 }
             }

@@ -15,14 +15,14 @@ import matplotlib.gridspec as gridspec
 import time
 import warnings
 from pathlib import Path
-from video_writer import save_animation_mp4
+from video_writer import save_animation_mp4 # type: ignore[import]
 warnings.filterwarnings('ignore')
 
 # CONFIGURATION
 N_PARTICLES = 500_000
 N_STEPS = 600
 DT = 0.01
-GENERATE_VIDEO = False
+GENERATE_VIDEO = True
 
 # Aizawa parameters
 A, B, C, D, E, F = 0.95, 0.7, 0.6, 3.5, 0.25, 0.1

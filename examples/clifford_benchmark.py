@@ -15,7 +15,7 @@ import matplotlib.animation as animation
 import matplotlib.gridspec as gridspec
 import warnings
 from pathlib import Path
-from video_writer import save_animation_mp4
+from video_writer import save_animation_mp4 # type: ignore[import]
 warnings.filterwarnings('ignore')
 
 # CONFIGURATION
@@ -23,7 +23,7 @@ N_PARTICLES = 1_000_000
 N_STEPS = 50
 INTERP_FRAMES = 20 # Frames between steps to smooth/slow motion
 A, B, C, D = -1.4, 1.6, 1.0, 0.7
-GENERATE_VIDEO = False
+GENERATE_VIDEO = True
 REQUIRE_ALL_ENGINES = True
 
 # EQUATIONS

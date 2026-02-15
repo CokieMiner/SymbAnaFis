@@ -15,7 +15,7 @@ import matplotlib.animation as animation
 import matplotlib.gridspec as gridspec
 from dataclasses import dataclass
 from pathlib import Path
-from video_writer import save_animation_mp4
+from video_writer import save_animation_mp4 # type: ignore[import]
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -25,7 +25,7 @@ N_STEPS = 600
 DT = 0.01
 WARMUP = 3
 AXIS_LIMIT = 2.5
-GENERATE_VIDEO = False
+GENERATE_VIDEO = True
 REQUIRE_ALL_ENGINES = True
 
 # Physics

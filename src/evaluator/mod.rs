@@ -492,22 +492,18 @@ impl CompiledEvaluator {
                             instructions[i + 2],
                             instructions[i + 3],
                         ) {
-                            (
-                                load_a,
-                                Instruction::Neg,
-                                load_b,
-                                Instruction::Add,
-                            ) if matches!(
-                                load_a,
-                                Instruction::LoadParam(_)
-                                    | Instruction::LoadCached(_)
-                                    | Instruction::LoadConst(_)
-                            ) && matches!(
-                                load_b,
-                                Instruction::LoadParam(_)
-                                    | Instruction::LoadCached(_)
-                                    | Instruction::LoadConst(_)
-                            ) =>
+                            (load_a, Instruction::Neg, load_b, Instruction::Add)
+                                if matches!(
+                                    load_a,
+                                    Instruction::LoadParam(_)
+                                        | Instruction::LoadCached(_)
+                                        | Instruction::LoadConst(_)
+                                ) && matches!(
+                                    load_b,
+                                    Instruction::LoadParam(_)
+                                        | Instruction::LoadCached(_)
+                                        | Instruction::LoadConst(_)
+                                ) =>
                             {
                                 result.push(load_b);
                                 result.push(load_a);
@@ -1060,7 +1056,10 @@ impl std::fmt::Debug for CompiledEvaluator {
             .field("stack_size", &self.stack_size)
             .field("cache_size", &self.cache_size)
             .field("constant_count", &self.constants.len())
-            .field("simd_constants_cached", &self.simd_constants.get().is_some())
+            .field(
+                "simd_constants_cached",
+                &self.simd_constants.get().is_some(),
+            )
             .finish()
     }
 }

@@ -10,7 +10,6 @@ SymbAnaFis provides a robust engine for symbolic differentiation, simplification
 
 ## Key Capabilities
 
-*   **⚡ High-Performance Architecture**: Built on Rust for speed and memory safety, with interned strings and optimized memory layout.
 *   **∂ Symbolic Differentiation**: Supports product, chain, and quotient rules for a vast array of mathematical functions.
 *   **✨ Algebraic Simplification**: Intelligent simplification engine covering trigonometric identities, constant folding, and algebraic expansion.
 *   **📊 Uncertainty Propagation**: Comprehensive support for calculating uncertainty propagation with full covariance matrix integration.

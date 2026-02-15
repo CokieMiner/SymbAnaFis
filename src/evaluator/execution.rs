@@ -347,36 +347,7 @@ impl CompiledEvaluator {
                     Instruction::Powi(n) => {
                         let top_ptr = stack_ptr.add(len - 1);
                         let x = top_ptr.read();
-                        *top_ptr = match n {
-                            5 => {
-                                let x2 = x * x;
-                                x2 * x2 * x
-                            }
-                            6 => {
-                                let x2 = x * x;
-                                let x3 = x2 * x;
-                                x3 * x3
-                            }
-                            7 => {
-                                let x2 = x * x;
-                                let x3 = x2 * x;
-                                x3 * x3 * x
-                            }
-                            -1 => 1.0 / x,
-                            -2 => {
-                                let x2 = x * x;
-                                1.0 / x2
-                            }
-                            -3 => {
-                                let x3 = x * x * x;
-                                1.0 / x3
-                            }
-                            -4 => {
-                                let x2 = x * x;
-                                1.0 / (x2 * x2)
-                            }
-                            _ => x.powi(n),
-                        };
+                        *top_ptr = x.powi(n);
                     }
                     Instruction::MulAdd => {
                         len -= 2;
@@ -467,8 +438,7 @@ impl CompiledEvaluator {
                     }
                     Instruction::Tetragamma => {
                         let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr =
-                            crate::math::eval_polygamma(3, top_ptr.read()).unwrap_or(f64::NAN);
+                        *top_ptr = crate::math::eval_tetragamma(top_ptr.read()).unwrap_or(f64::NAN);
                     }
                     Instruction::LambertW => {
                         let top_ptr = stack_ptr.add(len - 1);
@@ -832,36 +802,7 @@ impl CompiledEvaluator {
                     // SAFETY: Stack operations are validated at compile time.
                     let top = unsafe { stack::scalar_stack_top_mut(stack) };
                     let x = *top;
-                    *top = match n {
-                        5 => {
-                            let x2 = x * x;
-                            x2 * x2 * x
-                        }
-                        6 => {
-                            let x2 = x * x;
-                            let x3 = x2 * x;
-                            x3 * x3
-                        }
-                        7 => {
-                            let x2 = x * x;
-                            let x3 = x2 * x;
-                            x3 * x3 * x
-                        }
-                        -1 => 1.0 / x,
-                        -2 => {
-                            let x2 = x * x;
-                            1.0 / x2
-                        }
-                        -3 => {
-                            let x3 = x * x * x;
-                            1.0 / x3
-                        }
-                        -4 => {
-                            let x2 = x * x;
-                            1.0 / (x2 * x2)
-                        }
-                        _ => x.powi(n),
-                    };
+                    *top = x.powi(n);
                 }
                 // SAFETY: Stack operations are validated at compile time.
                 Instruction::MulAdd => unsafe { stack::scalar_stack_muladd(stack) },
@@ -1069,7 +1010,7 @@ impl CompiledEvaluator {
                 Instruction::Tetragamma => {
                     // SAFETY: Stack operations are validated at compile time.
                     let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = crate::math::eval_polygamma(3, *top).unwrap_or(f64::NAN);
+                    *top = crate::math::eval_tetragamma(*top).unwrap_or(f64::NAN);
                 }
                 Instruction::Sinc => {
                     // SAFETY: Stack operations are validated at compile time.

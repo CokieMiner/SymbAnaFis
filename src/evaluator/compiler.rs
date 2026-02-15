@@ -48,8 +48,10 @@ use std::sync::Arc;
 pub struct Compiler<'ctx> {
     /// Emitted bytecode instructions
     instructions: Vec<Instruction>,
-    /// Parameter IDs in evaluation order for fast linear search
+    /// Parameter IDs in evaluation order (kept for debugging/inspection)
     param_ids: Vec<u64>,
+    /// Parameter index lookup: `symbol_id` → `param_index` (O(1) lookup)
+    param_index: HashMap<u64, usize>,
     /// Current stack depth during compilation
     current_stack: usize,
     /// Maximum stack depth seen during compilation
@@ -79,9 +81,17 @@ impl<'ctx> Compiler<'ctx> {
     /// * `param_ids` - Symbol IDs for each parameter, in evaluation order
     /// * `context` - Optional context for user function definitions
     pub fn new(param_ids: &[u64], context: Option<&'ctx Context>) -> Self {
+        // Build O(1) lookup map for parameter indices
+        let param_index: HashMap<u64, usize> = param_ids
+            .iter()
+            .enumerate()
+            .map(|(idx, &id)| (id, idx))
+            .collect();
+
         Self {
             instructions: Vec::with_capacity(64),
             param_ids: param_ids.to_vec(),
+            param_index,
             current_stack: 0,
             max_stack: 0,
             function_context: context,
@@ -352,7 +362,8 @@ impl<'ctx> Compiler<'ctx> {
                     let idx = self.add_const(value);
                     self.emit(Instruction::LoadConst(idx));
                     self.push()?;
-                } else if let Some(idx) = self.param_ids.iter().position(|&id| id == sym_id) {
+                } else if let Some(&idx) = self.param_index.get(&sym_id) {
+                    // O(1) HashMap lookup for parameter index
                     // Truncation safe: param count bounded by realistic expression size
                     #[allow(
                         clippy::cast_possible_truncation,

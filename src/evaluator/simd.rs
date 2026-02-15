@@ -595,46 +595,13 @@ impl CompiledEvaluator {
                 Instruction::Powi(n) => {
                     let top = top_mut!();
                     let x = *top;
-                    *top = match n {
-                        // Powers 2, 3, 4 handled by dedicated instructions at compile time.
-                        // Inline multiplication chains for common remaining powers.
-                        5 => {
-                            let x2 = x * x;
-                            x2 * x2 * x
-                        }
-                        6 => {
-                            let x2 = x * x;
-                            let x3 = x2 * x;
-                            x3 * x3
-                        }
-                        7 => {
-                            let x2 = x * x;
-                            let x3 = x2 * x;
-                            x3 * x3 * x
-                        }
-                        -1 => f64x4::splat(1.0) / x,
-                        -2 => {
-                            let x2 = x * x;
-                            f64x4::splat(1.0) / x2
-                        }
-                        -3 => {
-                            let x3 = x * x * x;
-                            f64x4::splat(1.0) / x3
-                        }
-                        -4 => {
-                            let x2 = x * x;
-                            f64x4::splat(1.0) / (x2 * x2)
-                        }
-                        _ => {
-                            let arr = x.to_array();
-                            f64x4::new([
-                                arr[0].powi(n),
-                                arr[1].powi(n),
-                                arr[2].powi(n),
-                                arr[3].powi(n),
-                            ])
-                        }
-                    };
+                    let arr = x.to_array();
+                    *top = f64x4::new([
+                        arr[0].powi(n),
+                        arr[1].powi(n),
+                        arr[2].powi(n),
+                        arr[3].powi(n),
+                    ]);
                 }
                 Instruction::MulAdd => {
                     let c = pop!();
@@ -883,7 +850,8 @@ impl CompiledEvaluator {
             // Log functions
             Instruction::Cbrt => {
                 let top = top!();
-                *top = top.pow_f64x4(f64x4::splat(1.0 / 3.0));
+                let arr = top.to_array();
+                *top = f64x4::new([arr[0].cbrt(), arr[1].cbrt(), arr[2].cbrt(), arr[3].cbrt()]);
             }
 
             // Rounding
@@ -965,10 +933,10 @@ impl CompiledEvaluator {
                 let top = top!();
                 let arr = top.to_array();
                 *top = f64x4::new([
-                    crate::math::eval_polygamma(3, arr[0]).unwrap_or(f64::NAN),
-                    crate::math::eval_polygamma(3, arr[1]).unwrap_or(f64::NAN),
-                    crate::math::eval_polygamma(3, arr[2]).unwrap_or(f64::NAN),
-                    crate::math::eval_polygamma(3, arr[3]).unwrap_or(f64::NAN),
+                    crate::math::eval_tetragamma(arr[0]).unwrap_or(f64::NAN),
+                    crate::math::eval_tetragamma(arr[1]).unwrap_or(f64::NAN),
+                    crate::math::eval_tetragamma(arr[2]).unwrap_or(f64::NAN),
+                    crate::math::eval_tetragamma(arr[3]).unwrap_or(f64::NAN),
                 ]);
             }
             Instruction::Sinc => {
@@ -1324,7 +1292,7 @@ impl CompiledEvaluator {
                 }
             }
 
-            // Unhandled instructions - fail fast so SIMD coverage gaps are explicit.
+            // Unhandled in slow path - fail fast so SIMD coverage gaps are explicit.
             _ => {
                 std::process::abort();
             }
@@ -1664,7 +1632,7 @@ impl CompiledEvaluator {
             }
             Instruction::Tetragamma => {
                 let t = top_mut(stack, *len);
-                *t = crate::math::eval_polygamma(3, *t).unwrap_or(f64::NAN);
+                *t = crate::math::eval_tetragamma(*t).unwrap_or(f64::NAN);
             }
             Instruction::LambertW => {
                 let t = top_mut(stack, *len);

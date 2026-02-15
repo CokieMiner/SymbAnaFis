@@ -31,6 +31,7 @@ mod evaluator_expansion;
 mod fraction_simplification_tests;
 mod fuzz;
 mod fuzz_evaluator;
+mod fuzz_math_modules;
 mod hyperbolic_conversion_tests;
 mod integration_tests;
 mod log_power_tests;

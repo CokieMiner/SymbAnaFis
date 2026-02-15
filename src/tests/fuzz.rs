@@ -19,10 +19,15 @@ use crate::{Expr, Simplify};
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 use std::collections::HashMap;
 
+fn random_std_rng_with_seed() -> (StdRng, u64) {
+    let seed: u64 = rand::random();
+    (StdRng::seed_from_u64(seed), seed)
+}
+
 /// Generate a massive polynomial-like expression
 ///
 /// Structure: Sum of many Products, where each Product is a mix of variables and constants.
-/// This mimics the structure of f13/OLA benchmarks.
+/// This mimics the structure of f13 benchmarks.
 fn generate_massive_poly(rng: &mut StdRng, num_terms: usize, num_vars: usize) -> Expr {
     let vars: Vec<String> = (0..num_vars).map(|i| format!("x{i}")).collect();
     let mut terms = Vec::with_capacity(num_terms);
@@ -63,9 +68,8 @@ fn make_eval_context(num_vars: usize) -> HashMap<String, f64> {
 
 #[test]
 fn fuzz_massive_polynomial_simplification() {
-    for i in 0..1000 {
-        let seed = 42 + i;
-        let mut rng = StdRng::seed_from_u64(seed);
+    for _ in 0..1000 {
+        let (mut rng, seed) = random_std_rng_with_seed();
 
         // Progressive testing: start small, go big
         let cases = [
@@ -97,9 +101,8 @@ fn fuzz_massive_polynomial_simplification() {
 
 #[test]
 fn fuzz_cancellation_patterns() {
-    for i in 0..1000 {
-        let seed = 1234 + i;
-        let mut rng = StdRng::seed_from_u64(seed);
+    for _ in 0..1000 {
+        let (mut rng, seed) = random_std_rng_with_seed();
 
         let p = generate_massive_poly(&mut rng, 500, 10);
         let q = generate_massive_poly(&mut rng, 10, 5);

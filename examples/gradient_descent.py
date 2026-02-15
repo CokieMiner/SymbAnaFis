@@ -17,7 +17,7 @@ import matplotlib.gridspec as gridspec
 import time
 import warnings
 from pathlib import Path
-from video_writer import save_animation_mp4
+from video_writer import save_animation_mp4 # type: ignore[import]
 warnings.filterwarnings('ignore')
 
 # ================= CONFIGURATION =================
@@ -26,7 +26,7 @@ N_BALLS = 500_000
 STEPS = 600      
 LR = 0.05
 LIMIT = 8.0 
-GENERATE_VIDEO = False
+GENERATE_VIDEO = True
 REQUIRE_ALL_ENGINES = True
 
 # Complex terrain h(x,y)

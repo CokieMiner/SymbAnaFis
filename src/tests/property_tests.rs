@@ -89,18 +89,25 @@ mod parser_fuzz_tests {
     /// Property: Parser should handle generated valid expressions
     #[test]
     fn test_parser_handles_valid_expressions() {
-        fn prop_valid_expr_parses() -> bool {
+        fn prop_valid_expr_parses() -> TestResult {
             let mut g = Gen::new(10);
             let expr_str = random_expr_string(&mut g);
             let fixed = HashSet::new();
             let custom = HashSet::new();
-            // This should either parse or not, but not panic
-            let result = parser::parse(&expr_str, &fixed, &custom, None);
-            result.is_ok() || result.is_err() // Always true if no panic
+
+            // Generator emits syntactically valid expressions for this grammar.
+            let parsed = match parser::parse(&expr_str, &fixed, &custom, None) {
+                Ok(expr) => expr,
+                Err(_err) => return TestResult::failed(),
+            };
+
+            // If parser accepted it, Display output should parse back.
+            let displayed = parsed.to_string();
+            TestResult::from_bool(parser::parse(&displayed, &fixed, &custom, None).is_ok())
         }
         QuickCheck::new()
             .tests(500)
-            .quickcheck(prop_valid_expr_parses as fn() -> bool);
+            .quickcheck(prop_valid_expr_parses as fn() -> TestResult);
     }
 
     /// Property: Parsed expressions should round-trip through Display

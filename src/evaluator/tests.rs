@@ -379,7 +379,8 @@ fn test_compile_neg_add_is_lowered_to_sub() {
 fn test_normal_pdf_derivative_uses_expneg_fusion() {
     // Pattern from normal-PDF derivative: exp(-(...)/(2*sigma^2))
     // should lower to ExpNeg after optimization.
-    let expr = parse_expr("-exp(-(-mu + x)^2/(2*sigma^2))*(-mu + x)/(sigma^2*abs(sigma)*sqrt(2*pi))");
+    let expr =
+        parse_expr("-exp(-(-mu + x)^2/(2*sigma^2))*(-mu + x)/(sigma^2*abs(sigma)*sqrt(2*pi))");
     let eval =
         CompiledEvaluator::compile(&expr, &["mu", "sigma", "x"], None).expect("Should compile");
 
@@ -392,7 +393,8 @@ fn test_normal_pdf_derivative_uses_expneg_fusion() {
 
 #[test]
 fn test_normal_pdf_raw_derivative_prefers_sub_for_x_minus_mu() {
-    let expr = parse_expr("exp(-(-mu + x)^2/(2*sigma^2))*-2*(-mu + x)/(2*sigma^2)/sqrt(2*pi*sigma^2)");
+    let expr =
+        parse_expr("exp(-(-mu + x)^2/(2*sigma^2))*-2*(-mu + x)/(2*sigma^2)/sqrt(2*pi*sigma^2)");
     let eval = CompiledEvaluator::compile(&expr, &["mu", "pi", "sigma", "x"], None)
         .expect("Should compile");
 
