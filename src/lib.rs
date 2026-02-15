@@ -11,13 +11,13 @@
 //!
 //! // String-based API - quick and familiar
 //! let result = diff("x^3 + sin(x)", "x", &[], None).unwrap();
-//! assert_eq!(result, "cos(x) + 3*x^2");
+//! assert_eq!(result, "3*x^2 + cos(x)");
 //!
 //! // Type-safe API - powerful and composable
 //! let x = symb("x");
 //! let expr = x.pow(3.0) + x.sin();
 //! let derivative = Diff::new().differentiate(&expr, &x).unwrap();
-//! assert_eq!(derivative.to_string(), "cos(x) + 3*x^2");
+//! assert_eq!(derivative.to_string(), "3*x^2 + cos(x)");
 //! ```
 //!
 //! ## Key Features
