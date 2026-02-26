@@ -328,8 +328,8 @@ mod tests {
         let result = uncertainty_propagation(&expr, &["x", "y"], None).expect("failed sum");
         let latex = result.to_latex();
 
-        // Should contain both sigma_x and sigma_y terms
-        assert!(latex.contains("sigma_x") || latex.contains("sigma"));
+        // Should contain both \sigma_{x} and \sigma_{y} terms in LaTeX
+        assert!(latex.contains(r"\sigma_{x}") && latex.contains(r"\sigma_{y}"));
     }
 
     #[test]

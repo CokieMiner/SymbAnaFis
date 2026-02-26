@@ -237,6 +237,14 @@ fn format_symbol_expr(
         FormatMode::Latex => {
             if let Some(greek) = greek_to_latex(name_str) {
                 write!(f, "{greek}")
+            } else if let Some(underscore_idx) = name_str.find('_') {
+                let (prefix, subscript) = name_str.split_at(underscore_idx);
+                let subscript = &subscript[1..]; // Skip the '_'
+                if let Some(greek) = greek_to_latex(prefix) {
+                    write!(f, "{greek}_{{{subscript}}}")
+                } else {
+                    write!(f, "{name_str}")
+                }
             } else {
                 write!(f, "{name_str}")
             }
