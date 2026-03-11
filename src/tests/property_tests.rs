@@ -644,6 +644,31 @@ mod simplification_oracle_tests {
             .quickcheck(prop_simplify_preserves_value as fn() -> TestResult);
     }
 
+    /// Regression: oracle caught cos(x) factor being dropped during simplification
+    #[test]
+    fn test_regression_cos_factor_not_dropped() {
+        let expr_str = "((-(x) + (x * x)) * -(cos(x)))";
+        let simplified_str = simplify(expr_str, &[], None).unwrap();
+
+        let fixed = HashSet::new();
+        let custom = HashSet::new();
+        let original = parser::parse(expr_str, &fixed, &custom, None).unwrap();
+        let simplified = parser::parse(&simplified_str, &fixed, &custom, None).unwrap();
+
+        let mut vars = HashMap::new();
+        vars.insert("x", 0.351);
+        let res_orig = original.evaluate(&vars, &HashMap::new());
+        let res_simp = simplified.evaluate(&vars, &HashMap::new());
+
+        if let (ExprKind::Number(n1), ExprKind::Number(n2)) = (&res_orig.kind, &res_simp.kind) {
+            let tolerance = 1e-5 * n1.abs().max(n2.abs()).max(1.0);
+            assert!(
+                (n1 - n2).abs() <= tolerance,
+                "cos(x) factor dropped!\n  Original:   {expr_str}\n  Simplified: {simplified_str}\n  Val Orig: {n1}\n  Val Simp: {n2}"
+            );
+        }
+    }
+
     /// Test that simplification is idempotent (simplify(simplify(x)) == simplify(x))
     #[test]
     fn test_simplification_idempotent() {

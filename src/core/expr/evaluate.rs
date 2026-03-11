@@ -186,16 +186,13 @@ impl Expr {
                 )
             }
             ExprKind::Product(factors) => {
-                // Optimized: single-pass with early zero exit and lazy Vec
+                // IEEE 754 compliant: no early zero exit so that 0 * NaN = NaN
                 let mut num_prod: f64 = 1.0;
                 let mut others: Option<Vec<Self>> = None;
 
                 for f in factors {
                     let eval_f = f.evaluate(vars, custom_evals);
                     if let ExprKind::Number(n) = eval_f.kind {
-                        if n == 0.0 {
-                            return Self::number(0.0); // Early exit
-                        }
                         num_prod *= n;
                     } else {
                         others.get_or_insert_with(Vec::new).push(eval_f);

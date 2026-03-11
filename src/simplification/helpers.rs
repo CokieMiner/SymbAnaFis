@@ -326,118 +326,188 @@ pub fn extract_coeff_arc(expr: &Arc<Expr>) -> (f64, Arc<Expr>) {
 /// Optimized: only allocates when transformation occurs
 /// Transform fractional exponents to root notation for readability.
 /// Used for final expression formatting in simplification.
-pub fn prettify_roots(expr: Expr) -> Expr {
-    match &expr.kind {
-        ExprKind::Pow(base, exp) => {
-            let base_pretty = prettify_roots((**base).clone());
-            let exp_pretty = prettify_roots((**exp).clone());
+#[allow(
+    clippy::too_many_lines,
+    reason = "Iterative post-order traversal is inherently verbose"
+)]
+pub fn prettify_roots(root: Expr) -> Expr {
+    // Post-order iterative transform using two stacks:
+    //   `work`    – nodes still to descend into
+    //   `results` – already-transformed children, consumed during assembly
+    //
+    // Each work item is either:
+    //   Visit(expr)                       – push children, then push Assemble
+    //   Assemble(kind, child_count, expr) – pop children, rebuild if changed
 
-            // x^(1/2) -> sqrt(x)
-            if let ExprKind::Div(num, den) = &exp_pretty.kind {
-                // Precise match for 1.0 and 2.0 is required for sqrt transformation
-                #[allow(
-                    clippy::float_cmp,
-                    reason = "Precise match for 1.0 and 2.0 is required for sqrt transformation"
-                )]
-                if matches!(num.kind, ExprKind::Number(n) if n == 1.0)
-                    && matches!(den.kind, ExprKind::Number(n) if n == 2.0)
-                {
-                    return Expr::func_symbol(ks::get_symbol(ks::KS.sqrt), base_pretty);
-                }
-                // x^(1/3) -> cbrt(x)
-                // Precise match for 1.0 and 3.0 is required for cbrt transformation
-                #[allow(
-                    clippy::float_cmp,
-                    reason = "Precise match for 1.0 and 3.0 is required for cbrt transformation"
-                )]
-                if matches!(num.kind, ExprKind::Number(n) if n == 1.0)
-                    && matches!(den.kind, ExprKind::Number(n) if n == 3.0)
-                {
-                    return Expr::func_symbol(ks::get_symbol(ks::KS.cbrt), base_pretty);
-                }
-            }
-            // x^0.5 -> sqrt(x)
-            if let ExprKind::Number(n) = &exp_pretty.kind
-                && (n - 0.5).abs() < EPSILON
-            {
-                return Expr::func_symbol(ks::get_symbol(ks::KS.sqrt), base_pretty);
-            }
-
-            // Check if children changed
-            if base_pretty.id != base.id || exp_pretty.id != exp.id {
-                return Expr::pow(base_pretty, exp_pretty);
-            }
-        }
-        ExprKind::Sum(terms) => {
-            let mut new_terms: Option<Vec<Expr>> = None;
-            for (i, term) in terms.iter().enumerate() {
-                let pretty_term = prettify_roots((**term).clone());
-
-                if new_terms.is_none() && pretty_term.id != term.id {
-                    let mut v = Vec::with_capacity(terms.len());
-                    v.extend(terms.iter().take(i).map(|t| (**t).clone()));
-                    new_terms = Some(v);
-                }
-
-                if let Some(v) = &mut new_terms {
-                    v.push(pretty_term);
-                }
-            }
-
-            if let Some(v) = new_terms {
-                return Expr::sum(v);
-            }
-        }
-        ExprKind::Product(factors) => {
-            let mut new_factors: Option<Vec<Expr>> = None;
-            for (i, factor) in factors.iter().enumerate() {
-                let pretty_factor = prettify_roots((**factor).clone());
-
-                if new_factors.is_none() && pretty_factor.id != factor.id {
-                    let mut v = Vec::with_capacity(factors.len());
-                    v.extend(factors.iter().take(i).map(|f| (**f).clone()));
-                    new_factors = Some(v);
-                }
-
-                if let Some(v) = &mut new_factors {
-                    v.push(pretty_factor);
-                }
-            }
-            if let Some(v) = new_factors {
-                return Expr::product(v);
-            }
-        }
-        ExprKind::Div(u, v) => {
-            let u_pretty = prettify_roots((**u).clone());
-            let v_pretty = prettify_roots((**v).clone());
-            if u_pretty.id != u.id || v_pretty.id != v.id {
-                return Expr::div_expr(u_pretty, v_pretty);
-            }
-        }
-        ExprKind::FunctionCall { name, args } => {
-            let mut new_args: Option<Vec<Expr>> = None;
-            for (i, arg) in args.iter().enumerate() {
-                let pretty_arg = prettify_roots((**arg).clone());
-
-                if new_args.is_none() && pretty_arg.id != arg.id {
-                    let mut v = Vec::with_capacity(args.len());
-                    v.extend(args.iter().take(i).map(|a| (**a).clone()));
-                    new_args = Some(v);
-                }
-
-                if let Some(v) = &mut new_args {
-                    v.push(pretty_arg);
-                }
-            }
-            if let Some(v) = new_args {
-                return Expr::func_multi(name, v);
-            }
-        }
-        // Leaves: Number, Symbol, Poly, Derivative - no transformation needed
-        _ => {}
+    enum Task {
+        Visit(Expr),
+        /// (original expr, number of child results to pop)
+        Assemble(Expr, usize),
     }
 
-    expr
+    let mut work: Vec<Task> = vec![Task::Visit(root)];
+    let mut results: Vec<Expr> = Vec::new();
+
+    while let Some(task) = work.pop() {
+        match task {
+            Task::Visit(expr) => match &expr.kind {
+                ExprKind::Number(_)
+                | ExprKind::Symbol(_)
+                | ExprKind::Poly(_)
+                | ExprKind::Derivative { .. } => {
+                    results.push(expr);
+                }
+                ExprKind::Sum(terms) => {
+                    let n = terms.len();
+                    work.push(Task::Assemble(expr.clone(), n));
+                    for t in terms.iter().rev() {
+                        work.push(Task::Visit((**t).clone()));
+                    }
+                }
+                ExprKind::Product(factors) => {
+                    let n = factors.len();
+                    work.push(Task::Assemble(expr.clone(), n));
+                    for f in factors.iter().rev() {
+                        work.push(Task::Visit((**f).clone()));
+                    }
+                }
+                ExprKind::Div(u, v) => {
+                    work.push(Task::Assemble(expr.clone(), 2));
+                    work.push(Task::Visit((**v).clone()));
+                    work.push(Task::Visit((**u).clone()));
+                }
+                ExprKind::Pow(base, exp) => {
+                    work.push(Task::Assemble(expr.clone(), 2));
+                    work.push(Task::Visit((**exp).clone()));
+                    work.push(Task::Visit((**base).clone()));
+                }
+                ExprKind::FunctionCall { args, .. } => {
+                    let n = args.len();
+                    work.push(Task::Assemble(expr.clone(), n));
+                    for a in args.iter().rev() {
+                        work.push(Task::Visit((**a).clone()));
+                    }
+                }
+            },
+            Task::Assemble(orig, n) => {
+                let start = results.len() - n;
+                // Borrow the transformed children (they sit at the tail of results)
+                match &orig.kind {
+                    ExprKind::Pow(old_base, old_exp) => {
+                        let base_pretty = &results[start];
+                        let exp_pretty = &results[start + 1];
+
+                        // x^(1/2) -> sqrt(x)
+                        if let ExprKind::Div(num, den) = &exp_pretty.kind {
+                            #[allow(
+                                clippy::float_cmp,
+                                reason = "Precise match required for sqrt/cbrt"
+                            )]
+                            if matches!(num.kind, ExprKind::Number(v) if v == 1.0)
+                                && matches!(den.kind, ExprKind::Number(v) if v == 2.0)
+                            {
+                                let b = results.drain(start..).next().expect("base");
+                                results.push(Expr::func_symbol(ks::get_symbol(ks::KS.sqrt), b));
+                                continue;
+                            }
+                            #[allow(
+                                clippy::float_cmp,
+                                reason = "Precise match required for sqrt/cbrt"
+                            )]
+                            if matches!(num.kind, ExprKind::Number(v) if v == 1.0)
+                                && matches!(den.kind, ExprKind::Number(v) if v == 3.0)
+                            {
+                                let b = results.drain(start..).next().expect("base");
+                                results.push(Expr::func_symbol(ks::get_symbol(ks::KS.cbrt), b));
+                                continue;
+                            }
+                        }
+                        // x^0.5 -> sqrt(x)
+                        if let ExprKind::Number(val) = &exp_pretty.kind
+                            && (val - 0.5).abs() < EPSILON
+                        {
+                            let b = results.drain(start..).next().expect("base");
+                            results.push(Expr::func_symbol(ks::get_symbol(ks::KS.sqrt), b));
+                            continue;
+                        }
+
+                        // Check if children changed
+                        if base_pretty.id != old_base.id || exp_pretty.id != old_exp.id {
+                            let mut drained = results.drain(start..);
+                            let b = drained.next().expect("base");
+                            let e = drained.next().expect("exp");
+                            drop(drained);
+                            results.push(Expr::pow(b, e));
+                        } else {
+                            results.truncate(start);
+                            results.push(orig);
+                        }
+                    }
+                    ExprKind::Sum(terms) => {
+                        let changed = results[start..]
+                            .iter()
+                            .zip(terms.iter())
+                            .any(|(new, old)| new.id != old.id);
+                        if changed {
+                            let v: Vec<Expr> = results.drain(start..).collect();
+                            results.push(Expr::sum(v));
+                        } else {
+                            results.truncate(start);
+                            results.push(orig);
+                        }
+                    }
+                    ExprKind::Product(factors) => {
+                        let changed = results[start..]
+                            .iter()
+                            .zip(factors.iter())
+                            .any(|(new, old)| new.id != old.id);
+                        if changed {
+                            let v: Vec<Expr> = results.drain(start..).collect();
+                            results.push(Expr::product(v));
+                        } else {
+                            results.truncate(start);
+                            results.push(orig);
+                        }
+                    }
+                    ExprKind::Div(old_u, old_v) => {
+                        let u_changed = results[start].id != old_u.id;
+                        let v_changed = results[start + 1].id != old_v.id;
+                        if u_changed || v_changed {
+                            let mut drained = results.drain(start..);
+                            let u = drained.next().expect("u");
+                            let v = drained.next().expect("v");
+                            drop(drained);
+                            results.push(Expr::div_expr(u, v));
+                        } else {
+                            results.truncate(start);
+                            results.push(orig);
+                        }
+                    }
+                    ExprKind::FunctionCall { name, args } => {
+                        let changed = results[start..]
+                            .iter()
+                            .zip(args.iter())
+                            .any(|(new, old)| new.id != old.id);
+                        if changed {
+                            let v: Vec<Expr> = results.drain(start..).collect();
+                            results.push(Expr::func_multi(name, v));
+                        } else {
+                            results.truncate(start);
+                            results.push(orig);
+                        }
+                    }
+                    _ => {
+                        results.truncate(start);
+                        results.push(orig);
+                    }
+                }
+            }
+        }
+    }
+
+    results
+        .pop()
+        .expect("prettify_roots must produce exactly one result")
 }
 
 /// Check if an expression is known to be non-negative for all real values of its variables.
@@ -445,65 +515,66 @@ pub fn prettify_roots(expr: Expr) -> Expr {
 /// Check if expression is known to be non-negative.
 /// Used for safe square root and absolute value simplifications.
 pub fn is_known_non_negative(expr: &Expr) -> bool {
-    match &expr.kind {
-        // Positive numbers
-        ExprKind::Number(n) => *n >= 0.0,
+    // Iterative: every node on the stack must be non-negative for the
+    // overall result to be true.  We push children that need checking
+    // (Product factors, Sum terms, Pow bases, sqrt args) and return
+    // false as soon as any node fails.
+    let mut stack: Vec<&Expr> = vec![expr];
+    while let Some(node) = stack.pop() {
+        match &node.kind {
+            // Positive numbers
+            ExprKind::Number(n) => {
+                if *n < 0.0 {
+                    return false;
+                }
+            }
 
-        // x^2, x^4, x^6, ... are always non-negative
-        // Also: (non_negative_expr)^(positive) is non-negative
-        ExprKind::Pow(base, exp) => {
-            if let ExprKind::Number(n) = &exp.kind {
-                // Even positive integer exponents: x^2, x^4, etc.
-                // Checked fract() == 0.0, so cast is safe
-                if *n > 0.0 && n.fract() == 0.0 {
-                    let is_even = {
+            // x^2, x^4, x^6, ... are always non-negative
+            ExprKind::Pow(base, exp) => {
+                if let ExprKind::Number(n) = &exp.kind {
+                    // Even positive integer exponents: x^2, x^4, etc.
+                    if *n > 0.0 && n.fract() == 0.0 {
                         #[allow(
                             clippy::cast_possible_truncation,
                             reason = "Checked fract() == 0.0, so cast is safe"
                         )]
-                        {
-                            (*n as i64) % 2 == 0
+                        let is_even = (*n as i64) % 2 == 0;
+                        if is_even {
+                            continue; // proven non-negative, no need to check base
                         }
-                    };
-                    if is_even {
-                        return true;
+                    }
+                    // Non-negative base with any positive exponent
+                    if *n > 0.0 {
+                        stack.push(base); // base must be non-negative
+                        continue;
                     }
                 }
-                // Non-negative base with any positive exponent: (x^2)^0.5, abs(x)^1.5
-                if *n > 0.0 && is_known_non_negative(base) {
-                    return true;
+                return false;
+            }
+
+            // abs(x), exp(x), cosh(x) are always non-negative
+            ExprKind::FunctionCall { name, args } if args.len() == 1 => {
+                if name.id() == ks::KS.abs || name.id() == ks::KS.exp || name.id() == ks::KS.cosh {
+                    continue; // always non-negative
                 }
+                if name.id() == ks::KS.sqrt {
+                    stack.push(&args[0]); // non-negative if arg is non-negative
+                    continue;
+                }
+                return false;
             }
-            false
+
+            // Product/Sum of non-negatives is non-negative
+            ExprKind::Product(args) | ExprKind::Sum(args) => {
+                stack.extend(args.iter().map(AsRef::as_ref));
+            }
+
+            // Division of non-negative by positive is non-negative (but we can't easily check "positive")
+            // Be conservative here
+            _ => return false,
         }
-
-        // abs(x) is always non-negative
-        ExprKind::FunctionCall { name, args } if args.len() == 1 => {
-            if name.id() == ks::KS.abs {
-                return true;
-            }
-            if name.id() == ks::KS.exp {
-                return true;
-            }
-            if name.id() == ks::KS.cosh {
-                return true;
-            }
-            if name.id() == ks::KS.sqrt {
-                return is_known_non_negative(&args[0]);
-            }
-            false
-        }
-
-        // Product of non-negatives is non-negative
-        ExprKind::Product(factors) => factors.iter().all(|f| is_known_non_negative(f)),
-
-        // Sum of non-negatives is non-negative
-        ExprKind::Sum(terms) => terms.iter().all(|t| is_known_non_negative(t)),
-
-        // Division of non-negative by positive is non-negative (but we can't easily check "positive")
-        // Be conservative here
-        _ => false,
     }
+    true
 }
 
 /// Check if an exponent represents a fractional power that requires non-negative base
@@ -591,6 +662,12 @@ const fn term_hash_byte(mut hash: u64, b: u8) -> u64 {
 
 /// Inner recursive term hash — operates on `&ExprKind`.
 /// Children are full `Arc<Expr>` nodes, so we recurse into their `.kind` safely.
+///
+/// Note: This function is only called for non-Sum/non-Product nodes (Pow, Div,
+/// `FunctionCall`, Derivative, Poly) via `compute_term_hash`. The hot path
+/// (Sum/Product construction) uses cached `term_hash` values in O(1).
+/// The recursion depth here equals the nesting of non-Sum/non-Product nodes,
+/// which is typically very shallow (2-5 levels).
 fn hash_term_inner(hash: u64, kind: &ExprKind) -> u64 {
     match kind {
         ExprKind::Number(n) => term_hash_f64(term_hash_byte(hash, b'N'), *n),
@@ -704,94 +781,152 @@ pub fn compute_term_hash(kind: &ExprKind) -> u64 {
 
 /// Normalize expression for structural comparison.
 /// Used to determine if two expressions are equivalent modulo ordering.
-pub fn normalize_for_comparison(expr: &Expr) -> Expr {
-    // Early exit for leaf nodes - just clone, no transformation needed
-    match &expr.kind {
-        ExprKind::Number(_) | ExprKind::Symbol(_) => return expr.clone(),
-        _ => {}
+#[allow(
+    clippy::too_many_lines,
+    reason = "Iterative post-order traversal is inherently verbose"
+)]
+pub fn normalize_for_comparison(root: &Expr) -> Expr {
+    // Post-order iterative normalization using the Visit/Assemble pattern.
+
+    enum Task<'expr> {
+        Visit(&'expr Expr),
+        Assemble(&'expr Expr, usize),
     }
 
-    match &expr.kind {
-        // Normalize Sum - recurse into terms
-        ExprKind::Sum(terms) => {
-            let norm_terms: Vec<Expr> = terms.iter().map(|t| normalize_for_comparison(t)).collect();
-            // Check if any term changed
-            let changed = norm_terms
-                .iter()
-                .zip(terms.iter())
-                .any(|(new, old)| new.id != old.id);
-            if !changed {
-                return expr.clone();
-            }
-            Expr::sum(norm_terms)
-        }
-        // Normalize Product - simplify numeric products
-        ExprKind::Product(factors) => {
-            let norm_factors: Vec<Expr> = factors
-                .iter()
-                .map(|f| normalize_for_comparison(f))
-                .collect();
-            // Combine numeric factors
-            let mut coeff = 1.0;
-            let mut non_numeric: Vec<Expr> = Vec::new();
-            for f in &norm_factors {
-                if let ExprKind::Number(n) = &f.kind {
-                    coeff *= n;
-                } else {
-                    non_numeric.push(f.clone());
+    let mut work: Vec<Task<'_>> = vec![Task::Visit(root)];
+    let mut results: Vec<Expr> = Vec::new();
+
+    while let Some(task) = work.pop() {
+        match task {
+            Task::Visit(expr) => match &expr.kind {
+                ExprKind::Number(_)
+                | ExprKind::Symbol(_)
+                | ExprKind::Poly(_)
+                | ExprKind::Derivative { .. } => {
+                    results.push(expr.clone());
+                }
+                ExprKind::Sum(terms) => {
+                    let n = terms.len();
+                    work.push(Task::Assemble(expr, n));
+                    for t in terms.iter().rev() {
+                        work.push(Task::Visit(t));
+                    }
+                }
+                ExprKind::Product(factors) => {
+                    let n = factors.len();
+                    work.push(Task::Assemble(expr, n));
+                    for f in factors.iter().rev() {
+                        work.push(Task::Visit(f));
+                    }
+                }
+                ExprKind::Div(a, b) | ExprKind::Pow(a, b) => {
+                    work.push(Task::Assemble(expr, 2));
+                    work.push(Task::Visit(b));
+                    work.push(Task::Visit(a));
+                }
+                ExprKind::FunctionCall { args, .. } => {
+                    let n = args.len();
+                    work.push(Task::Assemble(expr, n));
+                    for a in args.iter().rev() {
+                        work.push(Task::Visit(a));
+                    }
+                }
+            },
+            Task::Assemble(orig, n) => {
+                let start = results.len() - n;
+                match &orig.kind {
+                    ExprKind::Sum(terms) => {
+                        let changed = results[start..]
+                            .iter()
+                            .zip(terms.iter())
+                            .any(|(new, old)| new.id != old.id);
+                        if changed {
+                            let v: Vec<Expr> = results.drain(start..).collect();
+                            results.push(Expr::sum(v));
+                        } else {
+                            results.truncate(start);
+                            results.push(orig.clone());
+                        }
+                    }
+                    ExprKind::Product(_factors) => {
+                        let norm_factors: Vec<Expr> = results.drain(start..).collect();
+                        // Combine numeric factors
+                        let mut coeff = 1.0;
+                        let mut non_numeric: Vec<Expr> = Vec::new();
+                        for f in &norm_factors {
+                            if let ExprKind::Number(val) = &f.kind {
+                                coeff *= val;
+                            } else {
+                                non_numeric.push(f.clone());
+                            }
+                        }
+                        if non_numeric.is_empty() {
+                            results.push(Expr::number(coeff));
+                        } else if (coeff - 1.0).abs() < EPSILON {
+                            if non_numeric.len() == 1 {
+                                results.push(non_numeric.remove(0));
+                            } else {
+                                results.push(Expr::product(non_numeric));
+                            }
+                        } else {
+                            let mut result = vec![Expr::number(coeff)];
+                            result.extend(non_numeric);
+                            results.push(Expr::product(result));
+                        }
+                    }
+                    ExprKind::Div(old_a, old_b) => {
+                        let a_changed = results[start].id != old_a.id;
+                        let b_changed = results[start + 1].id != old_b.id;
+                        if a_changed || b_changed {
+                            let mut drained = results.drain(start..);
+                            let a = drained.next().expect("a");
+                            let b = drained.next().expect("b");
+                            drop(drained);
+                            results.push(Expr::div_expr(a, b));
+                        } else {
+                            results.truncate(start);
+                            results.push(orig.clone());
+                        }
+                    }
+                    ExprKind::Pow(old_a, old_b) => {
+                        let a_changed = results[start].id != old_a.id;
+                        let b_changed = results[start + 1].id != old_b.id;
+                        if a_changed || b_changed {
+                            let mut drained = results.drain(start..);
+                            let a = drained.next().expect("a");
+                            let b = drained.next().expect("b");
+                            drop(drained);
+                            results.push(Expr::pow(a, b));
+                        } else {
+                            results.truncate(start);
+                            results.push(orig.clone());
+                        }
+                    }
+                    ExprKind::FunctionCall { name, args } => {
+                        let changed = results[start..]
+                            .iter()
+                            .zip(args.iter())
+                            .any(|(new, old)| new.id != old.id);
+                        if changed {
+                            let v: Vec<Expr> = results.drain(start..).collect();
+                            results.push(Expr::func_multi(name, v));
+                        } else {
+                            results.truncate(start);
+                            results.push(orig.clone());
+                        }
+                    }
+                    _ => {
+                        results.truncate(start);
+                        results.push(orig.clone());
+                    }
                 }
             }
-            // If all numeric, return the product
-            if non_numeric.is_empty() {
-                return Expr::number(coeff);
-            }
-            // Build the normalized product: coeff * non_numeric_factors
-            if (coeff - 1.0).abs() < EPSILON {
-                // Coefficient is 1, just return non-numeric factors
-                if non_numeric.len() == 1 {
-                    return non_numeric.remove(0);
-                }
-                return Expr::product(non_numeric);
-            }
-            // Include the combined coefficient
-            let mut result = vec![Expr::number(coeff)];
-            result.extend(non_numeric);
-            Expr::product(result)
         }
-        ExprKind::Div(a, b) => {
-            let norm_a = normalize_for_comparison(a);
-            let norm_b = normalize_for_comparison(b);
-            if norm_a.id == a.id && norm_b.id == b.id {
-                return expr.clone();
-            }
-            Expr::div_expr(norm_a, norm_b)
-        }
-        ExprKind::Pow(a, b) => {
-            let norm_a = normalize_for_comparison(a);
-            let norm_b = normalize_for_comparison(b);
-            if norm_a.id == a.id && norm_b.id == b.id {
-                return expr.clone();
-            }
-            Expr::pow(norm_a, norm_b)
-        }
-        ExprKind::FunctionCall { name, args } => {
-            let norm_args: Vec<Expr> = args
-                .iter()
-                .map(|a| normalize_for_comparison(a.as_ref()))
-                .collect();
-            // Check if any arg changed
-            let changed = norm_args
-                .iter()
-                .zip(args.iter())
-                .any(|(new, old)| new.id != old.id);
-            if !changed {
-                return expr.clone();
-            }
-            Expr::func_multi(name, norm_args)
-        }
-        // Leaves remain unchanged (already handled at the top)
-        _ => expr.clone(),
     }
+
+    results
+        .pop()
+        .expect("normalize_for_comparison must produce exactly one result")
 }
 
 /// Check if two expressions are semantically equivalent (same after normalization)

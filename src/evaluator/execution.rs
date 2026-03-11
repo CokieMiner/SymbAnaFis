@@ -17,6 +17,7 @@
 use super::CompiledEvaluator;
 use super::instruction::Instruction;
 use super::stack;
+
 /// Size of the inline stack buffer (on CPU stack, not heap).
 ///
 /// 48 elements * 8 bytes = 384 bytes, fits comfortably in L1 cache.
@@ -182,6 +183,10 @@ impl CompiledEvaluator {
                     Instruction::Atan => {
                         let top_ptr = stack_ptr.add(len - 1);
                         *top_ptr = top_ptr.read().atan();
+                    }
+                    Instruction::Acot => {
+                        let top_ptr = stack_ptr.add(len - 1);
+                        *top_ptr = stack::eval_acot(top_ptr.read());
                     }
                     Instruction::Exp => {
                         let top_ptr = stack_ptr.add(len - 1);
@@ -592,7 +597,7 @@ impl CompiledEvaluator {
                         let x = stack_ptr.add(len).read();
                         let n_ptr = stack_ptr.add(len - 1);
                         let n_val = n_ptr.read();
-                        *n_ptr = if n_val.is_nan() {
+                        *n_ptr = if n_val.is_nan() || x.is_nan() {
                             f64::NAN
                         } else {
                             #[allow(
@@ -867,6 +872,11 @@ impl CompiledEvaluator {
                     // SAFETY: Stack operations are validated at compile time.
                     let top = unsafe { stack::scalar_stack_top_mut(stack) };
                     *top = top.atan();
+                }
+                Instruction::Acot => {
+                    // SAFETY: Stack operations are validated at compile time.
+                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
+                    *top = stack::eval_acot(*top);
                 }
 
                 // Hyperbolic
@@ -1179,7 +1189,7 @@ impl CompiledEvaluator {
                     let x = unsafe { stack::scalar_stack_pop(stack) };
                     // SAFETY: Stack operations are validated at compile time.
                     let n = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *n = if (*n).is_nan() {
+                    *n = if (*n).is_nan() || x.is_nan() {
                         f64::NAN
                     } else {
                         #[allow(

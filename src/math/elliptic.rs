@@ -1,4 +1,4 @@
-use crate::core::traits::MathScalar;
+use crate::core::{expr::EPSILON, traits::MathScalar};
 
 /// Complete elliptic integral of the first kind K(k)
 ///
@@ -19,7 +19,7 @@ pub fn eval_elliptic_k<T: MathScalar>(k: T) -> Option<T> {
     let mut b = (one - k * k).sqrt();
 
     let two = T::from(2.0).expect("Failed to convert mathematical constant");
-    let tolerance = T::from(1e-15).expect("Failed to convert mathematical constant");
+    let tolerance = T::from(EPSILON).expect("Failed to convert mathematical constant");
 
     for _ in 0..25 {
         let an = (a + b) / two;
@@ -56,7 +56,7 @@ pub fn eval_elliptic_e<T: MathScalar>(k: T) -> Option<T> {
     let mut sum = one - k2 / T::from(2.0).expect("Failed to convert mathematical constant");
     let mut pow2 = T::from(0.5).expect("Failed to convert mathematical constant");
     let two = T::from(2.0).expect("Failed to convert mathematical constant");
-    let tolerance = T::from(1e-15).expect("Failed to convert mathematical constant");
+    let tolerance = T::from(EPSILON).expect("Failed to convert mathematical constant");
 
     for _ in 0..25 {
         let an = (a + b) / two;

@@ -51,31 +51,32 @@ type SymbolCache = FxHashMap<u64, Arc<str>>;
 
 /// Collects all symbol names from an expression into a cache.
 fn collect_symbol_names(expr: &Expr, cache: &mut SymbolCache) {
-    match &expr.kind {
-        ExprKind::Symbol(s) => {
-            let id = s.id();
-            if let std::collections::hash_map::Entry::Vacant(e) = cache.entry(id)
-                && let Some(name) = s.name_arc()
-            {
-                e.insert(name);
+    let mut stack: Vec<&Expr> = vec![expr];
+    while let Some(node) = stack.pop() {
+        match &node.kind {
+            ExprKind::Symbol(s) => {
+                let id = s.id();
+                if let std::collections::hash_map::Entry::Vacant(e) = cache.entry(id)
+                    && let Some(name) = s.name_arc()
+                {
+                    e.insert(name);
+                }
             }
-        }
-        ExprKind::FunctionCall { args, .. } | ExprKind::Sum(args) | ExprKind::Product(args) => {
-            for arg in args {
-                collect_symbol_names(arg, cache);
+            ExprKind::FunctionCall { args, .. } | ExprKind::Sum(args) | ExprKind::Product(args) => {
+                stack.extend(args.iter().map(AsRef::as_ref));
             }
+            ExprKind::Div(u, v) | ExprKind::Pow(u, v) => {
+                stack.push(u);
+                stack.push(v);
+            }
+            ExprKind::Derivative { inner, .. } => {
+                stack.push(inner);
+            }
+            ExprKind::Poly(poly) => {
+                stack.push(poly.base());
+            }
+            ExprKind::Number(_) => {}
         }
-        ExprKind::Div(u, v) | ExprKind::Pow(u, v) => {
-            collect_symbol_names(u, cache);
-            collect_symbol_names(v, cache);
-        }
-        ExprKind::Derivative { inner, .. } => {
-            collect_symbol_names(inner, cache);
-        }
-        ExprKind::Poly(poly) => {
-            collect_symbol_names(poly.base(), cache);
-        }
-        ExprKind::Number(_) => {}
     }
 }
 
@@ -439,6 +440,11 @@ fn format_product_expr(
                     write!(f, "{sep}")?;
                 }
                 format_negative_part(f, next_neg, mode, ParenContext::SumOrProduct, cache)?;
+                // Print any remaining factors beyond [0] and [1]
+                for fac in &factors[2..] {
+                    write!(f, "{sep}")?;
+                    format_wrapped(f, fac, mode, ParenContext::SumOrProduct, cache)?;
+                }
             }
         }
 

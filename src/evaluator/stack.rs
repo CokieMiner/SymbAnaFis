@@ -332,6 +332,22 @@ pub(super) fn eval_sinc(x: f64) -> f64 {
     if x.abs() < EPSILON { 1.0 } else { x.sin() / x }
 }
 
+/// Evaluate `acot(x)` with range (0, π), matching the interpreter convention.
+///
+/// - `acot(0)  = π/2`
+/// - `acot(x)  = atan(1/x)` for x > 0
+/// - `acot(x)  = atan(1/x) + π` for x < 0
+#[inline]
+pub(super) fn eval_acot(x: f64) -> f64 {
+    if x.abs() < EPSILON {
+        std::f64::consts::FRAC_PI_2
+    } else if x > 0.0 {
+        (1.0 / x).atan()
+    } else {
+        (1.0 / x).atan() + std::f64::consts::PI
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

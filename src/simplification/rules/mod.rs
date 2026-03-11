@@ -400,6 +400,15 @@ pub trait Rule {
         Vec::new()
     }
 
+    /// Cheap structural pre-check called on cache-miss, before `apply()`.
+    /// Return `false` to skip this rule without caching the result.
+    /// Implement this for rules whose `apply()` has an O(1) early-return condition —
+    /// avoids building the call frame and cache insertion for non-matching expressions.
+    /// Default: always run (no pre-check).
+    fn can_apply(&self, _expr: &Arc<Expr>) -> bool {
+        true
+    }
+
     /// Apply this rule to an expression. Returns `Some(new_expr)` if transformation applied.
     /// Takes &`Arc<Expr>` for efficient sub-expression cloning (`Arc::clone` is cheap).
     fn apply(&self, expr: &Arc<Expr>, context: &RuleContext) -> Option<Arc<Expr>>;

@@ -84,60 +84,103 @@ impl Expr {
     // Analysis methods
     // -------------------------------------------------------------------------
 
+    /// Push all children of a node onto the stack (including Poly base).
+    /// Used by iterative analysis traversals.
+    fn push_children<'expr>(node: &'expr Self, stack: &mut Vec<&'expr Self>) {
+        match &node.kind {
+            ExprKind::Number(_) | ExprKind::Symbol(_) => {}
+            ExprKind::FunctionCall { args, .. } | ExprKind::Sum(args) | ExprKind::Product(args) => {
+                stack.extend(args.iter().map(AsRef::as_ref));
+            }
+            ExprKind::Div(l, r) | ExprKind::Pow(l, r) => {
+                stack.push(l);
+                stack.push(r);
+            }
+            ExprKind::Derivative { inner, .. } => {
+                stack.push(inner);
+            }
+            ExprKind::Poly(poly) => {
+                stack.push(poly.base());
+            }
+        }
+    }
+
     /// Count the total number of nodes in the AST
     #[must_use]
     pub fn node_count(&self) -> usize {
-        match &self.kind {
-            ExprKind::Number(_) | ExprKind::Symbol(_) => 1,
-            ExprKind::FunctionCall { args, .. } => {
-                1 + args.iter().map(|a| a.node_count()).sum::<usize>()
+        let mut count: usize = 0;
+        let mut stack: Vec<&Self> = vec![self];
+        while let Some(node) = stack.pop() {
+            count += 1;
+            match &node.kind {
+                ExprKind::Number(_) | ExprKind::Symbol(_) => {}
+                ExprKind::FunctionCall { args, .. }
+                | ExprKind::Sum(args)
+                | ExprKind::Product(args) => {
+                    stack.extend(args.iter().map(AsRef::as_ref));
+                }
+                ExprKind::Div(l, r) | ExprKind::Pow(l, r) => {
+                    stack.push(l);
+                    stack.push(r);
+                }
+                ExprKind::Derivative { inner, .. } => {
+                    stack.push(inner);
+                }
+                // Poly is counted as 1 node + its expanded form
+                ExprKind::Poly(poly) => {
+                    count += poly.terms().len();
+                }
             }
-            ExprKind::Sum(terms) => 1 + terms.iter().map(|t| t.node_count()).sum::<usize>(),
-            ExprKind::Product(factors) => 1 + factors.iter().map(|f| f.node_count()).sum::<usize>(),
-            ExprKind::Div(l, r) | ExprKind::Pow(l, r) => 1 + l.node_count() + r.node_count(),
-            ExprKind::Derivative { inner, .. } => 1 + inner.node_count(),
-            // Poly is counted as 1 node + its expanded form
-            ExprKind::Poly(poly) => 1 + poly.terms().len(),
         }
+        count
     }
 
     /// Get the maximum nesting depth of the AST
     #[must_use]
     pub fn max_depth(&self) -> usize {
-        match &self.kind {
-            ExprKind::Number(_) | ExprKind::Symbol(_) => 1,
-            ExprKind::FunctionCall { args, .. } => {
-                1 + args.iter().map(|a| a.max_depth()).max().unwrap_or(0)
+        let mut result: usize = 0;
+        // Stack stores (node, depth)
+        let mut stack: Vec<(&Self, usize)> = vec![(self, 1)];
+        while let Some((node, depth)) = stack.pop() {
+            result = result.max(depth);
+            match &node.kind {
+                ExprKind::Number(_) | ExprKind::Symbol(_) => {}
+                ExprKind::FunctionCall { args, .. }
+                | ExprKind::Sum(args)
+                | ExprKind::Product(args) => {
+                    for a in args {
+                        stack.push((a, depth + 1));
+                    }
+                }
+                ExprKind::Div(l, r) | ExprKind::Pow(l, r) => {
+                    stack.push((l, depth + 1));
+                    stack.push((r, depth + 1));
+                }
+                ExprKind::Derivative { inner, .. } => {
+                    stack.push((inner, depth + 1));
+                }
+                ExprKind::Poly(_) => {
+                    result = result.max(depth + 1);
+                }
             }
-            ExprKind::Sum(terms) => 1 + terms.iter().map(|t| t.max_depth()).max().unwrap_or(0),
-            ExprKind::Product(factors) => {
-                1 + factors.iter().map(|f| f.max_depth()).max().unwrap_or(0)
-            }
-            ExprKind::Div(l, r) | ExprKind::Pow(l, r) => 1 + l.max_depth().max(r.max_depth()),
-            ExprKind::Derivative { inner, .. } => 1 + inner.max_depth(),
-            ExprKind::Poly(_) => 2, // Poly is shallow: one level for poly, one for terms
         }
+        result
     }
 
     /// Check if the expression contains a specific variable (by symbol ID)
     #[inline]
     #[must_use]
     pub fn contains_var_id(&self, var_id: u64) -> bool {
-        match &self.kind {
-            ExprKind::Number(_) => false,
-            ExprKind::Symbol(s) => s.id() == var_id,
-            ExprKind::FunctionCall { args, .. } => args.iter().any(|a| a.contains_var_id(var_id)),
-            ExprKind::Sum(terms) => terms.iter().any(|t| t.contains_var_id(var_id)),
-            ExprKind::Product(factors) => factors.iter().any(|f| f.contains_var_id(var_id)),
-            ExprKind::Div(l, r) | ExprKind::Pow(l, r) => {
-                l.contains_var_id(var_id) || r.contains_var_id(var_id)
+        let mut stack: Vec<&Self> = vec![self];
+        while let Some(node) = stack.pop() {
+            match &node.kind {
+                ExprKind::Symbol(s) if s.id() == var_id => return true,
+                ExprKind::Derivative { var: v, .. } if v.id() == var_id => return true,
+                _ => {}
             }
-            ExprKind::Derivative { inner, var: v, .. } => {
-                // Compare derivative var symbol ID directly (O(1))
-                v.id() == var_id || inner.contains_var_id(var_id)
-            }
-            ExprKind::Poly(poly) => poly.base().contains_var_id(var_id),
+            Self::push_children(node, &mut stack);
         }
+        false
     }
 
     /// Check if the expression contains a specific variable (by name)
@@ -156,41 +199,33 @@ impl Expr {
     /// This is used as a fallback when the symbol isn't in the global registry
     #[inline]
     fn contains_var_str(&self, var: &str) -> bool {
-        match &self.kind {
-            ExprKind::Number(_) => false,
-            ExprKind::Symbol(s) => s.as_str() == var,
-            ExprKind::FunctionCall { args, .. } => args.iter().any(|a| a.contains_var_str(var)),
-            ExprKind::Sum(terms) => terms.iter().any(|t| t.contains_var_str(var)),
-            ExprKind::Product(factors) => factors.iter().any(|f| f.contains_var_str(var)),
-            ExprKind::Div(l, r) | ExprKind::Pow(l, r) => {
-                l.contains_var_str(var) || r.contains_var_str(var)
+        let mut stack: Vec<&Self> = vec![self];
+        while let Some(node) = stack.pop() {
+            match &node.kind {
+                ExprKind::Symbol(s) if s.as_str() == var => return true,
+                ExprKind::Derivative { var: v, .. } if v.as_str() == var => return true,
+                _ => {}
             }
-            ExprKind::Derivative { inner, var: v, .. } => {
-                v.as_str() == var || inner.contains_var_str(var)
-            }
-            ExprKind::Poly(poly) => poly.base().contains_var_str(var),
+            Self::push_children(node, &mut stack);
         }
+        false
     }
 
     /// Check if the expression contains any free variables
     #[must_use]
     pub fn has_free_variables(&self, excluded: &HashSet<String>) -> bool {
-        match &self.kind {
-            ExprKind::Number(_) => false,
-            ExprKind::Symbol(name) => !excluded.contains(name.as_ref()),
-            ExprKind::Sum(terms) => terms.iter().any(|t| t.has_free_variables(excluded)),
-            ExprKind::Product(factors) => factors.iter().any(|f| f.has_free_variables(excluded)),
-            ExprKind::Div(l, r) | ExprKind::Pow(l, r) => {
-                l.has_free_variables(excluded) || r.has_free_variables(excluded)
+        let mut stack: Vec<&Self> = vec![self];
+        while let Some(node) = stack.pop() {
+            match &node.kind {
+                ExprKind::Symbol(name) if !excluded.contains(name.as_ref()) => return true,
+                ExprKind::Derivative { var, .. } if !excluded.contains(var.as_str()) => {
+                    return true;
+                }
+                _ => {}
             }
-            ExprKind::FunctionCall { args, .. } => {
-                args.iter().any(|arg| arg.has_free_variables(excluded))
-            }
-            ExprKind::Derivative { inner, var, .. } => {
-                !excluded.contains(var.as_str()) || inner.has_free_variables(excluded)
-            }
-            ExprKind::Poly(poly) => poly.base().has_free_variables(excluded),
+            Self::push_children(node, &mut stack);
         }
+        false
     }
 
     /// Collect all variables in the expression
@@ -203,40 +238,20 @@ impl Expr {
 
     /// Collect all variable names used in this expression
     fn collect_variables(&self, vars: &mut HashSet<String>) {
-        match &self.kind {
-            ExprKind::Symbol(s) => {
-                if let Some(name) = s.name() {
-                    vars.insert(name.to_owned());
+        let mut stack: Vec<&Self> = vec![self];
+        while let Some(node) = stack.pop() {
+            match &node.kind {
+                ExprKind::Symbol(s) => {
+                    if let Some(name) = s.name() {
+                        vars.insert(name.to_owned());
+                    }
                 }
-            }
-            ExprKind::FunctionCall { args, .. } => {
-                for arg in args {
-                    arg.collect_variables(vars);
+                ExprKind::Derivative { var, .. } => {
+                    vars.insert(var.as_str().to_owned());
                 }
+                _ => {}
             }
-            ExprKind::Sum(terms) => {
-                for t in terms {
-                    t.collect_variables(vars);
-                }
-            }
-            ExprKind::Product(factors) => {
-                for f in factors {
-                    f.collect_variables(vars);
-                }
-            }
-            ExprKind::Div(l, r) | ExprKind::Pow(l, r) => {
-                l.collect_variables(vars);
-                r.collect_variables(vars);
-            }
-            ExprKind::Derivative { inner, var, .. } => {
-                vars.insert(var.as_str().to_owned());
-                inner.collect_variables(vars);
-            }
-            ExprKind::Number(_) => {}
-            ExprKind::Poly(poly) => {
-                // Collect variables from the base expression
-                poly.base().collect_variables(vars);
-            }
+            Self::push_children(node, &mut stack);
         }
     }
 
@@ -356,17 +371,31 @@ impl Expr {
     where
         F: Fn(T, &Self) -> T + Copy,
     {
-        let acc = f(init, self);
-        match &self.kind {
-            ExprKind::Number(_) | ExprKind::Symbol(_) | ExprKind::Poly(_) => acc, // Poly is opaque for folding
-            ExprKind::FunctionCall { args, .. } => args.iter().fold(acc, |a, arg| arg.fold(a, f)),
-            ExprKind::Sum(terms) => terms.iter().fold(acc, |a, t| t.fold(a, f)),
-            ExprKind::Product(factors) => factors.iter().fold(acc, |a, f_| f_.fold(a, f)),
-            ExprKind::Div(l, r) | ExprKind::Pow(l, r) => {
-                let acc = l.fold(acc, f);
-                r.fold(acc, f)
+        let mut acc = f(init, self);
+        let mut stack: Vec<&Self> = Vec::new();
+        // Push children of `self` in reverse so first child is processed first
+        Self::push_children_rev(self, &mut stack);
+        while let Some(node) = stack.pop() {
+            acc = f(acc, node);
+            Self::push_children_rev(node, &mut stack);
+        }
+        acc
+    }
+
+    /// Push children of a node onto the stack in reverse order (for pre-order iteration)
+    fn push_children_rev<'expr>(node: &'expr Self, stack: &mut Vec<&'expr Self>) {
+        match &node.kind {
+            ExprKind::Number(_) | ExprKind::Symbol(_) | ExprKind::Poly(_) => {}
+            ExprKind::FunctionCall { args, .. } | ExprKind::Sum(args) | ExprKind::Product(args) => {
+                stack.extend(args.iter().rev().map(AsRef::as_ref));
             }
-            ExprKind::Derivative { inner, .. } => inner.fold(acc, f),
+            ExprKind::Div(l, r) | ExprKind::Pow(l, r) => {
+                stack.push(r);
+                stack.push(l);
+            }
+            ExprKind::Derivative { inner, .. } => {
+                stack.push(inner);
+            }
         }
     }
 

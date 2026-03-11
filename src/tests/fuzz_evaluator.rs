@@ -456,3 +456,116 @@ fn fuzz_comprehensive_evaluator_impl() {
         }
     }
 }
+
+/// Test wide::f64x4 edge cases to identify NaN/domain divergence from scalar f64
+#[test]
+fn test_wide_simd_nan_edge_cases() {
+    use wide::f64x4;
+
+    let nan = f64x4::new([f64::NAN, 1.0, -1.0, 0.0]);
+
+    // exp(NaN) — wide may NOT propagate NaN (known issue)
+    let exp_res = nan.exp().to_array();
+    println!("wide exp([NaN,1,-1,0]) = {exp_res:?}");
+    println!(
+        "scalar exp = [{}, {}, {}, {}]",
+        f64::NAN.exp(),
+        1.0_f64.exp(),
+        (-1.0_f64).exp(),
+        0.0_f64.exp()
+    );
+    println!(
+        "  exp(NaN) diverges: wide={}, scalar={}",
+        exp_res[0],
+        f64::NAN.exp()
+    );
+
+    // sin/cos(NaN) must be NaN
+    let sin_res = nan.sin().to_array();
+    let cos_res = nan.cos().to_array();
+    println!("wide sin([NaN,...]) = {sin_res:?}");
+    println!("wide cos([NaN,...]) = {cos_res:?}");
+    assert!(
+        sin_res[0].is_nan(),
+        "sin(NaN) should be NaN, got {}",
+        sin_res[0]
+    );
+    assert!(
+        cos_res[0].is_nan(),
+        "cos(NaN) should be NaN, got {}",
+        cos_res[0]
+    );
+
+    // tan(NaN)
+    let tan_res = nan.tan().to_array();
+    println!("wide tan([NaN,...]) = {tan_res:?}");
+
+    // asin domain
+    let asin_in = f64x4::new([2.0, -2.0, 0.5, f64::NAN]);
+    let asin_res = asin_in.asin().to_array();
+    println!("wide asin([2,-2,0.5,NaN]) = {asin_res:?}");
+    println!(
+        "scalar asin = [{}, {}, {}, {}]",
+        2.0_f64.asin(),
+        (-2.0_f64).asin(),
+        0.5_f64.asin(),
+        f64::NAN.asin()
+    );
+
+    // atan(NaN)
+    let atan_res = nan.atan().to_array();
+    println!("wide atan([NaN,...]) = {atan_res:?}");
+    println!(
+        "scalar atan = [{}, {}, {}, {}]",
+        f64::NAN.atan(),
+        1.0_f64.atan(),
+        (-1.0_f64).atan(),
+        0.0_f64.atan()
+    );
+
+    // acos out-of-domain
+    let acos_in = f64x4::new([2.0, -2.0, 0.5, f64::NAN]);
+    let acos_res = acos_in.acos().to_array();
+    println!("wide acos([2,-2,0.5,NaN]) = {acos_res:?}");
+    println!(
+        "scalar acos = [{}, {}, {}, {}]",
+        2.0_f64.acos(),
+        (-2.0_f64).acos(),
+        0.5_f64.acos(),
+        f64::NAN.acos()
+    );
+    assert!(
+        acos_res[0].is_nan(),
+        "acos(2) should be NaN, got {}",
+        acos_res[0]
+    );
+    assert!(
+        acos_res[3].is_nan(),
+        "acos(NaN) should be NaN, got {}",
+        acos_res[3]
+    );
+
+    // ln domain: ln(0), ln(-1), ln(NaN)
+    let ln_in = f64x4::new([0.0, -1.0, f64::NAN, 1.0]);
+    let ln_res = ln_in.ln().to_array();
+    println!("wide ln([0,-1,NaN,1]) = {ln_res:?}");
+    println!(
+        "scalar ln = [{}, {}, {}, {}]",
+        0.0_f64.ln(),
+        (-1.0_f64).ln(),
+        f64::NAN.ln(),
+        1.0_f64.ln()
+    );
+
+    // exp underflow boundary
+    let big_neg = f64x4::new([-700.0, -800.0, -1000.0, -1e10]);
+    let exp_big = big_neg.exp().to_array();
+    println!("wide exp([-700,-800,-1000,-1e10]) = {exp_big:?}");
+    println!(
+        "scalar exp = [{}, {}, {}, {}]",
+        (-700.0_f64).exp(),
+        (-800.0_f64).exp(),
+        (-1000.0_f64).exp(),
+        (-1e10_f64).exp()
+    );
+}

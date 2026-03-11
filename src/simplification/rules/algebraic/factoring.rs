@@ -327,6 +327,16 @@ impl Rule for PerfectSquareRule {
         &[ExprKind::Sum, ExprKind::Poly]
     }
 
+    /// Only runs on sums with exactly 2 or 3 terms (quadratic patterns) or Poly with 3 terms.
+    /// Most Sums have more terms and would immediately return None — skip them cheaply.
+    fn can_apply(&self, expr: &Arc<Expr>) -> bool {
+        match &expr.kind {
+            AstKind::Sum(terms) => matches!(terms.len(), 2 | 3),
+            AstKind::Poly(p) => p.terms().len() == 3,
+            _ => false,
+        }
+    }
+
     #[allow(clippy::too_many_lines, reason = "Complex polynomial GCD logic")]
     fn apply(&self, expr: &Arc<Expr>, _context: &RuleContext) -> Option<Arc<Expr>> {
         fn apply_inner(expr: &Arc<Expr>) -> Option<Arc<Expr>> {
@@ -1191,6 +1201,14 @@ impl Rule for PolyGcdSimplifyRule {
 
     fn applies_to(&self) -> &'static [ExprKind] {
         &[ExprKind::Div]
+    }
+
+    /// Skip if either side of the division is a plain number — polynomial GCD
+    /// would immediately bail out via `is_constant()` checks anyway.
+    fn can_apply(&self, expr: &Arc<Expr>) -> bool {
+        matches!(&expr.kind, AstKind::Div(n, d)
+            if !matches!(n.kind, AstKind::Number(_))
+            && !matches!(d.kind, AstKind::Number(_)))
     }
 
     fn apply(&self, expr: &Arc<Expr>, _context: &RuleContext) -> Option<Arc<Expr>> {

@@ -532,7 +532,9 @@ impl CompiledEvaluator {
                 }
                 Instruction::Exp => {
                     let top = top_mut!();
-                    *top = top.exp();
+                    let arr = top.to_array();
+                    // Per-lane scalar: wide::f64x4::exp() returns 0 for NaN inputs
+                    *top = f64x4::new([arr[0].exp(), arr[1].exp(), arr[2].exp(), arr[3].exp()]);
                 }
                 Instruction::Expm1 => {
                     let top = top_mut!();
@@ -546,7 +548,9 @@ impl CompiledEvaluator {
                 }
                 Instruction::ExpNeg => {
                     let top = top_mut!();
-                    *top = (-*top).exp();
+                    let arr = top.to_array();
+                    // Per-lane scalar: wide::f64x4::exp() returns 0 for NaN inputs
+                    *top = f64x4::new([(-arr[0]).exp(), (-arr[1]).exp(), (-arr[2]).exp(), (-arr[3]).exp()]);
                 }
                 Instruction::Pow3_2 => {
                     let top = top_mut!();
@@ -555,7 +559,9 @@ impl CompiledEvaluator {
                 }
                 Instruction::Ln => {
                     let top = top_mut!();
-                    *top = top.ln();
+                    let arr = top.to_array();
+                    // Per-lane scalar: wide::f64x4::ln() mishandles edge cases (e.g. ln(0) → NaN instead of -inf)
+                    *top = f64x4::new([arr[0].ln(), arr[1].ln(), arr[2].ln(), arr[3].ln()]);
                 }
                 Instruction::Log1p => {
                     let top = top_mut!();
@@ -642,13 +648,25 @@ impl CompiledEvaluator {
                 }
                 Instruction::ExpSqr => {
                     let top = top_mut!();
-                    let x = *top;
-                    *top = (x * x).exp();
+                    let arr = top.to_array();
+                    // Per-lane scalar: wide::f64x4::exp() returns 0 for NaN inputs
+                    *top = f64x4::new([
+                        (arr[0] * arr[0]).exp(),
+                        (arr[1] * arr[1]).exp(),
+                        (arr[2] * arr[2]).exp(),
+                        (arr[3] * arr[3]).exp(),
+                    ]);
                 }
                 Instruction::ExpSqrNeg => {
                     let top = top_mut!();
-                    let x = *top;
-                    *top = (-(x * x)).exp();
+                    let arr = top.to_array();
+                    // Per-lane scalar: wide::f64x4::exp() returns 0 for NaN inputs
+                    *top = f64x4::new([
+                        (-(arr[0] * arr[0])).exp(),
+                        (-(arr[1] * arr[1])).exp(),
+                        (-(arr[2] * arr[2])).exp(),
+                        (-(arr[3] * arr[3])).exp(),
+                    ]);
                 }
                 Instruction::RecipExpm1 => {
                     let top = top_mut!();
@@ -813,6 +831,16 @@ impl CompiledEvaluator {
                 let top = top!();
                 let arr = top.to_array();
                 *top = f64x4::new([arr[0].atan(), arr[1].atan(), arr[2].atan(), arr[3].atan()]);
+            }
+            Instruction::Acot => {
+                let top = top!();
+                let arr = top.to_array();
+                *top = f64x4::new([
+                    stack::eval_acot(arr[0]),
+                    stack::eval_acot(arr[1]),
+                    stack::eval_acot(arr[2]),
+                    stack::eval_acot(arr[3]),
+                ]);
             }
 
             // Inverse hyperbolic
@@ -1213,7 +1241,7 @@ impl CompiledEvaluator {
                 )]
                 {
                     let f = |ni: f64, xi: f64| -> f64 {
-                        if ni.is_nan() {
+                        if ni.is_nan() || xi.is_nan() {
                             return f64::NAN;
                         }
                         crate::math::eval_hermite(ni.round() as i32, xi).unwrap_or(f64::NAN)
@@ -1595,6 +1623,10 @@ impl CompiledEvaluator {
                 let t = top_mut(stack, *len);
                 *t = t.atan();
             }
+            Instruction::Acot => {
+                let t = top_mut(stack, *len);
+                *t = stack::eval_acot(*t);
+            }
             // Inverse hyperbolic
             Instruction::Asinh => {
                 let t = top_mut(stack, *len);
@@ -1801,7 +1833,7 @@ impl CompiledEvaluator {
             Instruction::Hermite => {
                 let x = pop(stack, len);
                 let n = top_mut(stack, *len);
-                *n = if (*n).is_nan() {
+                *n = if (*n).is_nan() || x.is_nan() {
                     f64::NAN
                 } else {
                     crate::math::eval_hermite((*n).round() as i32, x).unwrap_or(f64::NAN)

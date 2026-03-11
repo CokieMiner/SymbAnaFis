@@ -4,6 +4,21 @@ All notable changes to symb_anafis will be documented in this file.
 
 ## [unreleased]
 
+### Fixed
+
+- **`acot` compiler/interpreter formula mismatch**: Compiler previously emitted `Recip → Atan` for `acot(x)`, always computing `atan(1/x)`. The interpreter uses `atan(1/x) + π` for x < 0 to produce range (0, π). Added a dedicated `Acot` bytecode instruction with the correct branch and consolidated the implementation in `stack::eval_acot` (alongside `eval_sinc`). Fixes scalar mismatch for expressions like `zeta(acot(-2.128...))`.
+- **SIMD `exp`/`ln` swallowing NaN**: `wide::f64x4::exp()` and `wide::f64x4::ln()` use polynomial approximations that do not propagate NaN (e.g. `exp(NaN) → 0`, `ln(0) → NaN` instead of `−∞`). Changed `Exp`, `ExpNeg`, `ExpSqr`, `ExpSqrNeg`, and `Ln` SIMD fast-paths to per-lane scalar calls (`f64::exp` / `f64::ln`) which correctly follow IEEE 754. This fixes SIMD batch mismatches involving NaN-producing sub-expressions.
+- **`hermite(n, NaN)` ignoring NaN argument**: All four `Hermite` instruction paths (inline/heap scalar, SIMD packed, SIMD scalar fallback) only guarded against `n.is_nan()` but not `x.is_nan()`. Added `|| x.is_nan()` check so `hermite(0, NaN) → NaN` instead of `1`.
+- **Product evaluator swallowing NaN (`0 * NaN → 0`)**: The tree-walking interpreter had an early-exit optimization that returned `0.0` immediately upon seeing a zero numeric factor, skipping evaluation of remaining factors. This caused `signum(…) * undefined_expr → 0` instead of NaN when the second factor produced NaN. Removed the early exit to be IEEE 754 compliant: all factors are now always evaluated and multiplied.
+- **CSE collision correctness**: `cse_cache` in the compiler changed from `FxHashMap<u64, (Expr, usize)>` to `FxHashMap<u64, Vec<(Expr, usize)>>`. Hash collisions previously silently overwrote the first entry, making the second expression uncacheable and potentially emitting a wrong `LoadCached` slot. Now all colliding entries are stored and searched by structural equality.
+- **Product display truncation**: Products with more than 2 factors now print all factors; previously only the first two were displayed, silently dropping the rest.
+- **cos(x) factor dropped during simplification**: Fixed a regression where `(-(x) + x*x) * -(cos(x))` lost the `cos(x)` factor after simplification. Added regression test `test_regression_cos_factor_not_dropped`.
+
+### Code Quality
+
+- **`eval_acot` consolidated in `stack.rs`**: Moved `eval_acot` from duplicated definitions in `execution.rs` and `simd.rs` into `stack::eval_acot`, co-located with `eval_sinc`. All call sites updated to `stack::eval_acot`.
+- **`push_children` / `push_children_rev` helpers on `Expr`**: Factored out the repeated child-pushing match block shared by `node_count`, `contains_var_id`, `contains_var_str`, `has_free_variables`, `collect_variables`, and `fold`. Merged `FunctionCall`/`Sum`/`Product` arms into a single arm using the common `args` binding, reducing ~100 lines of duplication in `analysis.rs`.
+
 ### Performance
 
 - **Cached `Arc<Expr>` constants (`arc_number`)**: Added `arc_number(n)` helper and four static `LazyLock<Arc<Expr>>` statics for `0.0`, `1.0`, `-1.0`, and `2.0`. All ~114 `Arc::new(Expr::number(N))` call sites in simplification rules replaced with `arc_number(N)` — hot-path constant construction is now a single atomic refcount bump instead of a heap allocation.
@@ -13,10 +28,12 @@ All notable changes to symb_anafis will be documented in this file.
 - **Hash fast-path in `expr_cmp_type_strict`**: Added a single `_ if a.hash != b.hash => a.hash.cmp(&b.hash)` guard arm after the Symbol arms. All composite-type comparisons (Sum, Product, Pow, Div, FunctionCall, Derivative, Poly) now short-circuit in O(1) when hashes differ (the common case), removing seven redundant per-arm hash checks.
 - **DUMMY_ARC pre-clone in `drain_children`**: For `Div` and `Pow` branches in the iterative `Drop` impl, clone `DUMMY_ARC` once and move it into the second `replace()` call instead of cloning twice — saves one atomic increment/decrement per node dropped.
 - **FxHashMap in `Compiler`**: Replaced `std::collections::HashMap` with `FxHashMap` for `param_index`, `cse_cache`, and `const_map` in the evaluator compiler.
+- **Iterative AST traversals**: Converted recursive traversals to explicit-stack iterative versions, eliminating stack-overflow risk on deeply nested expressions:
+  - `collect_symbol_names` (display), `node_count`, `max_depth`, `contains_var_id`, `contains_var_str`, `has_free_variables`, `collect_variables`, `fold` (analysis).
+  - `prettify_roots`, `normalize_for_comparison`, `is_known_non_negative` (simplification helpers) — use a Visit/Assemble two-stack post-order pattern for owned transforms.
+- **`can_apply()` pre-check on `Rule` trait**: New default method returns `true`; the engine calls it before `apply()` on cache-miss. Avoids building the call frame and cache insertion for non-matching expressions. Implemented for `PerfectSquareRule` (skip sums with ≠2–3 terms) and `PolyGcdSimplifyRule` (skip plain-number numerator/denominator).
+- **Simplifier `max_depth` raised to 200**: Up from 50 to accommodate deeper expressions that previously hit the limit prematurely.
 
-### Fixed
-
-- **CSE collision correctness**: `cse_cache` in the compiler changed from `FxHashMap<u64, (Expr, usize)>` to `FxHashMap<u64, Vec<(Expr, usize)>>`. Hash collisions previously silently overwrote the first entry, making the second expression uncacheable and potentially emitting a wrong `LoadCached` slot. Now all colliding entries are stored and searched by structural equality.
 
 ## [0.8.1] - 2026-02-15
 

@@ -1292,9 +1292,7 @@ impl<'ctx> Compiler<'ctx> {
             self.emit(Instruction::Sin);
             Instruction::Recip
         } else if id == ks.acot {
-            // acot(x) = atan(1/x)
-            self.emit(Instruction::Recip);
-            Instruction::Atan
+            Instruction::Acot
         } else if id == ks.asec {
             // asec(x) = acos(1/x)
             self.emit(Instruction::Recip);

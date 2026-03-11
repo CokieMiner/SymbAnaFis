@@ -199,7 +199,7 @@ impl Simplifier {
             rule_caches: FxHashMap::default(),
             cache_capacity: DEFAULT_CACHE_CAPACITY,
             max_iterations: 1000,
-            max_depth: 50,
+            max_depth: 200,
             context: RuleContext::default(),
             domain_safe: false,
             drop_queue: Vec::new(),
@@ -412,6 +412,12 @@ impl Simplifier {
                         current = Arc::clone(new_expr);
                     }
                     // Cached result (Some or None), skip application
+                    continue;
+                }
+
+                // Cheap structural pre-check: skip apply() without caching the failure.
+                // can_apply() is O(1) and cheaper than a cache insert + future lookup.
+                if !$rule.can_apply(&current) {
                     continue;
                 }
 

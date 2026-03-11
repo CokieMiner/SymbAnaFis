@@ -122,6 +122,9 @@ pub enum Instruction {
     /// Arctangent: `[x] → [atan(x)]`
     Atan,
 
+    /// Arccotangent: `[x] → [acot(x)]`, range: `(0, π)`
+    Acot,
+
     // =========================================================================
     // Hyperbolic Functions (Unary)
     // =========================================================================
@@ -424,6 +427,7 @@ impl Instruction {
             | Self::Asin
             | Self::Acos
             | Self::Atan
+            | Self::Acot
             | Self::Sinh
             | Self::Cosh
             | Self::Tanh
@@ -602,6 +606,7 @@ impl Instruction {
             Self::Asin => "Asin",
             Self::Acos => "Acos",
             Self::Atan => "Atan",
+            Self::Acot => "Acot",
             Self::Sinh => "Sinh",
             Self::Cosh => "Cosh",
             Self::Tanh => "Tanh",
