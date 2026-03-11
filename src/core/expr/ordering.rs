@@ -100,10 +100,16 @@ fn get_coeff(e: &Expr) -> f64 {
 /// Fallback: Strict type comparisons for atomic terms
 /// Order: Number < Symbol < Sum < `FunctionCall` < Pow < Div
 /// Note: Product is not included because products are flattened during construction
+#[allow(
+    clippy::too_many_lines,
+    reason = "Large match covers all ExprKind variants; splitting would hurt readability"
+)]
 pub fn expr_cmp_type_strict(a: &Expr, b: &Expr) -> CmpOrdering {
     use ExprKind::{Derivative, Div, FunctionCall, Number, Pow, Product, Sum, Symbol};
     match (&a.kind, &b.kind) {
         // 0. Symbols and Numbers come first (most common atomic types)
+        // Kept unchanged: Number ordering is numeric, Symbol ordering is alphabetical.
+        // These must not use hash ordering as tests expect stable human-readable names.
         (Number(x), Number(y)) => x.partial_cmp(y).unwrap_or(CmpOrdering::Equal),
         (Number(_), _) => CmpOrdering::Less,
         (_, Number(_)) => CmpOrdering::Greater,
@@ -112,7 +118,14 @@ pub fn expr_cmp_type_strict(a: &Expr, b: &Expr) -> CmpOrdering {
         (Symbol(_), _) => CmpOrdering::Less,
         (_, Symbol(_)) => CmpOrdering::Greater,
 
-        // 1. Composite types (Sum, Product, etc.)
+        // Fast path: different hashes → O(1) consistent total order for all composite types.
+        // Numbers and Symbols (above) keep their algebraic ordering; everything else uses hash.
+        // Hash collisions (extremely rare) fall through to full structural comparison below.
+        _ if a.hash != b.hash => a.hash.cmp(&b.hash),
+
+        // Same hash: full structural comparison (hash collision path)
+
+        // 1. Sum
         (Sum(t1), Sum(t2)) => t1.len().cmp(&t2.len()).then_with(|| {
             for (x, y) in t1.iter().zip(t2.iter()) {
                 match expr_cmp(x, y) {

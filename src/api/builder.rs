@@ -19,7 +19,7 @@
 use crate::core::unified_context::{Context, UserFunction};
 use crate::evaluator::ToParamName;
 use crate::{DiffError, Expr, Symbol, parser, simplification};
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -31,8 +31,7 @@ pub struct Diff {
     /// Whether to skip simplification after differentiation
     skip_simplification: bool,
     /// User-defined functions
-    user_fns: HashMap<String, UserFunction>,
-    /// Maximum recursion depth for differentiation
+    user_fns: FxHashMap<String, UserFunction>,
     max_depth: Option<usize>,
     /// Maximum number of nodes in the expression tree
     max_nodes: Option<usize>,
@@ -276,7 +275,7 @@ pub struct Simplify {
     /// Whether to apply only domain-safe transformations
     domain_safe: bool,
     /// User-defined functions
-    user_fns: HashMap<String, UserFunction>,
+    user_fns: FxHashMap<String, UserFunction>,
     /// Maximum recursion depth for simplification
     max_depth: Option<usize>,
     /// Maximum number of nodes in the expression tree

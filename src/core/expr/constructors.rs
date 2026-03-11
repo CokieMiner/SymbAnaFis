@@ -14,9 +14,11 @@ impl Expr {
     #[must_use]
     pub fn new(kind: ExprKind) -> Self {
         let hash = compute_expr_hash(&kind);
+        let term_hash = crate::simplification::helpers::compute_term_hash(&kind);
         Self {
             id: next_id(),
             hash,
+            term_hash,
             kind,
         }
     }
@@ -296,6 +298,10 @@ impl Expr {
     /// # Panics
     /// Panics only if internal invariants are violated (never in normal use).
     #[must_use]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "Multi-path product construction with fast paths"
+    )]
     pub fn product_from_arcs(factors: Vec<Arc<Self>>) -> Self {
         if factors.is_empty() {
             return Self::number(1.0);
@@ -310,20 +316,53 @@ impl Expr {
             .unwrap_or_else(|arc| (*arc).clone());
         }
 
+        // Fast-path: merge two already-sorted Products in O(N+M) without re-sorting
+        if factors.len() == 2
+            && matches!(factors[0].kind, ExprKind::Product(_))
+            && matches!(factors[1].kind, ExprKind::Product(_))
+            && let (ExprKind::Product(a_factors), ExprKind::Product(b_factors)) =
+                (&factors[0].kind, &factors[1].kind)
+        {
+            let mut merged: Vec<Arc<Self>> = Vec::with_capacity(a_factors.len() + b_factors.len());
+            let mut ai = 0;
+            let mut bi = 0;
+            while ai < a_factors.len() && bi < b_factors.len() {
+                let ord = if Arc::ptr_eq(&a_factors[ai], &b_factors[bi]) {
+                    CmpOrdering::Equal
+                } else {
+                    expr_cmp(&a_factors[ai], &b_factors[bi])
+                };
+                if ord == CmpOrdering::Greater {
+                    merged.push(Arc::clone(&b_factors[bi]));
+                    bi += 1;
+                } else {
+                    merged.push(Arc::clone(&a_factors[ai]));
+                    ai += 1;
+                }
+            }
+            merged.extend_from_slice(&a_factors[ai..]);
+            merged.extend(b_factors[bi..].iter().map(Arc::clone));
+            return finalize_product(merged);
+        }
+
         // Fast-path: if no term is a product or number, skip flattening/folding loop
         if !factors
             .iter()
             .any(|f| matches!(f.kind, ExprKind::Product(_) | ExprKind::Number(_)))
         {
             let mut flat = factors;
-            // Sort for canonical form
-            flat.sort_unstable_by(|a, b| {
-                if Arc::ptr_eq(a, b) {
-                    CmpOrdering::Equal
-                } else {
-                    expr_cmp(a, b)
-                }
-            });
+            // Sort for canonical form (skip if already sorted)
+            if flat.windows(2).any(|w| {
+                !Arc::ptr_eq(&w[0], &w[1]) && expr_cmp(&w[0], &w[1]) == CmpOrdering::Greater
+            }) {
+                flat.sort_unstable_by(|a, b| {
+                    if Arc::ptr_eq(a, b) {
+                        CmpOrdering::Equal
+                    } else {
+                        expr_cmp(a, b)
+                    }
+                });
+            }
             return finalize_product(flat);
         }
 
@@ -371,14 +410,19 @@ impl Expr {
                 .unwrap_or_else(|arc| (*arc).clone());
         }
 
-        // Sort for canonical form
-        flat.sort_unstable_by(|a, b| {
-            if Arc::ptr_eq(a, b) {
-                CmpOrdering::Equal
-            } else {
-                expr_cmp(a, b)
-            }
-        });
+        // Sort for canonical form (skip if already sorted)
+        if flat
+            .windows(2)
+            .any(|w| !Arc::ptr_eq(&w[0], &w[1]) && expr_cmp(&w[0], &w[1]) == CmpOrdering::Greater)
+        {
+            flat.sort_unstable_by(|a, b| {
+                if Arc::ptr_eq(a, b) {
+                    CmpOrdering::Equal
+                } else {
+                    expr_cmp(a, b)
+                }
+            });
+        }
 
         finalize_product(flat)
     }
@@ -723,14 +767,19 @@ fn finalize_sum(mut flat: Vec<Arc<Expr>>) -> Expr {
         return Expr::new(ExprKind::Sum(flat));
     }
 
-    // Sort for canonical ordering
-    flat.sort_unstable_by(|a, b| {
-        if Arc::ptr_eq(a, b) {
-            CmpOrdering::Equal
-        } else {
-            expr_cmp(a, b)
-        }
-    });
+    // Sort for canonical ordering (skip if already sorted)
+    if flat
+        .windows(2)
+        .any(|w| !Arc::ptr_eq(&w[0], &w[1]) && expr_cmp(&w[0], &w[1]) == CmpOrdering::Greater)
+    {
+        flat.sort_unstable_by(|a, b| {
+            if Arc::ptr_eq(a, b) {
+                CmpOrdering::Equal
+            } else {
+                expr_cmp(a, b)
+            }
+        });
+    }
 
     let mut result: Vec<Arc<Expr>> = Vec::with_capacity(flat.len());
     let mut it = flat.into_iter().peekable();

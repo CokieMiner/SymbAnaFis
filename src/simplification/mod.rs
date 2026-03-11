@@ -10,7 +10,9 @@ use crate::core::unified_context::{BodyFn, Context};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-/// Type alias for custom body function map (symbolic expansion)
+/// Type alias for custom body function map (symbolic expansion).
+/// Uses std `HashMap` at the API boundary for caller convenience;
+/// converted to `FxHashMap` internally by the engine.
 pub type CustomBodyMap = HashMap<u64, BodyFn>;
 
 /// Simplify an expression with user-specified options

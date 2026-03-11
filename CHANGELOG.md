@@ -2,6 +2,22 @@
 
 All notable changes to symb_anafis will be documented in this file.
 
+## [unreleased]
+
+### Performance
+
+- **Cached `Arc<Expr>` constants (`arc_number`)**: Added `arc_number(n)` helper and four static `LazyLock<Arc<Expr>>` statics for `0.0`, `1.0`, `-1.0`, and `2.0`. All ~114 `Arc::new(Expr::number(N))` call sites in simplification rules replaced with `arc_number(N)` — hot-path constant construction is now a single atomic refcount bump instead of a heap allocation.
+- **`term_hash` field on `Expr`**: Pre-computed coefficient-insensitive hash cached at construction. Used by like-term grouping in simplification to skip repeated full-tree traversals.
+- **Two-map generational cache eviction** (`HashKeyedCache`): Replaced O(n) `Vec::retain` eviction with O(1) swap of `current`/`previous` maps. Old generation is dropped in bulk when the cache exceeds capacity.
+- **`extract_coeff_arc` fast-path**: Changed signature from `&Expr` to `&Arc<Expr>`. Added early-return for products with no numeric factors (returns `Arc::clone` — refcount bump only, no allocation). Fall-through for non-product terms also returns `Arc::clone` instead of `Arc::new(expr.clone())`.
+- **Hash fast-path in `expr_cmp_type_strict`**: Added a single `_ if a.hash != b.hash => a.hash.cmp(&b.hash)` guard arm after the Symbol arms. All composite-type comparisons (Sum, Product, Pow, Div, FunctionCall, Derivative, Poly) now short-circuit in O(1) when hashes differ (the common case), removing seven redundant per-arm hash checks.
+- **DUMMY_ARC pre-clone in `drain_children`**: For `Div` and `Pow` branches in the iterative `Drop` impl, clone `DUMMY_ARC` once and move it into the second `replace()` call instead of cloning twice — saves one atomic increment/decrement per node dropped.
+- **FxHashMap in `Compiler`**: Replaced `std::collections::HashMap` with `FxHashMap` for `param_index`, `cse_cache`, and `const_map` in the evaluator compiler.
+
+### Fixed
+
+- **CSE collision correctness**: `cse_cache` in the compiler changed from `FxHashMap<u64, (Expr, usize)>` to `FxHashMap<u64, Vec<(Expr, usize)>>`. Hash collisions previously silently overwrote the first entry, making the second expression uncacheable and potentially emitting a wrong `LoadCached` slot. Now all colliding entries are stored and searched by structural equality.
+
 ## [0.8.1] - 2026-02-15
 
 ### Added

@@ -3,6 +3,7 @@ use crate::core::poly::Polynomial;
 use crate::core::traits::EPSILON;
 use crate::simplification::rules::{ExprKind, Rule, RuleCategory, RuleContext};
 use crate::{Expr, ExprKind as AstKind};
+use rustc_hash::FxHashMap;
 use std::sync::Arc;
 
 /// Rule for cancelling common terms in fractions: (a*b)/(a*c) -> b/c
@@ -77,10 +78,10 @@ impl Rule for FractionCancellationRule {
                                 Arc::new(Expr::div_expr(Expr::number(1.0), Expr::number(3.0))),
                             )
                         } else {
-                            (Arc::clone(e), Arc::new(Expr::number(1.0)))
+                            (Arc::clone(e), crate::core::expr::arc_number(1.0))
                         }
                     }
-                    _ => (Arc::clone(e), Arc::new(Expr::number(1.0))),
+                    _ => (Arc::clone(e), crate::core::expr::arc_number(1.0)),
                 }
             }
 
@@ -159,7 +160,7 @@ impl Rule for FractionCancellationRule {
                             Expr::sum_from_arcs(vec![
                                 Arc::clone(&exp_i),
                                 Arc::new(Expr::product_from_arcs(vec![
-                                    Arc::new(Expr::number(-1.0)),
+                                    crate::core::expr::arc_number(-1.0),
                                     Arc::clone(&exp_j),
                                 ])),
                             ])
@@ -254,7 +255,7 @@ impl Rule for FractionCancellationRule {
 
             // Rebuild numerator
             let new_num = if new_num_factors.is_empty() {
-                Arc::new(Expr::number(1.0))
+                crate::core::expr::arc_number(1.0)
             } else if new_num_factors.len() == 1 {
                 new_num_factors
                     .into_iter()
@@ -266,7 +267,7 @@ impl Rule for FractionCancellationRule {
 
             // Rebuild denominator
             let new_den = if new_den_factors.is_empty() {
-                Arc::new(Expr::number(1.0))
+                crate::core::expr::arc_number(1.0)
             } else if new_den_factors.len() == 1 {
                 new_den_factors
                     .into_iter()
@@ -386,7 +387,11 @@ impl Rule for PerfectSquareRule {
                             square_terms.push((1.0, Arc::clone(base)));
                             continue;
                         }
-                        linear_terms.push((1.0, Arc::clone(term), Arc::new(Expr::number(1.0))));
+                        linear_terms.push((
+                            1.0,
+                            Arc::clone(term),
+                            crate::core::expr::arc_number(1.0),
+                        ));
                     }
                     AstKind::Number(n) => {
                         // Check if number is a perfect square (positive)
@@ -404,7 +409,11 @@ impl Rule for PerfectSquareRule {
                         // Actually linear term is 2ab. If we have constant 9, it's b^2.
                         // If we have constant 6, maybe 2*3?
                         // For now fallback to linear term with var=1
-                        linear_terms.push((1.0, Arc::clone(term), Arc::new(Expr::number(1.0))));
+                        linear_terms.push((
+                            1.0,
+                            Arc::clone(term),
+                            crate::core::expr::arc_number(1.0),
+                        ));
                     }
                     AstKind::Product(_) => {
                         let (coeff, factors) = extract_coeff_and_factors(term);
@@ -420,7 +429,7 @@ impl Rule for PerfectSquareRule {
                             linear_terms.push((
                                 coeff,
                                 Arc::clone(&factors[0]),
-                                Arc::new(Expr::number(1.0)),
+                                crate::core::expr::arc_number(1.0),
                             ));
                         } else if factors.len() == 2 {
                             linear_terms.push((
@@ -433,12 +442,16 @@ impl Rule for PerfectSquareRule {
                             linear_terms.push((
                                 coeff,
                                 Arc::clone(term),
-                                Arc::new(Expr::number(1.0)),
+                                crate::core::expr::arc_number(1.0),
                             ));
                         }
                     }
                     _ => {
-                        linear_terms.push((1.0, Arc::clone(term), Arc::new(Expr::number(1.0))));
+                        linear_terms.push((
+                            1.0,
+                            Arc::clone(term),
+                            crate::core::expr::arc_number(1.0),
+                        ));
                     }
                 }
             }
@@ -490,8 +503,10 @@ impl Rule for PerfectSquareRule {
                         let inner = if sign > 0.0 {
                             Expr::sum_from_arcs(vec![term_a, term_b])
                         } else {
-                            let neg_b =
-                                Expr::product_from_arcs(vec![Arc::new(Expr::number(-1.0)), term_b]);
+                            let neg_b = Expr::product_from_arcs(vec![
+                                crate::core::expr::arc_number(-1.0),
+                                term_b,
+                            ]);
                             Expr::sum_from_arcs(vec![term_a, Arc::new(neg_b)])
                         };
 
@@ -582,7 +597,7 @@ rule_arc!(
                 let diff_term = Expr::sum_from_arcs(vec![
                     Arc::clone(&sqrt_a),
                     Arc::new(Expr::product_from_arcs(vec![
-                        Arc::new(Expr::number(-1.0)),
+                        crate::core::expr::arc_number(-1.0),
                         Arc::clone(&sqrt_b),
                     ])),
                 ]);
@@ -601,7 +616,7 @@ rule_arc!(
                 let diff_term = Expr::sum_from_arcs(vec![
                     Arc::clone(&sqrt_a),
                     Arc::new(Expr::product_from_arcs(vec![
-                        Arc::new(Expr::number(-1.0)),
+                        crate::core::expr::arc_number(-1.0),
                         Arc::clone(&sqrt_b),
                     ])),
                 ]);
@@ -642,7 +657,7 @@ rule_arc!(
                             }
                         }
                         let var_part = if non_numeric.is_empty() {
-                            Arc::new(Expr::number(1.0))
+                            crate::core::expr::arc_number(1.0)
                         } else if non_numeric.len() == 1 {
                             non_numeric
                                 .into_iter()
@@ -654,7 +669,7 @@ rule_arc!(
                         coeffs_and_terms.push((coeff, var_part));
                     }
                     AstKind::Number(n) => {
-                        coeffs_and_terms.push((*n, Arc::new(Expr::number(1.0))));
+                        coeffs_and_terms.push((*n, crate::core::expr::arc_number(1.0)));
                     }
                     _ => {
                         coeffs_and_terms.push((1.0, Arc::clone(term)));
@@ -709,7 +724,7 @@ rule_arc!(
                     new_terms.push(term);
                 } else if (new_coeff - (-1.0)).abs() < EPSILON {
                     new_terms.push(Arc::new(Expr::product_from_arcs(vec![
-                        Arc::new(Expr::number(-1.0)),
+                        crate::core::expr::arc_number(-1.0),
                         term,
                     ])));
                 } else {
@@ -896,8 +911,8 @@ rule_arc!(
             }
 
             // Collect all (base, exponent) pairs from power terms
-            let mut base_exponents: std::collections::HashMap<Arc<Expr>, Vec<(f64, Arc<Expr>)>> =
-                std::collections::HashMap::new();
+            let mut base_exponents: FxHashMap<Arc<Expr>, Vec<(f64, Arc<Expr>)>> =
+                FxHashMap::default();
 
             for term in terms {
                 let (_, base_expr_extracted) = crate::simplification::helpers::extract_coeff(term);
@@ -1082,7 +1097,7 @@ rule_arc!(
                     Arc::new(Expr::number(2.0)),
                 ));
                 let neg_ab = Arc::new(Expr::product_from_arcs(vec![
-                    Arc::new(Expr::number(-1.0)),
+                    crate::core::expr::arc_number(-1.0),
                     ab,
                 ]));
                 let trinomial = Expr::sum_from_arcs(vec![a2, neg_ab, b2]);
@@ -1097,7 +1112,7 @@ rule_arc!(
                 && let Some(b) = get_cube_root(&neg_inner)
             {
                 let neg_b = Arc::new(Expr::product_from_arcs(vec![
-                    Arc::new(Expr::number(-1.0)),
+                    crate::core::expr::arc_number(-1.0),
                     Arc::clone(&b),
                 ]));
                 let diff = Expr::sum_from_arcs(vec![Arc::clone(&a), neg_b]);
@@ -1125,7 +1140,7 @@ rule_arc!(
                 && let Some(b) = get_cube_root(&neg_inner)
             {
                 let neg_b = Arc::new(Expr::product_from_arcs(vec![
-                    Arc::new(Expr::number(-1.0)),
+                    crate::core::expr::arc_number(-1.0),
                     Arc::clone(&b),
                 ]));
                 let diff = Expr::sum_from_arcs(vec![Arc::clone(&a), neg_b]);

@@ -34,7 +34,7 @@ use crate::core::symbol::InternedSymbol;
 use crate::core::traits::EPSILON;
 use crate::core::unified_context::Context;
 use crate::{Expr, ExprKind};
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
 
@@ -51,23 +51,23 @@ pub struct Compiler<'ctx> {
     /// Parameter IDs in evaluation order (kept for debugging/inspection)
     param_ids: Vec<u64>,
     /// Parameter index lookup: `symbol_id` → `param_index` (O(1) lookup)
-    param_index: HashMap<u64, usize>,
+    param_index: FxHashMap<u64, usize>,
     /// Current stack depth during compilation
     current_stack: usize,
     /// Maximum stack depth seen during compilation
     max_stack: usize,
     /// Optional context for user function expansion
     function_context: Option<&'ctx Context>,
-    /// CSE: Map from expression hash → (original expr, cache slot index)
-    /// Stores Expr for structural equality verification on lookup to prevent
-    /// hash collisions. `Expr::clone()` is cheap: only Arc refcount bumps.
-    cse_cache: HashMap<u64, (Expr, usize)>,
+    /// CSE: Map from expression hash → list of (original expr, cache slot index)
+    /// Vec bucket handles hash collisions: multiple structurally distinct exprs
+    /// may share a hash. `Expr::clone()` is cheap: only Arc refcount bumps.
+    cse_cache: FxHashMap<u64, Vec<(Expr, usize)>>,
     /// Number of CSE cache slots allocated
     cache_size: usize,
     /// Constant pool for numeric literals
     constants: Vec<f64>,
     /// Map from constant bit pattern → pool index (deduplication)
-    const_map: HashMap<u64, u32>,
+    const_map: FxHashMap<u64, u32>,
 }
 
 impl<'ctx> Compiler<'ctx> {
@@ -82,7 +82,7 @@ impl<'ctx> Compiler<'ctx> {
     /// * `context` - Optional context for user function definitions
     pub fn new(param_ids: &[u64], context: Option<&'ctx Context>) -> Self {
         // Build O(1) lookup map for parameter indices
-        let param_index: HashMap<u64, usize> = param_ids
+        let param_index: FxHashMap<u64, usize> = param_ids
             .iter()
             .enumerate()
             .map(|(idx, &id)| (id, idx))
@@ -95,10 +95,10 @@ impl<'ctx> Compiler<'ctx> {
             current_stack: 0,
             max_stack: 0,
             function_context: context,
-            cse_cache: HashMap::new(),
+            cse_cache: FxHashMap::default(),
             cache_size: 0,
             constants: Vec::new(),
-            const_map: HashMap::new(),
+            const_map: FxHashMap::default(),
         }
     }
 
@@ -384,20 +384,21 @@ impl<'ctx> Compiler<'ctx> {
         let cache_this = Self::is_expensive(expr);
 
         // Only check for expensive expressions to avoid HashMap overhead
-        if cache_this && let Some((cached_expr, slot)) = self.cse_cache.get(&expr.hash) {
-            // Structural equality verification to prevent hash collisions
-            if cached_expr == expr {
-                // Cache hit! Load from cache instead of recompiling
-                // Truncation safe: cache slots bounded by expression complexity
-                #[allow(
-                    clippy::cast_possible_truncation,
-                    reason = "Cache slots bounded by expression complexity"
-                )]
-                self.emit(Instruction::LoadCached(*slot as u32));
-                self.push()?;
-                return Ok(());
+        if cache_this && let Some(bucket) = self.cse_cache.get(&expr.hash) {
+            for (cached_expr, slot) in bucket {
+                if cached_expr == expr {
+                    // Cache hit! Load from cache instead of recompiling
+                    // Truncation safe: cache slots bounded by expression complexity
+                    #[allow(
+                        clippy::cast_possible_truncation,
+                        reason = "Cache slots bounded by expression complexity"
+                    )]
+                    self.emit(Instruction::LoadCached(*slot as u32));
+                    self.push()?;
+                    return Ok(());
+                }
             }
-            // Hash collision with different expression — fall through to recompile
+            // All bucket entries were hash collisions — fall through to recompile
         }
 
         // Try constant folding for compound expressions
@@ -457,7 +458,10 @@ impl<'ctx> Compiler<'ctx> {
                 reason = "Cache slots bounded by expression complexity"
             )]
             self.emit(Instruction::StoreCached(slot as u32));
-            self.cse_cache.insert(expr.hash, (expr.clone(), slot));
+            self.cse_cache
+                .entry(expr.hash)
+                .or_default()
+                .push((expr.clone(), slot));
         }
 
         Ok(())

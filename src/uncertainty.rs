@@ -329,7 +329,12 @@ mod tests {
         let latex = result.to_latex();
 
         // Should contain both \sigma_{x} and \sigma_{y} terms in LaTeX
-        assert!(latex.contains(r"\sigma_{x}") && latex.contains(r"\sigma_{y}"));
+        #[allow(
+            clippy::literal_string_with_formatting_args,
+            reason = "raw strings contain LaTeX subscript braces, not format arguments"
+        )]
+        let result_check = latex.contains(r"\sigma_{x}") && latex.contains(r"\sigma_{y}");
+        assert!(result_check);
     }
 
     #[test]

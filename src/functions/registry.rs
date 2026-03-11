@@ -1,5 +1,5 @@
 use crate::Expr;
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::ops::RangeInclusive;
 use std::sync::{Arc, OnceLock};
 
@@ -37,11 +37,11 @@ use crate::core::symbol::{InternedSymbol, symb_interned};
 
 /// Static registry storing all function definitions
 /// Maps symbol ID -> `FunctionDefinition` for fast O(1) lookup
-static REGISTRY: OnceLock<HashMap<u64, FunctionDefinition>> = OnceLock::new();
+static REGISTRY: OnceLock<FxHashMap<u64, FunctionDefinition>> = OnceLock::new();
 
 /// Initialize the registry with all function definitions
-fn init_registry() -> HashMap<u64, FunctionDefinition> {
-    let mut map = HashMap::with_capacity(70);
+fn init_registry() -> FxHashMap<u64, FunctionDefinition> {
+    let mut map = FxHashMap::default();
 
     // Populate from definitions
     for def in crate::functions::definitions::all_definitions() {

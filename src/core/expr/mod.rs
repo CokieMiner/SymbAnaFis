@@ -81,25 +81,67 @@ pub fn next_id() -> u64 {
     EXPR_ID_COUNTER.fetch_add(1, Ordering::Relaxed)
 }
 
-/// Cached hash for number 1.0 (used in comparisons)
-pub(super) static EXPR_ONE_HASH: std::sync::LazyLock<u64> =
-    std::sync::LazyLock::new(|| compute_expr_hash(&ExprKind::Number(1.0)));
-
 /// Cached Expr for number 1.0 to avoid repeated allocations in comparison hot path
-pub(super) static EXPR_ONE: std::sync::LazyLock<Expr> = std::sync::LazyLock::new(|| Expr {
-    id: 0, // ID doesn't matter for comparison (not used in eq/hash)
-    hash: *EXPR_ONE_HASH,
-    kind: ExprKind::Number(1.0),
+pub(super) static EXPR_ONE: std::sync::LazyLock<Expr> = std::sync::LazyLock::new(|| {
+    let kind = ExprKind::Number(1.0);
+    Expr {
+        id: 0,
+        hash: compute_expr_hash(&kind),
+        term_hash: crate::simplification::helpers::compute_term_hash(&kind),
+        kind,
+    }
 });
 
 /// Cached Arc<Expr> for 0.0, used during Drop to swap out children without allocation
 static DUMMY_ARC: std::sync::LazyLock<Arc<Expr>> = std::sync::LazyLock::new(|| {
+    let kind = ExprKind::Number(0.0);
     Arc::new(Expr {
         id: 0,
-        hash: compute_expr_hash(&ExprKind::Number(0.0)),
-        kind: ExprKind::Number(0.0),
+        hash: compute_expr_hash(&kind),
+        term_hash: crate::simplification::helpers::compute_term_hash(&kind),
+        kind,
     })
 });
+
+// ---------------------------------------------------------------------------
+// Frequently-used cached Arc<Expr> constants — eliminate per-call allocations
+// for numbers 0, 1, -1, 2 which appear in almost every simplification rule.
+// ---------------------------------------------------------------------------
+
+/// Cached `Arc<Expr>` for common numeric constants.
+/// Returns a clone of the cached Arc (just a refcount bump, no allocation).
+#[inline]
+pub fn arc_number(n: f64) -> Arc<Expr> {
+    if n.to_bits() == 1.0_f64.to_bits() {
+        return Arc::clone(&*ARC_ONE);
+    }
+    if n.to_bits() == (-1.0_f64).to_bits() {
+        return Arc::clone(&*ARC_NEG_ONE);
+    }
+    if n.to_bits() == 2.0_f64.to_bits() {
+        return Arc::clone(&*ARC_TWO);
+    }
+    if n == 0.0 {
+        return Arc::clone(&*ARC_ZERO);
+    }
+    Arc::new(Expr::number(n))
+}
+
+fn make_arc_number(n: f64) -> Arc<Expr> {
+    let kind = ExprKind::Number(n);
+    Arc::new(Expr {
+        id: 0,
+        hash: compute_expr_hash(&kind),
+        term_hash: crate::simplification::helpers::compute_term_hash(&kind),
+        kind,
+    })
+}
+
+static ARC_ZERO: std::sync::LazyLock<Arc<Expr>> = std::sync::LazyLock::new(|| make_arc_number(0.0));
+static ARC_ONE: std::sync::LazyLock<Arc<Expr>> = std::sync::LazyLock::new(|| make_arc_number(1.0));
+static ARC_NEG_ONE: std::sync::LazyLock<Arc<Expr>> =
+    std::sync::LazyLock::new(|| make_arc_number(-1.0));
+static ARC_TWO: std::sync::LazyLock<Arc<Expr>> = std::sync::LazyLock::new(|| make_arc_number(2.0));
 
 // =============================================================================
 // EXPR - The main expression type
@@ -124,6 +166,9 @@ pub struct Expr {
     pub(crate) id: u64,
     /// Structural hash for O(1) equality rejection (Phase 7b optimization)
     pub(crate) hash: u64,
+    /// Coefficient-insensitive term hash cached at construction.
+    /// Used for like-term grouping in simplification — avoids repeated full-tree traversals.
+    pub(crate) term_hash: u64,
     /// The kind of expression (structure)
     pub(crate) kind: ExprKind,
 }
@@ -194,7 +239,6 @@ pub enum ExprKind {
     Sum(Vec<Arc<Expr>>),
 
     /// N-ary product: a * b * c * ...
-    /// Stored flat. Sorting/canonicalization is deferred to simplification.
     Product(Vec<Arc<Expr>>),
 
     /// Division (binary - not associative)
@@ -239,14 +283,14 @@ impl Drop for Expr {
                     queue.extend(std::mem::take(factors));
                 }
                 ExprKind::Div(left, right) => {
-                    let dummy = Arc::clone(&DUMMY_ARC);
-                    queue.push(std::mem::replace(left, Arc::clone(&dummy)));
-                    queue.push(std::mem::replace(right, Arc::clone(&dummy)));
+                    let d = Arc::clone(&DUMMY_ARC);
+                    queue.push(std::mem::replace(left, Arc::clone(&d)));
+                    queue.push(std::mem::replace(right, d));
                 }
                 ExprKind::Pow(base, exp) => {
-                    let dummy = Arc::clone(&DUMMY_ARC);
-                    queue.push(std::mem::replace(base, Arc::clone(&dummy)));
-                    queue.push(std::mem::replace(exp, Arc::clone(&dummy)));
+                    let d = Arc::clone(&DUMMY_ARC);
+                    queue.push(std::mem::replace(base, Arc::clone(&d)));
+                    queue.push(std::mem::replace(exp, d));
                 }
                 ExprKind::Derivative { inner, .. } => {
                     let dummy = DUMMY_ARC.clone();

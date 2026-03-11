@@ -3,6 +3,7 @@
 use crate::core::traits::EPSILON;
 use crate::simplification::rules::{ExprKind, Rule, RuleCategory, RuleContext};
 use crate::{Expr, ExprKind as AstKind};
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::sync::Arc;
 
 rule_arc!(
@@ -53,14 +54,11 @@ rule_arc!(
             }
 
             // Group terms by their base to find combinable terms
-            // Use HashMap with Arc<Expr> key to avoid cloning
-            let mut term_groups: std::collections::HashMap<Arc<Expr>, f64> =
-                std::collections::HashMap::new();
+            // Use FxHashMap with Arc<Expr> key to avoid cloning
+            let mut term_groups: FxHashMap<Arc<Expr>, f64> = FxHashMap::default();
 
             for term in terms {
-                // Use new extract_coeff_arc helper
-                let (coeff, base) =
-                    crate::simplification::helpers::extract_coeff_arc(term.as_ref());
+                let (coeff, base) = crate::simplification::helpers::extract_coeff_arc(term);
                 *term_groups.entry(base).or_insert(0.0) += coeff;
             }
 
@@ -132,9 +130,8 @@ rule_arc!(
             let factors_len = factors.len();
 
             // Group factors by base and combine exponents
-            // Use HashMap<Arc<Expr>, ...> to avoid cloning keys
-            let mut factor_groups: std::collections::HashMap<Arc<Expr>, Vec<Arc<Expr>>> =
-                std::collections::HashMap::new();
+            // Use FxHashMap<Arc<Expr>, ...> to avoid cloning keys
+            let mut factor_groups: FxHashMap<Arc<Expr>, Vec<Arc<Expr>>> = FxHashMap::default();
 
             for factor in factors {
                 match &factor.kind {
@@ -148,7 +145,7 @@ rule_arc!(
                         factor_groups
                             .entry(Arc::clone(factor))
                             .or_default()
-                            .push(Arc::new(Expr::number(1.0)));
+                            .push(crate::core::expr::arc_number(1.0));
                     }
                 }
             }
@@ -338,14 +335,11 @@ rule_arc!(
             let terms_vec = terms;
 
             // First pass: collect hashes of non-product-with-sum terms
-            let mut existing_hashes: std::collections::HashSet<u64> =
-                std::collections::HashSet::new();
+            let mut existing_hashes: FxHashSet<u64> = FxHashSet::default();
             for term in terms_vec {
                 if extract_product_with_sum(term).is_none() {
-                    let (_, base) =
-                        crate::simplification::helpers::extract_coeff_arc(term.as_ref());
-                    existing_hashes
-                        .insert(crate::simplification::helpers::get_term_hash(base.as_ref()));
+                    let (_, base) = crate::simplification::helpers::extract_coeff_arc(term);
+                    existing_hashes.insert(base.term_hash);
                 }
             }
 
@@ -364,7 +358,7 @@ rule_arc!(
                         // Check if any distributed term would combine with existing terms
                         let would_combine = distributed.iter().any(|dt| {
                             let (_, base) = crate::simplification::helpers::extract_coeff(dt);
-                            let hash = crate::simplification::helpers::get_term_hash(&base);
+                            let hash = base.term_hash;
                             existing_hashes.contains(&hash)
                         });
 
@@ -393,12 +387,11 @@ rule_arc!(
 
             // Original like-term combination logic
             // Group terms by their structure (ignoring coefficients)
-            // Use HashMap<u64, Vec<Arc<Expr>>> for initial grouping by hash
-            let mut like_terms: std::collections::HashMap<u64, Vec<Arc<Expr>>> =
-                std::collections::HashMap::new();
+            // Use FxHashMap<u64, Vec<Arc<Expr>>> for initial grouping by hash
+            let mut like_terms: FxHashMap<u64, Vec<Arc<Expr>>> = FxHashMap::default();
 
             for term in terms_vec {
-                let key = crate::simplification::helpers::get_term_hash(term.as_ref());
+                let key = term.term_hash;
                 like_terms.entry(key).or_default().push(Arc::clone(term));
             }
 
@@ -410,11 +403,10 @@ rule_arc!(
                 } else {
                     // Sub-group by actual structural base using HashMap (O(n) amortized).
                     // Expr's Hash+PartialEq handles hash collisions via structural equality.
-                    let mut sub_groups: std::collections::HashMap<Arc<Expr>, f64> =
-                        std::collections::HashMap::new();
+                    let mut sub_groups: FxHashMap<Arc<Expr>, f64> = FxHashMap::default();
                     for term in &group_terms {
                         let (coeff, var_part) =
-                            crate::simplification::helpers::extract_coeff_arc(term.as_ref());
+                            crate::simplification::helpers::extract_coeff_arc(term);
                         *sub_groups.entry(var_part).or_insert(0.0) += coeff;
                     }
 

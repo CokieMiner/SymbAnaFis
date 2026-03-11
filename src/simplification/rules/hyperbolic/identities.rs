@@ -255,14 +255,20 @@ rule!(
             let u = &terms[0];
             let v = &terms[1];
 
-            // cosh^2(x) + (-sinh^2(x)) = 1
-            if let Some((name1, arg1)) = get_hyperbolic_power(u, 2.0)
-                && name1.id() == KS.cosh
-                && let Some(negated) = extract_negated(v)
-                && let Some((name2, arg2)) = get_hyperbolic_power(&negated, 2.0)
-                && name2.id() == KS.sinh
-                && arg1 == arg2
-            {
+            // cosh^2(x) + (-sinh^2(x)) = 1  (either term order)
+            let check_cosh2_sinh2 = |a: &Expr, b: &Expr| -> bool {
+                if let Some((n1, arg1)) = get_hyperbolic_power(a, 2.0)
+                    && n1.id() == KS.cosh
+                    && let Some(negated) = extract_negated(b)
+                    && let Some((n2, arg2)) = get_hyperbolic_power(&negated, 2.0)
+                    && n2.id() == KS.sinh
+                    && arg1 == arg2
+                {
+                    return true;
+                }
+                false
+            };
+            if check_cosh2_sinh2(u, v) || check_cosh2_sinh2(v, u) {
                 return Some(Expr::number(1.0));
             }
 
@@ -353,46 +359,71 @@ fn get_hyperbolic_power(
     None
 }
 
-/// Checks if the expression is cosh(x) - sinh(x).
+/// Checks if the expression is cosh(x) - sinh(x), in any term order.
 fn is_cosh_minus_sinh_term(expr: &Expr) -> Option<Expr> {
-    // Sum([cosh(x), Product([-1, sinh(x)])])
+    // Sum([cosh(x), Product([-1, sinh(x)])]) -- order-agnostic
     if let AstKind::Sum(terms) = &expr.kind
         && terms.len() == 2
-        && let AstKind::FunctionCall { name: n1, args: a1 } = &terms[0].kind
-        && n1.id() == KS.cosh
-        && a1.len() == 1
-        && let AstKind::Product(factors) = &terms[1].kind
-        && factors.len() == 2
-        && {
-            // Exact check for constant -1.0
-            #[allow(clippy::float_cmp, reason = "Comparing against exact constant -1.0")]
-            let is_neg_one = matches!(&factors[0].kind, AstKind::Number(n) if *n == -1.0);
-            is_neg_one
-        }
-        && let AstKind::FunctionCall { name: n2, args: a2 } = &factors[1].kind
-        && n2.id() == KS.sinh
-        && a2.len() == 1
-        && a1[0] == a2[0]
     {
-        return Some((*a1[0]).clone());
+        // Extract the argument if a term is `-1 * sinh(arg)`, in either factor order.
+        fn as_neg_sinh(t: &Expr) -> Option<&Expr> {
+            if let AstKind::Product(factors) = &t.kind
+                && factors.len() == 2
+            {
+                for (ci, si) in [(0_usize, 1_usize), (1, 0)] {
+                    #[allow(clippy::float_cmp, reason = "exact -1.0 constant")]
+                    let is_neg = matches!(&factors[ci].kind, AstKind::Number(n) if *n == -1.0);
+                    if is_neg
+                        && let AstKind::FunctionCall { name, args } = &factors[si].kind
+                        && name.id() == KS.sinh
+                        && args.len() == 1
+                    {
+                        return Some(&args[0]);
+                    }
+                }
+            }
+            None
+        }
+
+        for i in 0..2 {
+            let j = 1 - i;
+            if let AstKind::FunctionCall { name: n1, args: a1 } = &terms[i].kind
+                && n1.id() == KS.cosh
+                && a1.len() == 1
+                && let Some(sinh_arg) = as_neg_sinh(&terms[j])
+                && *a1[0] == *sinh_arg
+            {
+                return Some((*a1[0]).clone());
+            }
+        }
     }
     None
 }
 
-/// Checks if the expression is cosh(x) + sinh(x).
+/// Checks if the expression is cosh(x) + sinh(x), in any term order.
 fn is_cosh_plus_sinh_term(expr: &Expr) -> Option<Expr> {
-    // Sum([cosh(x), sinh(x)])
+    // Sum([cosh(x), sinh(x)]) -- order-agnostic
     if let AstKind::Sum(terms) = &expr.kind
         && terms.len() == 2
-        && let AstKind::FunctionCall { name: n1, args: a1 } = &terms[0].kind
-        && n1.id() == KS.cosh
-        && a1.len() == 1
-        && let AstKind::FunctionCall { name: n2, args: a2 } = &terms[1].kind
-        && n2.id() == KS.sinh
-        && a2.len() == 1
-        && a1[0] == a2[0]
     {
-        return Some((*a1[0]).clone());
+        let mut cosh_arg: Option<&Expr> = None;
+        let mut sinh_arg: Option<&Expr> = None;
+        for t in terms {
+            if let AstKind::FunctionCall { name, args } = &t.kind
+                && args.len() == 1
+            {
+                if name.id() == KS.cosh {
+                    cosh_arg = Some(&args[0]);
+                } else if name.id() == KS.sinh {
+                    sinh_arg = Some(&args[0]);
+                }
+            }
+        }
+        if let (Some(ca), Some(sa)) = (cosh_arg, sinh_arg)
+            && *ca == *sa
+        {
+            return Some((*ca).clone());
+        }
     }
     None
 }

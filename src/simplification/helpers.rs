@@ -276,15 +276,25 @@ pub fn extract_coeff(expr: &Expr) -> (f64, Expr) {
     }
 }
 
-/// Helper to extract coefficient and base, returning Arc to avoid deep cloning
-/// Returns (coefficient, Arc<`base_expr`>)
+/// Helper to extract coefficient and base, returning Arc to avoid deep cloning.
+/// Returns (coefficient, Arc<`base_expr`>).
+///
+/// Accepts `&Arc<Expr>` so the common case (non-Product, non-Number) can
+/// return `Arc::clone` (O(1) refcount bump) instead of `Arc::new(expr.clone())`
+/// which deep-clones the entire tree.
 #[inline]
-/// Arc version of `extract_coeff` for performance.
-/// Used in simplification rules that work with Arc<Expr>.
-pub fn extract_coeff_arc(expr: &Expr) -> (f64, Arc<Expr>) {
+pub fn extract_coeff_arc(expr: &Arc<Expr>) -> (f64, Arc<Expr>) {
     match &expr.kind {
-        ExprKind::Number(n) => (*n, Arc::new(Expr::number(1.0))),
+        ExprKind::Number(n) => (*n, crate::core::expr::arc_number(1.0)),
         ExprKind::Product(factors) => {
+            // Fast path: if no numeric factors, coeff is 1.0 and base is the original
+            let has_numeric = factors
+                .iter()
+                .any(|f| matches!(f.kind, ExprKind::Number(_)));
+            if !has_numeric {
+                return (1.0, Arc::clone(expr));
+            }
+
             let mut coeff = 1.0;
             let mut non_num_arcs = Vec::with_capacity(factors.len());
 
@@ -297,7 +307,7 @@ pub fn extract_coeff_arc(expr: &Expr) -> (f64, Arc<Expr>) {
             }
 
             let base = if non_num_arcs.is_empty() {
-                Arc::new(Expr::number(1.0))
+                crate::core::expr::arc_number(1.0)
             } else if non_num_arcs.len() == 1 {
                 Arc::clone(&non_num_arcs[0])
             } else {
@@ -306,7 +316,7 @@ pub fn extract_coeff_arc(expr: &Expr) -> (f64, Arc<Expr>) {
 
             (coeff, base)
         }
-        _ => (1.0, Arc::new(expr.clone())),
+        _ => (1.0, Arc::clone(expr)),
     }
 }
 
@@ -555,144 +565,143 @@ pub const fn gcd(a: i64, b: i64) -> i64 {
     }
 }
 
-/// Get a structural hash for a term to group like terms (allocation-free)
-///
-/// Optimized for Speed:
-/// 1. Uses FNV-1a constants for mixing.
-/// 2. Uses `wrapping_add` for commutative operations (Sum, Product), ensuring
-///    order-independence (a+b = b+a) without sorting or allocations.
-/// 3. Uses `InternedSymbol::id()` (u64) directly, avoiding string hashing.
-///
-/// Compute hash for expression term grouping.
-/// Used for efficient like-term collection in algebraic simplification.
+// FNV-1a constants shared by both term hash entry points.
+const FNV_TERM_OFFSET: u64 = 14_695_981_039_346_656_037;
+const FNV_TERM_PRIME: u64 = 1_099_511_628_211;
+
 #[inline]
-pub fn get_term_hash(expr: &Expr) -> u64 {
-    // FNV-1a constants
-    const FNV_OFFSET: u64 = 14_695_981_039_346_656_037;
-    const FNV_PRIME: u64 = 1_099_511_628_211;
-
-    #[inline]
-    fn hash_u64(mut hash: u64, n: u64) -> u64 {
-        for byte in n.to_le_bytes() {
-            hash ^= u64::from(byte);
-            hash = hash.wrapping_mul(FNV_PRIME);
-        }
-        hash
+fn term_hash_u64(mut hash: u64, n: u64) -> u64 {
+    for byte in n.to_le_bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(FNV_TERM_PRIME);
     }
-
-    #[inline]
-    fn hash_f64(hash: u64, n: f64) -> u64 {
-        hash_u64(hash, n.to_bits())
-    }
-
-    #[inline]
-    const fn hash_one_byte(mut hash: u64, b: u8) -> u64 {
-        hash ^= b as u64;
-        hash.wrapping_mul(FNV_PRIME)
-    }
-
-    fn hash_term_inner(hash: u64, expr: &Expr) -> u64 {
-        match &expr.kind {
-            // Numbers: Hash the actual value to distinguish different numbers
-            ExprKind::Number(n) => hash_f64(hash_one_byte(hash, b'N'), *n),
-
-            // Symbols: Hash their unique InternedSymbol ID (O(1))
-            ExprKind::Symbol(s) => {
-                let h = hash_one_byte(hash, b'S');
-                hash_u64(h, s.id())
-            }
-
-            // Products: Commutative mix of factors (ignore numeric coeffs)
-            ExprKind::Product(factors) => {
-                let h = hash_one_byte(hash, b'P');
-
-                // Commutative accumulation: sum(hash(factor))
-                // This makes order irrelevant: hash(a*b) == hash(b*a)
-                let mut product_accumulator: u64 = 0;
-
-                for f in factors {
-                    if !matches!(f.kind, ExprKind::Number(_)) {
-                        // Hash each factor independently starting from a seed,
-                        // then add to accumulator
-                        product_accumulator =
-                            product_accumulator.wrapping_add(hash_term_inner(FNV_OFFSET, f));
-                    }
-                }
-
-                // Mix the accumulator into the main hash
-                hash_u64(h, product_accumulator)
-            }
-
-            // Powers: Non-commutative base^exp
-            ExprKind::Pow(base, exp) => {
-                let h = hash_one_byte(hash, b'^');
-                let h = hash_term_inner(h, base);
-                match &exp.kind {
-                    ExprKind::Number(n) => hash_f64(h, *n),
-                    _ => hash_term_inner(h, exp),
-                }
-            }
-
-            // Functions: Name ID + ordered args
-            ExprKind::FunctionCall { name, args } => {
-                let h = hash_one_byte(hash, b'F');
-                let h = hash_u64(h, name.id());
-                args.iter()
-                    .fold(h, |acc, a| hash_term_inner(acc, a.as_ref()))
-            }
-
-            // Sums: Commutative mix of terms
-            ExprKind::Sum(terms) => {
-                let h = hash_one_byte(hash, b'+');
-
-                // Commutative accumulation
-                let mut sum_accumulator: u64 = 0;
-                for t in terms {
-                    sum_accumulator = sum_accumulator.wrapping_add(hash_term_inner(FNV_OFFSET, t));
-                }
-
-                hash_u64(h, sum_accumulator)
-            }
-
-            // Division: Non-commutative num/den
-            ExprKind::Div(num, den) => {
-                let h = hash_one_byte(hash, b'/');
-                let h = hash_term_inner(h, num);
-                hash_term_inner(h, den)
-            }
-
-            // Derivative: Non-commutative var, order, inner
-            ExprKind::Derivative { inner, var, order } => {
-                let h = hash_one_byte(hash, b'D');
-
-                // Use var.id() for O(1) hashing (InternedSymbol)
-                let h = hash_u64(h, var.id());
-
-                let h = hash_u64(h, u64::from(*order));
-                hash_term_inner(h, inner)
-            }
-
-            // Poly: Hash based on base and terms
-            ExprKind::Poly(poly) => {
-                let h = hash_one_byte(hash, b'Y'); // 'Y' for polY to distinguish
-                // Hash the base expression
-                let h = hash_term_inner(h, poly.base());
-                // Commutative sum of term hashes (power, coeff)
-                let mut acc: u64 = 0;
-                for &(pow, coeff) in poly.terms() {
-                    let term_h = hash_u64(hash_f64(FNV_OFFSET, coeff), u64::from(pow));
-                    acc = acc.wrapping_add(term_h);
-                }
-                hash_u64(h, acc)
-            }
-        }
-    }
-
-    hash_term_inner(FNV_OFFSET, expr)
+    hash
 }
 
-/// Normalize an expression to canonical form for comparison purposes.
-/// This ensures that semantically equivalent expressions compare as equal.
+#[inline]
+fn term_hash_f64(hash: u64, n: f64) -> u64 {
+    term_hash_u64(hash, n.to_bits())
+}
+
+#[inline]
+const fn term_hash_byte(mut hash: u64, b: u8) -> u64 {
+    hash ^= b as u64;
+    hash.wrapping_mul(FNV_TERM_PRIME)
+}
+
+/// Inner recursive term hash — operates on `&ExprKind`.
+/// Children are full `Arc<Expr>` nodes, so we recurse into their `.kind` safely.
+fn hash_term_inner(hash: u64, kind: &ExprKind) -> u64 {
+    match kind {
+        ExprKind::Number(n) => term_hash_f64(term_hash_byte(hash, b'N'), *n),
+
+        ExprKind::Symbol(s) => term_hash_u64(term_hash_byte(hash, b'S'), s.id()),
+
+        ExprKind::Product(factors) => {
+            let h = term_hash_byte(hash, b'P');
+            let mut acc: u64 = 0;
+            for f in factors {
+                if !matches!(f.kind, ExprKind::Number(_)) {
+                    acc = acc.wrapping_add(hash_term_inner(FNV_TERM_OFFSET, &f.kind));
+                }
+            }
+            term_hash_u64(h, acc)
+        }
+
+        ExprKind::Pow(base, exp) => {
+            let h = term_hash_byte(hash, b'^');
+            let h = hash_term_inner(h, &base.kind);
+            match &exp.kind {
+                ExprKind::Number(n) => term_hash_f64(h, *n),
+                ek => hash_term_inner(h, ek),
+            }
+        }
+
+        ExprKind::FunctionCall { name, args } => {
+            let h = term_hash_byte(hash, b'F');
+            let h = term_hash_u64(h, name.id());
+            args.iter().fold(h, |acc, a| hash_term_inner(acc, &a.kind))
+        }
+
+        ExprKind::Sum(terms) => {
+            let h = term_hash_byte(hash, b'+');
+            let mut acc: u64 = 0;
+            for t in terms {
+                acc = acc.wrapping_add(hash_term_inner(FNV_TERM_OFFSET, &t.kind));
+            }
+            term_hash_u64(h, acc)
+        }
+
+        ExprKind::Div(num, den) => {
+            let h = term_hash_byte(hash, b'/');
+            let h = hash_term_inner(h, &num.kind);
+            hash_term_inner(h, &den.kind)
+        }
+
+        ExprKind::Derivative { inner, var, order } => {
+            let h = term_hash_byte(hash, b'D');
+            let h = term_hash_u64(h, var.id());
+            let h = term_hash_u64(h, u64::from(*order));
+            hash_term_inner(h, &inner.kind)
+        }
+
+        ExprKind::Poly(poly) => {
+            let h = term_hash_byte(hash, b'Y');
+            let h = hash_term_inner(h, &poly.base().kind);
+            let mut acc: u64 = 0;
+            for &(pow, coeff) in poly.terms() {
+                let th = term_hash_u64(term_hash_f64(FNV_TERM_OFFSET, coeff), u64::from(pow));
+                acc = acc.wrapping_add(th);
+            }
+            term_hash_u64(h, acc)
+        }
+    }
+}
+
+/// Compute the coefficient-insensitive term hash from an `ExprKind`.
+/// Called by `Expr::new` and static initializers to populate `expr.term_hash`.
+/// All other code should read `expr.term_hash` directly — it is cached at construction.
+///
+/// For `Sum` and `Product` (the dominant construction cases), children are
+/// already-built `Arc<Expr>` nodes whose `term_hash` is already cached, so we
+/// combine them in O(N direct children) rather than `O(tree_size)`.
+/// All other composite types fall back to full recursive computation.
+#[inline]
+pub fn compute_term_hash(kind: &ExprKind) -> u64 {
+    match kind {
+        // Leaves: fully inline, O(1)
+        ExprKind::Number(n) => term_hash_f64(term_hash_byte(FNV_TERM_OFFSET, b'N'), *n),
+        ExprKind::Symbol(s) => term_hash_u64(term_hash_byte(FNV_TERM_OFFSET, b'S'), s.id()),
+
+        // Sum: combine children's cached term_hashes — O(N), not O(tree_size)
+        // Correctness: hash_term_inner for Sum does wrapping_add(hash_term_inner(FNV_OFFSET, t))
+        // which equals wrapping_add(t.term_hash) since t.term_hash = hash_term_inner(FNV_OFFSET, t.kind)
+        ExprKind::Sum(terms) => {
+            let h = term_hash_byte(FNV_TERM_OFFSET, b'+');
+            let mut acc: u64 = 0;
+            for t in terms {
+                acc = acc.wrapping_add(t.term_hash);
+            }
+            term_hash_u64(h, acc)
+        }
+
+        // Product: same, but skip Number factors (coefficient-insensitive) — O(N)
+        ExprKind::Product(factors) => {
+            let h = term_hash_byte(FNV_TERM_OFFSET, b'P');
+            let mut acc: u64 = 0;
+            for f in factors {
+                if !matches!(f.kind, ExprKind::Number(_)) {
+                    acc = acc.wrapping_add(f.term_hash);
+                }
+            }
+            term_hash_u64(h, acc)
+        }
+
+        // All other composite types: full recursive walk (less common construction path)
+        _ => hash_term_inner(FNV_TERM_OFFSET, kind),
+    }
+}
+
 /// Normalize expression for structural comparison.
 /// Used to determine if two expressions are equivalent modulo ordering.
 pub fn normalize_for_comparison(expr: &Expr) -> Expr {

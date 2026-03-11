@@ -22,7 +22,8 @@
 
 use super::symbol::{InternedSymbol, Symbol, symb_interned};
 use crate::Expr;
-use std::collections::{HashMap, HashSet};
+use rustc_hash::FxHashMap;
+use std::collections::HashSet;
 use std::ops::RangeInclusive;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
@@ -68,7 +69,7 @@ pub struct UserFunction {
     /// Optional symbolic body function (returns Expr given arg expressions)
     pub(crate) body: Option<BodyFn>,
     /// Partial derivatives by argument index (∂f/∂arg\[i\])
-    pub(crate) partials: HashMap<usize, PartialFn>,
+    pub(crate) partials: FxHashMap<usize, PartialFn>,
 }
 
 impl Default for UserFunction {
@@ -76,7 +77,7 @@ impl Default for UserFunction {
         Self {
             arity: 0..=usize::MAX, // Default: any arity
             body: None,
-            partials: HashMap::new(),
+            partials: FxHashMap::default(),
         }
     }
 }
@@ -94,7 +95,7 @@ impl UserFunction {
         Self {
             arity,
             body: None,
-            partials: HashMap::new(),
+            partials: FxHashMap::default(),
         }
     }
 
@@ -240,7 +241,7 @@ static NEXT_CONTEXT_ID: AtomicU64 = AtomicU64::new(1);
 #[derive(Debug, Default)]
 struct ContextInner {
     /// Isolated symbol registry: name -> `InternedSymbol`
-    symbols: HashMap<String, InternedSymbol>,
+    symbols: FxHashMap<String, InternedSymbol>,
 }
 
 /// Unified context for all `symb_anafis` operations.
@@ -269,9 +270,9 @@ pub struct Context {
     /// Thread-safe symbol registry (isolated per context)
     inner: Arc<RwLock<ContextInner>>,
     /// User-defined functions keyed by interned symbol ID
-    user_functions: HashMap<u64, UserFunction>,
+    user_functions: FxHashMap<u64, UserFunction>,
     /// Reverse mapping from name to ID for user functions (for display/serialization)
-    fn_name_to_id: HashMap<String, u64>,
+    fn_name_to_id: FxHashMap<String, u64>,
 }
 
 impl Default for Context {
@@ -286,8 +287,8 @@ impl Context {
         Self {
             id: NEXT_CONTEXT_ID.fetch_add(1, Ordering::Relaxed),
             inner: Arc::new(RwLock::new(ContextInner::default())),
-            user_functions: HashMap::new(),
-            fn_name_to_id: HashMap::new(),
+            user_functions: FxHashMap::default(),
+            fn_name_to_id: FxHashMap::default(),
         }
     }
 
@@ -488,7 +489,7 @@ impl Context {
 
     /// Get the name-to-id mapping for user functions.
     #[must_use]
-    pub const fn fn_name_to_id(&self) -> &HashMap<String, u64> {
+    pub const fn fn_name_to_id(&self) -> &FxHashMap<String, u64> {
         &self.fn_name_to_id
     }
 

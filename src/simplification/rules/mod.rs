@@ -6,7 +6,7 @@
 use crate::Expr;
 use crate::ExprKind as AstKind;
 use crate::core::unified_context::BodyFn;
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::sync::Arc;
 
 /// Macro to define a simplification rule with minimal boilerplate
@@ -454,7 +454,7 @@ pub struct RuleContext {
     /// Whether to apply only domain-safe transformations
     pub domain_safe: bool,
     /// Custom function body definitions
-    pub custom_bodies: Arc<HashMap<u64, BodyFn>>,
+    pub custom_bodies: Arc<FxHashMap<u64, BodyFn>>,
 }
 
 impl std::fmt::Debug for RuleContext {
@@ -478,7 +478,7 @@ impl RuleContext {
     }
 
     /// Sets the custom function bodies for this context.
-    pub fn with_custom_bodies(mut self, custom_bodies: HashMap<u64, BodyFn>) -> Self {
+    pub fn with_custom_bodies(mut self, custom_bodies: FxHashMap<u64, BodyFn>) -> Self {
         self.custom_bodies = Arc::new(custom_bodies);
         self
     }
@@ -507,10 +507,10 @@ pub struct RuleRegistry {
     /// All loaded rules in priority order
     pub(crate) rules: Vec<Arc<dyn Rule + Send + Sync>>,
     /// Rules indexed by expression kind for fast lookup
-    rules_by_kind: HashMap<ExprKind, Vec<Arc<dyn Rule + Send + Sync>>>,
+    rules_by_kind: FxHashMap<ExprKind, Vec<Arc<dyn Rule + Send + Sync>>>,
     /// Rules indexed by function name ID (u64) for O(1) dispatch
     /// Maps function symbol ID -> List of rules that target it SPECIFICALLY
-    rules_by_func: HashMap<u64, Vec<Arc<dyn Rule + Send + Sync>>>,
+    rules_by_func: FxHashMap<u64, Vec<Arc<dyn Rule + Send + Sync>>>,
     /// Generic function rules that must run for ALL functions
     generic_func_rules: Vec<Arc<dyn Rule + Send + Sync>>,
 }
@@ -520,8 +520,8 @@ impl RuleRegistry {
     pub fn new() -> Self {
         Self {
             rules: Vec::new(),
-            rules_by_kind: HashMap::new(),
-            rules_by_func: HashMap::new(),
+            rules_by_kind: FxHashMap::default(),
+            rules_by_func: FxHashMap::default(),
             generic_func_rules: Vec::new(),
         }
     }

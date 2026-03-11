@@ -5,8 +5,8 @@
 
 use super::rules::{ExprKind, RuleContext, RuleRegistry};
 use crate::{Expr, ExprKind as AstKind};
-use rustc_hash::FxHashMap;
-use std::collections::{HashMap, HashSet};
+use rustc_hash::{FxHashMap, FxHashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 
 // =============================================================================
@@ -22,30 +22,39 @@ struct CacheEntry {
     result: Option<Arc<Expr>>,
 }
 
-/// Hash-keyed cache for rule results.
+/// Hash-keyed cache for rule results using a two-map generational strategy.
 ///
 /// Uses the expression's pre-computed structural hash as the primary key,
 /// with a small vector to handle collisions. This avoids Arc cloning on
 /// every cache lookup (the hot path), only cloning when inserting new entries.
 ///
+/// Eviction is O(1): the `current` map is swapped into `previous`, and the old
+/// `previous` is dropped. Lookups check both maps (current first).
+///
 /// Performance characteristics:
 /// - Lookup (cache hit, no collision): O(1) hash lookup, 0 Arc clones
 /// - Lookup (cache hit, with collision): O(k) where k = collision chain length
 /// - Insert: 1 Arc clone for `key_expr`, 0-1 for result
+/// - Eviction: O(1) swap (vs O(n) retain in the old generational approach)
 struct HashKeyedCache {
-    /// Maps expression hash -> collision chain of (expr, result) pairs
-    /// In practice, collision chains are almost always length 1.
-    entries: FxHashMap<u64, Vec<CacheEntry>>,
-    /// Total number of cached entries (across all chains)
-    len: usize,
+    /// Current generation map — new inserts go here.
+    current: FxHashMap<u64, Vec<CacheEntry>>,
+    /// Previous generation map — read-only, dropped on next eviction.
+    previous: FxHashMap<u64, Vec<CacheEntry>>,
+    /// Number of entries in `current`.
+    current_len: usize,
+    /// Number of entries in `previous`.
+    previous_len: usize,
 }
 
 impl HashKeyedCache {
     /// Creates a new empty cache.
     fn new() -> Self {
         Self {
-            entries: FxHashMap::default(),
-            len: 0,
+            current: FxHashMap::default(),
+            previous: FxHashMap::default(),
+            current_len: 0,
+            previous_len: 0,
         }
     }
 
@@ -53,13 +62,21 @@ impl HashKeyedCache {
     /// Returns Some(&result) if found, None if not cached.
     ///
     /// This is the hot path - avoids Arc cloning by using hash lookup first.
+    /// Checks current generation first (most likely hit), then previous.
     #[inline]
     fn get(&self, expr: &Arc<Expr>) -> Option<&Option<Arc<Expr>>> {
         let hash = expr.structural_hash();
-        if let Some(chain) = self.entries.get(&hash) {
-            // Check collision chain - usually length 1
+        // Check current generation first (most likely hit)
+        if let Some(chain) = self.current.get(&hash) {
             for entry in chain {
-                // Compare by pointer first (very fast), then structural equality
+                if Arc::ptr_eq(&entry.key_expr, expr) || *entry.key_expr == **expr {
+                    return Some(&entry.result);
+                }
+            }
+        }
+        // Check previous generation
+        if let Some(chain) = self.previous.get(&hash) {
+            for entry in chain {
                 if Arc::ptr_eq(&entry.key_expr, expr) || *entry.key_expr == **expr {
                     return Some(&entry.result);
                 }
@@ -68,14 +85,14 @@ impl HashKeyedCache {
         None
     }
 
-    /// Insert a cache entry.
+    /// Insert a cache entry into the current generation.
     /// Only clones the Arc when actually inserting (not on lookups).
     #[inline]
     fn insert(&mut self, expr: Arc<Expr>, result: Option<Arc<Expr>>) {
         let hash = expr.structural_hash();
-        let chain = self.entries.entry(hash).or_default();
+        let chain = self.current.entry(hash).or_default();
 
-        // Check if already exists (update in place)
+        // Check if already exists in current (update in place)
         for entry in chain.iter_mut() {
             if Arc::ptr_eq(&entry.key_expr, &expr) || *entry.key_expr == *expr {
                 entry.result = result;
@@ -88,20 +105,24 @@ impl HashKeyedCache {
             key_expr: expr,
             result,
         });
-        self.len += 1;
+        self.current_len += 1;
     }
 
     #[inline]
-    /// Returns the total number of cached entries.
-    /// Returns the total number of cached entries.
+    /// Returns the total number of cached entries across both generations.
     const fn len(&self) -> usize {
-        self.len
+        self.current_len + self.previous_len
     }
 
-    /// Clears all cached entries.
-    fn clear(&mut self) {
-        self.entries.clear();
-        self.len = 0;
+    /// O(1) generational eviction: swap current into previous, drop old previous.
+    ///
+    /// Entries from the immediately preceding generation are retained (in `previous`)
+    /// so that expressions seen in the previous simplification pass can still benefit
+    /// from the cache. Only entries two or more generations old are dropped.
+    fn evict_old_generation(&mut self) {
+        self.previous = std::mem::take(&mut self.current);
+        self.previous_len = self.current_len;
+        self.current_len = 0;
     }
 }
 
@@ -118,8 +139,10 @@ macro_rules! trace_log {
     };
 }
 
-/// Default cache capacity per rule before clearing (10K entries)
-const DEFAULT_CACHE_CAPACITY: usize = 10_000;
+/// Default cache capacity per rule before eviction (100K entries).
+/// Raised from the original 10K to reduce eviction frequency; the generational
+/// eviction strategy means we never pay a full cold-start penalty anyway.
+const DEFAULT_CACHE_CAPACITY: usize = 100_000;
 
 /// Check if tracing is enabled via environment variable (cached)
 fn trace_enabled() -> bool {
@@ -157,6 +180,9 @@ pub struct Simplifier {
     context: RuleContext,
     /// Whether to apply only domain-safe transformations
     domain_safe: bool,
+    /// Deferred drop queue — intermediate expressions are collected here and
+    /// freed in a batch between iterations to improve deallocation locality.
+    drop_queue: Vec<Arc<Expr>>,
 }
 
 impl Default for Simplifier {
@@ -176,6 +202,7 @@ impl Simplifier {
             max_depth: 50,
             context: RuleContext::default(),
             domain_safe: false,
+            drop_queue: Vec::new(),
         }
     }
 
@@ -202,7 +229,8 @@ impl Simplifier {
         mut self,
         custom_bodies: HashMap<u64, crate::core::unified_context::BodyFn>,
     ) -> Self {
-        self.context = self.context.with_custom_bodies(custom_bodies);
+        let fx_map: FxHashMap<u64, _> = custom_bodies.into_iter().collect();
+        self.context = self.context.with_custom_bodies(fx_map);
         self
     }
 
@@ -216,7 +244,7 @@ impl Simplifier {
         // Use full expression storage for cycle detection to handle hash collisions safely.
         // `Expr` hash implementation uses the pre-computed hash, so this is still fast (O(1)),
         // but `HashSet` will verify structural equality on collision.
-        let mut seen_exprs: HashSet<Arc<Expr>> = HashSet::new();
+        let mut seen_exprs: FxHashSet<Arc<Expr>> = FxHashSet::default();
 
         loop {
             if iterations >= self.max_iterations {
@@ -231,7 +259,12 @@ impl Simplifier {
                 break; // No changes
             }
 
+            // Defer deallocation of the previous expression for batch freeing
             trace_log!("[DEBUG] Iteration {iterations}: {original} -> {current}");
+            self.drop_queue.push(original);
+            if self.drop_queue.len() > 10_000 {
+                self.drop_queue.clear();
+            }
 
             // Cycle detection: Check if we've seen this exact expression before.
             //
@@ -250,6 +283,9 @@ impl Simplifier {
 
             iterations += 1;
         }
+
+        // Release deferred drops promptly instead of waiting for Simplifier to drop
+        self.drop_queue.clear();
 
         // Unwrap Arc if we're the only holder, otherwise clone
         Arc::try_unwrap(current).unwrap_or_else(|rc| (*rc).clone())
@@ -379,9 +415,11 @@ impl Simplifier {
                     continue;
                 }
 
-                // Check memory limit - clear if exceeded
+                // Evict old entries if the cache is too large.
+                // Generational eviction retains the most recent entries instead of
+                // wiping everything, preventing cold-start cache thrashing.
                 if cache.len() >= self.cache_capacity {
-                    cache.clear();
+                    cache.evict_old_generation();
                 }
 
                 if let Some(new_expr) = $rule.apply(&current, &self.context) {

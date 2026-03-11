@@ -156,7 +156,7 @@ rule_arc!(
                     {
                         let new_exp = Expr::sum_from_arcs(vec![
                             Arc::clone(exp_1),
-                            Arc::new(Expr::number(1.0)),
+                            crate::core::expr::arc_number(1.0),
                         ]);
                         let combined = Expr::pow_from_arcs(Arc::clone(base_1), Arc::new(new_exp));
                         return build_result(combined);
@@ -166,7 +166,7 @@ rule_arc!(
                         && **base_2 == **f1
                     {
                         let new_exp = Expr::sum_from_arcs(vec![
-                            Arc::new(Expr::number(1.0)),
+                            crate::core::expr::arc_number(1.0),
                             Arc::clone(exp_2),
                         ]);
                         let combined = Expr::pow_from_arcs(Arc::clone(base_2), Arc::new(new_exp));
@@ -192,8 +192,10 @@ rule!(
                 && base_u == base_v
             {
                 // x^a / x^b = x^(a-b) = x^(a + (-1)*b)
-                let neg_exp_v =
-                    Expr::product_from_arcs(vec![Arc::new(Expr::number(-1.0)), Arc::clone(exp_v)]);
+                let neg_exp_v = Expr::product_from_arcs(vec![
+                    crate::core::expr::arc_number(-1.0),
+                    Arc::clone(exp_v),
+                ]);
                 let new_exp = Expr::sum_from_arcs(vec![Arc::clone(exp_u), Arc::new(neg_exp_v)]);
                 return Some(Expr::pow_from_arcs(Arc::clone(base_u), Arc::new(new_exp)));
             }
@@ -201,18 +203,24 @@ rule!(
             if let AstKind::Pow(base_u, exp_u) = &u.kind
                 && base_u == v
             {
-                let new_exp =
-                    Expr::sum_from_arcs(vec![Arc::clone(exp_u), Arc::new(Expr::number(-1.0))]);
+                let new_exp = Expr::sum_from_arcs(vec![
+                    Arc::clone(exp_u),
+                    crate::core::expr::arc_number(-1.0),
+                ]);
                 return Some(Expr::pow_from_arcs(Arc::clone(base_u), Arc::new(new_exp)));
             }
             // Check if denominator is a power and numerator is the same base
             if let AstKind::Pow(base_v, exp_v) = &v.kind
                 && base_v == u
             {
-                let neg_exp =
-                    Expr::product_from_arcs(vec![Arc::new(Expr::number(-1.0)), Arc::clone(exp_v)]);
-                let combined_exp =
-                    Expr::sum_from_arcs(vec![Arc::new(Expr::number(1.0)), Arc::new(neg_exp)]);
+                let neg_exp = Expr::product_from_arcs(vec![
+                    crate::core::expr::arc_number(-1.0),
+                    Arc::clone(exp_v),
+                ]);
+                let combined_exp = Expr::sum_from_arcs(vec![
+                    crate::core::expr::arc_number(1.0),
+                    Arc::new(neg_exp),
+                ]);
                 return Some(Expr::pow_from_arcs(
                     Arc::clone(base_v),
                     Arc::new(combined_exp),
@@ -232,8 +240,8 @@ rule_arc!(
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::Product(factors) = &expr.kind {
             // Group by base
-            use std::collections::HashMap;
-            let mut base_to_exponents: HashMap<Arc<Expr>, Vec<Arc<Expr>>> = HashMap::new();
+            use rustc_hash::FxHashMap;
+            let mut base_to_exponents: FxHashMap<Arc<Expr>, Vec<Arc<Expr>>> = FxHashMap::default();
 
             for factor in factors {
                 if let AstKind::Pow(base, exp) = &factor.kind {
@@ -246,7 +254,7 @@ rule_arc!(
                     base_to_exponents
                         .entry(Arc::clone(factor))
                         .or_default()
-                        .push(Arc::new(Expr::number(1.0)));
+                        .push(crate::core::expr::arc_number(1.0));
                 }
             }
 
