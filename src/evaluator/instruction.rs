@@ -34,7 +34,7 @@
 ///
 /// Most variants are zero-sized or contain small payloads (u32, i8),
 /// keeping the enum at 8 bytes for efficient instruction dispatch.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Instruction {
     // =========================================================================
     // Memory Operations
@@ -371,6 +371,36 @@ pub enum Instruction {
     ///   - `constants[idx+n+1]` = coeff of x^0
     PolyEval(u32),
 
+    /// Add parameter to top of stack: `[a] → [a + params[p]]`
+    ///
+    /// Fused `LoadParam(p), Add` — eliminates one load instruction.
+    AddParam(u32),
+
+    /// Multiply top of stack by parameter: `[a] → [a * params[p]]`
+    ///
+    /// Fused `LoadParam(p), Mul` — eliminates one load instruction.
+    MulParam(u32),
+
+    /// Add cached value to top of stack: `[a] → [a + cache[s]]`
+    ///
+    /// Fused `LoadCached(s), Add` — eliminates one load instruction.
+    AddCached(u32),
+
+    /// Multiply top of stack by cached value: `[a] → [a * cache[s]]`
+    ///
+    /// Fused `LoadCached(s), Mul` — eliminates one load instruction.
+    MulCached(u32),
+
+    /// Subtract parameter from top of stack: `[a] → [a - params[p]]`
+    ///
+    /// Fused `LoadParam(p), Sub` — eliminates one load instruction.
+    SubParam(u32),
+
+    /// Divide top of stack by parameter: `[a] → [a / params[p]]`
+    ///
+    /// Fused `LoadParam(p), Div` — eliminates one load instruction.
+    DivParam(u32),
+
     /// Reciprocal of Expm1: `[x] → [1 / (e^x - 1)]`
     ///
     /// Useful for Planck's law and Bose-Einstein distributions.
@@ -471,7 +501,13 @@ impl Instruction {
             | Self::MulConst(_)
             | Self::AddConst(_)
             | Self::SubConst(_)
-            | Self::ConstSub(_) => 0,
+            | Self::ConstSub(_)
+            | Self::AddParam(_)
+            | Self::MulParam(_)
+            | Self::AddCached(_)
+            | Self::MulCached(_)
+            | Self::SubParam(_)
+            | Self::DivParam(_) => 0,
 
             // Store does not change stack
             Self::StoreCached(_) => 0,
@@ -568,6 +604,12 @@ impl Instruction {
                 | Self::Dup
                 | Self::StoreCached(_)
                 | Self::LoadCached(_)
+                | Self::AddParam(_)
+                | Self::MulParam(_)
+                | Self::AddCached(_)
+                | Self::MulCached(_)
+                | Self::SubParam(_)
+                | Self::DivParam(_)
                 | Self::RecipExpm1
                 | Self::ExpSqr
                 | Self::ExpSqrNeg
@@ -660,6 +702,12 @@ impl Instruction {
             Self::AddConst(_) => "AddConst",
             Self::SubConst(_) => "SubConst",
             Self::ConstSub(_) => "ConstSub",
+            Self::AddParam(_) => "AddParam",
+            Self::MulParam(_) => "MulParam",
+            Self::AddCached(_) => "AddCached",
+            Self::MulCached(_) => "MulCached",
+            Self::SubParam(_) => "SubParam",
+            Self::DivParam(_) => "DivParam",
             Self::NegMulAdd => "NegMulAdd",
             Self::MulSub => "MulSub",
             Self::Recip => "Recip",

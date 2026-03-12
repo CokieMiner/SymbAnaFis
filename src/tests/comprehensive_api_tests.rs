@@ -906,10 +906,10 @@ mod function_accuracy_tests {
             "0th derivative should equal the function"
         );
 
-        // Test that pole at s=1 returns None
+        // Test that pole at s=1 returns infinity
         assert!(
-            eval_zeta_deriv(1, 1.0_f64).is_none(),
-            "Derivative should be None at pole s=1"
+            eval_zeta_deriv(1, 1.0_f64).is_some_and(f64::is_infinite),
+            "Derivative should be infinite at pole s=1"
         );
     }
 

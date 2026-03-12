@@ -1,4 +1,57 @@
+#![allow(
+    clippy::unnecessary_wraps,
+    reason = "API consistency requires Option return type"
+)]
+
 use crate::core::traits::MathScalar;
+
+mod helpers {
+    use super::MathScalar;
+
+    #[inline]
+    pub(super) fn opt_or_nan<T: MathScalar>(value: Option<T>) -> T {
+        value.unwrap_or_else(T::nan)
+    }
+
+    #[inline]
+    pub(super) fn sign_from_delta<T: MathScalar>(delta: T) -> T {
+        if delta.is_nan() {
+            return T::nan();
+        }
+        if delta.is_sign_negative() {
+            -T::one()
+        } else {
+            T::one()
+        }
+    }
+
+    #[inline]
+    pub(super) fn signed_infinity<T: MathScalar>(sign: T) -> T {
+        if sign.is_nan() {
+            return T::nan();
+        }
+        if sign.is_sign_negative() {
+            -T::infinity()
+        } else {
+            T::infinity()
+        }
+    }
+
+    #[inline]
+    pub(super) fn signed_infinity_from_delta<T: MathScalar>(delta: T) -> T {
+        signed_infinity(sign_from_delta(delta))
+    }
+
+    #[inline]
+    pub(super) fn gamma_pole_sign<T: MathScalar>(x: T) -> T {
+        let n = (-x).to_i64().unwrap_or(0);
+        if (n & 1) == 0 { T::one() } else { -T::one() }
+    }
+}
+
+use helpers::{
+    gamma_pole_sign, opt_or_nan, sign_from_delta, signed_infinity, signed_infinity_from_delta,
+};
 
 /// Error function erf(x) = (2/√π) ∫₀ˣ e^(-t²) dt
 ///
@@ -59,15 +112,10 @@ pub fn eval_erf<T: MathScalar>(x: T) -> T {
 /// SIAM J. Numerical Analysis, Ser. B, Vol. 1, pp. 86-96
 /// See also: DLMF §5.10 <https://dlmf.nist.gov/5.10>
 pub fn eval_gamma<T: MathScalar>(x: T) -> Option<T> {
-    // Add special handling for x near negative integers
-    if x < T::zero()
-        && (x.fract().abs() < T::from_f64(1e-10).expect("Failed to convert epsilon 1e-10"))
-    {
-        return None; // Exactly at negative integer pole
-    }
-
     if x <= T::zero() && x.fract() == T::zero() {
-        return None;
+        let delta = x - x.round();
+        let sign = gamma_pole_sign(x) * sign_from_delta(delta);
+        return Some(signed_infinity(sign));
     }
     let g = T::from_f64(7.0).expect("Failed to convert mathematical constant 7.0");
     let c = [
@@ -91,10 +139,10 @@ pub fn eval_gamma<T: MathScalar>(x: T) -> Option<T> {
             // Use reflection + Gamma(1-x)
             // For large negative x, 1-x is large positive, so Lanczos works well.
             // We return directly to avoid stack depth
-            let val = pi / ((pi * x).sin() * eval_gamma(one - x)?);
+            let val = pi / ((pi * x).sin() * opt_or_nan(eval_gamma(one - x)));
             return Some(val);
         }
-        Some(pi / ((pi * x).sin() * eval_gamma(one - x)?))
+        Some(pi / ((pi * x).sin() * opt_or_nan(eval_gamma(one - x))))
     } else {
         let x = x - one;
         let mut ag = T::from_f64(c[0]).expect("Failed to convert gamma series coefficient");
@@ -117,14 +165,16 @@ pub fn eval_gamma<T: MathScalar>(x: T) -> Option<T> {
 /// Reference: DLMF §5.11 <https://dlmf.nist.gov/5.11>
 pub fn eval_digamma<T: MathScalar>(x: T) -> Option<T> {
     if x <= T::zero() && x.fract() == T::zero() {
-        return None;
+        let delta = x - x.round();
+        let sign = -sign_from_delta(delta);
+        return Some(signed_infinity(sign));
     }
     let half = T::from_f64(0.5).expect("Failed to convert constant 0.5");
     let one = T::one();
     let pi = T::PI();
 
     if x < half {
-        return Some(eval_digamma(one - x)? - pi * (pi * x).cos() / (pi * x).sin());
+        return Some(opt_or_nan(eval_digamma(one - x)) - pi * (pi * x).cos() / (pi * x).sin());
     }
     let mut xv = x;
     let mut result = T::zero();
@@ -151,7 +201,7 @@ pub fn eval_digamma<T: MathScalar>(x: T) -> Option<T> {
 /// Reference: DLMF §5.15 <https://dlmf.nist.gov/5.15>
 pub fn eval_trigamma<T: MathScalar>(x: T) -> Option<T> {
     if x <= T::zero() && x.fract() == T::zero() {
-        return None;
+        return Some(T::infinity());
     }
     let mut xv = x;
     let mut r = T::zero();
@@ -180,7 +230,9 @@ pub fn eval_trigamma<T: MathScalar>(x: T) -> Option<T> {
 /// Reference: DLMF §5.15 <https://dlmf.nist.gov/5.15>
 pub fn eval_tetragamma<T: MathScalar>(x: T) -> Option<T> {
     if x <= T::zero() && x.fract() == T::zero() {
-        return None;
+        let delta = x - x.round();
+        let sign = -sign_from_delta(delta);
+        return Some(signed_infinity(sign));
     }
     let mut xv = x;
     let mut r = T::zero();
@@ -211,16 +263,17 @@ pub fn eval_zeta<T: MathScalar>(x: T) -> Option<T> {
     let threshold = T::from(1e-10).expect("Failed to convert mathematical constant");
 
     // Pole at s = 1
-    if (x - one).abs() < threshold {
-        return None;
+    let delta = x - one;
+    if delta.abs() < threshold {
+        return Some(signed_infinity_from_delta(delta));
     }
 
     // Use reflection for s < 0 to ensure fast convergence for negative values
     if x < T::zero() {
         let pi = T::PI();
         let two = T::from(2.0).expect("Failed to convert mathematical constant");
-        let gs = eval_gamma(one - x)?;
-        let z = eval_zeta(one - x)?;
+        let gs = opt_or_nan(eval_gamma(one - x));
+        let z = opt_or_nan(eval_zeta(one - x));
         let term1 = two.powf(x);
         let term2 = pi.powf(x - one);
         let term3 = (pi * x / two).sin();
@@ -301,7 +354,8 @@ fn eval_zeta_borwein<T: MathScalar>(s: T) -> Option<T> {
     // Compute denominator: 1 - 2^(1-s)
     let denom = one - two.powf(one - s);
     if denom.abs() < T::from(1e-15).expect("Failed to convert mathematical constant") {
-        return None; // Too close to s=1
+        let delta = s - one;
+        return Some(signed_infinity_from_delta(delta)); // Too close to s=1
     }
 
     // Compute d_k coefficients
@@ -368,10 +422,11 @@ fn eval_zeta_borwein<T: MathScalar>(s: T) -> Option<T> {
 ///
 /// # Returns
 /// * `Some(value)` if convergent
-/// * `None` if at pole (s=1) or invalid
+/// * `Some(±infinity)` if at pole (s=1)
+/// * `Some(NaN)` if derivative order is invalid
 pub fn eval_zeta_deriv<T: MathScalar>(n: i32, x: T) -> Option<T> {
     if n < 0 {
-        return None;
+        return Some(T::nan());
     }
     if n == 0 {
         return eval_zeta(x);
@@ -381,8 +436,14 @@ pub fn eval_zeta_deriv<T: MathScalar>(n: i32, x: T) -> Option<T> {
     let epsilon = T::from(1e-10).expect("Failed to convert mathematical constant");
 
     // Check for pole at s=1
-    if (x - one).abs() < epsilon {
-        return None;
+    let delta = x - one;
+    if delta.abs() < epsilon {
+        let sign = if n % 2 == 0 {
+            sign_from_delta(delta)
+        } else {
+            -T::one()
+        };
+        return Some(signed_infinity(sign));
     }
 
     // For Re(s) > 1, use direct series with Kahan summation
@@ -459,20 +520,20 @@ fn eval_zeta_deriv_reflection<T: MathScalar>(n: i32, s: T) -> Option<T> {
 
     if n == 1 {
         // First derivative: centered difference
-        let zeta_plus = eval_zeta_reflection_base(s + h)?;
-        let zeta_minus = eval_zeta_reflection_base(s - h)?;
+        let zeta_plus = opt_or_nan(eval_zeta_reflection_base(s + h));
+        let zeta_minus = opt_or_nan(eval_zeta_reflection_base(s - h));
         Some((zeta_plus - zeta_minus) / (two * h))
     } else if n == 2 {
         // Second derivative: centered second difference
-        let zeta_plus = eval_zeta_reflection_base(s + h)?;
-        let zeta_center = eval_zeta_reflection_base(s)?;
-        let zeta_minus = eval_zeta_reflection_base(s - h)?;
+        let zeta_plus = opt_or_nan(eval_zeta_reflection_base(s + h));
+        let zeta_center = opt_or_nan(eval_zeta_reflection_base(s));
+        let zeta_minus = opt_or_nan(eval_zeta_reflection_base(s - h));
         Some((zeta_plus - two * zeta_center + zeta_minus) / (h * h))
     } else {
         // Higher order: use Richardson extrapolation
         // Compute with step h and h/2, then extrapolate to h→0
-        let d_h = centered_finite_diff(n, s, h)?;
-        let d_h2 = centered_finite_diff(n, s, h / two)?;
+        let d_h = opt_or_nan(centered_finite_diff(n, s, h));
+        let d_h2 = opt_or_nan(centered_finite_diff(n, s, h / two));
 
         // Richardson: D_exact ≈ (4^n * D_h - D_{h/2}) / (4^n - 1)
         // For n >= 3, use general extrapolation factor
@@ -496,10 +557,10 @@ fn eval_zeta_reflection_base<T: MathScalar>(s: T) -> Option<T> {
     let a_term = two.powf(s);
     let b_term = pi.powf(s - one);
     let c_term = (pi * s * half).sin();
-    let d_term = eval_gamma(one_minus_s)?;
+    let d_term = opt_or_nan(eval_gamma(one_minus_s));
 
     // ζ(1-s) via exact analytical series (Re(1-s) > 1 when Re(s) < 1)
-    let zeta_term = eval_zeta(one_minus_s)?;
+    let zeta_term = opt_or_nan(eval_zeta(one_minus_s));
 
     Some(a_term * b_term * c_term * d_term * zeta_term)
 }
@@ -512,24 +573,24 @@ fn centered_finite_diff<T: MathScalar>(n: i32, s: T, h: T) -> Option<T> {
     let four = T::from(4.0).expect("Failed to convert mathematical constant");
 
     if n == 1 {
-        let zeta_plus = eval_zeta_reflection_base(s + h)?;
-        let zeta_minus = eval_zeta_reflection_base(s - h)?;
+        let zeta_plus = opt_or_nan(eval_zeta_reflection_base(s + h));
+        let zeta_minus = opt_or_nan(eval_zeta_reflection_base(s - h));
         return Some((zeta_plus - zeta_minus) / (two * h));
     }
 
     if n == 2 {
-        let zeta_plus = eval_zeta_reflection_base(s + h)?;
-        let zeta_center = eval_zeta_reflection_base(s)?;
-        let zeta_minus = eval_zeta_reflection_base(s - h)?;
+        let zeta_plus = opt_or_nan(eval_zeta_reflection_base(s + h));
+        let zeta_center = opt_or_nan(eval_zeta_reflection_base(s));
+        let zeta_minus = opt_or_nan(eval_zeta_reflection_base(s - h));
         return Some((zeta_plus - two * zeta_center + zeta_minus) / (h * h));
     }
 
     if n == 3 {
         // Third derivative: 4-point centered stencil
-        let zeta_plus2 = eval_zeta_reflection_base(s + two * h)?;
-        let zeta_plus1 = eval_zeta_reflection_base(s + h)?;
-        let zeta_minus1 = eval_zeta_reflection_base(s - h)?;
-        let zeta_minus2 = eval_zeta_reflection_base(s - two * h)?;
+        let zeta_plus2 = opt_or_nan(eval_zeta_reflection_base(s + two * h));
+        let zeta_plus1 = opt_or_nan(eval_zeta_reflection_base(s + h));
+        let zeta_minus1 = opt_or_nan(eval_zeta_reflection_base(s - h));
+        let zeta_minus2 = opt_or_nan(eval_zeta_reflection_base(s - two * h));
         // d³f/dx³ ≈ (f(x+2h) - 2f(x+h) + 2f(x-h) - f(x-2h)) / (2h³)
         return Some(
             (-zeta_plus2 + two * zeta_plus1 - two * zeta_minus1 + zeta_minus2) / (two * h * h * h),
@@ -539,11 +600,11 @@ fn centered_finite_diff<T: MathScalar>(n: i32, s: T, h: T) -> Option<T> {
     // For n >= 4, use 5-point stencil
     let two_h = two * h;
 
-    let zeta_plus2 = eval_zeta_reflection_base(s + two_h)?;
-    let zeta_plus1 = eval_zeta_reflection_base(s + h)?;
-    let zeta_center = eval_zeta_reflection_base(s)?;
-    let zeta_minus1 = eval_zeta_reflection_base(s - h)?;
-    let zeta_minus2 = eval_zeta_reflection_base(s - two_h)?;
+    let zeta_plus2 = opt_or_nan(eval_zeta_reflection_base(s + two_h));
+    let zeta_plus1 = opt_or_nan(eval_zeta_reflection_base(s + h));
+    let zeta_center = opt_or_nan(eval_zeta_reflection_base(s));
+    let zeta_minus1 = opt_or_nan(eval_zeta_reflection_base(s - h));
+    let zeta_minus2 = opt_or_nan(eval_zeta_reflection_base(s - two_h));
 
     if n == 4 {
         // d⁴f/dx⁴ ≈ (f(x+2h) - 4f(x+h) + 6f(x) - 4f(x-h) + f(x-2h)) / h⁴
@@ -556,8 +617,8 @@ fn centered_finite_diff<T: MathScalar>(n: i32, s: T, h: T) -> Option<T> {
 
     // For n >= 5: recursive centered difference
     // d^n f / dx^n ≈ [d^(n-1)f(x+h) - d^(n-1)f(x-h)] / (2h)
-    let deriv_plus = centered_finite_diff(n - 1, s + h, h)?;
-    let deriv_minus = centered_finite_diff(n - 1, s - h, h)?;
+    let deriv_plus = opt_or_nan(centered_finite_diff(n - 1, s + h, h));
+    let deriv_minus = opt_or_nan(centered_finite_diff(n - 1, s - h, h));
     Some((deriv_plus - deriv_minus) / (two * h))
 }
 
@@ -577,7 +638,7 @@ pub fn eval_lambert_w<T: MathScalar>(x: T) -> Option<T> {
     let e_inv = one / e;
 
     if x < -e_inv {
-        return None; // Domain error: W(x) undefined for x < -1/e
+        return Some(T::nan()); // Domain error: W(x) undefined for x < -1/e
     }
     if x == T::zero() {
         return Some(T::zero());
@@ -659,7 +720,7 @@ pub fn eval_lambert_w<T: MathScalar>(x: T) -> Option<T> {
 /// Reference: DLMF §5.15 <https://dlmf.nist.gov/5.15>
 pub fn eval_polygamma<T: MathScalar>(n: i32, x: T) -> Option<T> {
     if n < 0 {
-        return None;
+        return Some(T::nan());
     }
     match n {
         0 => eval_digamma(x),
@@ -667,7 +728,13 @@ pub fn eval_polygamma<T: MathScalar>(n: i32, x: T) -> Option<T> {
         // For n >= 2, use general formula (tetragamma had accuracy issues)
         _ => {
             if x <= T::zero() && x.fract() == T::zero() {
-                return None;
+                let delta = x - x.round();
+                let sign = if n % 2 == 0 {
+                    -sign_from_delta(delta)
+                } else {
+                    T::one()
+                };
+                return Some(signed_infinity(sign));
             }
             let mut xv = x;
             let mut r = T::zero();

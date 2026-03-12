@@ -316,8 +316,8 @@ impl Expr {
             // - 1^x: case 2, ln(1)=0 creates 0 term, simplifier handles ✓
             // - x^0: n_minus_1 becomes -1, but final term is 0*u^(-1)*u'=0 via simplifier ✓
             ExprKind::Pow(u, v) => {
-                let u_contains_var = u.contains_var(var);
-                let v_contains_var = v.contains_var(var);
+                let u_contains_var = u.contains_var_id(var_id);
+                let v_contains_var = v.contains_var_id(var_id);
 
                 if !u_contains_var && !v_contains_var {
                     // Both constant
@@ -418,7 +418,7 @@ impl Expr {
             } => {
                 if deriv_var.id() == var_id {
                     Self::derivative_interned(inner.as_ref().clone(), deriv_var.clone(), order + 1)
-                } else if !inner.contains_var(var) {
+                } else if !inner.contains_var_id(var_id) {
                     Self::number(0.0)
                 } else {
                     Self::derivative(

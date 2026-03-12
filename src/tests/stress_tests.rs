@@ -200,15 +200,13 @@ fn test_eval_precision_sensitive() {
 
 #[test]
 fn test_eval_special_function_poles() {
-    // gamma(0) should return None/NaN (pole)
+    // gamma(0) should return infinity (pole)
     let expr = parse("gamma(x)", &HashSet::new(), &HashSet::new(), None).unwrap();
     let mut vars = HashMap::new();
     vars.insert("x", 0.0);
     let result = expr.evaluate(&vars, &HashMap::new());
-    // Should either stay symbolic or produce NaN
-    // Symbolic result is also acceptable
     if let ExprKind::Number(n) = &result.kind {
-        assert!(n.is_nan(), "gamma(0) should be NaN");
+        assert!(n.is_infinite(), "gamma(0) should be infinite");
     }
 }
 

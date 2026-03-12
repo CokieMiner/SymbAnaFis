@@ -367,11 +367,7 @@ fn test_compile_neg_add_is_lowered_to_sub() {
 
     assert_eq!(
         instructions,
-        vec![
-            Instruction::LoadParam(1),
-            Instruction::LoadParam(0),
-            Instruction::Sub,
-        ]
+        vec![Instruction::LoadParam(1), Instruction::SubParam(0),]
     );
 }
 
@@ -401,7 +397,7 @@ fn test_normal_pdf_raw_derivative_prefers_sub_for_x_minus_mu() {
     assert!(
         eval.instructions
             .iter()
-            .any(|i| matches!(i, Instruction::Sub))
+            .any(|i| matches!(i, Instruction::Sub | Instruction::SubParam(_)))
     );
 }
 

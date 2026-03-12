@@ -1106,6 +1106,19 @@ impl<'ctx> Compiler<'ctx> {
                 self.compile_expr(base)?;
                 self.emit(Instruction::Sqrt);
                 return Ok(());
+            } else if (n_val - 0.25).abs() < EPSILON {
+                // x^0.25 → Sqrt; Sqrt
+                self.compile_expr(base)?;
+                self.emit(Instruction::Sqrt);
+                self.emit(Instruction::Sqrt);
+                return Ok(());
+            } else if (n_val - 0.125).abs() < EPSILON {
+                // x^0.125 → Sqrt; Sqrt; Sqrt
+                self.compile_expr(base)?;
+                self.emit(Instruction::Sqrt);
+                self.emit(Instruction::Sqrt);
+                self.emit(Instruction::Sqrt);
+                return Ok(());
             } else if (n_val + 0.5).abs() < EPSILON {
                 // x^-0.5 → InvSqrt
                 self.compile_expr(base)?;
@@ -1625,10 +1638,11 @@ impl<'ctx> Compiler<'ctx> {
         Ok(())
     }
 
-    /// Compile a polynomial with a complex base expression.
+    /// Compile a polynomial with a complex base expression using Horner's method.
     ///
-    /// This path compiles the base once, caches its instructions,
-    /// and replays them for each term to avoid recompilation overhead.
+    /// Compiles the base once, caches it in a CSE slot, and uses
+    /// Horner's method to evaluate: `((c_n * x + c_{n-1}) * x + ...) * x + c_0`.
+    /// For sparse polynomials (gaps in powers), multiplies by x for each gap step.
     fn compile_polynomial_slow_path(
         &mut self,
         poly: &Polynomial,
@@ -1636,66 +1650,49 @@ impl<'ctx> Compiler<'ctx> {
     ) -> Result<(), DiffError> {
         let base = poly.base();
 
-        // 1. Compile base once to learn instructions and stack usage
-        let base_start_stack = self.current_stack;
-        let base_start_instruction = self.instructions.len();
-
+        // 1. Compile and cache the base expression in a CSE slot
         self.compile_expr(base)?;
 
-        let base_end_instruction = self.instructions.len();
-        let base_headroom = self.max_stack.saturating_sub(base_start_stack);
+        let cache_slot = self.cache_size;
+        self.cache_size += 1;
 
-        let base_instrs: Vec<Instruction> =
-            self.instructions[base_start_instruction..base_end_instruction].to_vec();
-
-        // 2. Reset state to before base compilation
-        self.instructions.truncate(base_start_instruction);
-        self.current_stack = base_start_stack;
-
-        // 3. Emit polynomial expansion using the cached instructions
-        let (first_pow, first_coeff) = sorted_terms[0];
-        let first_coeff_idx = self.add_const(first_coeff);
-        self.emit(Instruction::LoadConst(first_coeff_idx));
-        self.push()?;
-
-        // Replaying base: ensure we have enough stack space
-        self.max_stack = self.max_stack.max(self.current_stack + base_headroom);
-
-        for instr in &base_instrs {
-            self.emit(*instr);
-        }
-        self.push()?;
-
-        let first_pow_idx = self.add_const(f64::from(first_pow));
-        self.emit(Instruction::LoadConst(first_pow_idx));
-        self.push()?;
-        self.emit(Instruction::Pow);
-        self.pop();
-        self.emit(Instruction::Mul);
+        // Truncation safe: cache_size bounded by expression complexity
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "Cache size bounded by realistic expression complexity"
+        )]
+        let slot = cache_slot as u32;
+        self.emit(Instruction::StoreCached(slot));
+        // StoreCached does not pop — top of stack still has base value.
+        // Pop it since Horner will load from cache as needed.
+        self.emit(Instruction::Pop);
         self.pop();
 
-        // Remaining terms
-        for &(pow, coeff) in &sorted_terms[1..] {
-            let term_coeff_idx = self.add_const(coeff);
-            self.emit(Instruction::LoadConst(term_coeff_idx));
-            self.push()?;
+        // sorted_terms is descending by power: [(highest_pow, coeff), ..., (lowest_pow, coeff)]
+        let max_pow = sorted_terms[0].0;
 
-            // Replay base again
-            self.max_stack = self.max_stack.max(self.current_stack + base_headroom);
-            for instr in &base_instrs {
-                self.emit(*instr);
-            }
-            self.push()?;
+        // 2. Start Horner: load the leading coefficient
+        let initial_coeff_idx = self.add_const(sorted_terms[0].1);
+        self.emit(Instruction::LoadConst(initial_coeff_idx));
+        self.push()?;
 
-            let term_pow_idx = self.add_const(f64::from(pow));
-            self.emit(Instruction::LoadConst(term_pow_idx));
+        let mut term_iter = sorted_terms.iter().skip(1).peekable();
+
+        // 3. Iterate from max_pow-1 down to 0 using Horner's method
+        for pow in (0..max_pow).rev() {
+            // Multiply accumulator by cached base: acc = acc * base
+            self.emit(Instruction::LoadCached(slot));
             self.push()?;
-            self.emit(Instruction::Pow);
-            self.pop();
             self.emit(Instruction::Mul);
             self.pop();
-            self.emit(Instruction::Add);
-            self.pop();
+
+            if let Some((_, coeff)) = term_iter.peek().filter(|t| t.0 == pow) {
+                // We have a coefficient for this power: acc = acc + coeff
+                let coeff_idx = self.add_const(*coeff);
+                self.emit(Instruction::AddConst(coeff_idx));
+                term_iter.next();
+            }
+            // No coefficient for this power: just the multiply (implicit +0)
         }
 
         Ok(())

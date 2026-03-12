@@ -92,6 +92,40 @@ pub(super) static EXPR_ONE: std::sync::LazyLock<Expr> = std::sync::LazyLock::new
     }
 });
 
+/// Cached Expr for number 0.0 to avoid repeated allocations in differentiation hot path
+/// (every constant/non-matching symbol returns 0.0 during differentiation)
+pub(super) static CACHED_ZERO: std::sync::LazyLock<Expr> = std::sync::LazyLock::new(|| {
+    let kind = ExprKind::Number(0.0);
+    Expr {
+        id: 0,
+        hash: compute_expr_hash(&kind),
+        term_hash: crate::simplification::helpers::compute_term_hash(&kind),
+        kind,
+    }
+});
+
+/// Cached Expr for number -1.0 (used in every subtraction: `a - b = a + (-1)*b`)
+pub(super) static CACHED_NEG_ONE: std::sync::LazyLock<Expr> = std::sync::LazyLock::new(|| {
+    let kind = ExprKind::Number(-1.0);
+    Expr {
+        id: 0,
+        hash: compute_expr_hash(&kind),
+        term_hash: crate::simplification::helpers::compute_term_hash(&kind),
+        kind,
+    }
+});
+
+/// Cached Expr for number 2.0 (used in power rule: `n*u^(n-1)` and quotient rule: `v^2`)
+pub(super) static CACHED_TWO: std::sync::LazyLock<Expr> = std::sync::LazyLock::new(|| {
+    let kind = ExprKind::Number(2.0);
+    Expr {
+        id: 0,
+        hash: compute_expr_hash(&kind),
+        term_hash: crate::simplification::helpers::compute_term_hash(&kind),
+        kind,
+    }
+});
+
 /// Cached Arc<Expr> for 0.0, used during Drop to swap out children without allocation
 static DUMMY_ARC: std::sync::LazyLock<Arc<Expr>> = std::sync::LazyLock::new(|| {
     let kind = ExprKind::Number(0.0);

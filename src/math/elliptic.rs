@@ -1,4 +1,5 @@
 use crate::core::{expr::EPSILON, traits::MathScalar};
+use core::cmp::Ordering;
 
 /// Complete elliptic integral of the first kind K(k)
 ///
@@ -12,7 +13,15 @@ use crate::core::{expr::EPSILON, traits::MathScalar};
 )]
 pub fn eval_elliptic_k<T: MathScalar>(k: T) -> Option<T> {
     let one = T::one();
-    if k.abs() >= one {
+    let k_abs = k.abs();
+    if matches!(k_abs.partial_cmp(&one), None | Some(Ordering::Greater)) {
+        return Some(T::nan());
+    }
+    #[allow(
+        clippy::float_cmp,
+        reason = "Exact comparison for elliptic K pole at |k|=1"
+    )]
+    if k_abs == one {
         return Some(T::infinity());
     }
     let mut a = one;
@@ -46,7 +55,8 @@ pub fn eval_elliptic_k<T: MathScalar>(k: T) -> Option<T> {
 )]
 pub fn eval_elliptic_e<T: MathScalar>(k: T) -> Option<T> {
     let one = T::one();
-    if k.abs() > one {
+    let k_abs = k.abs();
+    if matches!(k_abs.partial_cmp(&one), None | Some(Ordering::Greater)) {
         return Some(T::nan());
     }
     let mut a = one;

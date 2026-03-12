@@ -5,7 +5,7 @@
 use std::cmp::Ordering as CmpOrdering;
 use std::sync::Arc;
 
-use super::{EPSILON, EXPR_ONE, Expr, ExprKind, compute_expr_hash, expr_cmp, next_id};
+use super::{CACHED_NEG_ONE, CACHED_TWO, CACHED_ZERO, EPSILON, EXPR_ONE, Expr, ExprKind, compute_expr_hash, expr_cmp, next_id};
 use crate::core::symbol::{InternedSymbol, symb_interned};
 
 impl Expr {
@@ -82,9 +82,27 @@ impl Expr {
     // -------------------------------------------------------------------------
 
     /// Create a number expression
+    ///
+    /// Optimized: returns clones of cached constants for 0.0 and 1.0
+    /// to avoid repeated `hash`/`term_hash` computation in hot paths
+    /// (e.g., differentiation returns 0.0 for every constant node).
     #[inline]
     #[must_use]
     pub fn number(n: f64) -> Self {
+        // Fast path for the most common values in differentiation and parsing
+        if n == 0.0 {
+            return CACHED_ZERO.clone();
+        }
+        let bits = n.to_bits();
+        if bits == 1.0_f64.to_bits() {
+            return EXPR_ONE.clone();
+        }
+        if bits == (-1.0_f64).to_bits() {
+            return CACHED_NEG_ONE.clone();
+        }
+        if bits == 2.0_f64.to_bits() {
+            return CACHED_TWO.clone();
+        }
         Self::new(ExprKind::Number(n))
     }
 

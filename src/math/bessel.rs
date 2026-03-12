@@ -1,3 +1,8 @@
+#![allow(
+    clippy::unnecessary_wraps,
+    reason = "API consistency requires Option return type"
+)]
+
 use crate::core::traits::MathScalar;
 
 /// Bessel function of the first kind `J_n(x)`
@@ -281,7 +286,7 @@ pub fn bessel_j1<T: MathScalar>(x: T) -> T {
 /// Reference: A&S §9.1.27, DLMF §10.6 <https://dlmf.nist.gov/10.6>
 pub fn bessel_y<T: MathScalar>(n: i32, x: T) -> Option<T> {
     if x <= T::zero() {
-        return None;
+        return Some(T::nan());
     }
     let n_abs = n.abs();
     let y0 = bessel_y0(x);
@@ -592,7 +597,7 @@ pub fn bessel_i1<T: MathScalar>(x: T) -> T {
 /// Reference: A&S §9.6.26, DLMF §10.29 <https://dlmf.nist.gov/10.29>
 pub fn bessel_k<T: MathScalar>(n: i32, x: T) -> Option<T> {
     if x <= T::zero() {
-        return None;
+        return Some(T::nan());
     }
     let n_abs = n.abs();
     let k0 = bessel_k0(x);

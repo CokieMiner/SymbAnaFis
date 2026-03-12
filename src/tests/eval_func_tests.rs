@@ -261,25 +261,21 @@ fn test_eval_log_various_bases() {
 
 #[test]
 fn test_eval_log_domain_errors() {
-    // log with base <= 0 should return None (evaluated as NaN or no value)
+    // log with base <= 0 should return NaN
     let log_neg_base = eval_expr("log(-2, 8)", &[]);
-    assert!(log_neg_base.is_none() || log_neg_base.unwrap().is_nan());
+    assert!(log_neg_base.is_some_and(f64::is_nan));
 
-    // log with base = 1 should return None (division by zero in ln(1) = 0)
+    // log with base = 1 should return NaN (division by zero in ln(1) = 0)
     let log_base_one = eval_expr("log(1, 8)", &[]);
-    assert!(
-        log_base_one.is_none()
-            || log_base_one.unwrap().is_nan()
-            || log_base_one.unwrap().is_infinite()
-    );
+    assert!(log_base_one.is_some_and(f64::is_nan));
 
-    // log with x <= 0 should return None/NaN
+    // log with x <= 0 should return NaN
     let log_neg_x = eval_expr("log(2, -8)", &[]);
-    assert!(log_neg_x.is_none() || log_neg_x.unwrap().is_nan());
+    assert!(log_neg_x.is_some_and(f64::is_nan));
 
-    // log(2, 0) should return -Inf or None
+    // log(2, 0) should return NaN
     let log_zero = eval_expr("log(2, 0)", &[]);
-    assert!(log_zero.is_none() || log_zero.unwrap().is_infinite());
+    assert!(log_zero.is_some_and(f64::is_nan));
 }
 
 #[test]

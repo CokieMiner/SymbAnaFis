@@ -532,7 +532,7 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
             arity: 1..=1,
             eval: |args| {
                 if args[0].abs() < 1e-15 {
-                    None
+                    Some(f64::NAN)
                 } else {
                     Some((1.0 / args[0]).asinh())
                 }
@@ -601,7 +601,11 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
                 // Exact comparison for base == 1.0 is mathematically intentional
                 #[allow(clippy::float_cmp, reason = "Exact comparison for log base == 1.0")]
                 let invalid = base <= 0.0 || base == 1.0 || x <= 0.0;
-                if invalid { None } else { Some(x.log(base)) }
+                if invalid {
+                    Some(f64::NAN)
+                } else {
+                    Some(x.log(base))
+                }
             },
             derivative: |args, arg_primes| {
                 // log_b(x) = ln(x) / ln(b)

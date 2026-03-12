@@ -492,6 +492,48 @@ impl CompiledEvaluator {
                     let top = top_mut!();
                     *top = *simd_constants.get_unchecked(idx as usize) - *top;
                 }
+                Instruction::AddParam(p) => {
+                    let col = *columns.get_unchecked(p as usize);
+                    *top_mut!() += f64x4::new([
+                        *col.get_unchecked(base),
+                        *col.get_unchecked(base + 1),
+                        *col.get_unchecked(base + 2),
+                        *col.get_unchecked(base + 3),
+                    ]);
+                }
+                Instruction::MulParam(p) => {
+                    let col = *columns.get_unchecked(p as usize);
+                    *top_mut!() *= f64x4::new([
+                        *col.get_unchecked(base),
+                        *col.get_unchecked(base + 1),
+                        *col.get_unchecked(base + 2),
+                        *col.get_unchecked(base + 3),
+                    ]);
+                }
+                Instruction::AddCached(slot) => {
+                    *top_mut!() += *cache.get_unchecked(slot as usize);
+                }
+                Instruction::MulCached(slot) => {
+                    *top_mut!() *= *cache.get_unchecked(slot as usize);
+                }
+                Instruction::SubParam(p) => {
+                    let col = *columns.get_unchecked(p as usize);
+                    *top_mut!() -= f64x4::new([
+                        *col.get_unchecked(base),
+                        *col.get_unchecked(base + 1),
+                        *col.get_unchecked(base + 2),
+                        *col.get_unchecked(base + 3),
+                    ]);
+                }
+                Instruction::DivParam(p) => {
+                    let col = *columns.get_unchecked(p as usize);
+                    *top_mut!() /= f64x4::new([
+                        *col.get_unchecked(base),
+                        *col.get_unchecked(base + 1),
+                        *col.get_unchecked(base + 2),
+                        *col.get_unchecked(base + 3),
+                    ]);
+                }
                 Instruction::Div => {
                     let b = pop!();
                     *top_mut!() /= b;
@@ -550,7 +592,12 @@ impl CompiledEvaluator {
                     let top = top_mut!();
                     let arr = top.to_array();
                     // Per-lane scalar: wide::f64x4::exp() returns 0 for NaN inputs
-                    *top = f64x4::new([(-arr[0]).exp(), (-arr[1]).exp(), (-arr[2]).exp(), (-arr[3]).exp()]);
+                    *top = f64x4::new([
+                        (-arr[0]).exp(),
+                        (-arr[1]).exp(),
+                        (-arr[2]).exp(),
+                        (-arr[3]).exp(),
+                    ]);
                 }
                 Instruction::Pow3_2 => {
                     let top = top_mut!();
@@ -1300,7 +1347,7 @@ impl CompiledEvaluator {
                 )]
                 {
                     let f = |li: f64, mi: f64, ti: f64, pi: f64| -> f64 {
-                        if li.is_nan() || mi.is_nan() {
+                        if li.is_nan() || mi.is_nan() || ti.is_nan() || pi.is_nan() {
                             return f64::NAN;
                         }
                         crate::math::eval_spherical_harmonic(
@@ -1398,6 +1445,24 @@ impl CompiledEvaluator {
             Instruction::ConstSub(idx) => {
                 let c = constants[idx as usize];
                 *top_mut(stack, *len) = c - *top_mut(stack, *len);
+            }
+            Instruction::AddParam(p) => {
+                *top_mut(stack, *len) += columns[p as usize][point_idx];
+            }
+            Instruction::MulParam(p) => {
+                *top_mut(stack, *len) *= columns[p as usize][point_idx];
+            }
+            Instruction::AddCached(slot) => {
+                *top_mut(stack, *len) += cache[slot as usize];
+            }
+            Instruction::MulCached(slot) => {
+                *top_mut(stack, *len) *= cache[slot as usize];
+            }
+            Instruction::SubParam(p) => {
+                *top_mut(stack, *len) -= columns[p as usize][point_idx];
+            }
+            Instruction::DivParam(p) => {
+                *top_mut(stack, *len) /= columns[p as usize][point_idx];
             }
             Instruction::Sub => {
                 let b = pop(stack, len);

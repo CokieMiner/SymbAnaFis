@@ -396,7 +396,9 @@ impl CompiledEvaluator {
                     slot_live_ranges.entry(*slot).or_insert((i, i, false)).1 = i;
                     last_use_map.insert(*slot, i);
                 }
-                Instruction::LoadCached(slot) => {
+                Instruction::LoadCached(slot)
+                | Instruction::AddCached(slot)
+                | Instruction::MulCached(slot) => {
                     if let Some((start, _, _)) = slot_live_ranges.get_mut(slot) {
                         if *start > i {
                             *start = i; // Earlier use than we thought
@@ -450,7 +452,10 @@ impl CompiledEvaluator {
         // Apply remapping
         for instr in instructions.iter_mut() {
             match instr {
-                Instruction::StoreCached(slot) | Instruction::LoadCached(slot) => {
+                Instruction::StoreCached(slot)
+                | Instruction::LoadCached(slot)
+                | Instruction::AddCached(slot)
+                | Instruction::MulCached(slot) => {
                     if let Some(&new_slot) = remap.get(slot) {
                         *slot = new_slot;
                     }
@@ -757,6 +762,52 @@ impl CompiledEvaluator {
                         (Instruction::LoadCached(s1), Instruction::StoreCached(s2)) if s1 == s2 => {
                             result.push(Instruction::Dup);
                         }
+                        // Fused load-operate: LoadParam(p) + Add → AddParam(p)
+                        (Instruction::LoadParam(p), Instruction::Add) => {
+                            result.push(Instruction::AddParam(p));
+                        }
+                        // Fused load-operate: LoadParam(p) + Mul → MulParam(p)
+                        (Instruction::LoadParam(p), Instruction::Mul) => {
+                            result.push(Instruction::MulParam(p));
+                        }
+                        // Fused load-operate: LoadCached(s) + Add → AddCached(s)
+                        (Instruction::LoadCached(s), Instruction::Add) => {
+                            result.push(Instruction::AddCached(s));
+                        }
+                        // Fused load-operate: LoadCached(s) + Mul → MulCached(s)
+                        (Instruction::LoadCached(s), Instruction::Mul) => {
+                            result.push(Instruction::MulCached(s));
+                        }
+                        // Fused load-operate: LoadParam(p) + Sub → SubParam(p)
+                        (Instruction::LoadParam(p), Instruction::Sub) => {
+                            result.push(Instruction::SubParam(p));
+                        }
+                        // Fused load-operate: LoadParam(p) + Div → DivParam(p)
+                        (Instruction::LoadParam(p), Instruction::Div) => {
+                            result.push(Instruction::DivParam(p));
+                        }
+                        // Consecutive constant folding: MulConst(a) + MulConst(b) → MulConst(a*b)
+                        (Instruction::MulConst(a), Instruction::MulConst(b)) => {
+                            let merged = constants[a as usize] * constants[b as usize];
+                            #[allow(
+                                clippy::cast_possible_truncation,
+                                reason = "Constant pool index safe"
+                            )]
+                            let idx = constants.len() as u32;
+                            constants.push(merged);
+                            result.push(Instruction::MulConst(idx));
+                        }
+                        // Consecutive constant folding: AddConst(a) + AddConst(b) → AddConst(a+b)
+                        (Instruction::AddConst(a), Instruction::AddConst(b)) => {
+                            let merged = constants[a as usize] + constants[b as usize];
+                            #[allow(
+                                clippy::cast_possible_truncation,
+                                reason = "Constant pool index safe"
+                            )]
+                            let idx = constants.len() as u32;
+                            constants.push(merged);
+                            result.push(Instruction::AddConst(idx));
+                        }
                         // Square + Sqrt → Abs
                         (Instruction::Square, Instruction::Sqrt) => {
                             result.push(Instruction::Abs);
@@ -828,8 +879,13 @@ impl CompiledEvaluator {
 
         let mut loaded_slots = HashSet::new();
         for instr in instructions.iter() {
-            if let Instruction::LoadCached(slot) = instr {
-                loaded_slots.insert(*slot);
+            match instr {
+                Instruction::LoadCached(slot)
+                | Instruction::AddCached(slot)
+                | Instruction::MulCached(slot) => {
+                    loaded_slots.insert(*slot);
+                }
+                _ => {}
             }
         }
 

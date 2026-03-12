@@ -1,4 +1,10 @@
+#![allow(
+    clippy::unnecessary_wraps,
+    reason = "API consistency requires Option return type"
+)]
+
 use crate::core::traits::MathScalar;
+use core::cmp::Ordering;
 
 /// Hermite polynomials `H_n(x)` (physicist's convention)
 ///
@@ -8,7 +14,7 @@ use crate::core::traits::MathScalar;
 /// Reference: DLMF §18.9 <https://dlmf.nist.gov/18.9>
 pub fn eval_hermite<T: MathScalar>(n: i32, x: T) -> Option<T> {
     if n < 0 {
-        return None;
+        return Some(T::nan());
     }
     if n == 0 {
         return Some(T::one());
@@ -36,10 +42,14 @@ pub fn eval_hermite<T: MathScalar>(n: i32, x: T) -> Option<T> {
 ///
 /// Reference: DLMF §14.10 <https://dlmf.nist.gov/14.10>
 pub fn eval_assoc_legendre<T: MathScalar>(l: i32, m: i32, x: T) -> Option<T> {
-    if l < 0 || m.abs() > l || x.abs() > T::one() {
+    if l < 0 || m.abs() > l {
+        return Some(T::nan());
+    }
+    let x_abs = x.abs();
+    if matches!(x_abs.partial_cmp(&T::one()), None | Some(Ordering::Greater)) {
         // Technically |x| > 1 is domain error, but some continuations exist.
         // Standard impl assumes -1 <= x <= 1
-        return None;
+        return Some(T::nan());
     }
     let m_abs = m.abs();
     let mut pmm = T::one();
@@ -91,10 +101,13 @@ pub fn eval_assoc_legendre<T: MathScalar>(l: i32, m: i32, x: T) -> Option<T> {
 /// Reference: DLMF §14.30 <https://dlmf.nist.gov/14.30>
 pub fn eval_spherical_harmonic<T: MathScalar>(l: i32, m: i32, theta: T, phi: T) -> Option<T> {
     if l < 0 || m.abs() > l {
-        return None;
+        return Some(T::nan());
     }
     let cos_theta = theta.cos();
-    let plm = eval_assoc_legendre(l, m, cos_theta)?;
+    if cos_theta.is_nan() {
+        return Some(T::nan());
+    }
+    let plm = eval_assoc_legendre(l, m, cos_theta).unwrap_or_else(T::nan);
     let m_abs = m.abs();
 
     // Factorials

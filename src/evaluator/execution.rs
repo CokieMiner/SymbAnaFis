@@ -148,6 +148,48 @@ impl CompiledEvaluator {
                         let top_ptr = stack_ptr.add(len - 1);
                         *top_ptr *= *consts.get_unchecked(c as usize);
                     }
+                    Instruction::AddParam(p) => {
+                        let idx = p as usize;
+                        let value = if idx < params.len() {
+                            *params.get_unchecked(idx)
+                        } else {
+                            0.0
+                        };
+                        *stack_ptr.add(len - 1) += value;
+                    }
+                    Instruction::MulParam(p) => {
+                        let idx = p as usize;
+                        let value = if idx < params.len() {
+                            *params.get_unchecked(idx)
+                        } else {
+                            0.0
+                        };
+                        *stack_ptr.add(len - 1) *= value;
+                    }
+                    Instruction::AddCached(slot) => {
+                        *stack_ptr.add(len - 1) += cache_ptr.add(slot as usize).read();
+                    }
+                    Instruction::MulCached(slot) => {
+                        *stack_ptr.add(len - 1) *= cache_ptr.add(slot as usize).read();
+                    }
+                    Instruction::SubParam(p) => {
+                        let idx = p as usize;
+                        let value = if idx < params.len() {
+                            *params.get_unchecked(idx)
+                        } else {
+                            0.0
+                        };
+                        *stack_ptr.add(len - 1) -= value;
+                    }
+                    Instruction::DivParam(p) => {
+                        let idx = p as usize;
+                        let value = if idx < params.len() {
+                            *params.get_unchecked(idx)
+                        } else {
+                            f64::NAN
+                        };
+                        *stack_ptr.add(len - 1) /= value;
+                    }
                     Instruction::Sub => {
                         len -= 1;
                         let b = stack_ptr.add(len).read();
@@ -725,6 +767,44 @@ impl CompiledEvaluator {
                     // SAFETY: Stack operations are validated at compile time.
                     let top = unsafe { stack::scalar_stack_top_mut(stack) };
                     *top = constants[idx as usize] - *top;
+                }
+                Instruction::AddParam(p) => {
+                    // SAFETY: Stack operations are validated at compile time.
+                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
+                    let idx = p as usize;
+                    *top += if idx < params.len() { params[idx] } else { 0.0 };
+                }
+                Instruction::MulParam(p) => {
+                    // SAFETY: Stack operations are validated at compile time.
+                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
+                    let idx = p as usize;
+                    *top *= if idx < params.len() { params[idx] } else { 0.0 };
+                }
+                Instruction::AddCached(slot) => {
+                    // SAFETY: Stack operations are validated at compile time.
+                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
+                    *top += cache[slot as usize];
+                }
+                Instruction::MulCached(slot) => {
+                    // SAFETY: Stack operations are validated at compile time.
+                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
+                    *top *= cache[slot as usize];
+                }
+                Instruction::SubParam(p) => {
+                    // SAFETY: Stack operations are validated at compile time.
+                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
+                    let idx = p as usize;
+                    *top -= if idx < params.len() { params[idx] } else { 0.0 };
+                }
+                Instruction::DivParam(p) => {
+                    // SAFETY: Stack operations are validated at compile time.
+                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
+                    let idx = p as usize;
+                    *top /= if idx < params.len() {
+                        params[idx]
+                    } else {
+                        f64::NAN
+                    };
                 }
                 // SAFETY: Stack operations are validated at compile time.
                 Instruction::Div => unsafe { stack::scalar_stack_binop_assign_div(stack) },

@@ -113,12 +113,12 @@ fn fuzz_bessel_y_i_k_recurrence_and_domain() {
 
         let x_bad: f64 = -rng.random_range(0.1..10.0);
         assert!(
-            bessel_y(n, x_bad).is_none(),
-            "Y domain check failed for x={x_bad}"
+            bessel_y(n, x_bad).is_some_and(f64::is_nan),
+            "Y should return NaN for x={x_bad}"
         );
         assert!(
-            bessel_k(n, x_bad).is_none(),
-            "K domain check failed for x={x_bad}"
+            bessel_k(n, x_bad).is_some_and(f64::is_nan),
+            "K should return NaN for x={x_bad}"
         );
     }
 }
@@ -157,8 +157,8 @@ fn fuzz_elliptic_symmetry_and_domain_edges() {
     );
     let k_outside = eval_elliptic_k(1.2);
     assert!(
-        k_outside.is_some_and(f64::is_infinite),
-        "Expected K(|k|>1) to be infinite"
+        k_outside.is_some_and(f64::is_nan),
+        "Expected K(|k|>1) to be NaN"
     );
     let e_outside = eval_elliptic_e(1.2);
     assert!(
@@ -204,12 +204,12 @@ fn fuzz_polynomial_recurrence_and_domain_checks() {
 
         let m_bad = l + 1;
         assert!(
-            eval_assoc_legendre(l, m_bad, x_leg).is_none(),
-            "Assoc Legendre should fail for |m|>l"
+            eval_assoc_legendre(l, m_bad, x_leg).is_some_and(f64::is_nan),
+            "Assoc Legendre should return NaN for |m|>l"
         );
         assert!(
-            eval_assoc_legendre(l, 0, 1.1).is_none(),
-            "Assoc Legendre should fail for |x|>1"
+            eval_assoc_legendre(l, 0, 1.1).is_some_and(f64::is_nan),
+            "Assoc Legendre should return NaN for |x|>1"
         );
     }
 
@@ -226,8 +226,8 @@ fn fuzz_polynomial_recurrence_and_domain_checks() {
         );
 
         assert!(
-            eval_spherical_harmonic(l, l + 1, theta, phi).is_none(),
-            "Spherical harmonic should reject |m|>l"
+            eval_spherical_harmonic(l, l + 1, theta, phi).is_some_and(f64::is_nan),
+            "Spherical harmonic should return NaN for |m|>l"
         );
     }
 }

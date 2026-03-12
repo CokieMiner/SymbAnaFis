@@ -4,6 +4,16 @@ All notable changes to symb_anafis will be documented in this file.
 
 ## [unreleased]
 
+### Added
+
+- **Flamegraph Profiling**: Added dedicated benchmarking and profiling examples (`flamegraph_benchmarks.rs`, `flamegraph_compile_eval.rs`, `flamegraph_profile.rs`) to easily generate flamegraphs for isolated hot-paths.
+
+### Changed
+
+- **Mathematical Domain Errors**: Refactored special functions to return `Some(NaN)` instead of `None` on domain errors (e.g., negative arguments for logarithms or Bessel Y/K). This ensures IEEE-754 style propagation through arithmetic rather than aborting evaluation.
+- **Mathematical Poles**: Functions with known poles (`gamma`, `digamma`, `trigamma`, `tetragamma`, `zeta`) now return `Some(±infinity)` with the correct directional sign instead of `None` when evaluated exactly at the pole.
+- **Dual Number Arithmetic**: Automatic differentiation (`Dual` numbers) now propagates `NaN` values for derivatives at domain boundaries instead of short-circuiting with `None`.
+
 ### Fixed
 
 - **`acot` compiler/interpreter formula mismatch**: Compiler previously emitted `Recip → Atan` for `acot(x)`, always computing `atan(1/x)`. The interpreter uses `atan(1/x) + π` for x < 0 to produce range (0, π). Added a dedicated `Acot` bytecode instruction with the correct branch and consolidated the implementation in `stack::eval_acot` (alongside `eval_sinc`). Fixes scalar mismatch for expressions like `zeta(acot(-2.128...))`.
@@ -21,6 +31,8 @@ All notable changes to symb_anafis will be documented in this file.
 
 ### Performance
 
+- **Fused Load-Operate Instructions**: Added `AddParam`, `MulParam`, `SubParam`, `DivParam`, `AddCached`, and `MulCached` bytecode instructions to the compiled evaluator. This optimizes common evaluation patterns by executing operations directly against parameters and cached values, reducing stack `Push` and `Pop` overhead.
+- **Compiler Constant Folding**: Added compile-time merging of consecutive `AddConst` and `MulConst` instructions. This reduces instruction count and stack manipulation overhead during batch evaluation.
 - **Cached `Arc<Expr>` constants (`arc_number`)**: Added `arc_number(n)` helper and four static `LazyLock<Arc<Expr>>` statics for `0.0`, `1.0`, `-1.0`, and `2.0`. All ~114 `Arc::new(Expr::number(N))` call sites in simplification rules replaced with `arc_number(N)` — hot-path constant construction is now a single atomic refcount bump instead of a heap allocation.
 - **`term_hash` field on `Expr`**: Pre-computed coefficient-insensitive hash cached at construction. Used by like-term grouping in simplification to skip repeated full-tree traversals.
 - **Two-map generational cache eviction** (`HashKeyedCache`): Replaced O(n) `Vec::retain` eviction with O(1) swap of `current`/`previous` maps. Old generation is dropped in bulk when the cache exceeds capacity.
