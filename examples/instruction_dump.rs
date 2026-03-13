@@ -122,8 +122,7 @@ fn main() {
         }
 
         println!("Constants (Simp): {:?}", compiled_simp.constants);
-        println!("Stack size (Simp): {}", compiled_simp.stack_size);
-        println!("Cache size (Simp): {}", compiled_simp.cache_size);
+        println!("Stack size (Simp): {}", compiled_simp.register_count);
         println!();
     }
 }

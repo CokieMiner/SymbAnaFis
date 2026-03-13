@@ -224,12 +224,8 @@ fn walk_expr_with_depth<V: ExprVisitor>(expr: &Expr, visitor: &mut V, depth: usi
             "Expression tree too deep (>{MAX_DEPTH} levels). \
              This may indicate a malformed expression or infinite recursion."
         );
-        // In release builds, log warning and skip further traversal to prevent stack overflow
+        // In release builds, skip further traversal to prevent stack overflow
         #[cfg(not(debug_assertions))]
-        eprintln!(
-            "Warning: Expression tree exceeds maximum depth ({MAX_DEPTH}). \
-             Traversal truncated to prevent stack overflow."
-        );
         return;
     }
 

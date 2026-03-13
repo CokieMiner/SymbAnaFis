@@ -107,6 +107,13 @@ fn main() {
         (evaluator, t.elapsed(), initial_values.clone())
     };
     eprintln!("  SymbAnaFis (compile):             {saf_parsed_compile:?}");
+    eprintln!(
+        "  SymbAnaFis (parsed meta):         regs={} params={} consts={} instrs={}",
+        saf_parsed_evaluator.register_count(),
+        saf_parsed_evaluator.param_count,
+        saf_parsed_evaluator.constants.len(),
+        saf_parsed_evaluator.instructions.len(),
+    );
 
     // ── SymbAnaFis: simplify + compile the parsed expression ──
     let (
@@ -139,6 +146,13 @@ fn main() {
         saf_parsed_simp_compile_time,
         saf_parsed_simp_time + saf_parsed_simp_compile_time
     );
+    eprintln!(
+        "  SymbAnaFis (parsed simp meta):    regs={} params={} consts={} instrs={}",
+        saf_parsed_simp_evaluator.register_count(),
+        saf_parsed_simp_evaluator.param_count,
+        saf_parsed_simp_evaluator.constants.len(),
+        saf_parsed_simp_evaluator.instructions.len(),
+    );
 
     // ── Symbolica: compile the parsed expression ──
     let (mut sym_parsed_evaluator, sym_parsed_compile, sym_parsed_params) = {
@@ -162,6 +176,16 @@ fn main() {
     //  3. EVALUATION (parsed expression, ×{EVAL_ITERATIONS})
     // ═══════════════════════════════════════════════════════════════════
     eprintln!("\n═══ Phase 3: Evaluation of parsed expression (×{EVAL_ITERATIONS}) ═══");
+
+    // Interpreter vs compiled sanity check (single eval)
+    let interp_val = {
+        let mut vars = HashMap::new();
+        for (k, v) in params_str.iter().zip(initial_values.iter()) {
+            vars.insert(*k, *v);
+        }
+        saf_expr.evaluate(&vars, &HashMap::new())
+    };
+    eprintln!("  SymbAnaFis (interpreted): {interp_val}");
 
     let (saf_parsed_eval, saf_parsed_result) =
         bench_eval_saf(&saf_parsed_evaluator, &saf_parsed_params);
@@ -239,6 +263,13 @@ fn main() {
         saf_compile_simplified_time,
         saf_simplify_time + saf_compile_simplified_time
     );
+    eprintln!(
+        "  SymbAnaFis (diff simp meta):     regs={} params={} consts={} instrs={}",
+        saf_evaluator_simplified.register_count(),
+        saf_evaluator_simplified.param_count,
+        saf_evaluator_simplified.constants.len(),
+        saf_evaluator_simplified.instructions.len(),
+    );
 
     // ── SymbAnaFis: compile raw (no simplification) ──
     let (saf_evaluator_raw, saf_compile_raw_time, saf_params_raw) = {
@@ -250,6 +281,13 @@ fn main() {
     eprintln!(
         "  SymbAnaFis (compile raw):        {:?}",
         saf_compile_raw_time
+    );
+    eprintln!(
+        "  SymbAnaFis (diff raw meta):      regs={} params={} consts={} instrs={}",
+        saf_evaluator_raw.register_count(),
+        saf_evaluator_raw.param_count,
+        saf_evaluator_raw.constants.len(),
+        saf_evaluator_raw.instructions.len(),
     );
 
     // ── Symbolica: compile ──

@@ -578,11 +578,16 @@ impl<T: MathScalar> Dual<T> {
     /// d/dx erf(x) = (2/√π) * e^(-x²)
     ///
     /// # Panics
-    /// Panics only if internal invariants are violated (never in normal use with f64).
+    /// Panics if `MathScalar::from(2.0)` returns `None` (violates `MathScalar` invariant).
     #[must_use]
     pub fn erf(self) -> Self {
         let val = crate::math::eval_erf(self.val);
-        let two = T::from(2.0).expect("T::from conversion failed");
+        #[allow(
+            clippy::unwrap_used,
+            clippy::panic,
+            reason = "T::from(2.0) is a required invariant for MathScalar implementations"
+        )]
+        let two = T::from(2.0).expect("MathScalar invariant violated: T::from(2.0) failed");
         let pi = T::PI();
         let deriv = two / pi.sqrt() * (-self.val * self.val).exp();
         Self::new(val, self.eps * deriv)
@@ -590,10 +595,21 @@ impl<T: MathScalar> Dual<T> {
 
     /// Complementary error function: erfc(x) = 1 - erf(x)
     /// d/dx erfc(x) = -d/dx erf(x) = -(2/√π) * e^(-x²)
+    ///
+    /// # Panics
+    /// Panics if `MathScalar::from(2.0)` returns `None` (violates `MathScalar` invariant).
     #[must_use]
     pub fn erfc(self) -> Self {
-        let erf_result = self.erf();
-        Self::new(T::one() - erf_result.val, -erf_result.eps)
+        let val = crate::math::eval_erfc(self.val);
+        #[allow(
+            clippy::unwrap_used,
+            clippy::panic,
+            reason = "T::from(2.0) is a required invariant for MathScalar implementations"
+        )]
+        let two = T::from(2.0).expect("MathScalar invariant violated: T::from(2.0) failed");
+        let pi = T::PI();
+        let deriv = -two / pi.sqrt() * (-self.val * self.val).exp();
+        Self::new(val, self.eps * deriv)
     }
 
     /// Gamma function: Γ(x)

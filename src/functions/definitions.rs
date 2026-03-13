@@ -777,7 +777,7 @@ pub fn all_definitions() -> Vec<FunctionDefinition> {
         FunctionDefinition {
             name: "erfc",
             arity: 1..=1,
-            eval: |args| Some(1.0 - crate::math::eval_erf(args[0])),
+            eval: |args| Some(crate::math::eval_erfc(args[0])),
             derivative: |args, arg_primes| {
                 // d/dx erfc(u) = -d/dx erf(u)
                 let u = Arc::clone(&args[0]);

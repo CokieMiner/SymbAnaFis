@@ -14,8 +14,8 @@
 use crate::DiffError;
 use crate::Expr;
 use crate::evaluator::{CompiledEvaluator, ToParamName};
-
 use rayon::prelude::*;
+use wide::f64x4;
 
 /// Chunk size for parallel processing
 /// Small enough to provide parallelism for 1000 points (4 chunks)
@@ -91,7 +91,7 @@ pub fn run_chunked_evaluator(
             .par_chunks_mut(CHUNK_SIZE)
             .enumerate()
             .try_for_each_init(
-                || Vec::with_capacity(evaluator.stack_size()),
+                || vec![f64x4::splat(0.0); evaluator.register_count],
                 |simd_buffer, (chunk_idx, chunk_out)| {
                     let start = chunk_idx * CHUNK_SIZE;
                     let end = start + chunk_out.len();

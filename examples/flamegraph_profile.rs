@@ -32,6 +32,7 @@ fn load_expr() -> String {
     let file_path = "examples/symblica_exp/big_expr.txt";
     if !std::path::Path::new(file_path).exists() {
         eprintln!("Error: {file_path} not found. Run from the project root.");
+        #[allow(clippy::exit, reason = "Required to exit with error code from example")]
         std::process::exit(1);
     }
     let s = fs::read_to_string(file_path).expect("Failed to read expression file");
@@ -42,15 +43,15 @@ fn load_expr() -> String {
 fn params() -> Vec<&'static str> {
     vec![
         "alpha", "amuq", "ammu", "xcp1", "e1245", "xcp4", "e3e2", "e1234", "e2345", "e1235",
-        "e1345", "amel2", "e2e1", "e5e2", "e4e2", "e3e1", "e4e1", "e5e1", "ammu2", "amuq2",
-        "e5e3", "e4e3", "x5", "x6", "x1", "x3", "x4", "xcp3", "xcp2",
+        "e1345", "amel2", "e2e1", "e5e2", "e4e2", "e3e1", "e4e1", "e5e1", "ammu2", "amuq2", "e5e3",
+        "e4e3", "x5", "x6", "x1", "x3", "x4", "xcp3", "xcp2",
     ]
 }
 
 fn values() -> Vec<f64> {
     vec![
-        0.1, 0.2, 0.3, 0.0, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7,
-        1.8, 1.9, 2.0, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9,
+        0.1, 0.2, 0.3, 0.0, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8,
+        1.9, 2.0, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9,
     ]
 }
 
@@ -220,6 +221,7 @@ fn main() {
         _ => {
             eprintln!("Unknown mode: {mode}");
             eprintln!("Available: parse, diff, simplify, compile, all");
+            #[allow(clippy::exit, reason = "Required to exit with error code from example")]
             std::process::exit(1);
         }
     }

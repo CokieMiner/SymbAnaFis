@@ -103,6 +103,81 @@ pub fn eval_erf<T: MathScalar>(x: T) -> T {
     sign * coeff * sum
 }
 
+/// Complementary error function erfc(x) = 1 - erf(x)
+///
+/// Uses 1 - erf(x) for small x (x < 1.5) and a continued fraction for large x
+/// to maintain ~15 digits of relative precision and avoid catastrophic cancellation.
+///
+/// Reference: DLMF §7.9 <https://dlmf.nist.gov/7.9>
+/// Reference: Abramowitz & Stegun §7.1.14
+#[allow(
+    clippy::many_single_char_names,
+    reason = "Standard notation for continued fraction implementation"
+)]
+pub fn eval_erfc<T: MathScalar>(x: T) -> T {
+    if x.is_nan() {
+        return x;
+    }
+    if x.is_infinite() {
+        return if x.is_sign_positive() {
+            T::zero()
+        } else {
+            T::from_f64(2.0).expect("Failed to convert 2.0 to T")
+        };
+    }
+
+    let abs_x = x.abs();
+
+    // Early exit for underflow: erfc(28) < 1e-340, which underflows f64
+    if x > T::from_f64(28.0).expect("Failed to convert 28.0 to T") {
+        return T::zero();
+    }
+
+    if abs_x < T::from_f64(1.5).expect("Failed to convert 1.5 to T") {
+        return T::one() - eval_erf(x);
+    }
+    if x < T::zero() {
+        return T::from_f64(2.0).expect("Failed to convert 2.0 to T") - eval_erfc(abs_x);
+    }
+
+    // Continued fraction for x >= 1.5:
+    // erfc(x) = (e^-x^2 / sqrt(pi)) * [1 / (x + (1/2)/(x + (1)/(x + (3/2)/(x + ...))))]
+    // Uses Modified Lentz's Method for stable evaluation.
+    let pi = T::PI();
+    let one = T::one();
+    let tiny = T::from_f64(1e-30).expect("Failed to convert 1e-30 to T");
+    let eps = T::epsilon();
+
+    let mut f = abs_x;
+    if f.abs() < tiny {
+        f = tiny;
+    }
+    let mut c = f;
+    let mut d = T::zero();
+
+    for j in 1..200 {
+        let a = T::from_f64(0.5 * f64::from(j)).expect("Failed to convert coefficient");
+        // b_j is always abs_x in this form
+        d = abs_x + a * d;
+        if d.abs() < tiny {
+            d = tiny;
+        }
+        d = one / d;
+        c = abs_x + a / c;
+        if c.abs() < tiny {
+            c = tiny;
+        }
+        let delta = c * d;
+        f *= delta;
+        if (delta - one).abs() < eps {
+            break;
+        }
+    }
+
+    let coeff = (-abs_x * abs_x).exp() / pi.sqrt();
+    coeff / f
+}
+
 /// Gamma function Γ(x) using Lanczos approximation with g=7
 ///
 /// Γ(z+1) ≈ √(2π) (z + g + 1/2)^(z+1/2) e^(-(z+g+1/2)) Aₘ(z)

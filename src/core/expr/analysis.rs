@@ -90,11 +90,11 @@ impl Expr {
         match &node.kind {
             ExprKind::Number(_) | ExprKind::Symbol(_) => {}
             ExprKind::FunctionCall { args, .. } | ExprKind::Sum(args) | ExprKind::Product(args) => {
-                stack.extend(args.iter().map(AsRef::as_ref));
+                stack.extend(args.iter().rev().map(AsRef::as_ref));
             }
             ExprKind::Div(l, r) | ExprKind::Pow(l, r) => {
-                stack.push(l);
                 stack.push(r);
+                stack.push(l);
             }
             ExprKind::Derivative { inner, .. } => {
                 stack.push(inner);
@@ -233,6 +233,56 @@ impl Expr {
     pub fn variables(&self) -> HashSet<String> {
         let mut vars = HashSet::new();
         self.collect_variables(&mut vars);
+        vars
+    }
+
+    /// Collect all variables in order of first appearance (pre-order traversal)
+    #[must_use]
+    pub fn variables_ordered(&self) -> Vec<String> {
+        let mut vars = Vec::new();
+        let mut seen = HashSet::new();
+        let mut stack = vec![self];
+
+        while let Some(node) = stack.pop() {
+            match &node.kind {
+                ExprKind::Symbol(s) => {
+                    if let Some(name) = s.name() {
+                        let name_str = name.to_owned();
+                        if seen.insert(name_str.clone()) {
+                            vars.push(name_str);
+                        }
+                    }
+                }
+                ExprKind::Derivative { inner, var, .. } => {
+                    // Differentiate with respect to 'var'
+                    if let Some(name) = var.name() {
+                        let name_str = name.to_owned();
+                        if seen.insert(name_str.clone()) {
+                            vars.push(name_str);
+                        }
+                    }
+                    stack.push(inner);
+                }
+                ExprKind::Number(_) => {}
+                ExprKind::Sum(terms) | ExprKind::Product(terms) => {
+                    for term in terms.iter().rev() {
+                        stack.push(term);
+                    }
+                }
+                ExprKind::Div(num, den) | ExprKind::Pow(num, den) => {
+                    stack.push(den);
+                    stack.push(num);
+                }
+                ExprKind::FunctionCall { args, .. } => {
+                    for arg in args.iter().rev() {
+                        stack.push(arg);
+                    }
+                }
+                ExprKind::Poly(poly) => {
+                    stack.push(poly.base());
+                }
+            }
+        }
         vars
     }
 

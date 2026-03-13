@@ -121,7 +121,7 @@ impl PyCompiledEvaluator {
 
     /// Get required stack size
     const fn stack_size(&self) -> usize {
-        self.evaluator.stack_size()
+        self.evaluator.register_count
     }
 }
 

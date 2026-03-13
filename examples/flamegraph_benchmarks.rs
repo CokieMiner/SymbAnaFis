@@ -80,14 +80,54 @@ mod expressions {
     // All expressions as a slice for iteration
     pub const ALL_EXPRESSIONS: &[(&str, &str, &str, &[&str])] = &[
         ("Normal PDF", NORMAL_PDF, NORMAL_PDF_VAR, NORMAL_PDF_FIXED),
-        ("Gaussian 2D", GAUSSIAN_2D, GAUSSIAN_2D_VAR, GAUSSIAN_2D_FIXED),
-        ("Maxwell-Boltzmann", MAXWELL_BOLTZMANN, MAXWELL_BOLTZMANN_VAR, MAXWELL_BOLTZMANN_FIXED),
-        ("Lorentz Factor", LORENTZ_FACTOR, LORENTZ_FACTOR_VAR, LORENTZ_FACTOR_FIXED),
-        ("Lennard-Jones", LENNARD_JONES, LENNARD_JONES_VAR, LENNARD_JONES_FIXED),
-        ("Logistic Sigmoid", LOGISTIC_SIGMOID, LOGISTIC_SIGMOID_VAR, LOGISTIC_SIGMOID_FIXED),
-        ("Damped Oscillator", DAMPED_OSCILLATOR, DAMPED_OSCILLATOR_VAR, DAMPED_OSCILLATOR_FIXED),
-        ("Planck Blackbody", PLANCK_BLACKBODY, PLANCK_BLACKBODY_VAR, PLANCK_BLACKBODY_FIXED),
-        ("Bessel Wave", BESSEL_WAVE, BESSEL_WAVE_VAR, BESSEL_WAVE_FIXED),
+        (
+            "Gaussian 2D",
+            GAUSSIAN_2D,
+            GAUSSIAN_2D_VAR,
+            GAUSSIAN_2D_FIXED,
+        ),
+        (
+            "Maxwell-Boltzmann",
+            MAXWELL_BOLTZMANN,
+            MAXWELL_BOLTZMANN_VAR,
+            MAXWELL_BOLTZMANN_FIXED,
+        ),
+        (
+            "Lorentz Factor",
+            LORENTZ_FACTOR,
+            LORENTZ_FACTOR_VAR,
+            LORENTZ_FACTOR_FIXED,
+        ),
+        (
+            "Lennard-Jones",
+            LENNARD_JONES,
+            LENNARD_JONES_VAR,
+            LENNARD_JONES_FIXED,
+        ),
+        (
+            "Logistic Sigmoid",
+            LOGISTIC_SIGMOID,
+            LOGISTIC_SIGMOID_VAR,
+            LOGISTIC_SIGMOID_FIXED,
+        ),
+        (
+            "Damped Oscillator",
+            DAMPED_OSCILLATOR,
+            DAMPED_OSCILLATOR_VAR,
+            DAMPED_OSCILLATOR_FIXED,
+        ),
+        (
+            "Planck Blackbody",
+            PLANCK_BLACKBODY,
+            PLANCK_BLACKBODY_VAR,
+            PLANCK_BLACKBODY_FIXED,
+        ),
+        (
+            "Bessel Wave",
+            BESSEL_WAVE,
+            BESSEL_WAVE_VAR,
+            BESSEL_WAVE_FIXED,
+        ),
     ];
 }
 
@@ -120,7 +160,9 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
         eprintln!("Usage: {} <benchmark_id>", args[0]);
-        eprintln!("Available IDs: large_expr_300_raw, large_expr_300_simplified, large_expr_100_raw, eval_methods_tree_walk_gaussian2d, diff_light_gaussian2d, diff_light_lorentz, full_pipeline_planck, full_pipeline_normal, parsing_small_exprs");
+        eprintln!(
+            "Available IDs: large_expr_300_raw, large_expr_300_simplified, large_expr_100_raw, eval_methods_tree_walk_gaussian2d, diff_light_gaussian2d, diff_light_lorentz, full_pipeline_planck, full_pipeline_normal, parsing_small_exprs"
+        );
         std::process::exit(1);
     }
     let bench_id = &args[1];
@@ -178,7 +220,12 @@ fn bench_large_expr_eval_raw(n: usize) {
         }
     }
     let elapsed = start.elapsed();
-    eprintln!("Completed {} iterations in {:?} ({:?}/iteration)", iterations, elapsed, elapsed / iterations);
+    eprintln!(
+        "Completed {} iterations in {:?} ({:?}/iteration)",
+        iterations,
+        elapsed,
+        elapsed / iterations
+    );
 }
 
 // -----------------------------------------------------------------------------
@@ -209,7 +256,12 @@ fn bench_large_expr_eval_simplified(n: usize) {
         }
     }
     let elapsed = start.elapsed();
-    eprintln!("Completed {} iterations in {:?} ({:?}/iteration)", iterations, elapsed, elapsed / iterations);
+    eprintln!(
+        "Completed {} iterations in {:?} ({:?}/iteration)",
+        iterations,
+        elapsed,
+        elapsed / iterations
+    );
 }
 
 // -----------------------------------------------------------------------------
@@ -252,7 +304,12 @@ fn bench_eval_methods_tree_walk_gaussian2d() {
         black_box(sum);
     }
     let elapsed = start.elapsed();
-    eprintln!("Completed {} iterations in {:?} ({:?}/iteration)", iterations, elapsed, elapsed / iterations);
+    eprintln!(
+        "Completed {} iterations in {:?} ({:?}/iteration)",
+        iterations,
+        elapsed,
+        elapsed / iterations
+    );
 }
 
 // -----------------------------------------------------------------------------
@@ -264,7 +321,10 @@ fn bench_diff_light_gaussian2d() {
     let expr_str = expressions::GAUSSIAN_2D;
     let var = expressions::GAUSSIAN_2D_VAR;
     #[allow(unused, reason = "kept for consistency with expression definitions")]
-    #[allow(clippy::no_effect_underscore_binding, reason = "binding unused but kept for consistency")]
+    #[allow(
+        clippy::no_effect_underscore_binding,
+        reason = "binding unused but kept for consistency"
+    )]
     let _fixed = expressions::GAUSSIAN_2D_FIXED;
 
     // Parse once (outside loop)
@@ -280,7 +340,12 @@ fn bench_diff_light_gaussian2d() {
         black_box(diff_light.differentiate(&expr, &var_sym).unwrap());
     }
     let elapsed = start.elapsed();
-    eprintln!("Completed {} iterations in {:?} ({:?}/iteration)", iterations, elapsed, elapsed / iterations);
+    eprintln!(
+        "Completed {} iterations in {:?} ({:?}/iteration)",
+        iterations,
+        elapsed,
+        elapsed / iterations
+    );
 }
 
 // -----------------------------------------------------------------------------
@@ -292,7 +357,10 @@ fn bench_diff_light_lorentz() {
     let expr_str = expressions::LORENTZ_FACTOR;
     let var = expressions::LORENTZ_FACTOR_VAR;
     #[allow(unused, reason = "kept for consistency with expression definitions")]
-    #[allow(clippy::no_effect_underscore_binding, reason = "binding unused but kept for consistency")]
+    #[allow(
+        clippy::no_effect_underscore_binding,
+        reason = "binding unused but kept for consistency"
+    )]
     let _fixed = expressions::LORENTZ_FACTOR_FIXED;
 
     // Parse once (outside loop)
@@ -308,7 +376,12 @@ fn bench_diff_light_lorentz() {
         black_box(diff_light.differentiate(&expr, &var_sym).unwrap());
     }
     let elapsed = start.elapsed();
-    eprintln!("Completed {} iterations in {:?} ({:?}/iteration)", iterations, elapsed, elapsed / iterations);
+    eprintln!(
+        "Completed {} iterations in {:?} ({:?}/iteration)",
+        iterations,
+        elapsed,
+        elapsed / iterations
+    );
 }
 
 // -----------------------------------------------------------------------------
@@ -357,7 +430,12 @@ fn bench_full_pipeline_planck() {
         black_box(sum);
     }
     let elapsed = start.elapsed();
-    eprintln!("Completed {} iterations in {:?} ({:?}/iteration)", iterations, elapsed, elapsed / iterations);
+    eprintln!(
+        "Completed {} iterations in {:?} ({:?}/iteration)",
+        iterations,
+        elapsed,
+        elapsed / iterations
+    );
 }
 
 // -----------------------------------------------------------------------------
@@ -406,7 +484,12 @@ fn bench_full_pipeline_normal() {
         black_box(sum);
     }
     let elapsed = start.elapsed();
-    eprintln!("Completed {} iterations in {:?} ({:?}/iteration)", iterations, elapsed, elapsed / iterations);
+    eprintln!(
+        "Completed {} iterations in {:?} ({:?}/iteration)",
+        iterations,
+        elapsed,
+        elapsed / iterations
+    );
 }
 
 // -----------------------------------------------------------------------------
@@ -435,5 +518,10 @@ fn bench_parsing_small_exprs() {
         }
     }
     let elapsed = start.elapsed();
-    eprintln!("Completed {} iterations in {:?} ({:?}/iteration)", iterations, elapsed, elapsed / iterations);
+    eprintln!(
+        "Completed {} iterations in {:?} ({:?}/iteration)",
+        iterations,
+        elapsed,
+        elapsed / iterations
+    );
 }

@@ -6,10 +6,17 @@ All notable changes to symb_anafis will be documented in this file.
 
 ### Added
 
+- **`Expr::variables_ordered()`**: New method to collect all variable names in order of first appearance (pre-order traversal).
+- **Improved `erfc` accuracy**: Implemented `eval_erfc` using continued fractions for large arguments ($x \ge 1.5$) to maintain ~15 digits of relative precision and avoid catastrophic cancellation.
 - **Flamegraph Profiling**: Added dedicated benchmarking and profiling examples (`flamegraph_benchmarks.rs`, `flamegraph_compile_eval.rs`, `flamegraph_profile.rs`) to easily generate flamegraphs for isolated hot-paths.
 
 ### Changed
 
+- **Register-based Evaluator**: Major architectural refactor of the bytecode evaluator from a stack-based to a register-based virtual machine.
+  - Replaced implicit stack operations with explicit register-indexed instructions (`dest`, `src`, `a`, `b`).
+  - Merged the CSE cache into the general register file (removed `cache_size`).
+  - Updated metadata: `stack_size` renamed to `register_count`.
+- **Compiler Register Allocation**: The bytecode compiler now performs a single-pass register allocation with precise live-range analysis to minimize register usage and improve cache locality.
 - **Mathematical Domain Errors**: Refactored special functions to return `Some(NaN)` instead of `None` on domain errors (e.g., negative arguments for logarithms or Bessel Y/K). This ensures IEEE-754 style propagation through arithmetic rather than aborting evaluation.
 - **Mathematical Poles**: Functions with known poles (`gamma`, `digamma`, `trigamma`, `tetragamma`, `zeta`) now return `Some(±infinity)` with the correct directional sign instead of `None` when evaluated exactly at the pole.
 - **Dual Number Arithmetic**: Automatic differentiation (`Dual` numbers) now propagates `NaN` values for derivatives at domain boundaries instead of short-circuiting with `None`.
@@ -26,11 +33,17 @@ All notable changes to symb_anafis will be documented in this file.
 
 ### Code Quality
 
-- **`eval_acot` consolidated in `stack.rs`**: Moved `eval_acot` from duplicated definitions in `execution.rs` and `simd.rs` into `stack::eval_acot`, co-located with `eval_sinc`. All call sites updated to `stack::eval_acot`.
+- **Deleted legacy `stack.rs`**: Removed legacy stack-based primitive operations following the transition to the register-based evaluator.
+- **Added `eval_math.rs`**: Centralized evaluator-specific mathematical helper functions (e.g., `acot`, `sinc`, `erfc`) to improve modularity.
+- **Consolidated `eval_acot`**: Moved `eval_acot` from duplicated definitions in `execution.rs` and `simd.rs` into `eval_math.rs` (formerly `stack.rs`), co-located with `eval_sinc`. All call sites updated.
+- **Visitor Silence**: Silenced deep-tree warnings in release builds to reduce library noise. Traversal remains truncated for safety.
 - **`push_children` / `push_children_rev` helpers on `Expr`**: Factored out the repeated child-pushing match block shared by `node_count`, `contains_var_id`, `contains_var_str`, `has_free_variables`, `collect_variables`, and `fold`. Merged `FunctionCall`/`Sum`/`Product` arms into a single arm using the common `args` binding, reducing ~100 lines of duplication in `analysis.rs`.
 
 ### Performance
 
+- **Reduced memory traffic**: Register-based evaluation eliminates stack pointer manipulation overhead and improves cache efficiency for complex expressions.
+- **Enhanced Instruction Fusion**: Optimized peephole optimizer with new fusion patterns for `MulAdd`, `MulSub`, `NegMulAdd`, and `ExpNeg` instructions in the register-based evaluator.
+- **Iterative Compilation**: The bytecode compiler now uses an iterative traversal for expression compilation, enabling the processing of extremely large Sum/Product chains (millions of terms) without risking host stack overflow.
 - **Fused Load-Operate Instructions**: Added `AddParam`, `MulParam`, `SubParam`, `DivParam`, `AddCached`, and `MulCached` bytecode instructions to the compiled evaluator. This optimizes common evaluation patterns by executing operations directly against parameters and cached values, reducing stack `Push` and `Pop` overhead.
 - **Compiler Constant Folding**: Added compile-time merging of consecutive `AddConst` and `MulConst` instructions. This reduces instruction count and stack manipulation overhead during batch evaluation.
 - **Cached `Arc<Expr>` constants (`arc_number`)**: Added `arc_number(n)` helper and four static `LazyLock<Arc<Expr>>` statics for `0.0`, `1.0`, `-1.0`, and `2.0`. All ~114 `Arc::new(Expr::number(N))` call sites in simplification rules replaced with `arc_number(N)` — hot-path constant construction is now a single atomic refcount bump instead of a heap allocation.

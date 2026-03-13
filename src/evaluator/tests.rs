@@ -14,6 +14,8 @@
     clippy::items_after_statements,
     clippy::let_underscore_must_use,
     clippy::no_effect_underscore_binding,
+    clippy::use_debug,
+    clippy::print_stdout,
     reason = "Standard test relaxations"
 )]
 
@@ -41,6 +43,28 @@ fn test_polynomial() {
     let expr = parse_expr("x^2 + 2*x + 1");
     let eval = CompiledEvaluator::compile(&expr, &["x"], None).expect("Should compile");
     assert!((eval.evaluate(&[3.0]) - 16.0).abs() < 1e-10);
+}
+
+#[test]
+fn test_long_add_mul_chain_liveness() {
+    let n_sum = 200_usize;
+    let n_mul = 50_usize;
+    let sum_expr = std::iter::repeat_n("x", n_sum)
+        .collect::<Vec<_>>()
+        .join(" + ");
+    let mul_expr = std::iter::repeat_n("x", n_mul)
+        .collect::<Vec<_>>()
+        .join(" * ");
+    let formula = format!("({sum_expr}) + ({mul_expr})");
+
+    let expr = parse_expr(&formula);
+    let eval = CompiledEvaluator::compile(&expr, &["x"], None).expect("Should compile");
+
+    let x = 1.001_f64;
+    let n_mul_i32 = i32::try_from(n_mul).unwrap_or(i32::MAX);
+    let expected = (n_sum as f64).mul_add(x, x.powi(n_mul_i32));
+    let got = eval.evaluate(&[x]);
+    assert!((got - expected).abs() < 1e-9);
 }
 
 #[test]
@@ -297,16 +321,23 @@ fn test_user_function_expansion() {
 }
 
 #[test]
+#[allow(
+    clippy::print_stdout,
+    clippy::use_debug,
+    reason = "Displaying instructions for verification"
+)]
 fn test_eval_batch_neg_muladd() {
     // Tests NegMulAdd in SIMD path: -x*y + z
     let expr = parse_expr("-x * y + z");
     let eval = CompiledEvaluator::compile(&expr, &["x", "y", "z"], None).expect("Should compile");
 
+    println!("Instructions: {:?}", eval.instructions);
+
     // Ensure NegMulAdd was actually emitted
     assert!(
         eval.instructions
             .iter()
-            .any(|i| matches!(i, Instruction::NegMulAdd))
+            .any(|i| matches!(i, Instruction::NegMulAdd { .. }))
     );
 
     let x_vals = vec![1.0, 2.0, 3.0, 4.0];
@@ -325,16 +356,23 @@ fn test_eval_batch_neg_muladd() {
 }
 
 #[test]
+#[allow(
+    clippy::print_stdout,
+    clippy::use_debug,
+    reason = "Displaying instructions for verification"
+)]
 fn test_eval_batch_mulsub() {
     // Tests MulSub in SIMD path: x*y - z
     let expr = parse_expr("x * y - z");
     let eval = CompiledEvaluator::compile(&expr, &["x", "y", "z"], None).expect("Should compile");
 
+    println!("Instructions: {:?}", eval.instructions);
+
     // Ensure MulSub was actually emitted (fused by optimize_instructions or compiler)
     assert!(
         eval.instructions
             .iter()
-            .any(|i| matches!(i, Instruction::MulSub))
+            .any(|i| matches!(i, Instruction::MulSub { .. }))
     );
 
     let x_vals = vec![1.0, 2.0, 3.0, 4.0];
@@ -353,25 +391,11 @@ fn test_eval_batch_mulsub() {
 }
 
 #[test]
-fn test_compile_neg_add_is_lowered_to_sub() {
-    // Peephole pattern: [LoadA, Neg, LoadB, Add] -> [LoadB, LoadA, Sub]
-    let mut instructions = vec![
-        Instruction::LoadParam(0),
-        Instruction::Neg,
-        Instruction::LoadParam(1),
-        Instruction::Add,
-    ];
-    let mut constants = Vec::new();
-
-    CompiledEvaluator::peephole_optimize(&mut instructions, &mut constants);
-
-    assert_eq!(
-        instructions,
-        vec![Instruction::LoadParam(1), Instruction::SubParam(0),]
-    );
-}
-
-#[test]
+#[allow(
+    clippy::print_stdout,
+    clippy::use_debug,
+    reason = "Displaying instructions for verification"
+)]
 fn test_normal_pdf_derivative_uses_expneg_fusion() {
     // Pattern from normal-PDF derivative: exp(-(...)/(2*sigma^2))
     // should lower to ExpNeg after optimization.
@@ -380,11 +404,15 @@ fn test_normal_pdf_derivative_uses_expneg_fusion() {
     let eval =
         CompiledEvaluator::compile(&expr, &["mu", "sigma", "x"], None).expect("Should compile");
 
-    assert!(
-        eval.instructions
-            .iter()
-            .any(|i| matches!(i, Instruction::ExpNeg))
-    );
+    println!("Instructions: {:?}", eval.instructions);
+
+    assert!(eval.instructions.iter().any(|i| matches!(
+        i,
+        Instruction::Builtin1 {
+            op: crate::evaluator::instruction::FnOp::ExpNeg,
+            ..
+        } | Instruction::ExpSqrNeg { .. }
+    )));
 }
 
 #[test]
@@ -397,7 +425,7 @@ fn test_normal_pdf_raw_derivative_prefers_sub_for_x_minus_mu() {
     assert!(
         eval.instructions
             .iter()
-            .any(|i| matches!(i, Instruction::Sub | Instruction::SubParam(_)))
+            .any(|i| matches!(i, Instruction::Sub { .. }))
     );
 }
 
@@ -594,4 +622,28 @@ fn test_division_same_expr() {
         (result - 1.0).abs() < 1e-10,
         "x/x should be 1, got {result}"
     );
+}
+
+#[test]
+fn test_debug_simple() {
+    let expr = parse_expr("x + 2");
+    let eval = CompiledEvaluator::compile(&expr, &["x"], None).unwrap();
+    println!("Instructions: {:?}", eval.instructions);
+    println!("Evaluate: {}", eval.evaluate(&[3.0]));
+}
+
+#[test]
+fn test_debug_simple_2() {
+    let expr = parse_expr("x + 2 + y");
+    let eval = CompiledEvaluator::compile(&expr, &["x", "y"], None).unwrap();
+    println!("Instructions: {:?}", eval.instructions);
+    println!("Evaluate: {}", eval.evaluate(&[3.0, 4.0]));
+}
+
+#[test]
+fn test_debug_simple_3() {
+    let expr = parse_expr("x^2 + 2*x + 1");
+    let eval = CompiledEvaluator::compile(&expr, &["x"], None).unwrap();
+    println!("Instructions: {:?}", eval.instructions);
+    println!("Evaluate: {}", eval.evaluate(&[3.0]));
 }

@@ -2,124 +2,334 @@
 //!
 //! This module compiles symbolic [`Expr`] expressions into efficient bytecode
 //! ([`Instruction`]s) that can be executed by the [`CompiledEvaluator`].
-//!
-//! # Compilation Process
-//!
-//! 1. **User function expansion**: Recursively substitute function calls with their bodies
-//! 2. **Constant folding**: Evaluate constant subexpressions at compile time
-//! 3. **CSE (Common Subexpression Elimination)**: Cache expensive repeated subexpressions
-//! 4. **Instruction emission**: Generate bytecode for the expression tree
-//! 5. **Post-compilation optimization**: Fuse instruction patterns (e.g., `MulAdd`)
-//!
-//! # Stack Depth Tracking
-//!
-//! The compiler tracks stack depth throughout compilation to:
-//! - Validate that the expression can be evaluated without stack overflow
-//! - Pre-allocate the exact stack size needed for evaluation
-//! - Guarantee that unsafe stack operations in the evaluator are safe
-//!
-//! # Example
-//!
-//! ```text
-//! let mut compiler = Compiler::new(&param_ids, Some(&context));
-//! compiler.compile_expr(&expr)?;
-//! let (instructions, constants, max_stack, param_count, cache_size) = compiler.into_parts();
-//! ```
 
-use super::instruction::Instruction;
+use super::instruction::{FnOp, Instruction};
 use crate::core::error::DiffError;
 use crate::core::known_symbols::KS;
 use crate::core::poly::Polynomial;
 use crate::core::symbol::InternedSymbol;
 use crate::core::traits::EPSILON;
-use crate::core::unified_context::Context;
 use crate::{Expr, ExprKind};
 use rustc_hash::FxHashMap;
 use std::collections::hash_map::Entry;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
-/// Internal compiler state for transforming expressions to bytecode.
-///
-/// The compiler performs a single pass over the expression tree, emitting
-/// bytecode instructions while tracking:
-/// - Stack depth (for pre-allocation and safety validation)
-/// - CSE cache slots (for repeated subexpression optimization)
-/// - Constant pool (for efficient constant storage)
-pub struct Compiler<'ctx> {
-    /// Emitted bytecode instructions
-    instructions: Vec<Instruction>,
-    /// Parameter IDs in evaluation order (kept for debugging/inspection)
-    param_ids: Vec<u64>,
-    /// Parameter index lookup: `symbol_id` → `param_index` (O(1) lookup)
-    param_index: FxHashMap<u64, usize>,
-    /// Current stack depth during compilation
-    current_stack: usize,
-    /// Maximum stack depth seen during compilation
-    max_stack: usize,
-    /// Optional context for user function expansion
-    function_context: Option<&'ctx Context>,
-    /// CSE: Map from expression hash → list of (original expr, cache slot index)
-    /// Vec bucket handles hash collisions: multiple structurally distinct exprs
-    /// may share a hash. `Expr::clone()` is cheap: only Arc refcount bumps.
-    cse_cache: FxHashMap<u64, Vec<(Expr, usize)>>,
-    /// Number of CSE cache slots allocated
-    cache_size: usize,
-    /// Constant pool for numeric literals
-    constants: Vec<f64>,
-    /// Map from constant bit pattern → pool index (deduplication)
-    const_map: FxHashMap<u64, u32>,
+static FN_MAP: LazyLock<FxHashMap<u64, FnOp>> = LazyLock::new(|| {
+    let mut m = FxHashMap::default();
+    let ks = &KS;
+    // Arity 1
+    m.insert(ks.sin, FnOp::Sin);
+    m.insert(ks.cos, FnOp::Cos);
+    m.insert(ks.tan, FnOp::Tan);
+    m.insert(ks.cot, FnOp::Cot);
+    m.insert(ks.sec, FnOp::Sec);
+    m.insert(ks.csc, FnOp::Csc);
+    m.insert(ks.asin, FnOp::Asin);
+    m.insert(ks.acos, FnOp::Acos);
+    m.insert(ks.atan, FnOp::Atan);
+    m.insert(ks.acot, FnOp::Acot);
+    m.insert(ks.asec, FnOp::Asec);
+    m.insert(ks.acsc, FnOp::Acsc);
+    m.insert(ks.sinh, FnOp::Sinh);
+    m.insert(ks.cosh, FnOp::Cosh);
+    m.insert(ks.tanh, FnOp::Tanh);
+    m.insert(ks.coth, FnOp::Coth);
+    m.insert(ks.sech, FnOp::Sech);
+    m.insert(ks.csch, FnOp::Csch);
+    m.insert(ks.asinh, FnOp::Asinh);
+    m.insert(ks.acosh, FnOp::Acosh);
+    m.insert(ks.atanh, FnOp::Atanh);
+    m.insert(ks.acoth, FnOp::Acoth);
+    m.insert(ks.acsch, FnOp::Acsch);
+    m.insert(ks.asech, FnOp::Asech);
+    m.insert(ks.exp, FnOp::Exp);
+    m.insert(ks.ln, FnOp::Ln);
+    m.insert(ks.sqrt, FnOp::Sqrt);
+    m.insert(ks.cbrt, FnOp::Cbrt);
+    m.insert(ks.abs, FnOp::Abs);
+    m.insert(ks.signum, FnOp::Signum);
+    m.insert(ks.sign, FnOp::Signum);
+    m.insert(ks.sgn, FnOp::Signum);
+    m.insert(ks.floor, FnOp::Floor);
+    m.insert(ks.ceil, FnOp::Ceil);
+    m.insert(ks.round, FnOp::Round);
+    m.insert(ks.erf, FnOp::Erf);
+    m.insert(ks.erfc, FnOp::Erfc);
+    m.insert(ks.gamma, FnOp::Gamma);
+    m.insert(ks.digamma, FnOp::Digamma);
+    m.insert(ks.trigamma, FnOp::Trigamma);
+    m.insert(ks.tetragamma, FnOp::Tetragamma);
+    m.insert(ks.sinc, FnOp::Sinc);
+    m.insert(ks.lambertw, FnOp::LambertW);
+    m.insert(ks.elliptic_k, FnOp::EllipticK);
+    m.insert(ks.elliptic_e, FnOp::EllipticE);
+    m.insert(ks.zeta, FnOp::Zeta);
+    m.insert(ks.exp_polar, FnOp::ExpPolar);
+
+    // Arity 2
+    m.insert(ks.atan2, FnOp::Atan2);
+    m.insert(ks.log, FnOp::Log);
+    m.insert(ks.besselj, FnOp::BesselJ);
+    m.insert(ks.bessely, FnOp::BesselY);
+    m.insert(ks.besseli, FnOp::BesselI);
+    m.insert(ks.besselk, FnOp::BesselK);
+    m.insert(ks.polygamma, FnOp::Polygamma);
+    m.insert(ks.beta, FnOp::Beta);
+    m.insert(ks.zeta_deriv, FnOp::ZetaDeriv);
+    m.insert(ks.hermite, FnOp::Hermite);
+
+    // Arity 3
+    m.insert(ks.assoc_legendre, FnOp::AssocLegendre);
+
+    // Arity 4
+    m.insert(ks.spherical_harmonic, FnOp::SphericalHarmonic);
+    m.insert(ks.ynm, FnOp::SphericalHarmonic);
+
+    m
+});
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum VReg {
+    Param(u32),
+    Const(u32),
+    Temp(u32),
 }
 
-impl<'ctx> Compiler<'ctx> {
-    /// Create a new compiler with the given parameter IDs and optional context.
-    ///
-    /// This is an internal function for creating expression compilers.
-    /// External users should use `CompiledEvaluator::compile` instead.
-    ///
-    /// # Arguments
-    ///
-    /// * `param_ids` - Symbol IDs for each parameter, in evaluation order
-    /// * `context` - Optional context for user function definitions
-    pub fn new(param_ids: &[u64], context: Option<&'ctx Context>) -> Self {
-        // Build O(1) lookup map for parameter indices
-        let param_index: FxHashMap<u64, usize> = param_ids
+#[derive(Clone, Debug)]
+enum VInstruction {
+    Add {
+        dest: VReg,
+        srcs: Vec<VReg>,
+    },
+    Mul {
+        dest: VReg,
+        srcs: Vec<VReg>,
+    },
+    Sub {
+        dest: VReg,
+        a: VReg,
+        b: VReg,
+    },
+    Div {
+        dest: VReg,
+        num: VReg,
+        den: VReg,
+    },
+    Pow {
+        dest: VReg,
+        base: VReg,
+        exp: VReg,
+    },
+    Neg {
+        dest: VReg,
+        src: VReg,
+    },
+    BuiltinFun {
+        dest: VReg,
+        op: FnOp,
+        args: Vec<VReg>,
+    },
+    Square {
+        dest: VReg,
+        src: VReg,
+    },
+    Cube {
+        dest: VReg,
+        src: VReg,
+    },
+    Pow4 {
+        dest: VReg,
+        src: VReg,
+    },
+    Pow3_2 {
+        dest: VReg,
+        src: VReg,
+    },
+    InvPow3_2 {
+        dest: VReg,
+        src: VReg,
+    },
+    InvSqrt {
+        dest: VReg,
+        src: VReg,
+    },
+    InvSquare {
+        dest: VReg,
+        src: VReg,
+    },
+    InvCube {
+        dest: VReg,
+        src: VReg,
+    },
+    Recip {
+        dest: VReg,
+        src: VReg,
+    },
+    Powi {
+        dest: VReg,
+        src: VReg,
+        n: i32,
+    },
+    MulAdd {
+        dest: VReg,
+        a: VReg,
+        b: VReg,
+        c: VReg,
+    },
+    MulSub {
+        dest: VReg,
+        a: VReg,
+        b: VReg,
+        c: VReg,
+    },
+    NegMulAdd {
+        dest: VReg,
+        a: VReg,
+        b: VReg,
+        c: VReg,
+    },
+    PolyEval {
+        dest: VReg,
+        x: VReg,
+        const_idx: u32,
+    },
+    RecipExpm1 {
+        dest: VReg,
+        src: VReg,
+    },
+    ExpSqr {
+        dest: VReg,
+        src: VReg,
+    },
+    ExpSqrNeg {
+        dest: VReg,
+        src: VReg,
+    },
+}
+
+impl VInstruction {
+    const fn dest(&self) -> VReg {
+        match self {
+            Self::Add { dest, .. }
+            | Self::Mul { dest, .. }
+            | Self::Sub { dest, .. }
+            | Self::Div { dest, .. }
+            | Self::Pow { dest, .. }
+            | Self::Neg { dest, .. }
+            | Self::BuiltinFun { dest, .. }
+            | Self::Square { dest, .. }
+            | Self::Cube { dest, .. }
+            | Self::Pow4 { dest, .. }
+            | Self::Pow3_2 { dest, .. }
+            | Self::InvPow3_2 { dest, .. }
+            | Self::InvSqrt { dest, .. }
+            | Self::InvSquare { dest, .. }
+            | Self::InvCube { dest, .. }
+            | Self::Recip { dest, .. }
+            | Self::Powi { dest, .. }
+            | Self::MulAdd { dest, .. }
+            | Self::MulSub { dest, .. }
+            | Self::NegMulAdd { dest, .. }
+            | Self::PolyEval { dest, .. }
+            | Self::RecipExpm1 { dest, .. }
+            | Self::ExpSqr { dest, .. }
+            | Self::ExpSqrNeg { dest, .. } => *dest,
+        }
+    }
+
+    fn for_each_read(&self, mut f: impl FnMut(VReg)) {
+        match self {
+            Self::Add { srcs, .. } | Self::Mul { srcs, .. } => {
+                for &s in srcs {
+                    f(s);
+                }
+            }
+            Self::Sub { a, b, .. }
+            | Self::Div { num: a, den: b, .. }
+            | Self::Pow {
+                base: a, exp: b, ..
+            } => {
+                f(*a);
+                f(*b);
+            }
+            Self::BuiltinFun { args, .. } => {
+                for &a in args {
+                    f(a);
+                }
+            }
+            Self::MulAdd { a, b, c, .. }
+            | Self::MulSub { a, b, c, .. }
+            | Self::NegMulAdd { a, b, c, .. } => {
+                f(*a);
+                f(*b);
+                f(*c);
+            }
+            Self::PolyEval { x, .. } => f(*x),
+            Self::Neg { src, .. }
+            | Self::Square { src, .. }
+            | Self::Cube { src, .. }
+            | Self::Pow4 { src, .. }
+            | Self::Pow3_2 { src, .. }
+            | Self::InvPow3_2 { src, .. }
+            | Self::InvSqrt { src, .. }
+            | Self::InvSquare { src, .. }
+            | Self::InvCube { src, .. }
+            | Self::Recip { src, .. }
+            | Self::Powi { src, .. }
+            | Self::RecipExpm1 { src, .. }
+            | Self::ExpSqr { src, .. }
+            | Self::ExpSqrNeg { src, .. } => f(*src),
+        }
+    }
+}
+
+pub struct Compiler {
+    vinstrs: Vec<VInstruction>,
+    param_ids: Vec<u64>,
+    param_index: FxHashMap<u64, usize>,
+    cse_cache: FxHashMap<u64, Vec<(*const Expr, VReg)>>,
+    constants: Vec<f64>,
+    const_map: FxHashMap<u64, u32>,
+    next_vreg: u32,
+    final_vreg: Option<VReg>,
+}
+
+impl Compiler {
+    pub fn new(param_ids: &[u64]) -> Self {
+        let param_index = param_ids
             .iter()
             .enumerate()
             .map(|(idx, &id)| (id, idx))
             .collect();
-
-        Self {
-            instructions: Vec::with_capacity(64),
+        let mut compiler = Self {
+            vinstrs: Vec::with_capacity(64),
             param_ids: param_ids.to_vec(),
             param_index,
-            current_stack: 0,
-            max_stack: 0,
-            function_context: context,
             cse_cache: FxHashMap::default(),
-            cache_size: 0,
             constants: Vec::new(),
             const_map: FxHashMap::default(),
-        }
+            next_vreg: 0,
+            final_vreg: None,
+        };
+        // Pre-add 0.0 so it's always available (e.g. for empty expressions)
+        compiler.add_const(0.0);
+        compiler
     }
 
-    /// Add a constant to the pool, deduplicating by bit pattern.
-    ///
-    /// Returns the index into the constant pool. Identical constants
-    /// (by bit representation) share the same pool entry.
-    /// Internal function for constant pool management during compilation.
+    #[inline]
+    const fn alloc_vreg(&mut self) -> VReg {
+        let r = self.next_vreg;
+        self.next_vreg += 1;
+        VReg::Temp(r)
+    }
+
     #[inline]
     pub(crate) fn add_const(&mut self, val: f64) -> u32 {
         let bits = val.to_bits();
         match self.const_map.entry(bits) {
             Entry::Occupied(o) => *o.get(),
             Entry::Vacant(v) => {
-                // SAFETY: Constants pool size is bounded by expression complexity,
-                // Constants pool size is bounded by expression complexity. Realistically < 2^16 constants.
-                #[allow(
-                    clippy::cast_possible_truncation,
-                    reason = "Constants pool size is bounded by expression complexity, realistically < 2^16 constants"
-                )]
-                let idx = self.constants.len() as u32;
+                let idx = u32::try_from(self.constants.len()).unwrap_or(u32::MAX);
                 self.constants.push(val);
                 v.insert(idx);
                 idx
@@ -127,1772 +337,1368 @@ impl<'ctx> Compiler<'ctx> {
         }
     }
 
-    /// Track a push operation on the evaluator's virtual stack.
-    ///
-    /// The evaluator stack is heap-allocated, so there is no hard depth limit.
-    /// This function tracks the maximum depth for pre-allocation purposes.
-    ///
-    /// # Errors
-    ///
-    /// This function is infallible but returns `Result` for API compatibility.
     #[inline]
+    fn emit(&mut self, instr: VInstruction) {
+        self.vinstrs.push(instr);
+    }
+
     #[allow(
-        clippy::unnecessary_wraps,
-        reason = "Returns Result for API consistency with compile_expr"
+        clippy::too_many_lines,
+        reason = "Main compiler pass which needs to handle all instruction variants inline"
     )]
-    pub(crate) fn push(&mut self) -> Result<(), DiffError> {
-        self.current_stack += 1;
-        self.max_stack = self.max_stack.max(self.current_stack);
-        Ok(())
-    }
+    pub(crate) fn into_parts(mut self) -> (Vec<Instruction>, Vec<f64>, usize, usize) {
+        let num_temps = self.next_vreg as usize;
+        let n_instrs = self.vinstrs.len();
 
-    /// Track a pop operation.
-    ///
-    /// Uses saturating subtraction to handle edge cases gracefully,
-    /// though correct bytecode should never underflow.
-    #[inline]
-    pub const fn pop(&mut self) {
-        self.current_stack = self.current_stack.saturating_sub(1);
-    }
+        // Forward pass: record the last instruction index where each temp is READ
+        let mut last_use: Vec<Option<usize>> = vec![None; num_temps];
+        for (idx, instr) in self.vinstrs.iter().enumerate() {
+            instr.for_each_read(|src| {
+                if let VReg::Temp(t) = src {
+                    last_use[t as usize] = Some(idx);
+                }
+            });
+        }
 
-    /// Emit an instruction to the bytecode stream.
-    ///
-    /// Internal function for instruction emission during compilation.
-    #[inline]
-    pub(crate) fn emit(&mut self, instr: Instruction) {
-        self.instructions.push(instr);
-    }
+        // deaths_at[i] = temps whose last use is exactly instruction i
+        let mut deaths_at: Vec<Vec<u32>> = vec![Vec::new(); n_instrs.max(1)];
+        for (t, lu_opt) in last_use.iter().enumerate() {
+            if let Some(lu) = lu_opt {
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    reason = "Temporary register count is bounded by instruction count"
+                )]
+                deaths_at[*lu].push(t as u32);
+            }
+        }
 
-    /// Consume the compiler and return the compiled bytecode and metadata.
-    ///
-    /// Internal function for extracting compilation results.
-    ///
-    /// Returns a tuple of:
-    /// - `instructions` - The emitted bytecode
-    /// - `constants` - The constant pool
-    /// - `max_stack` - Maximum stack depth required
-    /// - `param_count` - Number of parameters
-    /// - `cache_size` - Number of CSE cache slots
-    #[inline]
-    pub(crate) fn into_parts(self) -> (Vec<Instruction>, Vec<f64>, usize, usize, usize) {
-        (
-            self.instructions,
-            self.constants,
-            self.max_stack,
-            self.param_ids.len(),
-            self.cache_size,
-        )
-    }
+        let param_count = u32::try_from(self.param_ids.len()).unwrap_or(u32::MAX);
+        let const_count = u32::try_from(self.constants.len()).unwrap_or(u32::MAX);
+        let mut max_phys = param_count + const_count;
 
-    /// Get a reference to the emitted instructions.
-    #[cfg(test)]
-    pub fn instructions(&self) -> &[Instruction] {
-        &self.instructions
-    }
+        // Vec-indexed maps — no HashMap overhead in the hot loop
+        let mut temp_to_phys: Vec<u32> = vec![u32::MAX; num_temps];
+        let mut free_phys: Vec<u32> = Vec::new();
 
-    /// Get the maximum stack depth seen during compilation.
-    #[cfg(test)]
-    pub const fn max_stack(&self) -> usize {
-        self.max_stack
-    }
+        let mut instructions = Vec::with_capacity(n_instrs);
+        let vinstrs = std::mem::take(&mut self.vinstrs);
 
-    /// Determine if an expression is expensive enough to cache (CSE).
-    ///
-    /// This heuristic helps decide between tree-walking and compiled evaluation.
-    /// Internal function for performance optimization during compilation.
-    ///
-    /// Caching has overhead (store/load instructions), so we only cache:
-    /// - Function calls (transcendentals, special functions)
-    /// - Power operations (often involve expensive `powf`)
-    /// - Division (can involve NaN checks)
-    /// - Large sums/products (3+ terms to amortize overhead)
-    pub(crate) fn is_expensive(expr: &Expr) -> bool {
-        match &expr.kind {
-            ExprKind::FunctionCall { .. } | ExprKind::Div(..) => true,
-            ExprKind::Pow(base, exp) => {
-                // Integer powers (n in range [-16, 16]) are optimized to cheap Powi/Square/etc.
-                // We only cache if it's a non-integer power (likely using powf) OR if the base is complex.
-                if Self::try_eval_const(exp).is_none_or(|n| (n - n.round()).abs() > EPSILON) {
-                    true
-                } else {
-                    // If base is not a simple number, it's worth caching the result of the power.
-                    // Even for symbols, caching avoids repeated multiplications (e.g. x^2).
-                    !matches!(base.kind, ExprKind::Number(_))
+        for (idx, instr) in vinstrs.into_iter().enumerate() {
+            let dest_vreg = instr.dest();
+            let dest_phys = match dest_vreg {
+                VReg::Param(p) => p,
+                VReg::Const(c) => param_count + c,
+                VReg::Temp(t) => {
+                    let p = free_phys.pop().unwrap_or_else(|| {
+                        let p = max_phys;
+                        max_phys += 1;
+                        p
+                    });
+                    temp_to_phys[t as usize] = p;
+                    // Temp that is never read: free immediately so next instr can reuse it
+                    if last_use[t as usize].is_none() {
+                        free_phys.push(p);
+                    }
+                    p
+                }
+            };
+
+            let map_vreg = |vreg: VReg| -> u32 {
+                match vreg {
+                    VReg::Param(p) => p,
+                    VReg::Const(c) => param_count + c,
+                    VReg::Temp(t) => temp_to_phys[t as usize],
+                }
+            };
+
+            match instr {
+                VInstruction::Add { srcs, .. } => {
+                    // NOTE: Multi-operand Add is lowered into a dest-accumulator chain.
+                    // The extra reads of `dest` happen within this single VInstruction
+                    // expansion, so liveness computed at VInstruction granularity
+                    // remains valid.
+                    debug_assert!(!srcs.is_empty(), "Empty Add sources in into_parts");
+                    if srcs.len() == 1 {
+                        instructions.push(Instruction::Copy {
+                            dest: dest_phys,
+                            src: map_vreg(srcs[0]),
+                        });
+                    } else {
+                        let mut a = map_vreg(srcs[0]);
+                        for &src in srcs.iter().skip(1) {
+                            instructions.push(Instruction::Add {
+                                dest: dest_phys,
+                                a,
+                                b: map_vreg(src),
+                            });
+                            a = dest_phys;
+                        }
+                    }
+                }
+                VInstruction::Mul { srcs, .. } => {
+                    // Same accumulator lowering rationale as Add above.
+                    debug_assert!(!srcs.is_empty(), "Empty Mul sources in into_parts");
+                    if srcs.len() == 1 {
+                        instructions.push(Instruction::Copy {
+                            dest: dest_phys,
+                            src: map_vreg(srcs[0]),
+                        });
+                    } else {
+                        let mut a = map_vreg(srcs[0]);
+                        for &src in srcs.iter().skip(1) {
+                            instructions.push(Instruction::Mul {
+                                dest: dest_phys,
+                                a,
+                                b: map_vreg(src),
+                            });
+                            a = dest_phys;
+                        }
+                    }
+                }
+                VInstruction::Sub { a, b, .. } => {
+                    instructions.push(Instruction::Sub {
+                        dest: dest_phys,
+                        a: map_vreg(a),
+                        b: map_vreg(b),
+                    });
+                }
+                VInstruction::Div { num, den, .. } => {
+                    instructions.push(Instruction::Div {
+                        dest: dest_phys,
+                        num: map_vreg(num),
+                        den: map_vreg(den),
+                    });
+                }
+                VInstruction::Pow { base, exp, .. } => {
+                    instructions.push(Instruction::Pow {
+                        dest: dest_phys,
+                        base: map_vreg(base),
+                        exp: map_vreg(exp),
+                    });
+                }
+                VInstruction::Neg { src, .. } => {
+                    instructions.push(Instruction::Neg {
+                        dest: dest_phys,
+                        src: map_vreg(src),
+                    });
+                }
+                VInstruction::BuiltinFun { op, args, .. } => match args.len() {
+                    1 => instructions.push(Instruction::Builtin1 {
+                        dest: dest_phys,
+                        op,
+                        arg: map_vreg(args[0]),
+                    }),
+                    2 => instructions.push(Instruction::Builtin2 {
+                        dest: dest_phys,
+                        op,
+                        arg1: map_vreg(args[0]),
+                        arg2: map_vreg(args[1]),
+                    }),
+                    3 => instructions.push(Instruction::Builtin3 {
+                        dest: dest_phys,
+                        op,
+                        arg1: map_vreg(args[0]),
+                        arg2: map_vreg(args[1]),
+                        arg3: map_vreg(args[2]),
+                    }),
+                    4 => instructions.push(Instruction::Builtin4 {
+                        dest: dest_phys,
+                        op,
+                        arg1: map_vreg(args[0]),
+                        arg2: map_vreg(args[1]),
+                        arg3: map_vreg(args[2]),
+                        arg4: map_vreg(args[3]),
+                    }),
+                    _ => {
+                        debug_assert!(
+                            false,
+                            "Unsupported arity {} for function {op:?}",
+                            args.len()
+                        );
+                        instructions.push(Instruction::LoadConst {
+                            dest: dest_phys,
+                            const_idx: 0,
+                        });
+                    }
+                },
+                VInstruction::Square { src, .. } => {
+                    instructions.push(Instruction::Square {
+                        dest: dest_phys,
+                        src: map_vreg(src),
+                    });
+                }
+                VInstruction::Cube { src, .. } => {
+                    instructions.push(Instruction::Cube {
+                        dest: dest_phys,
+                        src: map_vreg(src),
+                    });
+                }
+                VInstruction::Pow4 { src, .. } => {
+                    instructions.push(Instruction::Pow4 {
+                        dest: dest_phys,
+                        src: map_vreg(src),
+                    });
+                }
+                VInstruction::Pow3_2 { src, .. } => {
+                    instructions.push(Instruction::Pow3_2 {
+                        dest: dest_phys,
+                        src: map_vreg(src),
+                    });
+                }
+                VInstruction::InvPow3_2 { src, .. } => {
+                    instructions.push(Instruction::InvPow3_2 {
+                        dest: dest_phys,
+                        src: map_vreg(src),
+                    });
+                }
+                VInstruction::InvSqrt { src, .. } => {
+                    instructions.push(Instruction::InvSqrt {
+                        dest: dest_phys,
+                        src: map_vreg(src),
+                    });
+                }
+                VInstruction::InvSquare { src, .. } => {
+                    instructions.push(Instruction::InvSquare {
+                        dest: dest_phys,
+                        src: map_vreg(src),
+                    });
+                }
+                VInstruction::InvCube { src, .. } => {
+                    instructions.push(Instruction::InvCube {
+                        dest: dest_phys,
+                        src: map_vreg(src),
+                    });
+                }
+                VInstruction::Recip { src, .. } => {
+                    instructions.push(Instruction::Recip {
+                        dest: dest_phys,
+                        src: map_vreg(src),
+                    });
+                }
+                VInstruction::Powi { src, n, .. } => {
+                    instructions.push(Instruction::Powi {
+                        dest: dest_phys,
+                        src: map_vreg(src),
+                        n,
+                    });
+                }
+                VInstruction::MulAdd { a, b, c, .. } => {
+                    instructions.push(Instruction::MulAdd {
+                        dest: dest_phys,
+                        a: map_vreg(a),
+                        b: map_vreg(b),
+                        c: map_vreg(c),
+                    });
+                }
+                VInstruction::MulSub { a, b, c, .. } => {
+                    instructions.push(Instruction::MulSub {
+                        dest: dest_phys,
+                        a: map_vreg(a),
+                        b: map_vreg(b),
+                        c: map_vreg(c),
+                    });
+                }
+                VInstruction::NegMulAdd { a, b, c, .. } => {
+                    instructions.push(Instruction::NegMulAdd {
+                        dest: dest_phys,
+                        a: map_vreg(a),
+                        b: map_vreg(b),
+                        c: map_vreg(c),
+                    });
+                }
+                VInstruction::PolyEval { x, const_idx, .. } => {
+                    instructions.push(Instruction::PolyEval {
+                        dest: dest_phys,
+                        x: map_vreg(x),
+                        const_idx,
+                    });
+                }
+                VInstruction::RecipExpm1 { src, .. } => {
+                    instructions.push(Instruction::RecipExpm1 {
+                        dest: dest_phys,
+                        src: map_vreg(src),
+                    });
+                }
+                VInstruction::ExpSqr { src, .. } => {
+                    instructions.push(Instruction::ExpSqr {
+                        dest: dest_phys,
+                        src: map_vreg(src),
+                    });
+                }
+                VInstruction::ExpSqrNeg { src, .. } => {
+                    instructions.push(Instruction::ExpSqrNeg {
+                        dest: dest_phys,
+                        src: map_vreg(src),
+                    });
                 }
             }
 
-            // Cache sums/products with 2+ terms or if at least one term is expensive.
-            // This avoids caching trivial 2-term operations where cache overhead
-            // might exceed re-computation cost.
-            ExprKind::Sum(terms) | ExprKind::Product(terms) => {
-                terms.len() >= 2 || terms.iter().any(|t| Self::is_expensive(t))
+            // Free dead temps whose last use was THIS instruction
+            for &t_id in &deaths_at[idx] {
+                let p = temp_to_phys[t_id as usize];
+                if p != u32::MAX {
+                    free_phys.push(p);
+                }
             }
+        }
 
+        if let Some(f_vreg) = self.final_vreg {
+            let src_phys = match f_vreg {
+                VReg::Param(p) => p,
+                VReg::Const(c) => param_count + c,
+                VReg::Temp(t) => temp_to_phys[t as usize],
+            };
+            if src_phys != 0 {
+                instructions.push(Instruction::Copy {
+                    dest: 0,
+                    src: src_phys,
+                });
+            }
+        } else {
+            // Empty expression? Emit a load const 0.0 to 0
+            // Index 0 is guaranteed to be 0.0 because of Compiler::new
+            instructions.push(Instruction::LoadConst {
+                dest: 0,
+                const_idx: 0,
+            });
+        }
+
+        let register_count = max_phys as usize;
+
+        // return tuple: (instructions, constants, stack_size(now register_count), param_count)
+        (
+            instructions,
+            self.constants,
+            register_count,
+            param_count as usize,
+        )
+    }
+
+    fn compute_expensive_from_children(
+        expr: &Expr,
+        consts: &FxHashMap<*const Expr, Option<f64>>,
+        expensive: &FxHashMap<*const Expr, bool>,
+    ) -> bool {
+        match &expr.kind {
+            ExprKind::FunctionCall { .. } | ExprKind::Div(..) | ExprKind::Poly(_) => true,
+            ExprKind::Pow(base, exp) => {
+                if Self::const_from_map(consts, exp.as_ref())
+                    .is_none_or(|n| (n - n.round()).abs() > EPSILON)
+                {
+                    true
+                } else {
+                    !matches!(base.kind, ExprKind::Number(_))
+                }
+            }
+            ExprKind::Sum(terms) | ExprKind::Product(terms) => {
+                if terms.len() >= 2 {
+                    true
+                } else {
+                    terms
+                        .iter()
+                        .any(|t| expensive.get(&Arc::as_ptr(t)).copied().unwrap_or(false))
+                }
+            }
             _ => false,
         }
     }
 
-    /// Try to evaluate a constant expression at compile time.
-    ///
-    /// Returns `Some(value)` if the expression contains only constants and
-    /// known mathematical functions. Returns `None` if the expression
-    /// contains variables or unsupported operations.
-    ///
-    /// This is a key optimization that eliminates runtime computation for
-    /// constant subexpressions like `2 * pi` or `sin(0)`.
-    /// Internal function for constant folding optimization.
-    pub(crate) fn try_eval_const(expr: &Expr) -> Option<f64> {
+    pub(crate) fn compile_expr(&mut self, expr: &Expr) -> Result<VReg, DiffError> {
+        let node_count = expr.node_count();
+        self.vinstrs.reserve(node_count);
+        #[allow(
+            clippy::integer_division,
+            reason = "Heuristic sizing for reserve; integer division is intentional"
+        )]
+        let const_reserve = node_count / 8 + 8;
+        self.constants.reserve(const_reserve);
+        self.const_map.reserve(const_reserve);
+        #[allow(
+            clippy::integer_division,
+            reason = "Heuristic sizing for reserve; integer division is intentional"
+        )]
+        self.cse_cache.reserve(node_count / 8);
+        let vreg = self.compile_expr_iterative(expr, node_count)?;
+        self.final_vreg = Some(vreg);
+        Ok(vreg)
+    }
+
+    fn const_from_map(consts: &FxHashMap<*const Expr, Option<f64>>, expr: &Expr) -> Option<f64> {
+        consts.get(&std::ptr::from_ref(expr)).copied().flatten()
+    }
+
+    fn vreg_from_map(vregs: &FxHashMap<*const Expr, VReg>, expr: &Expr) -> Result<VReg, DiffError> {
+        vregs
+            .get(&std::ptr::from_ref(expr))
+            .copied()
+            .ok_or_else(|| {
+                DiffError::UnsupportedExpression(
+                    "Internal compile error: missing child vreg".to_owned(),
+                )
+            })
+    }
+
+    fn compute_const_from_children(
+        expr: &Expr,
+        consts: &FxHashMap<*const Expr, Option<f64>>,
+    ) -> Option<f64> {
         match &expr.kind {
             ExprKind::Number(n) => Some(*n),
             ExprKind::Symbol(s) => crate::core::known_symbols::get_constant_value_by_id(s.id()),
             ExprKind::Sum(terms) => {
                 let mut sum = 0.0;
-                for term in terms {
-                    sum += Self::try_eval_const(term)?;
+                for t in terms {
+                    sum += Self::const_from_map(consts, t.as_ref())?;
                 }
                 Some(sum)
             }
             ExprKind::Product(factors) => {
                 let mut product = 1.0;
-                for factor in factors {
-                    product *= Self::try_eval_const(factor)?;
+                for f in factors {
+                    product *= Self::const_from_map(consts, f.as_ref())?;
                 }
                 Some(product)
             }
-            ExprKind::Div(num, den) => {
-                let n = Self::try_eval_const(num)?;
-                let d = Self::try_eval_const(den)?;
-                Some(n / d)
-            }
-            ExprKind::Pow(base, exp) => {
-                let b = Self::try_eval_const(base)?;
-                let e = Self::try_eval_const(exp)?;
-                Some(b.powf(e))
-            }
-            ExprKind::FunctionCall { name, args } => {
-                // Avoid Vec allocation for common 1-2 arg functions
-                match args.len() {
-                    1 => {
-                        let x = Self::try_eval_const(&args[0])?;
-                        let id = name.id();
-                        let ks = &*KS;
-                        if id == ks.sin {
-                            Some(x.sin())
-                        } else if id == ks.cos {
-                            Some(x.cos())
-                        } else if id == ks.tan {
-                            Some(x.tan())
-                        } else if id == ks.exp {
-                            Some(x.exp())
-                        } else if id == ks.ln || id == ks.log {
-                            Some(x.ln())
-                        } else if id == ks.sqrt {
-                            Some(x.sqrt())
-                        } else if id == ks.abs {
-                            Some(x.abs())
-                        } else if id == ks.floor {
-                            Some(x.floor())
-                        } else if id == ks.ceil {
-                            Some(x.ceil())
-                        } else if id == ks.round {
-                            Some(x.round())
-                        } else {
-                            None
-                        }
+            ExprKind::Div(num, den) => Some(
+                Self::const_from_map(consts, num.as_ref())?
+                    / Self::const_from_map(consts, den.as_ref())?,
+            ),
+            ExprKind::Pow(base, exp) => Some(
+                Self::const_from_map(consts, base.as_ref())?
+                    .powf(Self::const_from_map(consts, exp.as_ref())?),
+            ),
+            ExprKind::FunctionCall { name, args } => match args.len() {
+                1 => {
+                    let x = Self::const_from_map(consts, args[0].as_ref())?;
+                    let id = name.id();
+                    let ks = &*KS;
+                    if id == ks.sin {
+                        Some(x.sin())
+                    } else if id == ks.cos {
+                        Some(x.cos())
+                    } else if id == ks.tan {
+                        Some(x.tan())
+                    } else if id == ks.exp {
+                        Some(x.exp())
+                    } else if id == ks.ln || id == ks.log {
+                        Some(x.ln())
+                    } else if id == ks.sqrt {
+                        Some(x.sqrt())
+                    } else if id == ks.abs {
+                        Some(x.abs())
+                    } else if id == ks.floor {
+                        Some(x.floor())
+                    } else if id == ks.ceil {
+                        Some(x.ceil())
+                    } else if id == ks.round {
+                        Some(x.round())
+                    } else {
+                        None
                     }
-                    2 => {
-                        let a = Self::try_eval_const(&args[0])?;
-                        let b = Self::try_eval_const(&args[1])?;
-                        let id = name.id();
-                        let ks = &*KS;
-                        if id == ks.atan2 {
-                            Some(a.atan2(b))
-                        } else if id == ks.log {
-                            Some(b.log(a))
-                        }
-                        // log(base, x)
-                        else {
-                            None
-                        }
-                    }
-                    _ => None,
                 }
+                2 => {
+                    let a = Self::const_from_map(consts, args[0].as_ref())?;
+                    let b = Self::const_from_map(consts, args[1].as_ref())?;
+                    let id = name.id();
+                    let ks = &*KS;
+                    if id == ks.atan2 {
+                        Some(a.atan2(b))
+                    } else if id == ks.log {
+                        Some(b.log(a))
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    fn negated_inner_vreg(
+        &mut self,
+        term: &Expr,
+        vregs: &FxHashMap<*const Expr, VReg>,
+        consts: &FxHashMap<*const Expr, Option<f64>>,
+    ) -> Option<VReg> {
+        if let ExprKind::Product(factors) = &term.kind {
+            let neg_idx = factors.iter().position(|f| {
+                Self::const_from_map(consts, f.as_ref()).is_some_and(|n| (n + 1.0).abs() < EPSILON)
+            })?;
+            let mut inner_vregs: Vec<VReg> = Vec::new();
+            for (i, f) in factors.iter().enumerate() {
+                if i != neg_idx {
+                    inner_vregs.push(*vregs.get(&Arc::as_ptr(f))?);
+                }
+            }
+            return Some(match inner_vregs.len() {
+                0 => {
+                    let idx = self.add_const(1.0);
+                    VReg::Const(idx)
+                }
+                1 => inner_vregs[0],
+                _ => {
+                    let d = self.alloc_vreg();
+                    self.emit(VInstruction::Mul {
+                        dest: d,
+                        srcs: inner_vregs,
+                    });
+                    d
+                }
+            });
+        }
+        None
+    }
+
+    fn product_two_vregs(
+        term: &Expr,
+        vregs: &FxHashMap<*const Expr, VReg>,
+        consts: &FxHashMap<*const Expr, Option<f64>>,
+    ) -> Option<(VReg, VReg)> {
+        if let ExprKind::Product(factors) = &term.kind
+            && factors.len() == 2
+        {
+            if factors.iter().any(|f| {
+                Self::const_from_map(consts, f.as_ref()).is_some_and(|n| (n + 1.0).abs() < EPSILON)
+            }) {
+                return None;
+            }
+            let a = Self::vreg_from_map(vregs, factors[0].as_ref()).ok()?;
+            let b = Self::vreg_from_map(vregs, factors[1].as_ref()).ok()?;
+            return Some((a, b));
+        }
+        None
+    }
+
+    fn negated_product_two_vregs(
+        term: &Expr,
+        vregs: &FxHashMap<*const Expr, VReg>,
+        consts: &FxHashMap<*const Expr, Option<f64>>,
+    ) -> Option<(VReg, VReg)> {
+        let ExprKind::Product(factors) = &term.kind else {
+            return None;
+        };
+        if factors.len() != 3 {
+            return None;
+        }
+        let mut neg_idx = None;
+        for (i, f) in factors.iter().enumerate() {
+            if Self::const_from_map(consts, f.as_ref()).is_some_and(|n| (n + 1.0).abs() < EPSILON) {
+                if neg_idx.is_some() {
+                    return None;
+                }
+                neg_idx = Some(i);
+            }
+        }
+        let neg_idx = neg_idx?;
+        let mut iter = factors
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| *i != neg_idx)
+            .map(|(_, f)| f);
+        let a = Self::vreg_from_map(vregs, iter.next()?.as_ref()).ok()?;
+        let b = Self::vreg_from_map(vregs, iter.next()?.as_ref()).ok()?;
+        if iter.next().is_some() {
+            return None;
+        }
+        Some((a, b))
+    }
+
+    fn exp_call_arg(expr: &Expr) -> Option<&Expr> {
+        if let ExprKind::FunctionCall { name, args } = &expr.kind
+            && name.id() == KS.exp
+            && args.len() == 1
+        {
+            return Some(args[0].as_ref());
+        }
+        None
+    }
+
+    fn pow2_base<'expr>(
+        expr: &'expr Expr,
+        consts: &FxHashMap<*const Expr, Option<f64>>,
+    ) -> Option<&'expr Expr> {
+        if let ExprKind::Pow(base, exp) = &expr.kind
+            && Self::const_from_map(consts, exp.as_ref()).is_some_and(|n| (n - 2.0).abs() < EPSILON)
+        {
+            return Some(base.as_ref());
+        }
+        None
+    }
+
+    fn recip_expm1_arg<'expr>(
+        den: &'expr Expr,
+        consts: &FxHashMap<*const Expr, Option<f64>>,
+    ) -> Option<&'expr Expr> {
+        let ExprKind::Sum(terms) = &den.kind else {
+            return None;
+        };
+        if terms.len() != 2 {
+            return None;
+        }
+        let a = terms[0].as_ref();
+        let b = terms[1].as_ref();
+
+        let is_neg_one = |expr: &Expr| -> bool {
+            Self::const_from_map(consts, expr).is_some_and(|n| (n + 1.0).abs() < EPSILON)
+        };
+
+        if let Some(arg) = Self::exp_call_arg(a)
+            && is_neg_one(b)
+        {
+            return Some(arg);
+        }
+        if let Some(arg) = Self::exp_call_arg(b)
+            && is_neg_one(a)
+        {
+            return Some(arg);
+        }
+        None
+    }
+
+    fn exp_sqr_arg(
+        arg: &Expr,
+        consts: &FxHashMap<*const Expr, Option<f64>>,
+        vregs: &FxHashMap<*const Expr, VReg>,
+    ) -> Option<(VReg, bool)> {
+        if let Some(base) = Self::pow2_base(arg, consts) {
+            let base_v = Self::vreg_from_map(vregs, base).ok()?;
+            return Some((base_v, false));
+        }
+
+        if let ExprKind::Product(factors) = &arg.kind
+            && factors.len() == 2
+        {
+            let (_neg_idx, other_idx) = if Self::const_from_map(consts, factors[0].as_ref())
+                .is_some_and(|n| (n + 1.0).abs() < EPSILON)
+            {
+                (0, 1)
+            } else if Self::const_from_map(consts, factors[1].as_ref())
+                .is_some_and(|n| (n + 1.0).abs() < EPSILON)
+            {
+                (1, 0)
+            } else {
+                return None;
+            };
+            if let Some(base) = Self::pow2_base(factors[other_idx].as_ref(), consts) {
+                let base_v = Self::vreg_from_map(vregs, base).ok()?;
+                return Some((base_v, true));
+            }
+        }
+
+        None
+    }
+
+    fn compile_exp_neg_arg(
+        &mut self,
+        arg: &Expr,
+        vregs: &FxHashMap<*const Expr, VReg>,
+        consts: &FxHashMap<*const Expr, Option<f64>>,
+    ) -> Option<VReg> {
+        let compile_pos_product = |compiler: &mut Self, factors: &[Arc<Expr>]| -> Option<VReg> {
+            let mut const_total = 1.0_f64;
+            let mut has_const = false;
+            for f in factors {
+                if let Some(c) = Self::const_from_map(consts, f.as_ref()) {
+                    const_total *= c;
+                    has_const = true;
+                }
+            }
+            if !has_const || const_total >= 0.0 || !const_total.is_finite() {
+                return None;
+            }
+            let pos_c = -const_total;
+            let mut vregs_local: Vec<VReg> = Vec::new();
+            for f in factors {
+                if Self::const_from_map(consts, f.as_ref()).is_none() {
+                    vregs_local.push(*vregs.get(&Arc::as_ptr(f))?);
+                }
+            }
+            if (pos_c - 1.0).abs() > EPSILON {
+                let idx = compiler.add_const(pos_c);
+                vregs_local.push(VReg::Const(idx));
+            }
+            Some(match vregs_local.len() {
+                0 => {
+                    let idx = compiler.add_const(pos_c);
+                    VReg::Const(idx)
+                }
+                1 => vregs_local[0],
+                _ => {
+                    let d = compiler.alloc_vreg();
+                    compiler.emit(VInstruction::Mul {
+                        dest: d,
+                        srcs: vregs_local,
+                    });
+                    d
+                }
+            })
+        };
+
+        match &arg.kind {
+            ExprKind::Product(factors) => compile_pos_product(self, factors),
+            ExprKind::Div(num, den) => {
+                if let ExprKind::Product(nf) = &num.kind
+                    && let Some(pos_num) = compile_pos_product(self, nf)
+                {
+                    let den_v = *vregs.get(&Arc::as_ptr(den))?;
+                    let d = self.alloc_vreg();
+                    self.emit(VInstruction::Div {
+                        dest: d,
+                        num: pos_num,
+                        den: den_v,
+                    });
+                    return Some(d);
+                }
+                if let Some(n) = Self::const_from_map(consts, num.as_ref())
+                    && n < 0.0
+                    && n.is_finite()
+                {
+                    let pos_idx = self.add_const(-n);
+                    let den_v = *vregs.get(&Arc::as_ptr(den))?;
+                    let d = self.alloc_vreg();
+                    self.emit(VInstruction::Div {
+                        dest: d,
+                        num: VReg::Const(pos_idx),
+                        den: den_v,
+                    });
+                    return Some(d);
+                }
+                None
             }
             _ => None,
         }
     }
 
-    /// Compile an expression to bytecode.
-    ///
-    /// This is the main compilation entry point for expression AST → bytecode.
-    /// Internal function - external users should use `CompiledEvaluator::compile`.
-    ///
-    /// This is the main compilation entry point. It:
-    /// 1. Handles trivial cases (numbers, symbols) in a fast path
-    /// 2. Checks for CSE cache hits
-    /// 3. Attempts constant folding
-    /// 4. Recursively compiles subexpressions
-    /// 5. Caches expensive subexpressions for CSE
-    ///
-    /// # Errors
-    ///
-    /// Returns errors for:
-    /// - `UnboundVariable`: Symbol not in parameter list and not a known constant
-    /// - `UnboundVariable`: Symbol not in parameter list
-    /// - `UnsupportedFunction`: Unknown function name
-    /// - `UnsupportedExpression`: Derivatives (must be simplified first)
-    // Compilation handles many expression kinds; length is justified
-    #[allow(
-        clippy::too_many_lines,
-        reason = "Compilation handles many expression kinds; length is justified"
-    )]
-    pub(crate) fn compile_expr(&mut self, expr: &Expr) -> Result<(), DiffError> {
-        // Fast path for trivial expressions - skip CSE and constant folding checks
-        match &expr.kind {
-            ExprKind::Number(n) => {
-                let idx = self.add_const(*n);
-                self.emit(Instruction::LoadConst(idx));
-                self.push()?;
-                return Ok(());
-            }
-            ExprKind::Symbol(s) => {
-                let sym_id = s.id();
-                // Handle known constants (pi, e, etc.)
-                if let Some(value) = crate::core::known_symbols::get_constant_value_by_id(sym_id) {
-                    let idx = self.add_const(value);
-                    self.emit(Instruction::LoadConst(idx));
-                    self.push()?;
-                } else if let Some(&idx) = self.param_index.get(&sym_id) {
-                    // O(1) HashMap lookup for parameter index
-                    // Truncation safe: param count bounded by realistic expression size
-                    #[allow(
-                        clippy::cast_possible_truncation,
-                        reason = "Param count bounded by realistic expression size"
-                    )]
-                    self.emit(Instruction::LoadParam(idx as u32));
-                    self.push()?;
-                } else {
-                    return Err(DiffError::UnboundVariable(s.as_str().to_owned()));
-                }
-                return Ok(());
-            }
-            _ => {}
-        }
-
-        // CSE: Check if we've already compiled a structurally identical subexpression
-        // Track if we should cache after compiling (for single-pass CSE)
-        let cache_this = Self::is_expensive(expr);
-
-        // Only check for expensive expressions to avoid HashMap overhead
-        if cache_this && let Some(bucket) = self.cse_cache.get(&expr.hash) {
-            for (cached_expr, slot) in bucket {
-                if cached_expr == expr {
-                    // Cache hit! Load from cache instead of recompiling
-                    // Truncation safe: cache slots bounded by expression complexity
-                    #[allow(
-                        clippy::cast_possible_truncation,
-                        reason = "Cache slots bounded by expression complexity"
-                    )]
-                    self.emit(Instruction::LoadCached(*slot as u32));
-                    self.push()?;
-                    return Ok(());
-                }
-            }
-            // All bucket entries were hash collisions — fall through to recompile
-        }
-
-        // Try constant folding for compound expressions
-        if let Some(value) = Self::try_eval_const(expr) {
-            let idx = self.add_const(value);
-            self.emit(Instruction::LoadConst(idx));
-            self.push()?;
-            return Ok(());
-        }
-
-        match &expr.kind {
-            // Already handled above - these are unreachable as an internal invariant
-            #[allow(
-                clippy::unreachable,
-                reason = "Already handled above - these are unreachable as an internal invariant"
-            )]
-            ExprKind::Number(_) | ExprKind::Symbol(_) => unreachable!(),
-
-            ExprKind::Sum(terms) => {
-                self.compile_sum(terms)?;
-            }
-
-            ExprKind::Product(factors) => {
-                self.compile_product(factors)?;
-            }
-
-            ExprKind::Div(num, den) => {
-                self.compile_division(num, den)?;
-            }
-
-            ExprKind::Pow(base, exp) => {
-                self.compile_power(base, exp)?;
-            }
-
-            ExprKind::FunctionCall { name, args } => {
-                self.compile_function_call(name, args)?;
-            }
-
-            ExprKind::Poly(poly) => {
-                self.compile_polynomial(poly)?;
-            }
-
-            ExprKind::Derivative { .. } => {
-                return Err(DiffError::UnsupportedExpression(
-                    "Derivatives cannot be numerically evaluated - simplify first".to_owned(),
-                ));
-            }
-        }
-
-        // CSE: If this subexpression should be cached, emit StoreCached and record it
-        if cache_this {
-            let slot = self.cache_size;
-            self.cache_size += 1;
-            // Truncation safe: cache slots bounded by expression complexity
-            #[allow(
-                clippy::cast_possible_truncation,
-                reason = "Cache slots bounded by expression complexity"
-            )]
-            self.emit(Instruction::StoreCached(slot as u32));
-            self.cse_cache
-                .entry(expr.hash)
-                .or_default()
-                .push((expr.clone(), slot));
-        }
-
-        Ok(())
-    }
-
-    /// Compile a sum expression: `a + b + c + ...`
-    ///
-    /// This method is **iterative** — `compile_sum` never recurses into itself.
-    /// Individual terms are compiled via `compile_expr` (bounded by tree depth,
-    /// not term count), so this is safe for sums with millions of terms.
-    ///
-    /// # Strategy: "emit-all-then-fold"
-    ///
-    /// To get optimal MulAdd/NegMulAdd fusion *without* Swap overhead, we emit
-    /// all product factor-pairs first, then base terms, then fold with
-    /// MulAdd/NegMulAdd in reverse order.  This produces the **same bytecode**
-    /// as the old recursive approach.
-    ///
-    /// # Pattern Detection
-    ///
-    /// - `exp(x) + (−1)` → `Expm1` (pre-scan)
-    /// - `a*b − c` (2-term) → `MulSub`
-    /// - Product terms → `MulAdd` / `NegMulAdd` (via emit-all-then-fold)
-    /// - `(−1)*x` → `Sub`
-    #[allow(
-        clippy::too_many_lines,
-        reason = "Iterative sum compilation with pattern detection"
-    )]
-    fn compile_sum(&mut self, terms: &[Arc<Expr>]) -> Result<(), DiffError> {
-        if terms.is_empty() {
-            let idx = self.add_const(0.0);
-            self.emit(Instruction::LoadConst(idx));
-            self.push()?;
-            return Ok(());
-        }
-
-        if terms.len() == 1 {
-            return self.compile_expr(&terms[0]);
-        }
-
-        // ── Pre-scan for Expm1: exp(x) + (−1) ──────────────────────────
-        let mut expm1_idx = None;
-        let mut neg_one_idx = None;
-
-        for (i, term) in terms.iter().enumerate() {
-            if let ExprKind::FunctionCall { name, args } = &term.kind {
-                if name.id() == KS.exp && args.len() == 1 {
-                    expm1_idx = Some(i);
-                }
-            } else if let Some(n) = Self::try_eval_const(term)
-                && (n - -1.0).abs() < EPSILON
-            {
-                neg_one_idx = Some(i);
-            }
-        }
-
-        if let (Some(e_idx), Some(n_idx)) = (expm1_idx, neg_one_idx)
-            && let ExprKind::FunctionCall { args, .. } = &terms[e_idx].kind
-        {
-            self.compile_expr(&args[0])?;
-            self.emit(Instruction::Expm1);
-
-            let remainder: Vec<_> = terms
-                .iter()
-                .enumerate()
-                .filter(|(i, _)| *i != e_idx && *i != n_idx)
-                .map(|(_, t)| Arc::clone(t))
-                .collect();
-
-            if !remainder.is_empty() {
-                self.compile_sum_optimal(&remainder)?;
-                self.emit(Instruction::Add);
-                self.pop();
-            }
-            return Ok(());
-        }
-
-        // ── 2-term MulSub: a*b − c ─────────────────────────────────────
-        if terms.len() == 2 {
-            let (pos_idx, neg_idx) = if Self::is_negated_term(&terms[1]) {
-                (0, 1)
-            } else if Self::is_negated_term(&terms[0]) {
-                (1, 0)
-            } else {
-                (usize::MAX, usize::MAX)
-            };
-
-            if pos_idx != usize::MAX
-                && let ExprKind::Product(pos_factors) = &terms[pos_idx].kind
-                && pos_factors.len() == 2
-                && let Some(neg_inner) = Self::negated_inner(&terms[neg_idx])
-            {
-                self.compile_expr(&pos_factors[0])?;
-                self.compile_expr(&pos_factors[1])?;
-                self.compile_expr(neg_inner)?;
-                self.emit(Instruction::MulSub);
-                self.pop();
-                self.pop();
-                return Ok(());
-            }
-
-            // Generic 2-term subtraction: a + (-b) -> a - b
-            if pos_idx != usize::MAX
-                && let Some(neg_inner) = Self::negated_inner(&terms[neg_idx])
-            {
-                self.compile_expr(&terms[pos_idx])?;
-                self.compile_expr(neg_inner)?;
-                self.emit(Instruction::Sub);
-                self.pop();
-                return Ok(());
-            }
-        }
-
-        // ── Main iterative compilation ──────────────────────────────────
-        self.compile_sum_optimal(terms)
-    }
-
-    /// Emit-all-then-fold: generates the same bytecode as the old recursive
-    /// `compile_sum` without O(N) OS recursion.
-    ///
-    /// 1. **Classify** terms into *fused* (products → MulAdd/NegMulAdd) and
-    ///    *base* (everything else → Add/Sub).
-    /// 2. **Emit factor pairs** for every fused term (each pushes 2 values).
-    /// 3. **Emit base terms** (folded with Add/Sub into a single value).
-    /// 4. **Fold** with MulAdd/NegMulAdd in reverse order.
-    ///
-    /// The evaluator stack depth is the same as the old recursive approach
-    /// (O(products + bases)), and no Swap instructions are emitted.
-    #[allow(
-        clippy::too_many_lines,
-        reason = "Iterative sum compilation with emit-all-then-fold strategy"
-    )]
-    fn compile_sum_optimal(&mut self, terms: &[Arc<Expr>]) -> Result<(), DiffError> {
-        debug_assert!(!terms.is_empty());
-
-        // ── 1. Classify terms ───────────────────────────────────────────
-        //
-        // fused: products with 2+ real factors → MulAdd / NegMulAdd
-        // base:  everything else                → Add / Sub
-        let mut fused_indices: Vec<usize> = Vec::new();
-        let mut base_indices: Vec<usize> = Vec::new();
-
-        for (i, term) in terms.iter().enumerate() {
-            if let ExprKind::Product(factors) = &term.kind
-                && factors.len() >= 2
-            {
-                // (-1)*x is a simple negation, not a fusable product
-                let is_simple_neg = factors.len() == 2
-                    && Self::try_eval_const(&factors[0]).is_some_and(|n| (n + 1.0).abs() < EPSILON);
-
-                if is_simple_neg {
-                    base_indices.push(i);
-                } else {
-                    fused_indices.push(i);
-                }
-            } else {
-                base_indices.push(i);
-            }
-        }
-
-        // Fast path: no products to fuse → simple iterative Add/Sub
-        if fused_indices.is_empty() {
-            self.compile_expr(&terms[base_indices[0]])?;
-            for &idx in &base_indices[1..] {
-                self.compile_sum_base_term(&terms[idx])?;
-            }
-            return Ok(());
-        }
-
-        // ── 2. Emit factor pairs for all fused terms ────────────────────
-        //
-        // Each fused term pushes exactly 2 values (head, tail).
-        // `fused_neg[i]` records whether the i-th fused term is negated.
-        let mut fused_neg: Vec<bool> = Vec::with_capacity(fused_indices.len());
-
-        for &idx in &fused_indices {
-            let ExprKind::Product(factors) = &terms[idx].kind else {
-                // SAFETY: We only push to fused_indices when the term matches ExprKind::Product
-                #[allow(
-                    clippy::unreachable,
-                    reason = "Invariant: fused_indices only contains Product terms"
-                )]
-                {
-                    unreachable!("Classified as fused but not Product")
-                }
-            };
-
-            // Strip leading -1 if present
-            let (real_factors, neg) =
-                if Self::try_eval_const(&factors[0]).is_some_and(|n| (n + 1.0).abs() < EPSILON) {
-                    (&factors[1..], true)
-                } else {
-                    (&factors[..], false)
-                };
-
-            fused_neg.push(neg);
-
-            // Emit head (all real factors except last) and tail (last factor)
-            if real_factors.len() == 2 {
-                self.compile_expr(&real_factors[0])?;
-                self.compile_expr(&real_factors[1])?;
-            } else {
-                let head = Expr::product_from_arcs(real_factors[..real_factors.len() - 1].to_vec());
-                self.compile_expr(&head)?;
-                self.compile_expr(&real_factors[real_factors.len() - 1])?;
-            }
-        }
-
-        // ── 3. Emit base terms (the addend for the innermost MulAdd) ────
-        if base_indices.is_empty() {
-            // No base terms: the last fused term uses Mul instead of MulAdd
-            let last_neg = fused_neg
-                .pop()
-                .expect("compile_sum_optimal: at least one fused term");
-            self.emit(Instruction::Mul);
-            self.pop();
-            if last_neg {
-                self.emit(Instruction::Neg);
-            }
-        } else {
-            // First base term compiled directly
-            self.compile_expr(&terms[base_indices[0]])?;
-            // Remaining base terms folded with Add/Sub
-            for &idx in &base_indices[1..] {
-                self.compile_sum_base_term(&terms[idx])?;
-            }
-        }
-
-        // ── 4. Fold with MulAdd/NegMulAdd (inner → outer = reverse) ────
-        for &neg in fused_neg.iter().rev() {
-            if neg {
-                self.emit(Instruction::NegMulAdd);
-            } else {
-                self.emit(Instruction::MulAdd);
-            }
-            self.pop();
-            self.pop();
-        }
-
-        Ok(())
-    }
-
-    /// Emit a single base term and combine with the accumulator on the stack.
-    ///
-    /// Detects `(−1)*x` → `Sub`, otherwise `Add`.
-    fn compile_sum_base_term(&mut self, term: &Expr) -> Result<(), DiffError> {
-        if let ExprKind::Product(factors) = &term.kind
-            && factors.len() == 2
-            && Self::try_eval_const(&factors[0]).is_some_and(|n| (n + 1.0).abs() < EPSILON)
-        {
-            self.compile_expr(&factors[1])?;
-            self.emit(Instruction::Sub);
-        } else {
-            self.compile_expr(term)?;
-            self.emit(Instruction::Add);
-        }
-        self.pop();
-        Ok(())
-    }
-
-    /// Check whether a term is negated: `(−1) * something`.
-    fn is_negated_term(term: &Expr) -> bool {
-        if let ExprKind::Product(factors) = &term.kind
-            && factors.len() == 2
-        {
-            Self::try_eval_const(&factors[0]).is_some_and(|n| (n + 1.0).abs() < EPSILON)
-        } else {
-            false
-        }
-    }
-
-    /// Extract the inner expression from a negated term `(−1) * x` → `x`.
-    fn negated_inner(term: &Expr) -> Option<&Expr> {
-        if let ExprKind::Product(factors) = &term.kind
-            && factors.len() == 2
-            && Self::try_eval_const(&factors[0]).is_some_and(|n| (n + 1.0).abs() < EPSILON)
-        {
-            Some(&factors[1])
-        } else {
-            None
-        }
-    }
-
-    /// Compile a product expression: `a * b * c * ...`
-    fn compile_product(&mut self, factors: &[Arc<Expr>]) -> Result<(), DiffError> {
-        if factors.is_empty() {
-            let idx = self.add_const(1.0);
-            self.emit(Instruction::LoadConst(idx));
-            self.push()?;
-            return Ok(());
-        }
-
-        // Constant folding: Accumulate all constant factors
-        let mut constant_acc = 1.0;
-        let mut variable_factors = Vec::with_capacity(factors.len());
-
-        for factor in factors {
-            if let Some(c) = Self::try_eval_const(factor) {
-                constant_acc *= c;
-            } else {
-                variable_factors.push(Arc::clone(factor));
-            }
-        }
-
-        // Group identical variable factors to use Square/Cube/Pow4
-        let mut grouped: Vec<(Arc<Expr>, usize)> = Vec::with_capacity(variable_factors.len());
-        for factor in &variable_factors {
-            if let Some(existing) = grouped.iter_mut().find(|(e, _)| e == factor) {
-                existing.1 += 1;
-            } else {
-                grouped.push((Arc::clone(factor), 1));
-            }
-        }
-
-        let mut first = true;
-        let mut negate_at_end = false;
-
-        // Compile variable factors first
-        for (expr, count) in grouped {
-            self.compile_expr_with_count(&expr, count)?;
-
-            if !first {
-                self.emit(Instruction::Mul);
-                self.pop();
-            }
-            first = false;
-        }
-
-        // Handle the constant part at the end (enables MulConst fusion)
-        if (constant_acc - 1.0).abs() > EPSILON {
-            if (constant_acc - -1.0).abs() < EPSILON {
-                // Defer negation to the end (saving a LoadConst + Mul)
-                negate_at_end = true;
-            } else {
-                let idx = self.add_const(constant_acc);
-                if first {
-                    self.emit(Instruction::LoadConst(idx));
-                    self.push()?;
-                } else {
-                    self.emit(Instruction::MulConst(idx));
-                }
-                first = false;
-            }
-        }
-
-        // If we haven't emitted anything yet (e.g. factors were empty or just 1.0),
-        // we must emit something.
-        if first {
-            let idx = self.add_const(1.0);
-            self.emit(Instruction::LoadConst(idx));
-            self.push()?;
-        }
-
-        if negate_at_end {
-            self.emit(Instruction::Neg);
-        }
-
-        Ok(())
-    }
-
-    /// Helper to compile an expression effectively raised to a small integer power.
-    fn compile_expr_with_count(&mut self, expr: &Expr, count: usize) -> Result<(), DiffError> {
-        match count {
-            1 => self.compile_expr(expr),
-            2 => {
-                self.compile_expr(expr)?;
-                self.emit(Instruction::Square);
-                Ok(())
-            }
-            3 => {
-                self.compile_expr(expr)?;
-                self.emit(Instruction::Cube);
-                Ok(())
-            }
-            4 => {
-                self.compile_expr(expr)?;
-                self.emit(Instruction::Pow4);
-                Ok(())
-            }
-            _ => {
-                self.compile_expr(expr)?;
-                // Truncation safe: we only group up to realistic powers
-                #[allow(
-                    clippy::cast_possible_truncation,
-                    clippy::cast_possible_wrap,
-                    reason = "We only group up to realistic powers"
-                )]
-                self.emit(Instruction::Powi(count as i32));
-                Ok(())
-            }
-        }
-    }
-
-    /// Compile a division expression with removable singularity detection.
-    ///
-    /// Detects patterns like:
-    /// - `E/E → 1` (handles `x/x`, `sin(x)/sin(x)`, etc.)
-    /// - `sin(E)/E → sinc(E)` (handles removable singularity at 0)
-    /// - `E/C → E * (1/C)` (where C is a non-zero constant)
-    fn compile_division(&mut self, num: &Expr, den: &Expr) -> Result<(), DiffError> {
-        // Pattern 1: E/E → 1 (handles x/x, sin(x)/sin(x)`, etc.)
-        if num == den {
-            let idx = self.add_const(1.0);
-            self.emit(Instruction::LoadConst(idx));
-            self.push()?;
-            return Ok(());
-        }
-
-        // Pattern 1b: (-E)/D -> -(E/D)
-        // Emitting Neg after Div enables downstream fusions such as Neg + Exp -> ExpNeg.
-        if let Some(inner) = Self::negated_inner(num) {
-            self.compile_expr(inner)?;
-            self.compile_expr(den)?;
-            self.emit(Instruction::Div);
-            self.pop();
-            self.emit(Instruction::Neg);
-            return Ok(());
-        }
-
-        // Pattern 2: sin(E)/E → sinc(E) (already handles E=0 → 1)
-        // args[0] is Arc<Expr>, *args[0] derefs to Expr, compare with *den
-        match &num.kind {
-            ExprKind::FunctionCall { name, args }
-                if name.id() == KS.sin && args.len() == 1 && args[0].as_ref() == den =>
-            {
-                self.compile_expr(den)?;
-                self.emit(Instruction::Sinc);
-                return Ok(());
-            }
-            _ => {}
-        }
-
-        // Optimization: 1 / (exp(x) - 1) -> RecipExpm1(x)
-        if let ExprKind::Number(n) = num.kind
-            && (n - 1.0).abs() < EPSILON
-        {
-            // Check if den is exp(x) - 1 or sum with exp(x) and -1
-            let mut expm1_arg = None;
-
-            if let ExprKind::Sum(terms) = &den.kind {
-                // Look for exp(x) and -1.0
-                let mut has_neg_one = false;
-                let mut exp_arg = None;
-
-                // Usually sum has 2 terms: exp(x) and -1
-                if terms.len() == 2 {
-                    for term in terms {
-                        if let ExprKind::Number(term_n) = term.kind {
-                            if (term_n - -1.0).abs() < EPSILON {
-                                has_neg_one = true;
-                            }
-                        } else if let ExprKind::FunctionCall { name, args } = &term.kind
-                            && name.id() == KS.exp
-                            && args.len() == 1
-                        {
-                            exp_arg = Some(&args[0]);
-                        }
-                    }
-                }
-
-                if has_neg_one && exp_arg.is_some() {
-                    expm1_arg = exp_arg;
-                }
-            }
-
-            if let Some(arg) = expm1_arg {
-                self.compile_expr(arg)?;
-                self.emit(Instruction::RecipExpm1);
-                return Ok(());
-            }
-        }
-
-        // Optimization: num / exp(x) -> num * exp(-x)
-        // Only apply if num is constant to avoid duplicating exp computation
-        // (e.g. if num contains exp(x), we'd compute exp(x) and exp(-x))
-        let mut exp_neg_arg = None;
-        if Self::try_eval_const(num).is_some() {
-            if let ExprKind::FunctionCall { name, args } = &den.kind
-                && name.id() == KS.exp
-                && args.len() == 1
-            {
-                exp_neg_arg = Some(&args[0]);
-            } else if let ExprKind::Pow(base, exp) = &den.kind
-                && let Some(val) = Self::try_eval_const(base)
-                && (val - std::f64::consts::E).abs() < EPSILON
-            {
-                exp_neg_arg = Some(exp);
-            }
-        }
-
-        if let Some(arg) = exp_neg_arg {
-            self.compile_expr(num)?;
-            self.compile_expr(arg)?;
-            self.emit(Instruction::ExpNeg);
-            self.emit(Instruction::Mul);
-            self.pop(); // Mul pops 1 more than it pushes relative to stack growth of 2
-            return Ok(());
-        }
-
-        // Optimization: E / C -> E * (1/C)
-        // Multiplication is generally faster than division on most CPUs
-        if let Some(val) = Self::try_eval_const(den).filter(|&v| v != 0.0) {
-            self.compile_expr(num)?;
-            let idx = self.add_const(1.0 / val);
-            self.emit(Instruction::MulConst(idx));
-            return Ok(());
-        }
-
-        // No pattern matched - compile normal division
-        self.compile_expr(num)?;
-        self.compile_expr(den)?;
-        self.emit(Instruction::Div);
-        self.pop();
-        Ok(())
-    }
-
-    /// Compile a power expression with fused instruction optimization.
-    ///
-    /// Detects special cases for efficient evaluation:
-    /// - `x^0 → 1` (constant fold)
-    /// - `x^1 → x` (identity)
-    /// - `x^2 → Square`
-    /// - `x^3 → Cube`
-    /// - `x^4 → Pow4`
-    /// - `x^-1 → Recip`
-    /// - `x^-2 → Square; Recip`
-    /// - `x^n` for small n → `Powi(n)`
-    /// - `x^0.5 → Sqrt`
-    /// - `x^-0.5 → Sqrt; Recip`
-    ///
-    /// TODO: Root2k(k) for successive hardware sqrts (e.g. x^1/4, x^1/8).
-    #[allow(
-        clippy::too_many_lines,
-        reason = "Handles many specific power optimization cases"
-    )]
-    fn compile_power(&mut self, base: &Expr, exp: &Expr) -> Result<(), DiffError> {
-        // Optimization: e^x -> Exp(x)
-        if let Some(base_val) = Self::try_eval_const(base)
-            && (base_val - std::f64::consts::E).abs() < EPSILON
-        {
-            // Check for e^(-x) -> ExpNeg(x)
-            // -x is represented as Product([-1, x])
-            if let ExprKind::Product(factors) = &exp.kind
-                && factors.len() == 2
-                && let Some(c) = Self::try_eval_const(&factors[0])
-                && (c - -1.0).abs() < EPSILON
-            {
-                self.compile_expr(&factors[1])?;
-                self.emit(Instruction::ExpNeg);
-                return Ok(());
-            }
-
-            self.compile_expr(exp)?;
-            self.emit(Instruction::Exp);
-            return Ok(());
-        }
-
-        // Check for fused instruction patterns with integer/half exponents
-        // Optimization: use try_eval_const to catch rational exponents like 3/2
-        if let Some(n_val) = Self::try_eval_const(exp) {
-            let n_rounded = n_val.round();
-            let is_integer = (n_val - n_rounded).abs() < EPSILON;
-
-            if is_integer {
-                // Truncation safe: checked by is_integer and i32 bounds below
-                #[allow(
-                    clippy::cast_possible_truncation,
-                    reason = "Checked by is_integer and i32 bounds below"
-                )]
-                let n_int = n_rounded as i64;
-                match n_int {
-                    0 => {
-                        // x^0 = 1 (constant fold)
-                        let idx = self.add_const(1.0);
-                        self.emit(Instruction::LoadConst(idx));
-                        self.push()?;
-                        return Ok(());
-                    }
-                    1 => {
-                        // x^1 = x (just compile base)
-                        self.compile_expr(base)?;
-                        return Ok(());
-                    }
-                    2 => {
-                        self.compile_expr(base)?;
-                        self.emit(Instruction::Square);
-                        return Ok(());
-                    }
-                    3 => {
-                        self.compile_expr(base)?;
-                        self.emit(Instruction::Cube);
-                        return Ok(());
-                    }
-                    4 => {
-                        self.compile_expr(base)?;
-                        self.emit(Instruction::Pow4);
-                        return Ok(());
-                    }
-                    8 => {
-                        self.compile_expr(base)?;
-                        // x^8 = ((x^2)^2)^2
-                        self.emit(Instruction::Square);
-                        self.emit(Instruction::Square);
-                        self.emit(Instruction::Square);
-                        return Ok(());
-                    }
-                    16 => {
-                        self.compile_expr(base)?;
-                        // x^16 = (((x^2)^2)^2)^2
-                        self.emit(Instruction::Square);
-                        self.emit(Instruction::Square);
-                        self.emit(Instruction::Square);
-                        self.emit(Instruction::Square);
-                        return Ok(());
-                    }
-                    -1 => {
-                        self.compile_expr(base)?;
-                        self.emit(Instruction::Recip);
-                        return Ok(());
-                    }
-                    -2 => {
-                        self.compile_expr(base)?;
-                        self.emit(Instruction::InvSquare);
-                        return Ok(());
-                    }
-                    -3 => {
-                        self.compile_expr(base)?;
-                        self.emit(Instruction::InvCube);
-                        return Ok(());
-                    }
-                    _ => {
-                        // Use powi for all other integers within i32 range
-                        if let Ok(n_i32) = i32::try_from(n_int) {
-                            self.compile_expr(base)?;
-                            self.emit(Instruction::Powi(n_i32));
-                            return Ok(());
-                        }
-                    }
-                }
-            } else if (n_val - 0.5).abs() < EPSILON {
-                // x^0.5 → Sqrt
-                self.compile_expr(base)?;
-                self.emit(Instruction::Sqrt);
-                return Ok(());
-            } else if (n_val - 0.25).abs() < EPSILON {
-                // x^0.25 → Sqrt; Sqrt
-                self.compile_expr(base)?;
-                self.emit(Instruction::Sqrt);
-                self.emit(Instruction::Sqrt);
-                return Ok(());
-            } else if (n_val - 0.125).abs() < EPSILON {
-                // x^0.125 → Sqrt; Sqrt; Sqrt
-                self.compile_expr(base)?;
-                self.emit(Instruction::Sqrt);
-                self.emit(Instruction::Sqrt);
-                self.emit(Instruction::Sqrt);
-                return Ok(());
-            } else if (n_val + 0.5).abs() < EPSILON {
-                // x^-0.5 → InvSqrt
-                self.compile_expr(base)?;
-                self.emit(Instruction::InvSqrt);
-                return Ok(());
-            } else if (n_val - 1.5).abs() < EPSILON {
-                // x^1.5 → Pow3_2
-                self.compile_expr(base)?;
-                self.emit(Instruction::Pow3_2);
-                return Ok(());
-            } else if (n_val + 1.5).abs() < EPSILON {
-                // x^-1.5 → InvPow3_2
-                self.compile_expr(base)?;
-                self.emit(Instruction::InvPow3_2);
-                return Ok(());
-            } else if (n_val - (1.0 / 3.0)).abs() < EPSILON {
-                // x^(1/3) → Cbrt
-                self.compile_expr(base)?;
-                self.emit(Instruction::Cbrt);
-                return Ok(());
-            }
-        }
-
-        // General case: use Pow instruction
-        self.compile_expr(base)?;
-        self.compile_expr(exp)?;
-        self.emit(Instruction::Pow);
-        self.pop();
-        Ok(())
-    }
-
-    /// Compile a function call expression.
-    ///
-    /// Maps function names to corresponding bytecode instructions.
-    /// Handles arity for multi-argument functions by popping extra operands.
-    fn compile_function_call(
-        &mut self,
-        func_name: &InternedSymbol,
-        args: &[Arc<Expr>],
-    ) -> Result<(), DiffError> {
-        let id = func_name.id();
-        let arity = args.len();
-        let ks = &*KS;
-
-        // Optimizations: Log1p, ExpNeg, ExpSqr, ExpSqrNeg
-        // These MUST run before we compile arguments to avoid leaking stack
-        if arity == 1 {
-            // ln(1 + x) -> Log1p(x)
-            if id == ks.ln
-                && let ExprKind::Sum(terms) = &args[0].kind
-                && terms.len() == 2
-            {
-                let (t0, t1) = (&terms[0], &terms[1]);
-                // Check if t0 is 1.0
-                if let Some(n) = Self::try_eval_const(t0)
-                    && (n - 1.0).abs() < EPSILON
-                {
-                    self.compile_expr(t1)?;
-                    self.emit(Instruction::Log1p);
-                    return Ok(());
-                }
-                // Check if t1 is 1.0
-                if let Some(n) = Self::try_eval_const(t1)
-                    && (n - 1.0).abs() < EPSILON
-                {
-                    self.compile_expr(t0)?;
-                    self.emit(Instruction::Log1p);
-                    return Ok(());
-                }
-            }
-
-            // exp optimizations
-            if id == ks.exp {
-                // Check for -x, -x^2, or x^2
-                if let ExprKind::Product(factors) = &args[0].kind {
-                    let neg_idx = factors.iter().position(|f| {
-                        Self::try_eval_const(f).is_some_and(|n| (n + 1.0).abs() < EPSILON)
-                    });
-
-                    if let Some(idx) = neg_idx {
-                        // It's exp(- (...))
-                        // If it's exp(-x^2), use ExpSqrNeg
-                        if factors.len() == 2 {
-                            let other = if idx == 0 { &factors[1] } else { &factors[0] };
-                            if let ExprKind::Pow(base, exp) = &other.kind
-                                && Self::try_eval_const(exp) == Some(2.0)
-                            {
-                                self.compile_expr(base)?;
-                                self.emit(Instruction::ExpSqrNeg);
-                                return Ok(());
-                            }
-                        }
-
-                        // General exp(-product)
-                        let mut remainder = factors.clone();
-                        remainder.remove(idx);
-                        if remainder.len() == 1 {
-                            self.compile_expr(&remainder[0])?;
-                        } else {
-                            self.compile_product(&remainder)?;
-                        }
-                        self.emit(Instruction::ExpNeg);
-                        return Ok(());
-                    }
-                } else if let ExprKind::Div(num, den) = &args[0].kind {
-                    // Check if numerator is negated
-                    if let ExprKind::Product(factors) = &num.kind {
-                        let neg_idx = factors.iter().position(|f| {
-                            Self::try_eval_const(f).is_some_and(|n| (n + 1.0).abs() < EPSILON)
-                        });
-
-                        if let Some(idx) = neg_idx {
-                            // exp(-(num_rest / den))
-                            let mut remainder = factors.clone();
-                            remainder.remove(idx);
-                            if remainder.len() == 1 {
-                                self.compile_expr(&remainder[0])?;
-                            } else {
-                                self.compile_product(&remainder)?;
-                            }
-                            self.compile_expr(den)?;
-                            self.emit(Instruction::Div);
-                            self.pop();
-                            self.emit(Instruction::ExpNeg);
-                            return Ok(());
-                        }
-                    }
-                } else if let ExprKind::Pow(base, exp) = &args[0].kind
-                    && Self::try_eval_const(exp) == Some(2.0)
-                {
-                    // exp(x^2) -> ExpSqr(x)
-                    self.compile_expr(base)?;
-                    self.emit(Instruction::ExpSqr);
-                    return Ok(());
-                }
-            }
-        }
-
-        // Compile arguments first (in order for proper stack layout)
-        for arg in args {
-            self.compile_expr(arg)?;
-        }
-
-        match arity {
-            1 => self.compile_unary_function(func_name),
-            2 => self.compile_binary_function(func_name),
-            3 => self.compile_ternary_function(func_name),
-            4 => self.compile_quaternary_function(func_name),
-            _ => self.compile_unknown_function(func_name, arity),
-        }
-    }
-
-    /// Compile a unary function call (1 argument).
-    #[allow(
-        clippy::too_many_lines,
-        reason = "Dispatch table mapping 50+ function names to instructions"
-    )]
-    fn compile_unary_function(&mut self, func_name: &InternedSymbol) -> Result<(), DiffError> {
-        let id = func_name.id();
-        let ks = &*KS;
-
-        let instr = if id == ks.sin {
-            Instruction::Sin
-        } else if id == ks.cos {
-            Instruction::Cos
-        } else if id == ks.tan {
-            Instruction::Tan
-        } else if id == ks.asin {
-            Instruction::Asin
-        } else if id == ks.acos {
-            Instruction::Acos
-        } else if id == ks.atan {
-            Instruction::Atan
-        } else if id == ks.cot {
-            // cot(x) = 1/tan(x)
-            self.emit(Instruction::Tan);
-            Instruction::Recip
-        } else if id == ks.sec {
-            // sec(x) = 1/cos(x)
-            self.emit(Instruction::Cos);
-            Instruction::Recip
-        } else if id == ks.csc {
-            // csc(x) = 1/sin(x)
-            self.emit(Instruction::Sin);
-            Instruction::Recip
-        } else if id == ks.acot {
-            Instruction::Acot
-        } else if id == ks.asec {
-            // asec(x) = acos(1/x)
-            self.emit(Instruction::Recip);
-            Instruction::Acos
-        } else if id == ks.acsc {
-            // acsc(x) = asin(1/x)
-            self.emit(Instruction::Recip);
-            Instruction::Asin
-        }
-        // Hyperbolic
-        else if id == ks.sinh {
-            Instruction::Sinh
-        } else if id == ks.cosh {
-            Instruction::Cosh
-        } else if id == ks.tanh {
-            Instruction::Tanh
-        } else if id == ks.asinh {
-            Instruction::Asinh
-        } else if id == ks.acosh {
-            Instruction::Acosh
-        } else if id == ks.atanh {
-            Instruction::Atanh
-        } else if id == ks.coth {
-            // coth(x) = 1/tanh(x)
-            self.emit(Instruction::Tanh);
-            Instruction::Recip
-        } else if id == ks.sech {
-            // sech(x) = 1/cosh(x)
-            self.emit(Instruction::Cosh);
-            Instruction::Recip
-        } else if id == ks.csch {
-            // csch(x) = 1/sinh(x)
-            self.emit(Instruction::Sinh);
-            Instruction::Recip
-        } else if id == ks.acoth {
-            // acoth(x) = atanh(1/x)
-            self.emit(Instruction::Recip);
-            Instruction::Atanh
-        } else if id == ks.asech {
-            // asech(x) = acosh(1/x)
-            self.emit(Instruction::Recip);
-            Instruction::Acosh
-        } else if id == ks.acsch {
-            // acsch(x) = asinh(1/x)
-            self.emit(Instruction::Recip);
-            Instruction::Asinh
-        }
-        // Exponential
-        else if id == ks.exp {
-            Instruction::Exp
-        } else if id == ks.ln {
-            Instruction::Ln
-        } else if id == ks.log10 {
-            // log10(x) = ln(x) * (1/ln(10))
-            self.emit(Instruction::Ln);
-            let idx = self.add_const(std::f64::consts::LOG10_E); // 1/ln(10)
-            self.emit(Instruction::LoadConst(idx));
-            self.push()?;
-            self.emit(Instruction::Mul);
-            self.pop();
-            return Ok(());
-        } else if id == ks.log2 {
-            // log2(x) = ln(x) * (1/ln(2))
-            self.emit(Instruction::Ln);
-            let idx = self.add_const(std::f64::consts::LOG2_E); // 1/ln(2)
-            self.emit(Instruction::LoadConst(idx));
-            self.push()?;
-            self.emit(Instruction::Mul);
-            self.pop();
-            return Ok(());
-        } else if id == ks.sqrt {
-            Instruction::Sqrt
-        } else if id == ks.cbrt {
-            Instruction::Cbrt
-        }
-        // Special
-        else if id == ks.abs {
-            Instruction::Abs
-        } else if id == ks.signum || id == ks.sign || id == ks.sgn {
-            Instruction::Signum
-        } else if id == ks.floor {
-            Instruction::Floor
-        } else if id == ks.ceil {
-            Instruction::Ceil
-        } else if id == ks.round {
-            Instruction::Round
-        } else if id == ks.erf {
-            Instruction::Erf
-        } else if id == ks.erfc {
-            Instruction::Erfc
-        } else if id == ks.gamma {
-            Instruction::Gamma
-        } else if id == ks.digamma {
-            Instruction::Digamma
-        } else if id == ks.trigamma {
-            Instruction::Trigamma
-        } else if id == ks.tetragamma {
-            Instruction::Tetragamma
-        } else if id == ks.sinc {
-            Instruction::Sinc
-        } else if id == ks.lambertw {
-            Instruction::LambertW
-        } else if id == ks.elliptic_k {
-            Instruction::EllipticK
-        } else if id == ks.elliptic_e {
-            Instruction::EllipticE
-        } else if id == ks.zeta {
-            Instruction::Zeta
-        } else if id == ks.exp_polar {
-            Instruction::ExpPolar
-        } else {
-            return self.compile_unknown_function(func_name, 1);
-        };
-
-        self.emit(instr);
-        Ok(())
-    }
-
-    /// Compile a binary function call (2 arguments).
-    fn compile_binary_function(&mut self, func_name: &InternedSymbol) -> Result<(), DiffError> {
-        let id = func_name.id();
-        let ks = &*KS;
-
-        let instr = if id == ks.log {
-            self.pop();
-            Instruction::Log
-        } else if id == ks.atan2 {
-            self.pop();
-            Instruction::Atan2
-        } else if id == ks.besselj {
-            self.pop();
-            Instruction::BesselJ
-        } else if id == ks.bessely {
-            self.pop();
-            Instruction::BesselY
-        } else if id == ks.besseli {
-            self.pop();
-            Instruction::BesselI
-        } else if id == ks.besselk {
-            self.pop();
-            Instruction::BesselK
-        } else if id == ks.polygamma {
-            self.pop();
-            Instruction::Polygamma
-        } else if id == ks.beta {
-            self.pop();
-            Instruction::Beta
-        } else if id == ks.zeta_deriv {
-            self.pop();
-            Instruction::ZetaDeriv
-        } else if id == ks.hermite {
-            self.pop();
-            Instruction::Hermite
-        } else {
-            return self.compile_unknown_function(func_name, 2);
-        };
-
-        self.emit(instr);
-        Ok(())
-    }
-
-    /// Compile a ternary function call (3 arguments).
-    fn compile_ternary_function(&mut self, func_name: &InternedSymbol) -> Result<(), DiffError> {
-        let id = func_name.id();
-        let ks = &*KS;
-
-        if id == ks.assoc_legendre {
-            self.pop();
-            self.pop();
-            self.emit(Instruction::AssocLegendre);
-            Ok(())
-        } else {
-            self.compile_unknown_function(func_name, 3)
-        }
-    }
-
-    /// Compile a quaternary function call (4 arguments).
-    fn compile_quaternary_function(&mut self, func_name: &InternedSymbol) -> Result<(), DiffError> {
-        let id = func_name.id();
-        let ks = &*KS;
-
-        if id == ks.spherical_harmonic || id == ks.ynm {
-            self.pop();
-            self.pop();
-            self.pop();
-            self.emit(Instruction::SphericalHarmonic);
-            Ok(())
-        } else {
-            self.compile_unknown_function(func_name, 4)
-        }
-    }
-
-    /// Compiles an unknown function by checking if it exists in the user-defined function context.
-    fn compile_unknown_function(
-        &self,
-        func_name: &InternedSymbol,
-        arity: usize,
-    ) -> Result<(), DiffError> {
-        let name_str = func_name.as_str();
-        // Check if function exists in the context
-        if let Some(ctx) = self.function_context {
-            let id = func_name.id();
-
-            if let Some(user_fn) = ctx.get_user_fn_by_id(id) {
-                if user_fn.arity.contains(&arity) {
-                    // User function exists but has no symbolic body,
-                    // so we can't evaluate it numerically.
-                    return Err(DiffError::UnsupportedFunction(format!(
-                        "{name_str}: user function has no body for numeric evaluation. \
-                         Define a body with `with_function(.., body: Some(expr))`"
-                    )));
-                }
-                return Err(DiffError::UnsupportedFunction(format!(
-                    "{}: invalid arity (expected {:?}, got {})",
-                    name_str, user_fn.arity, arity
-                )));
-            }
-        }
-        Err(DiffError::UnsupportedFunction(name_str.to_owned()))
-    }
-
-    /// Compile a polynomial using Horner's method for efficiency.
-    ///
-    /// Horner's method: `P(x) = a_n*x^n + ... + a_0`
-    /// becomes `((a_n*x + a_{n-1})*x + ...)*x + a_0`
-    ///
-    /// This reduces n multiplications + n-1 additions instead of
-    /// n powers + n multiplications + n-1 additions.
-    fn compile_polynomial(&mut self, poly: &Polynomial) -> Result<(), DiffError> {
+    fn compile_polynomial_with_base(&mut self, poly: &Polynomial, base_vreg: VReg) -> VReg {
         let terms = poly.terms();
         if terms.is_empty() {
             let idx = self.add_const(0.0);
-            self.emit(Instruction::LoadConst(idx));
-            self.push()?;
-            return Ok(());
+            return VReg::Const(idx);
         }
 
-        // Sort terms by power descending for Horner's method
-        let mut sorted_terms: Vec<_> = terms.to_vec();
-        sorted_terms.sort_unstable_by(|a, b| b.0.cmp(&a.0));
+        let degree = terms.last().map_or(0, |t| t.0);
+        let start_idx = u32::try_from(self.constants.len()).unwrap_or(u32::MAX);
 
-        let max_pow = sorted_terms[0].0;
-
-        // Optimization: Use PolyEval instruction for standard polynomials
-        // This reduces instruction count from O(N) to O(1) and uses dense cache-friendly arrays
-        if max_pow <= 64 {
-            let degree = max_pow;
-            #[allow(
-                clippy::cast_possible_truncation,
-                reason = "Constant pool size limited by memory"
-            )]
-            let start_idx = self.constants.len() as u32;
-
-            // Store degree and coefficients in constant pool
-            self.constants.push(f64::from(degree));
-
-            let mut term_idx = 0;
-
-            for current_pow in (0..=degree).rev() {
-                let coeff =
-                    if term_idx < sorted_terms.len() && sorted_terms[term_idx].0 == current_pow {
-                        let c = sorted_terms[term_idx].1;
-                        term_idx += 1;
-                        c
-                    } else {
-                        0.0
-                    };
-                self.constants.push(coeff);
-            }
-
-            self.compile_expr(poly.base())?;
-            self.emit(Instruction::PolyEval(start_idx));
-            return Ok(());
-        }
-
-        // For simple polynomial with Symbol base, use Horner's method
-        let base_param_idx = if let ExprKind::Symbol(s) = &poly.base().kind {
-            let sym_id = s.id();
-            if crate::core::known_symbols::is_known_constant_by_id(sym_id) {
-                None
+        self.constants.push(f64::from(degree));
+        let mut term_idx = terms.len();
+        for current_pow in (0..=degree).rev() {
+            let coeff = if term_idx > 0 && terms[term_idx - 1].0 == current_pow {
+                term_idx -= 1;
+                terms[term_idx].1
             } else {
-                self.param_ids.iter().position(|&id| id == sym_id)
+                0.0
+            };
+            self.constants.push(coeff);
+        }
+
+        let dest = self.alloc_vreg();
+        self.emit(VInstruction::PolyEval {
+            dest,
+            x: base_vreg,
+            const_idx: start_idx,
+        });
+        dest
+    }
+
+    fn compile_symbol_node(&self, sym: &InternedSymbol) -> Result<VReg, DiffError> {
+        let sym_id = sym.id();
+        if let Some(&idx) = self.param_index.get(&sym_id) {
+            Ok(VReg::Param(u32::try_from(idx).unwrap_or(u32::MAX)))
+        } else {
+            Err(DiffError::UnboundVariable(sym.as_str().to_owned()))
+        }
+    }
+
+    fn map_args_vregs(
+        args: &[Arc<Expr>],
+        vregs: &FxHashMap<*const Expr, VReg>,
+    ) -> Result<Vec<VReg>, DiffError> {
+        let mut out = Vec::with_capacity(args.len());
+        for arg in args {
+            out.push(Self::vreg_from_map(vregs, arg.as_ref())?);
+        }
+        Ok(out)
+    }
+
+    #[allow(
+        clippy::too_many_lines,
+        reason = "Sum compilation handles many algebraic optimizations inline"
+    )]
+    fn compile_sum_node(
+        &mut self,
+        terms: &[Arc<Expr>],
+        vregs: &FxHashMap<*const Expr, VReg>,
+        consts: &FxHashMap<*const Expr, Option<f64>>,
+    ) -> Result<VReg, DiffError> {
+        if terms.is_empty() {
+            let idx = self.add_const(0.0);
+            return Ok(VReg::Const(idx));
+        }
+        if terms.len() == 1 {
+            return Self::vreg_from_map(vregs, terms[0].as_ref());
+        }
+
+        if terms.len() == 2 {
+            let t0 = terms[0].as_ref();
+            let t1 = terms[1].as_ref();
+
+            if let Some((a, b)) = Self::product_two_vregs(t0, vregs, consts)
+                && let Some(c) = self.negated_inner_vreg(t1, vregs, consts)
+            {
+                let dest = self.alloc_vreg();
+                self.emit(VInstruction::MulSub { dest, a, b, c });
+                return Ok(dest);
+            }
+            if let Some((a, b)) = Self::product_two_vregs(t1, vregs, consts)
+                && let Some(c) = self.negated_inner_vreg(t0, vregs, consts)
+            {
+                let dest = self.alloc_vreg();
+                self.emit(VInstruction::MulSub { dest, a, b, c });
+                return Ok(dest);
+            }
+            if let Some((a, b)) = Self::negated_product_two_vregs(t0, vregs, consts) {
+                let c = Self::vreg_from_map(vregs, t1)?;
+                let dest = self.alloc_vreg();
+                self.emit(VInstruction::NegMulAdd { dest, a, b, c });
+                return Ok(dest);
+            }
+            if let Some((a, b)) = Self::negated_product_two_vregs(t1, vregs, consts) {
+                let c = Self::vreg_from_map(vregs, t0)?;
+                let dest = self.alloc_vreg();
+                self.emit(VInstruction::NegMulAdd { dest, a, b, c });
+                return Ok(dest);
+            }
+            if let Some((a, b)) = Self::product_two_vregs(t0, vregs, consts)
+                && self.negated_inner_vreg(t1, vregs, consts).is_none()
+            {
+                let c = Self::vreg_from_map(vregs, t1)?;
+                let dest = self.alloc_vreg();
+                self.emit(VInstruction::MulAdd { dest, a, b, c });
+                return Ok(dest);
+            }
+            if let Some((a, b)) = Self::product_two_vregs(t1, vregs, consts)
+                && self.negated_inner_vreg(t0, vregs, consts).is_none()
+            {
+                let c = Self::vreg_from_map(vregs, t0)?;
+                let dest = self.alloc_vreg();
+                self.emit(VInstruction::MulAdd { dest, a, b, c });
+                return Ok(dest);
+            }
+        }
+
+        let mut pos_vregs = Vec::with_capacity(terms.len());
+        let mut neg_vregs = Vec::with_capacity(terms.len());
+
+        for term in terms {
+            if let Some(inner) = self.negated_inner_vreg(term.as_ref(), vregs, consts) {
+                neg_vregs.push(inner);
+            } else {
+                pos_vregs.push(Self::vreg_from_map(vregs, term.as_ref())?);
+            }
+        }
+
+        if pos_vregs.is_empty() && neg_vregs.is_empty() {
+            let idx = self.add_const(0.0);
+            return Ok(VReg::Const(idx));
+        }
+
+        if neg_vregs.is_empty() {
+            if pos_vregs.len() == 1 {
+                return Ok(pos_vregs[0]);
+            }
+            let dest = self.alloc_vreg();
+            self.emit(VInstruction::Add {
+                dest,
+                srcs: pos_vregs,
+            });
+            return Ok(dest);
+        }
+
+        if pos_vregs.is_empty() {
+            let inner = if neg_vregs.len() == 1 {
+                neg_vregs[0]
+            } else {
+                let s_v = self.alloc_vreg();
+                self.emit(VInstruction::Add {
+                    dest: s_v,
+                    srcs: neg_vregs,
+                });
+                s_v
+            };
+            let dest = self.alloc_vreg();
+            self.emit(VInstruction::Neg { dest, src: inner });
+            return Ok(dest);
+        }
+
+        let pos_v = if pos_vregs.len() == 1 {
+            pos_vregs[0]
+        } else {
+            let s_v = self.alloc_vreg();
+            self.emit(VInstruction::Add {
+                dest: s_v,
+                srcs: pos_vregs,
+            });
+            s_v
+        };
+        let neg_v = if neg_vregs.len() == 1 {
+            neg_vregs[0]
+        } else {
+            let s_v = self.alloc_vreg();
+            self.emit(VInstruction::Add {
+                dest: s_v,
+                srcs: neg_vregs,
+            });
+            s_v
+        };
+        let dest = self.alloc_vreg();
+        self.emit(VInstruction::Sub {
+            dest,
+            a: pos_v,
+            b: neg_v,
+        });
+        Ok(dest)
+    }
+
+    fn compile_product_node(
+        &mut self,
+        factors: &[Arc<Expr>],
+        vregs: &FxHashMap<*const Expr, VReg>,
+        consts: &FxHashMap<*const Expr, Option<f64>>,
+    ) -> Result<VReg, DiffError> {
+        if factors.is_empty() {
+            let idx = self.add_const(1.0);
+            return Ok(VReg::Const(idx));
+        }
+
+        let mut constant_acc = 1.0_f64;
+        let mut variable_vregs = Vec::with_capacity(factors.len());
+        for f in factors {
+            if let Some(c) = Self::const_from_map(consts, f.as_ref()) {
+                constant_acc *= c;
+            } else {
+                variable_vregs.push(Self::vreg_from_map(vregs, f.as_ref())?);
+            }
+        }
+
+        let mut vregs_all = variable_vregs;
+        if constant_acc.is_finite() {
+            if (constant_acc - 1.0).abs() > EPSILON {
+                let c_idx = self.add_const(constant_acc);
+                vregs_all.push(VReg::Const(c_idx));
             }
         } else {
-            None
-        };
-
-        if let Some(idx) = base_param_idx {
-            // Fast path: base is a simple parameter, use Horner's method
-            let initial_coeff_idx = self.add_const(sorted_terms[0].1);
-            self.emit(Instruction::LoadConst(initial_coeff_idx));
-            self.push()?;
-
-            let mut term_iter = sorted_terms.iter().skip(1).peekable();
-
-            for pow in (0..max_pow).rev() {
-                // Optimized multiply-add using Horner's method:
-                // current = current * x + coeff
-
-                // Push x
-                // Truncation safe: param count bounded by realistic expression size
-                #[allow(
-                    clippy::cast_possible_truncation,
-                    reason = "Param count bounded by realistic expression size"
-                )]
-                self.emit(Instruction::LoadParam(idx as u32));
-                self.push()?;
-
-                if let Some((_, coeff)) = term_iter.peek().filter(|t| t.0 == pow) {
-                    // We have a coefficient for this power: use MulAdd
-                    let const_val = *coeff;
-                    let coeff_idx = self.add_const(const_val);
-                    self.emit(Instruction::LoadConst(coeff_idx));
-                    self.push()?;
-                    self.emit(Instruction::MulAdd);
-                    self.pop();
-                    self.pop();
-                    term_iter.next();
-                } else {
-                    // No coefficient: just Multiply
-                    self.emit(Instruction::Mul);
-                    self.pop();
+            for f in factors {
+                if Self::const_from_map(consts, f.as_ref()).is_some() {
+                    vregs_all.push(Self::vreg_from_map(vregs, f.as_ref())?);
                 }
             }
-        } else {
-            // Slow path: complex base expression - expand explicitly
-            self.compile_polynomial_slow_path(poly, &sorted_terms)?;
         }
 
-        Ok(())
+        if vregs_all.is_empty() {
+            let idx = self.add_const(1.0);
+            return Ok(VReg::Const(idx));
+        }
+        if vregs_all.len() == 1 {
+            return Ok(vregs_all[0]);
+        }
+
+        let dest = self.alloc_vreg();
+        self.emit(VInstruction::Mul {
+            dest,
+            srcs: vregs_all,
+        });
+        Ok(dest)
     }
 
-    /// Compile a polynomial with a complex base expression using Horner's method.
-    ///
-    /// Compiles the base once, caches it in a CSE slot, and uses
-    /// Horner's method to evaluate: `((c_n * x + c_{n-1}) * x + ...) * x + c_0`.
-    /// For sparse polynomials (gaps in powers), multiplies by x for each gap step.
-    fn compile_polynomial_slow_path(
+    fn compile_div_node(
+        &mut self,
+        num: &Expr,
+        den: &Expr,
+        vregs: &FxHashMap<*const Expr, VReg>,
+        consts: &FxHashMap<*const Expr, Option<f64>>,
+    ) -> Result<VReg, DiffError> {
+        if num == den {
+            let idx = self.add_const(1.0);
+            return Ok(VReg::Const(idx));
+        }
+
+        if let Some(n) = Self::const_from_map(consts, num)
+            && (n - 1.0).abs() < EPSILON
+            && let Some(arg) = Self::recip_expm1_arg(den, consts)
+        {
+            let src = Self::vreg_from_map(vregs, arg)?;
+            let dest = self.alloc_vreg();
+            self.emit(VInstruction::RecipExpm1 { dest, src });
+            return Ok(dest);
+        }
+
+        if let ExprKind::FunctionCall { name, args } = &num.kind
+            && args.len() == 1
+            && name.id() == KS.sin
+            && args[0].as_ref() == den
+        {
+            let den_v = Self::vreg_from_map(vregs, args[0].as_ref())?;
+            let dest = self.alloc_vreg();
+            self.emit(VInstruction::BuiltinFun {
+                dest,
+                op: FnOp::Sinc,
+                args: vec![den_v],
+            });
+            return Ok(dest);
+        }
+
+        let num_v = Self::vreg_from_map(vregs, num)?;
+        let den_v = Self::vreg_from_map(vregs, den)?;
+        let dest = self.alloc_vreg();
+        self.emit(VInstruction::Div {
+            dest,
+            num: num_v,
+            den: den_v,
+        });
+        Ok(dest)
+    }
+
+    #[allow(
+        clippy::too_many_lines,
+        reason = "Power compilation handles many optimized exponent cases inline"
+    )]
+    fn compile_pow_node(
+        &mut self,
+        base: &Expr,
+        exp: &Expr,
+        vregs: &FxHashMap<*const Expr, VReg>,
+        consts: &FxHashMap<*const Expr, Option<f64>>,
+    ) -> Result<VReg, DiffError> {
+        if let Some(n_val) = Self::const_from_map(consts, exp) {
+            let is_integer = (n_val - n_val.round()).abs() < EPSILON;
+            if is_integer {
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    reason = "Checked for equality with rounded value so it's safe"
+                )]
+                let n_int = n_val.round() as i64;
+                if n_int == 0 {
+                    let idx = self.add_const(1.0);
+                    return Ok(VReg::Const(idx));
+                }
+
+                let base_v = Self::vreg_from_map(vregs, base)?;
+                let out = match n_int {
+                    1 => base_v,
+                    2 => {
+                        let dest = self.alloc_vreg();
+                        self.emit(VInstruction::Square { dest, src: base_v });
+                        dest
+                    }
+                    3 => {
+                        let dest = self.alloc_vreg();
+                        self.emit(VInstruction::Cube { dest, src: base_v });
+                        dest
+                    }
+                    4 => {
+                        let dest = self.alloc_vreg();
+                        self.emit(VInstruction::Pow4 { dest, src: base_v });
+                        dest
+                    }
+                    -1 => {
+                        let dest = self.alloc_vreg();
+                        self.emit(VInstruction::Recip { dest, src: base_v });
+                        dest
+                    }
+                    -2 => {
+                        let dest = self.alloc_vreg();
+                        self.emit(VInstruction::InvSquare { dest, src: base_v });
+                        dest
+                    }
+                    -3 => {
+                        let dest = self.alloc_vreg();
+                        self.emit(VInstruction::InvCube { dest, src: base_v });
+                        dest
+                    }
+                    n => {
+                        if let Ok(n_i32) = i32::try_from(n) {
+                            let dest = self.alloc_vreg();
+                            self.emit(VInstruction::Powi {
+                                dest,
+                                src: base_v,
+                                n: n_i32,
+                            });
+                            dest
+                        } else {
+                            let exp_v = Self::vreg_from_map(vregs, exp)?;
+                            let dest = self.alloc_vreg();
+                            self.emit(VInstruction::Pow {
+                                dest,
+                                base: base_v,
+                                exp: exp_v,
+                            });
+                            dest
+                        }
+                    }
+                };
+                return Ok(out);
+            }
+            if (n_val - 1.5).abs() < EPSILON {
+                let base_v = Self::vreg_from_map(vregs, base)?;
+                let dest = self.alloc_vreg();
+                self.emit(VInstruction::Pow3_2 { dest, src: base_v });
+                return Ok(dest);
+            }
+            if (n_val + 1.5).abs() < EPSILON {
+                let base_v = Self::vreg_from_map(vregs, base)?;
+                let dest = self.alloc_vreg();
+                self.emit(VInstruction::InvPow3_2 { dest, src: base_v });
+                return Ok(dest);
+            }
+            if (n_val - 0.5).abs() < EPSILON {
+                let base_v = Self::vreg_from_map(vregs, base)?;
+                let dest = self.alloc_vreg();
+                self.emit(VInstruction::BuiltinFun {
+                    dest,
+                    op: FnOp::Sqrt,
+                    args: vec![base_v],
+                });
+                return Ok(dest);
+            }
+            if (n_val + 0.5).abs() < EPSILON {
+                let base_v = Self::vreg_from_map(vregs, base)?;
+                let dest = self.alloc_vreg();
+                self.emit(VInstruction::InvSqrt { dest, src: base_v });
+                return Ok(dest);
+            }
+        }
+
+        let base_v = Self::vreg_from_map(vregs, base)?;
+        let exp_v = Self::vreg_from_map(vregs, exp)?;
+        let dest = self.alloc_vreg();
+        self.emit(VInstruction::Pow {
+            dest,
+            base: base_v,
+            exp: exp_v,
+        });
+        Ok(dest)
+    }
+
+    fn compile_function_node(
+        &mut self,
+        name: &InternedSymbol,
+        args: &[Arc<Expr>],
+        vregs: &FxHashMap<*const Expr, VReg>,
+        consts: &FxHashMap<*const Expr, Option<f64>>,
+    ) -> Result<VReg, DiffError> {
+        let id = name.id();
+        let ks = &*KS;
+        let dest = self.alloc_vreg();
+
+        if id == ks.exp
+            && args.len() == 1
+            && let Some((src, neg)) = Self::exp_sqr_arg(args[0].as_ref(), consts, vregs)
+        {
+            if neg {
+                self.emit(VInstruction::ExpSqrNeg { dest, src });
+            } else {
+                self.emit(VInstruction::ExpSqr { dest, src });
+            }
+            return Ok(dest);
+        }
+
+        if id == ks.exp
+            && args.len() == 1
+            && let Some(pos_vreg) = self.compile_exp_neg_arg(&args[0], vregs, consts)
+        {
+            self.emit(VInstruction::BuiltinFun {
+                dest,
+                op: FnOp::ExpNeg,
+                args: vec![pos_vreg],
+            });
+            return Ok(dest);
+        }
+
+        let arg_vregs = Self::map_args_vregs(args, vregs)?;
+
+        if id == ks.log && args.len() == 1 {
+            self.emit(VInstruction::BuiltinFun {
+                dest,
+                op: FnOp::Ln,
+                args: arg_vregs,
+            });
+            return Ok(dest);
+        }
+
+        if let Some(&op) = FN_MAP.get(&id) {
+            self.emit(VInstruction::BuiltinFun {
+                dest,
+                op,
+                args: arg_vregs,
+            });
+            return Ok(dest);
+        }
+
+        if args.len() == 1 {
+            let base_val = if id == ks.log2 {
+                Some(2.0)
+            } else if id == ks.log10 {
+                Some(10.0)
+            } else {
+                None
+            };
+            if let Some(bv) = base_val {
+                let base_idx = self.add_const(bv);
+                self.emit(VInstruction::BuiltinFun {
+                    dest,
+                    op: FnOp::Log,
+                    args: vec![VReg::Const(base_idx), arg_vregs[0]],
+                });
+                return Ok(dest);
+            }
+        }
+
+        Err(DiffError::UnsupportedFunction(name.as_str().to_owned()))
+    }
+
+    fn compile_poly_node(
         &mut self,
         poly: &Polynomial,
-        sorted_terms: &[(u32, f64)],
-    ) -> Result<(), DiffError> {
-        let base = poly.base();
+        vregs: &FxHashMap<*const Expr, VReg>,
+    ) -> Result<VReg, DiffError> {
+        let base_v = Self::vreg_from_map(vregs, poly.base().as_ref())?;
+        Ok(self.compile_polynomial_with_base(poly, base_v))
+    }
 
-        // 1. Compile and cache the base expression in a CSE slot
-        self.compile_expr(base)?;
+    fn lookup_cse(&self, expr: &Expr) -> Option<VReg> {
+        let ptr = expr as *const Expr;
+        self.cse_cache.get(&expr.hash).and_then(|entries| {
+            entries
+                .iter()
+                .find(|(cached_ptr, _)| {
+                    // SAFETY: cached_ptr originates from the current expression tree, which
+                    // outlives compilation, so dereferencing is valid for structural equality.
+                    *cached_ptr == ptr || unsafe { &**cached_ptr } == expr
+                })
+                .map(|(_, v)| *v)
+        })
+    }
 
-        let cache_slot = self.cache_size;
-        self.cache_size += 1;
-
-        // Truncation safe: cache_size bounded by expression complexity
-        #[allow(
-            clippy::cast_possible_truncation,
-            reason = "Cache size bounded by realistic expression complexity"
-        )]
-        let slot = cache_slot as u32;
-        self.emit(Instruction::StoreCached(slot));
-        // StoreCached does not pop — top of stack still has base value.
-        // Pop it since Horner will load from cache as needed.
-        self.emit(Instruction::Pop);
-        self.pop();
-
-        // sorted_terms is descending by power: [(highest_pow, coeff), ..., (lowest_pow, coeff)]
-        let max_pow = sorted_terms[0].0;
-
-        // 2. Start Horner: load the leading coefficient
-        let initial_coeff_idx = self.add_const(sorted_terms[0].1);
-        self.emit(Instruction::LoadConst(initial_coeff_idx));
-        self.push()?;
-
-        let mut term_iter = sorted_terms.iter().skip(1).peekable();
-
-        // 3. Iterate from max_pow-1 down to 0 using Horner's method
-        for pow in (0..max_pow).rev() {
-            // Multiply accumulator by cached base: acc = acc * base
-            self.emit(Instruction::LoadCached(slot));
-            self.push()?;
-            self.emit(Instruction::Mul);
-            self.pop();
-
-            if let Some((_, coeff)) = term_iter.peek().filter(|t| t.0 == pow) {
-                // We have a coefficient for this power: acc = acc + coeff
-                let coeff_idx = self.add_const(*coeff);
-                self.emit(Instruction::AddConst(coeff_idx));
-                term_iter.next();
+    fn push_children(expr: &Expr, stack: &mut Vec<(*const Expr, bool)>) {
+        match &expr.kind {
+            ExprKind::Sum(terms) | ExprKind::Product(terms) => {
+                for t in terms.iter().rev() {
+                    stack.push((Arc::as_ptr(t), false));
+                }
             }
-            // No coefficient for this power: just the multiply (implicit +0)
+            ExprKind::Div(num, den) => {
+                stack.push((Arc::as_ptr(den), false));
+                stack.push((Arc::as_ptr(num), false));
+            }
+            ExprKind::Pow(base, exp) => {
+                stack.push((Arc::as_ptr(exp), false));
+                stack.push((Arc::as_ptr(base), false));
+            }
+            ExprKind::FunctionCall { args, .. } => {
+                for a in args.iter().rev() {
+                    stack.push((Arc::as_ptr(a), false));
+                }
+            }
+            ExprKind::Poly(poly) => {
+                stack.push((Arc::as_ptr(poly.base()), false));
+            }
+            ExprKind::Derivative { inner, .. } => {
+                stack.push((Arc::as_ptr(inner), false));
+            }
+            ExprKind::Number(_) | ExprKind::Symbol(_) => {}
+        }
+    }
+
+    fn compile_nonconst_node(
+        &mut self,
+        expr: &Expr,
+        vregs: &FxHashMap<*const Expr, VReg>,
+        consts: &FxHashMap<*const Expr, Option<f64>>,
+    ) -> Result<VReg, DiffError> {
+        match &expr.kind {
+            ExprKind::Number(_) => Err(DiffError::UnsupportedExpression(
+                "Numerical values are unreachable here".to_owned(),
+            )),
+            ExprKind::Symbol(s) => self.compile_symbol_node(s),
+            ExprKind::Sum(terms) => self.compile_sum_node(terms, vregs, consts),
+            ExprKind::Product(factors) => self.compile_product_node(factors, vregs, consts),
+            ExprKind::Div(num, den) => {
+                self.compile_div_node(num.as_ref(), den.as_ref(), vregs, consts)
+            }
+            ExprKind::Pow(base, exp) => {
+                self.compile_pow_node(base.as_ref(), exp.as_ref(), vregs, consts)
+            }
+            ExprKind::FunctionCall { name, args } => {
+                self.compile_function_node(name, args, vregs, consts)
+            }
+            ExprKind::Poly(poly) => self.compile_poly_node(poly, vregs),
+            ExprKind::Derivative { .. } => Err(DiffError::UnsupportedExpression(
+                "Derivatives cannot be numerically evaluated - simplify first".to_owned(),
+            )),
+        }
+    }
+
+    fn compile_expr_iterative(
+        &mut self,
+        root: &Expr,
+        node_count: usize,
+    ) -> Result<VReg, DiffError> {
+        let mut stack: Vec<(*const Expr, bool)> = Vec::with_capacity(node_count);
+        let mut vregs: FxHashMap<*const Expr, VReg> = FxHashMap::default();
+        let mut consts: FxHashMap<*const Expr, Option<f64>> = FxHashMap::default();
+        let mut expensive: FxHashMap<*const Expr, bool> = FxHashMap::default();
+
+        vregs.reserve(node_count);
+        consts.reserve(node_count);
+        expensive.reserve(node_count);
+
+        let root_ptr = root as *const Expr;
+        stack.push((root_ptr, false));
+
+        while let Some((ptr, visited)) = stack.pop() {
+            // SAFETY: ptrs come from the current expression tree, which outlives compilation.
+            let expr = unsafe { &*ptr };
+
+            if visited {
+                if vregs.contains_key(&ptr) {
+                    continue;
+                }
+
+                let const_val = Self::compute_const_from_children(expr, &consts);
+                consts.insert(ptr, const_val);
+
+                let cache_this = Self::compute_expensive_from_children(expr, &consts, &expensive);
+                expensive.insert(ptr, cache_this);
+                if cache_this && let Some(cached) = self.lookup_cse(expr) {
+                    vregs.insert(ptr, cached);
+                    continue;
+                }
+
+                if let Some(val) = const_val
+                    && val.is_finite()
+                {
+                    let idx = self.add_const(val);
+                    vregs.insert(ptr, VReg::Const(idx));
+                    continue;
+                }
+
+                let result_vreg = self.compile_nonconst_node(expr, &vregs, &consts)?;
+                vregs.insert(ptr, result_vreg);
+                if cache_this {
+                    self.cse_cache
+                        .entry(expr.hash)
+                        .or_default()
+                        .push((ptr, result_vreg));
+                }
+            } else if !vregs.contains_key(&ptr) {
+                stack.push((ptr, true));
+                Self::push_children(expr, &mut stack);
+            }
         }
 
-        Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    #![allow(clippy::many_single_char_names, reason = "Standard test relaxations")]
-    use super::*;
-    use crate::parser;
-    use std::collections::HashSet;
-
-    fn parse_expr(s: &str) -> Expr {
-        parser::parse(s, &HashSet::new(), &HashSet::new(), None).expect("Should pass")
-    }
-
-    #[test]
-    fn test_constant_folding() {
-        // 2 * pi should fold to a constant
-        let expr = parse_expr("2 * pi");
-        let result = Compiler::try_eval_const(&expr);
-        assert!(result.is_some());
-        let expected = 2.0 * std::f64::consts::PI;
-        assert!((result.expect("constant folding should succeed") - expected).abs() < EPSILON);
-    }
-
-    #[test]
-    fn test_compile_muladd() {
-        let expr = parse_expr("x * y + z");
-        let x_sym = crate::symb("x");
-        let y_sym = crate::symb("y");
-        let z_sym = crate::symb("z");
-        let param_ids = vec![x_sym.id(), y_sym.id(), z_sym.id()];
-
-        let mut compiler = Compiler::new(&param_ids, None);
-        compiler.compile_expr(&expr).expect("Should compile");
-
-        // Should find MulAdd instruction
-        assert!(
-            compiler
-                .instructions()
-                .iter()
-                .any(|i| matches!(i, Instruction::MulAdd))
-        );
-        assert_eq!(compiler.max_stack(), 3);
-    }
-
-    #[test]
-    fn test_compile_muladd_recursive() {
-        // (a * b) + (c * d) + e
-        let expr = parse_expr("a * b + c * d + e");
-        let a = crate::symb("a");
-        let b = crate::symb("b");
-        let c = crate::symb("c");
-        let d = crate::symb("d");
-        let e = crate::symb("e");
-        let param_ids = vec![a.id(), b.id(), c.id(), d.id(), e.id()];
-
-        let mut compiler = Compiler::new(&param_ids, None);
-        compiler.compile_expr(&expr).expect("Should compile");
-
-        // Should have 2 MulAdd instructions
-        let muladd_count = compiler
-            .instructions()
-            .iter()
-            .filter(|i| matches!(i, Instruction::MulAdd))
-            .count();
-        assert_eq!(muladd_count, 2);
-    }
-
-    #[test]
-    fn test_compile_polynomial_muladd() {
-        // 2*x^2 + 3*x + 1
-        let expr = parse_expr("2*x^2 + 3*x + 1");
-        let x = crate::symb("x");
-        let param_ids = vec![x.id()];
-
-        let mut compiler = Compiler::new(&param_ids, None);
-        compiler.compile_expr(&expr).expect("Should compile");
-
-        // Horner's method should use MulAdd
-        // (2 * x + 3) * x + 1
-        // -> MulAdd(2, x, 3), then MulAdd(prev, x, 1)
-        // OR it uses the new PolyEval instruction if optimized
-        let muladd_count = compiler
-            .instructions()
-            .iter()
-            .filter(|i| matches!(i, Instruction::MulAdd))
-            .count();
-        let polyeval_count = compiler
-            .instructions()
-            .iter()
-            .filter(|i| matches!(i, Instruction::PolyEval(_)))
-            .count();
-
-        assert!(muladd_count >= 1 || polyeval_count >= 1);
-    }
-
-    #[test]
-    fn test_compile_simple() {
-        let expr = parse_expr("x + 1");
-        let x_sym = crate::symb("x");
-        let param_ids = vec![x_sym.id()];
-
-        let mut compiler = Compiler::new(&param_ids, None);
-        compiler.compile_expr(&expr).expect("Should compile");
-
-        // Should have: LoadParam(0), LoadConst(0), Add
-        assert!(compiler.instructions().len() >= 3);
-        assert_eq!(compiler.max_stack(), 2); // Two values on stack at once
-    }
-
-    #[test]
-    fn test_compile_muladd_extended() {
-        // a * b * c + d should use MulAdd(a*b, c, d)
-        let expr = parse_expr("a * b * c + d");
-        let a = crate::symb("a");
-        let b = crate::symb("b");
-        let c = crate::symb("c");
-        let d = crate::symb("d");
-        let param_ids = vec![a.id(), b.id(), c.id(), d.id()];
-
-        let mut compiler = Compiler::new(&param_ids, None);
-        compiler.compile_expr(&expr).expect("Should compile");
-
-        assert!(
-            compiler
-                .instructions()
-                .iter()
-                .any(|i| matches!(i, Instruction::MulAdd))
-        );
-    }
-
-    #[test]
-    fn test_compile_product_dedup() {
-        // x * x should use Square
-        let expr = parse_expr("x * x");
-        let x = crate::symb("x");
-        let param_ids = vec![x.id()];
-
-        let mut compiler = Compiler::new(&param_ids, None);
-        compiler.compile_expr(&expr).expect("Should compile");
-
-        assert!(
-            compiler
-                .instructions()
-                .iter()
-                .any(|i| matches!(i, Instruction::Square))
-        );
-
-        // x * x * x should use Cube
-        let expr3 = parse_expr("x * x * x");
-        let mut compiler3 = Compiler::new(&param_ids, None);
-        compiler3.compile_expr(&expr3).expect("Should compile");
-        assert!(
-            compiler3
-                .instructions()
-                .iter()
-                .any(|i| matches!(i, Instruction::Cube))
-        );
-    }
-
-    #[test]
-    fn test_compile_sum_exp_m1() {
-        // exp(x) - 1 -> Expm1(x)
-        let expr = parse_expr("exp(x) - 1");
-        let x = crate::symb("x");
-        let param_ids = vec![x.id()];
-
-        let mut compiler = Compiler::new(&param_ids, None);
-        compiler.compile_expr(&expr).expect("Should compile");
-
-        // Should find Expm1 instruction
-        assert!(
-            compiler
-                .instructions()
-                .iter()
-                .any(|i| matches!(i, Instruction::Expm1))
-        );
-    }
-
-    #[test]
-    fn test_compile_sum_sub() {
-        // a - b -> Sub(a, b)
-        // Check for Sum([a, -b]) where -b is Product([-1, b])
-        let expr = parse_expr("a - b");
-        let a = crate::symb("a");
-        let b = crate::symb("b");
-        let param_ids = vec![a.id(), b.id()];
-
-        let mut compiler = Compiler::new(&param_ids, None);
-        compiler.compile_expr(&expr).expect("Should compile");
-
-        // Should find Sub instruction
-        assert!(
-            compiler
-                .instructions()
-                .iter()
-                .any(|i| matches!(i, Instruction::Sub))
-        );
+        vregs.get(&root_ptr).copied().ok_or_else(|| {
+            DiffError::UnsupportedExpression("Internal compile error: missing root vreg".to_owned())
+        })
     }
 }

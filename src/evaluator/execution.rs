@@ -1,1353 +1,372 @@
-//! Scalar evaluation implementation for the bytecode evaluator.
+#![allow(unsafe_op_in_unsafe_fn, reason = "Internal unsafe operations allowed")]
+//! Scalar evaluation implementation for the register-based evaluator.
 //!
 //! This module provides the `evaluate` method for single-point evaluation.
-//! It uses a stack-based virtual machine to execute bytecode instructions.
-//!
-//! # Performance Optimizations
-//!
-//! 1. **Inline stack**: For small expressions (≤32 stack depth), uses a
-//!    fixed-size array on the CPU stack instead of heap allocation.
-//!
-//! 2. **Unsafe stack operations**: Stack bounds are validated at compile time,
-//!    allowing bounds-check-free access in the hot path.
-//!
-//! 3. **Instruction dispatch**: Uses a match statement which compiles to an
-//!    efficient jump table on most architectures.
+//! It uses a register-based virtual machine to execute bytecode instructions.
 
 use super::CompiledEvaluator;
-use super::instruction::Instruction;
-use super::stack;
+use super::instruction::{FnOp, Instruction};
+use crate::core::traits::EPSILON;
 
-/// Size of the inline stack buffer (on CPU stack, not heap).
-///
-/// 48 elements * 8 bytes = 384 bytes, fits comfortably in L1 cache.
-/// Expressions with deeper stacks fall back to heap allocation.
-const INLINE_STACK_SIZE: usize = 48;
+const INLINE_REGISTER_SIZE: usize = 256;
 
-/// Size of the inline CSE cache buffer.
-///
-/// 32 slots * 8 bytes = 256 bytes.
-const INLINE_CACHE_SIZE: usize = 32;
+#[inline]
+fn round_to_i32(x: f64) -> Option<i32> {
+    let rounded = x.round();
+    if !(rounded >= f64::from(i32::MIN) && rounded <= f64::from(i32::MAX)) {
+        return None;
+    }
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "Range checked above before casting"
+    )]
+    Some(rounded as i32)
+}
 
 impl CompiledEvaluator {
-    /// Fast evaluation - no allocations in hot path, no tree traversal.
-    ///
-    /// # Parameters
-    ///
-    /// * `params` - Parameter values in the same order as `param_names()`
-    ///   Missing parameters default to `0.0`. Extra values are ignored.
-    ///
-    /// # Returns
-    ///
-    /// The evaluation result. Returns `NaN` for expressions that evaluate
-    /// to undefined values (e.g., `ln(-1)`, `1/0`).
-    ///
-    /// # Panics
-    ///
-    /// Panics only in debug builds if stack operations are invalid (indicates
-    /// a compiler bug). Release builds propagate NaN instead.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use symb_anafis::{symb, CompiledEvaluator};
-    ///
-    /// let x = symb("x");
-    /// let expr = x.pow(2.0) + 1.0;
-    /// let eval = expr.compile().expect("compile");
-    ///
-    /// assert!((eval.evaluate(&[3.0]) - 10.0).abs() < 1e-10);
-    /// ```
+    /// Evaluates the compiled expression at a single point.
     #[inline]
     #[must_use]
     pub fn evaluate(&self, params: &[f64]) -> f64 {
-        // Super-fast path for constant expressions (e.g. "1 + 2" folded to "3")
-        // Compiler always emits at least one instruction. Use get_unchecked for speed.
-        if self.instructions.len() == 1
-            // SAFETY: Length checked to be 1
-            && let Instruction::LoadConst(idx) = unsafe { *self.instructions.get_unchecked(0) }
-        {
-            // SAFETY: Compiler guarantees valid constant index
-            return unsafe { *self.constants.get_unchecked(idx as usize) };
-        }
-
-        // Fast path: use stack-allocated buffers for common expressions
-        if self.stack_size <= INLINE_STACK_SIZE && self.cache_size <= INLINE_CACHE_SIZE {
+        if self.register_count <= INLINE_REGISTER_SIZE {
             self.evaluate_inline(params)
         } else {
-            // Large expression: fall back to heap-allocated Vec
-            let mut stack: Vec<f64> = Vec::with_capacity(self.stack_size);
-            let mut cache: Vec<f64> = vec![0.0; self.cache_size];
-            // The general evaluate_with_cache now only handles the heap-allocated case
-            self.evaluate_heap(params, &mut stack, &mut cache)
+            let mut registers = vec![0.0; self.register_count];
+            self.evaluate_heap(params, &mut registers)
         }
     }
 
-    /// Evaluate using inline (stack-allocated) buffers.
-    ///
-    /// This avoids all heap allocation for expressions that fit within
-    /// the inline buffer sizes.
-    //
-    // Allow too_many_lines: This function handles the complete inline evaluation
-    // fast path with all instruction types inlined for performance.
-    #[allow(
-        clippy::too_many_lines,
-        reason = "Complete inline evaluation fast path with all instruction types inlined for performance"
-    )]
     #[inline]
     fn evaluate_inline(&self, params: &[f64]) -> f64 {
-        use std::mem::MaybeUninit;
-
-        let mut inline_stack: [MaybeUninit<f64>; INLINE_STACK_SIZE] =
-            [MaybeUninit::uninit(); INLINE_STACK_SIZE];
-        let mut inline_cache: [MaybeUninit<f64>; INLINE_CACHE_SIZE] =
-            [MaybeUninit::uninit(); INLINE_CACHE_SIZE];
-        let mut len = 0_usize;
-
-        // Use raw pointers for zero-overhead stack access
-        let stack_ptr = inline_stack.as_mut_ptr().cast::<f64>();
-        let cache_ptr = inline_cache.as_mut_ptr().cast::<f64>();
-
-        // Pre-load slices to avoid repeated indirection
-        let instrs = &*self.instructions;
-        let consts = &*self.constants;
-
-        for instr in instrs {
-            // SAFETY: Compiler ensures max_stack <= INLINE_STACK_SIZE and cache_size <= INLINE_CACHE_SIZE.
-            // Bytecode guarantees all reads are preceded by writes.
-            unsafe {
-                match *instr {
-                    // Hot instructions first for better branch prediction
-                    Instruction::LoadConst(c) => {
-                        stack_ptr.add(len).write(*consts.get_unchecked(c as usize));
-                        len += 1;
-                    }
-                    Instruction::LoadParam(p) => {
-                        let idx = p as usize;
-                        let value = if idx < params.len() {
-                            *params.get_unchecked(idx)
-                        } else {
-                            0.0
-                        };
-                        stack_ptr.add(len).write(value);
-                        len += 1;
-                    }
-                    Instruction::Add => {
-                        len -= 1;
-                        let b = stack_ptr.add(len).read();
-                        let a_ptr = stack_ptr.add(len - 1);
-                        *a_ptr += b;
-                    }
-                    Instruction::Mul => {
-                        len -= 1;
-                        let b = stack_ptr.add(len).read();
-                        let a_ptr = stack_ptr.add(len - 1);
-                        *a_ptr *= b;
-                    }
-                    Instruction::MulConst(c) => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr *= *consts.get_unchecked(c as usize);
-                    }
-                    Instruction::AddParam(p) => {
-                        let idx = p as usize;
-                        let value = if idx < params.len() {
-                            *params.get_unchecked(idx)
-                        } else {
-                            0.0
-                        };
-                        *stack_ptr.add(len - 1) += value;
-                    }
-                    Instruction::MulParam(p) => {
-                        let idx = p as usize;
-                        let value = if idx < params.len() {
-                            *params.get_unchecked(idx)
-                        } else {
-                            0.0
-                        };
-                        *stack_ptr.add(len - 1) *= value;
-                    }
-                    Instruction::AddCached(slot) => {
-                        *stack_ptr.add(len - 1) += cache_ptr.add(slot as usize).read();
-                    }
-                    Instruction::MulCached(slot) => {
-                        *stack_ptr.add(len - 1) *= cache_ptr.add(slot as usize).read();
-                    }
-                    Instruction::SubParam(p) => {
-                        let idx = p as usize;
-                        let value = if idx < params.len() {
-                            *params.get_unchecked(idx)
-                        } else {
-                            0.0
-                        };
-                        *stack_ptr.add(len - 1) -= value;
-                    }
-                    Instruction::DivParam(p) => {
-                        let idx = p as usize;
-                        let value = if idx < params.len() {
-                            *params.get_unchecked(idx)
-                        } else {
-                            f64::NAN
-                        };
-                        *stack_ptr.add(len - 1) /= value;
-                    }
-                    Instruction::Sub => {
-                        len -= 1;
-                        let b = stack_ptr.add(len).read();
-                        let a_ptr = stack_ptr.add(len - 1);
-                        *a_ptr -= b;
-                    }
-                    Instruction::Div => {
-                        len -= 1;
-                        let b = stack_ptr.add(len).read();
-                        let a_ptr = stack_ptr.add(len - 1);
-                        *a_ptr /= b;
-                    }
-                    Instruction::Neg => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr = -*top_ptr;
-                    }
-                    Instruction::Sin => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr = top_ptr.read().sin();
-                    }
-                    Instruction::Cos => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr = top_ptr.read().cos();
-                    }
-                    Instruction::Asin => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr = top_ptr.read().asin();
-                    }
-                    Instruction::Acos => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr = top_ptr.read().acos();
-                    }
-                    Instruction::Atan => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr = top_ptr.read().atan();
-                    }
-                    Instruction::Acot => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr = stack::eval_acot(top_ptr.read());
-                    }
-                    Instruction::Exp => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr = top_ptr.read().exp();
-                    }
-                    Instruction::Sqrt => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr = top_ptr.read().sqrt();
-                    }
-                    Instruction::Cbrt => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr = top_ptr.read().cbrt();
-                    }
-                    Instruction::AddConst(idx) => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr += *consts.get_unchecked(idx as usize);
-                    }
-                    Instruction::SubConst(idx) => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr -= *consts.get_unchecked(idx as usize);
-                    }
-                    Instruction::ConstSub(idx) => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr = *consts.get_unchecked(idx as usize) - *top_ptr;
-                    }
-                    Instruction::Pow => {
-                        len -= 1;
-                        let exp = stack_ptr.add(len).read();
-                        let base_ptr = stack_ptr.add(len - 1);
-                        *base_ptr = base_ptr.read().powf(exp);
-                    }
-                    Instruction::Dup => {
-                        let val = stack_ptr.add(len - 1).read();
-                        stack_ptr.add(len).write(val);
-                        len += 1;
-                    }
-                    Instruction::StoreCached(slot) => {
-                        cache_ptr
-                            .add(slot as usize)
-                            .write(stack_ptr.add(len - 1).read());
-                    }
-                    Instruction::LoadCached(slot) => {
-                        let val = cache_ptr.add(slot as usize).read();
-                        stack_ptr.add(len).write(val);
-                        len += 1;
-                    }
-
-                    // Common mathematical functions
-                    Instruction::Tan => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr = top_ptr.read().tan();
-                    }
-                    Instruction::Expm1 => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr = top_ptr.read().exp_m1();
-                    }
-                    Instruction::ExpNeg => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr = (-top_ptr.read()).exp();
-                    }
-                    Instruction::Ln => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr = top_ptr.read().ln();
-                    }
-                    Instruction::Log1p => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr = top_ptr.read().ln_1p();
-                    }
-                    Instruction::RecipExpm1 => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr = 1.0 / top_ptr.read().exp_m1();
-                    }
-                    Instruction::ExpSqr => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        let x = *top_ptr;
-                        *top_ptr = (x * x).exp();
-                    }
-                    Instruction::ExpSqrNeg => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        let x = *top_ptr;
-                        *top_ptr = (-(x * x)).exp();
-                    }
-                    Instruction::Abs => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr = top_ptr.read().abs();
-                    }
-                    Instruction::Signum => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr = top_ptr.read().signum();
-                    }
-                    Instruction::Floor => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr = top_ptr.read().floor();
-                    }
-                    Instruction::Ceil => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr = top_ptr.read().ceil();
-                    }
-                    Instruction::Round => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr = top_ptr.read().round();
-                    }
-                    Instruction::Sinc => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr = stack::eval_sinc(top_ptr.read());
-                    }
-                    Instruction::Pop => {
-                        len -= 1;
-                    }
-                    Instruction::Swap => {
-                        let a_ptr = stack_ptr.add(len - 1);
-                        let b_ptr = stack_ptr.add(len - 2);
-                        let a = a_ptr.read();
-                        let b = b_ptr.read();
-                        a_ptr.write(b);
-                        b_ptr.write(a);
-                    }
-
-                    // Fused operations
-                    Instruction::Square => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr *= *top_ptr;
-                    }
-                    Instruction::Cube => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        let x = *top_ptr;
-                        *top_ptr = x * x * x;
-                    }
-                    Instruction::Pow4 => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        let x = *top_ptr;
-                        let x2 = x * x;
-                        *top_ptr = x2 * x2;
-                    }
-                    Instruction::Pow3_2 => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        let x = *top_ptr;
-                        *top_ptr = x * x.sqrt();
-                    }
-                    Instruction::InvPow3_2 => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        let x = *top_ptr;
-                        *top_ptr = 1.0 / (x * x.sqrt());
-                    }
-                    Instruction::InvSqrt => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr = 1.0 / (*top_ptr).sqrt();
-                    }
-                    Instruction::InvSquare => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        let x = *top_ptr;
-                        *top_ptr = 1.0 / (x * x);
-                    }
-                    Instruction::InvCube => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        let x = *top_ptr;
-                        *top_ptr = 1.0 / (x * x * x);
-                    }
-                    Instruction::Recip => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr = 1.0 / *top_ptr;
-                    }
-                    Instruction::Powi(n) => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        let x = top_ptr.read();
-                        *top_ptr = x.powi(n);
-                    }
-                    Instruction::MulAdd => {
-                        len -= 2;
-                        let c = stack_ptr.add(len + 1).read();
-                        let b = stack_ptr.add(len).read();
-                        let a_ptr = stack_ptr.add(len - 1);
-                        *a_ptr = a_ptr.read().mul_add(b, c);
-                    }
-                    Instruction::MulSub => {
-                        len -= 2;
-                        let c = stack_ptr.add(len + 1).read();
-                        let b = stack_ptr.add(len).read();
-                        let a_ptr = stack_ptr.add(len - 1);
-                        *a_ptr = a_ptr.read().mul_add(b, -c);
-                    }
-                    Instruction::NegMulAdd => {
-                        len -= 2;
-                        let c = stack_ptr.add(len + 1).read();
-                        let b = stack_ptr.add(len).read();
-                        let a_ptr = stack_ptr.add(len - 1);
-                        *a_ptr = (-a_ptr.read()).mul_add(b, c);
-                    }
-                    Instruction::PolyEval(idx) => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        let x = *top_ptr;
-                        let start = idx as usize;
-                        // Degree is stored as f64
-                        #[allow(
-                            clippy::cast_possible_truncation,
-                            clippy::cast_sign_loss,
-                            reason = "Degree is stored as f64 but always an integer, so cast is safe"
-                        )]
-                        let degree = *consts.get_unchecked(start) as usize;
-
-                        let mut res = *consts.get_unchecked(start + 1);
-                        for i in 1..=degree {
-                            res = res.mul_add(x, *consts.get_unchecked(start + 1 + i));
-                        }
-                        *top_ptr = res;
-                    }
-
-                    // Hyperbolic
-                    Instruction::Sinh => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr = top_ptr.read().sinh();
-                    }
-                    Instruction::Cosh => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr = top_ptr.read().cosh();
-                    }
-                    Instruction::Tanh => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr = top_ptr.read().tanh();
-                    }
-                    Instruction::Asinh => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr = top_ptr.read().asinh();
-                    }
-                    Instruction::Acosh => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr = top_ptr.read().acosh();
-                    }
-                    Instruction::Atanh => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr = top_ptr.read().atanh();
-                    }
-
-                    // Special functions (rare but handled inline to avoid heap fallback)
-                    Instruction::Erf => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr = crate::math::eval_erf(top_ptr.read());
-                    }
-                    Instruction::Erfc => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr = 1.0 - crate::math::eval_erf(top_ptr.read());
-                    }
-                    Instruction::Gamma => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr = crate::math::eval_gamma(top_ptr.read()).unwrap_or(f64::NAN);
-                    }
-                    Instruction::Digamma => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr = crate::math::eval_digamma(top_ptr.read()).unwrap_or(f64::NAN);
-                    }
-                    Instruction::Trigamma => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr = crate::math::eval_trigamma(top_ptr.read()).unwrap_or(f64::NAN);
-                    }
-                    Instruction::Tetragamma => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr = crate::math::eval_tetragamma(top_ptr.read()).unwrap_or(f64::NAN);
-                    }
-                    Instruction::LambertW => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr = crate::math::eval_lambert_w(top_ptr.read()).unwrap_or(f64::NAN);
-                    }
-                    Instruction::EllipticK => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr = crate::math::eval_elliptic_k(top_ptr.read()).unwrap_or(f64::NAN);
-                    }
-                    Instruction::EllipticE => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr = crate::math::eval_elliptic_e(top_ptr.read()).unwrap_or(f64::NAN);
-                    }
-                    Instruction::Zeta => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr = crate::math::eval_zeta(top_ptr.read()).unwrap_or(f64::NAN);
-                    }
-                    Instruction::ExpPolar => {
-                        let top_ptr = stack_ptr.add(len - 1);
-                        *top_ptr = crate::math::eval_exp_polar(top_ptr.read());
-                    }
-
-                    // Two-argument special functions
-                    Instruction::Log => {
-                        len -= 1;
-                        let x = stack_ptr.add(len).read();
-                        let base_ptr = stack_ptr.add(len - 1);
-                        #[allow(
-                            clippy::float_cmp,
-                            reason = "Exact comparison for base == 1.0 is mathematically intentional"
-                        )]
-                        let invalid = *base_ptr <= 0.0 || *base_ptr == 1.0 || x <= 0.0;
-                        *base_ptr = if invalid { f64::NAN } else { x.log(*base_ptr) };
-                    }
-                    Instruction::Atan2 => {
-                        len -= 1;
-                        let x = stack_ptr.add(len).read();
-                        let y_ptr = stack_ptr.add(len - 1);
-                        *y_ptr = y_ptr.read().atan2(x);
-                    }
-                    Instruction::BesselJ => {
-                        len -= 1;
-                        let x = stack_ptr.add(len).read();
-                        let n_ptr = stack_ptr.add(len - 1);
-                        let n_val = n_ptr.read();
-                        *n_ptr = if n_val.is_nan() {
-                            f64::NAN
-                        } else {
-                            #[allow(
-                                clippy::cast_possible_truncation,
-                                reason = "Bessel order is always a small integer"
-                            )]
-                            let order = n_val.round() as i32;
-                            crate::math::bessel_j(order, x).unwrap_or(f64::NAN)
-                        };
-                    }
-                    Instruction::BesselY => {
-                        len -= 1;
-                        let x = stack_ptr.add(len).read();
-                        let n_ptr = stack_ptr.add(len - 1);
-                        let n_val = n_ptr.read();
-                        *n_ptr = if n_val.is_nan() {
-                            f64::NAN
-                        } else {
-                            #[allow(
-                                clippy::cast_possible_truncation,
-                                reason = "Bessel order is always a small integer"
-                            )]
-                            let order = n_val.round() as i32;
-                            crate::math::bessel_y(order, x).unwrap_or(f64::NAN)
-                        };
-                    }
-                    Instruction::BesselI => {
-                        len -= 1;
-                        let x = stack_ptr.add(len).read();
-                        let n_ptr = stack_ptr.add(len - 1);
-                        let n_val = n_ptr.read();
-                        *n_ptr = if n_val.is_nan() {
-                            f64::NAN
-                        } else {
-                            #[allow(
-                                clippy::cast_possible_truncation,
-                                reason = "Bessel order is always a small integer"
-                            )]
-                            let order = n_val.round() as i32;
-                            crate::math::bessel_i(order, x)
-                        };
-                    }
-                    Instruction::BesselK => {
-                        len -= 1;
-                        let x = stack_ptr.add(len).read();
-                        let n_ptr = stack_ptr.add(len - 1);
-                        let n_val = n_ptr.read();
-                        *n_ptr = if n_val.is_nan() {
-                            f64::NAN
-                        } else {
-                            #[allow(
-                                clippy::cast_possible_truncation,
-                                reason = "Bessel order is always a small integer"
-                            )]
-                            let order = n_val.round() as i32;
-                            crate::math::bessel_k(order, x).unwrap_or(f64::NAN)
-                        };
-                    }
-                    Instruction::Polygamma => {
-                        len -= 1;
-                        let x = stack_ptr.add(len).read();
-                        let n_ptr = stack_ptr.add(len - 1);
-                        let n_val = n_ptr.read();
-                        *n_ptr = if n_val.is_nan() {
-                            f64::NAN
-                        } else {
-                            #[allow(
-                                clippy::cast_possible_truncation,
-                                reason = "Polygamma order is always a small integer"
-                            )]
-                            let order = n_val.round() as i32;
-                            crate::math::eval_polygamma(order, x).unwrap_or(f64::NAN)
-                        };
-                    }
-                    Instruction::Beta => {
-                        len -= 1;
-                        let b = stack_ptr.add(len).read();
-                        let a_ptr = stack_ptr.add(len - 1);
-                        let ga = crate::math::eval_gamma(*a_ptr);
-                        let gb = crate::math::eval_gamma(b);
-                        let gab = crate::math::eval_gamma(*a_ptr + b);
-                        *a_ptr = match (ga, gb, gab) {
-                            (Some(ga), Some(gb), Some(gab)) => ga * gb / gab,
-                            _ => f64::NAN,
-                        };
-                    }
-                    Instruction::ZetaDeriv => {
-                        len -= 1;
-                        let s = stack_ptr.add(len).read();
-                        let n_ptr = stack_ptr.add(len - 1);
-                        let n_val = n_ptr.read();
-                        *n_ptr = if n_val.is_nan() {
-                            f64::NAN
-                        } else {
-                            #[allow(
-                                clippy::cast_possible_truncation,
-                                reason = "Zeta derivative order is always a small integer"
-                            )]
-                            let order = n_val.round() as i32;
-                            crate::math::eval_zeta_deriv(order, s).unwrap_or(f64::NAN)
-                        };
-                    }
-                    Instruction::Hermite => {
-                        len -= 1;
-                        let x = stack_ptr.add(len).read();
-                        let n_ptr = stack_ptr.add(len - 1);
-                        let n_val = n_ptr.read();
-                        *n_ptr = if n_val.is_nan() || x.is_nan() {
-                            f64::NAN
-                        } else {
-                            #[allow(
-                                clippy::cast_possible_truncation,
-                                reason = "Hermite degree is always a small integer"
-                            )]
-                            let degree = n_val.round() as i32;
-                            crate::math::eval_hermite(degree, x).unwrap_or(f64::NAN)
-                        };
-                    }
-
-                    // Three-argument functions
-                    Instruction::AssocLegendre => {
-                        len -= 2;
-                        let x = stack_ptr.add(len + 1).read();
-                        let m = stack_ptr.add(len).read();
-                        let l_ptr = stack_ptr.add(len - 1);
-                        let l_val = l_ptr.read();
-                        *l_ptr = if l_val.is_nan() || m.is_nan() {
-                            f64::NAN
-                        } else {
-                            #[allow(
-                                clippy::cast_possible_truncation,
-                                reason = "Associated Legendre degree is always a small integer"
-                            )]
-                            let l_int = l_val.round() as i32;
-                            #[allow(
-                                clippy::cast_possible_truncation,
-                                reason = "Associated Legendre order is always a small integer"
-                            )]
-                            let m_int = m.round() as i32;
-                            crate::math::eval_assoc_legendre(l_int, m_int, x).unwrap_or(f64::NAN)
-                        };
-                    }
-
-                    // Four-argument functions
-                    Instruction::SphericalHarmonic => {
-                        len -= 3;
-                        let phi = stack_ptr.add(len + 2).read();
-                        let theta = stack_ptr.add(len + 1).read();
-                        let m = stack_ptr.add(len).read();
-                        let l_ptr = stack_ptr.add(len - 1);
-                        let l_val = l_ptr.read();
-                        *l_ptr = if l_val.is_nan() || m.is_nan() {
-                            f64::NAN
-                        } else {
-                            #[allow(
-                                clippy::cast_possible_truncation,
-                                reason = "Spherical harmonic degree/order is always a small integer"
-                            )]
-                            let l_int = l_val.round() as i32;
-                            #[allow(
-                                clippy::cast_possible_truncation,
-                                reason = "Spherical harmonic degree/order is always a small integer"
-                            )]
-                            let m_int = m.round() as i32;
-                            crate::math::eval_spherical_harmonic(l_int, m_int, theta, phi)
-                                .unwrap_or(f64::NAN)
-                        };
-                    }
-                }
-            }
+        let mut inline_registers = [0.0; INLINE_REGISTER_SIZE];
+        let p_count = self.param_count.min(params.len());
+        if p_count > 0 {
+            inline_registers[..p_count].copy_from_slice(&params[..p_count]);
         }
-
-        if len > 0 {
-            // SAFETY: len > 0 guaranteed by completion of instructions
-            unsafe { stack_ptr.add(len - 1).read() }
-        } else {
-            f64::NAN
+        // Fill missing params with 0.0
+        if p_count < self.param_count {
+            inline_registers[p_count..self.param_count].fill(0.0);
         }
+        let c_len = self.constants.len();
+        if c_len > 0 {
+            inline_registers[self.param_count..self.param_count + c_len]
+                .copy_from_slice(&self.constants);
+        }
+        self.exec_instructions(&mut inline_registers)
     }
 
-    /// Evaluate using provided stack and cache buffers (avoids allocation).
-    ///
-    /// This method is useful when you want to reuse buffers across multiple
-    /// evaluations to avoid repeated memory allocation.
-    ///
-    /// # Parameters
-    ///
-    /// * `params` - Parameter values in the same order as `param_names()`
-    /// * `stack` - Pre-allocated stack buffer (will be cleared)
-    /// * `cache` - Pre-allocated CSE cache buffer (must have `cache_size` elements)
-    ///   Evaluate using heap-allocated buffers. For internal and advanced use.
+    #[inline]
+    pub(crate) fn evaluate_heap(&self, params: &[f64], registers: &mut [f64]) -> f64 {
+        let p_count = self.param_count.min(params.len());
+        if p_count > 0 {
+            registers[..p_count].copy_from_slice(&params[..p_count]);
+        }
+        let c_len = self.constants.len();
+        if c_len > 0 {
+            registers[self.param_count..self.param_count + c_len].copy_from_slice(&self.constants);
+        }
+        // Fill any missing params with 0.0
+        registers[p_count..self.param_count].fill(0.0);
+
+        self.exec_instructions(registers)
+    }
+
     #[inline]
     #[allow(
         clippy::too_many_lines,
-        reason = "Large match statement for instruction dispatch"
+        reason = "Single loop handles all instruction variants for performance"
     )]
-    #[allow(
-        clippy::undocumented_unsafe_blocks,
-        reason = "Stack operations are validated at compile time."
-    )]
-    pub(crate) fn evaluate_heap(
-        &self,
-        params: &[f64],
-        stack: &mut Vec<f64>,
-        cache: &mut [f64],
-    ) -> f64 {
-        stack.clear();
-
-        let constants = &self.constants;
+    fn exec_instructions(&self, registers: &mut [f64]) -> f64 {
         for instr in &*self.instructions {
             match *instr {
-                // Binary operations (hot path first)
-                // SAFETY: Stack operations are validated at compile time.
-                Instruction::Add => unsafe { stack::scalar_stack_binop_assign_add(stack) },
-                // SAFETY: Stack operations are validated at compile time.
-                Instruction::Mul => unsafe { stack::scalar_stack_binop_assign_mul(stack) },
-                Instruction::MulConst(idx) => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top *= constants[idx as usize];
+                Instruction::LoadConst { dest, const_idx } => {
+                    registers[dest as usize] = self.constants[const_idx as usize];
                 }
-                Instruction::AddConst(idx) => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top += constants[idx as usize];
+                Instruction::Copy { dest, src } => {
+                    registers[dest as usize] = registers[src as usize];
                 }
-                Instruction::SubConst(idx) => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top -= constants[idx as usize];
+                Instruction::Add { dest, a, b } => {
+                    let va = registers[a as usize];
+                    let vb = registers[b as usize];
+                    registers[dest as usize] = va + vb;
                 }
-                Instruction::ConstSub(idx) => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = constants[idx as usize] - *top;
+                Instruction::Mul { dest, a, b } => {
+                    let va = registers[a as usize];
+                    let vb = registers[b as usize];
+                    registers[dest as usize] = va * vb;
                 }
-                Instruction::AddParam(p) => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    let idx = p as usize;
-                    *top += if idx < params.len() { params[idx] } else { 0.0 };
+                Instruction::Sub { dest, a, b } => {
+                    let va = registers[a as usize];
+                    let vb = registers[b as usize];
+                    registers[dest as usize] = va - vb;
                 }
-                Instruction::MulParam(p) => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    let idx = p as usize;
-                    *top *= if idx < params.len() { params[idx] } else { 0.0 };
+                Instruction::Div { dest, num, den } => {
+                    let va = registers[num as usize];
+                    let vb = registers[den as usize];
+                    registers[dest as usize] = va / vb;
                 }
-                Instruction::AddCached(slot) => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top += cache[slot as usize];
+                Instruction::Pow { dest, base, exp } => {
+                    let va = registers[base as usize];
+                    let vb = registers[exp as usize];
+                    registers[dest as usize] = va.powf(vb);
                 }
-                Instruction::MulCached(slot) => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top *= cache[slot as usize];
+                Instruction::Neg { dest, src } => {
+                    registers[dest as usize] = -registers[src as usize];
                 }
-                Instruction::SubParam(p) => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    let idx = p as usize;
-                    *top -= if idx < params.len() { params[idx] } else { 0.0 };
-                }
-                Instruction::DivParam(p) => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    let idx = p as usize;
-                    *top /= if idx < params.len() {
-                        params[idx]
-                    } else {
-                        f64::NAN
+                Instruction::Builtin1 { dest, op, arg } => {
+                    let x = registers[arg as usize];
+                    let res = match op {
+                        FnOp::Sin => x.sin(),
+                        FnOp::Cos => x.cos(),
+                        FnOp::Tan => x.tan(),
+                        FnOp::Cot => 1.0 / x.tan(),
+                        FnOp::Sec => 1.0 / x.cos(),
+                        FnOp::Csc => 1.0 / x.sin(),
+                        FnOp::Asin => x.asin(),
+                        FnOp::Acos => x.acos(),
+                        FnOp::Atan => x.atan(),
+                        FnOp::Acot => super::eval_math::eval_acot(x),
+                        FnOp::Asec => (1.0 / x).acos(),
+                        FnOp::Acsc => (1.0 / x).asin(),
+                        FnOp::Sinh => x.sinh(),
+                        FnOp::Cosh => x.cosh(),
+                        FnOp::Tanh => x.tanh(),
+                        FnOp::Coth => 1.0 / x.tanh(),
+                        FnOp::Sech => 1.0 / x.cosh(),
+                        FnOp::Csch => 1.0 / x.sinh(),
+                        FnOp::Asinh => x.asinh(),
+                        FnOp::Acosh => x.acosh(),
+                        FnOp::Atanh => x.atanh(),
+                        FnOp::Acoth => super::eval_math::eval_acoth(x),
+                        FnOp::Acsch => super::eval_math::eval_acsch(x),
+                        FnOp::Asech => super::eval_math::eval_asech(x),
+                        FnOp::Exp => x.exp(),
+                        FnOp::Expm1 => x.exp_m1(),
+                        FnOp::ExpNeg => (-x).exp(),
+                        FnOp::Ln => x.ln(),
+                        FnOp::Log1p => x.ln_1p(),
+                        FnOp::Sqrt => x.sqrt(),
+                        FnOp::Cbrt => x.cbrt(),
+                        FnOp::Abs => x.abs(),
+                        FnOp::Signum => x.signum(),
+                        FnOp::Floor => x.floor(),
+                        FnOp::Ceil => x.ceil(),
+                        FnOp::Round => x.round(),
+                        FnOp::Erf => crate::math::eval_erf(x),
+                        FnOp::Erfc => crate::math::eval_erfc(x),
+                        FnOp::Gamma => crate::math::eval_gamma(x).unwrap_or(f64::NAN),
+                        FnOp::Digamma => crate::math::eval_digamma(x).unwrap_or(f64::NAN),
+                        FnOp::Trigamma => crate::math::eval_trigamma(x).unwrap_or(f64::NAN),
+                        FnOp::Tetragamma => crate::math::eval_tetragamma(x).unwrap_or(f64::NAN),
+                        FnOp::Sinc => {
+                            if x.abs() < EPSILON {
+                                1.0
+                            } else {
+                                x.sin() / x
+                            }
+                        }
+                        FnOp::LambertW => crate::math::eval_lambert_w(x).unwrap_or(f64::NAN),
+                        FnOp::EllipticK => crate::math::eval_elliptic_k(x).unwrap_or(f64::NAN),
+                        FnOp::EllipticE => crate::math::eval_elliptic_e(x).unwrap_or(f64::NAN),
+                        FnOp::Zeta => crate::math::eval_zeta(x).unwrap_or(f64::NAN),
+                        FnOp::ExpPolar => crate::math::eval_exp_polar(x),
+                        _ => {
+                            debug_assert!(false, "Reached unreachable Builtin1 op: {op:?}");
+                            // SAFETY: All Builtin1 ops are exhaustively handled above.
+                            unsafe { std::hint::unreachable_unchecked() }
+                        }
                     };
+                    registers[dest as usize] = res;
                 }
-                // SAFETY: Stack operations are validated at compile time.
-                Instruction::Div => unsafe { stack::scalar_stack_binop_assign_div(stack) },
-                // SAFETY: Stack operations are validated at compile time.
-                Instruction::Sub => unsafe { stack::scalar_stack_binop_assign_sub(stack) },
-                // SAFETY: Stack operations are validated at compile time.
-                Instruction::Pow => unsafe {
-                    stack::scalar_stack_binop(stack, f64::powf);
-                },
-
-                Instruction::LoadConst(idx) => stack.push(constants[idx as usize]),
-                Instruction::LoadParam(i) => {
-                    let idx = i as usize;
-                    stack.push(if idx < params.len() { params[idx] } else { 0.0 });
+                Instruction::Builtin2 {
+                    dest,
+                    op,
+                    arg1,
+                    arg2,
+                } => {
+                    let x1 = registers[arg1 as usize];
+                    let x2 = registers[arg2 as usize];
+                    let res = match op {
+                        FnOp::Atan2 => x1.atan2(x2),
+                        FnOp::Log =>
+                        {
+                            #[allow(
+                                clippy::float_cmp,
+                                reason = "Comparing exactly with 0.0 is intentional to handle positive/negative zero correctly"
+                            )]
+                            if x1 <= 0.0 || x1 == 1.0 || x2 <= 0.0 {
+                                f64::NAN
+                            } else {
+                                x2.log(x1)
+                            }
+                        }
+                        FnOp::BesselJ => round_to_i32(x1).map_or(f64::NAN, |n| {
+                            crate::math::bessel_j(n, x2).unwrap_or(f64::NAN)
+                        }),
+                        FnOp::BesselY => round_to_i32(x1).map_or(f64::NAN, |n| {
+                            crate::math::bessel_y(n, x2).unwrap_or(f64::NAN)
+                        }),
+                        FnOp::BesselI => {
+                            round_to_i32(x1).map_or(f64::NAN, |n| crate::math::bessel_i(n, x2))
+                        }
+                        FnOp::BesselK => round_to_i32(x1).map_or(f64::NAN, |n| {
+                            crate::math::bessel_k(n, x2).unwrap_or(f64::NAN)
+                        }),
+                        FnOp::Polygamma => round_to_i32(x1).map_or(f64::NAN, |n| {
+                            crate::math::eval_polygamma(n, x2).unwrap_or(f64::NAN)
+                        }),
+                        FnOp::Beta => {
+                            let ga = crate::math::eval_gamma(x1);
+                            let gb = crate::math::eval_gamma(x2);
+                            let gab = crate::math::eval_gamma(x1 + x2);
+                            match (ga, gb, gab) {
+                                (Some(a), Some(b), Some(ab)) => a * b / ab,
+                                _ => f64::NAN,
+                            }
+                        }
+                        FnOp::ZetaDeriv => round_to_i32(x1).map_or(f64::NAN, |n| {
+                            crate::math::eval_zeta_deriv(n, x2).unwrap_or(f64::NAN)
+                        }),
+                        FnOp::Hermite => round_to_i32(x1).map_or(f64::NAN, |n| {
+                            crate::math::eval_hermite(n, x2).unwrap_or(f64::NAN)
+                        }),
+                        _ => {
+                            debug_assert!(false, "Reached unreachable Builtin2 op: {op:?}");
+                            // SAFETY: All Builtin2 ops are exhaustively handled above.
+                            unsafe { std::hint::unreachable_unchecked() }
+                        }
+                    };
+                    registers[dest as usize] = res;
                 }
-
-                // SAFETY: Stack operations are validated at compile time.
-                Instruction::Pop => unsafe {
-                    stack::scalar_stack_pop(stack);
-                },
-                // SAFETY: Stack operations are validated at compile time.
-                Instruction::Swap => unsafe {
-                    stack::scalar_stack_swap(stack);
-                },
-
-                // Fused operations
-                Instruction::Square => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = *top * *top;
+                Instruction::Builtin3 {
+                    dest,
+                    op,
+                    arg1,
+                    arg2,
+                    arg3,
+                } => {
+                    let x1 = registers[arg1 as usize];
+                    let x2 = registers[arg2 as usize];
+                    let x3 = registers[arg3 as usize];
+                    let res = if op == FnOp::AssocLegendre {
+                        match (round_to_i32(x1), round_to_i32(x2)) {
+                            (Some(l), Some(m)) => {
+                                crate::math::eval_assoc_legendre(l, m, x3).unwrap_or(f64::NAN)
+                            }
+                            _ => f64::NAN,
+                        }
+                    } else {
+                        debug_assert!(false, "Reached unreachable Builtin3 op: {op:?}");
+                        // SAFETY: All Builtin3 ops are exhaustively handled above.
+                        unsafe { std::hint::unreachable_unchecked() }
+                    };
+                    registers[dest as usize] = res;
                 }
-                Instruction::Cube => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    let x = *top;
-                    *top = x * x * x;
+                Instruction::Builtin4 {
+                    dest,
+                    op,
+                    arg1,
+                    arg2,
+                    arg3,
+                    arg4,
+                } => {
+                    let x1 = registers[arg1 as usize];
+                    let x2 = registers[arg2 as usize];
+                    let x3 = registers[arg3 as usize];
+                    let x4 = registers[arg4 as usize];
+                    let res = if op == FnOp::SphericalHarmonic {
+                        match (round_to_i32(x1), round_to_i32(x2)) {
+                            (Some(l), Some(m)) => {
+                                crate::math::eval_spherical_harmonic(l, m, x3, x4)
+                                    .unwrap_or(f64::NAN)
+                            }
+                            _ => f64::NAN,
+                        }
+                    } else {
+                        debug_assert!(false, "Reached unreachable Builtin4 op: {op:?}");
+                        // SAFETY: All Builtin4 ops are exhaustively handled above.
+                        unsafe { std::hint::unreachable_unchecked() }
+                    };
+                    registers[dest as usize] = res;
                 }
-                Instruction::Pow4 => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    let x = *top;
+                Instruction::Square { dest, src } => {
+                    registers[dest as usize] = registers[src as usize] * registers[src as usize];
+                }
+                Instruction::Cube { dest, src } => {
+                    let x = registers[src as usize];
+                    registers[dest as usize] = x * x * x;
+                }
+                Instruction::Pow4 { dest, src } => {
+                    let x = registers[src as usize];
                     let x2 = x * x;
-                    *top = x2 * x2;
+                    registers[dest as usize] = x2 * x2;
                 }
-                Instruction::Pow3_2 => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    let x = *top;
-                    *top = x * x.sqrt();
+                Instruction::Pow3_2 { dest, src } => {
+                    let x = registers[src as usize];
+                    registers[dest as usize] = x * x.sqrt();
                 }
-                Instruction::InvPow3_2 => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    let x = *top;
-                    *top = 1.0 / (x * x.sqrt());
+                Instruction::InvPow3_2 { dest, src } => {
+                    let x = registers[src as usize];
+                    registers[dest as usize] = 1.0 / (x * x.sqrt());
                 }
-                Instruction::InvSqrt => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = 1.0 / top.sqrt();
+                Instruction::InvSqrt { dest, src } => {
+                    registers[dest as usize] = 1.0 / registers[src as usize].sqrt();
                 }
-                Instruction::InvSquare => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    let x = *top;
-                    *top = 1.0 / (x * x);
+                Instruction::InvSquare { dest, src } => {
+                    let x = registers[src as usize];
+                    registers[dest as usize] = 1.0 / (x * x);
                 }
-                Instruction::InvCube => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    let x = *top;
-                    *top = 1.0 / (x * x * x);
+                Instruction::InvCube { dest, src } => {
+                    let x = registers[src as usize];
+                    registers[dest as usize] = 1.0 / (x * x * x);
                 }
-                Instruction::Recip => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = 1.0 / *top;
+                Instruction::Recip { dest, src } => {
+                    registers[dest as usize] = 1.0 / registers[src as usize];
                 }
-                Instruction::Powi(n) => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    let x = *top;
-                    *top = x.powi(n);
+                Instruction::Powi { dest, src, n } => {
+                    registers[dest as usize] = registers[src as usize].powi(n);
                 }
-                // SAFETY: Stack operations are validated at compile time.
-                Instruction::MulAdd => unsafe { stack::scalar_stack_muladd(stack) },
-                // SAFETY: Stack operations are validated at compile time.
-                Instruction::MulSub => unsafe { stack::scalar_stack_mulsub(stack) },
-                // SAFETY: Stack operations are validated at compile time.
-                Instruction::NegMulAdd => unsafe { stack::scalar_stack_neg_muladd(stack) },
-
-                Instruction::PolyEval(idx) => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let x_ptr = unsafe { stack::scalar_stack_top_mut(stack) };
-                    let x = *x_ptr;
-                    let start = idx as usize;
+                Instruction::MulAdd { dest, a, b, c } => {
+                    registers[dest as usize] =
+                        registers[a as usize].mul_add(registers[b as usize], registers[c as usize]);
+                }
+                Instruction::MulSub { dest, a, b, c } => {
+                    registers[dest as usize] = registers[a as usize]
+                        .mul_add(registers[b as usize], -registers[c as usize]);
+                }
+                Instruction::NegMulAdd { dest, a, b, c } => {
+                    registers[dest as usize] = (-registers[a as usize])
+                        .mul_add(registers[b as usize], registers[c as usize]);
+                }
+                Instruction::PolyEval { dest, x, const_idx } => {
+                    let val_x = registers[x as usize];
+                    let start = const_idx as usize;
                     #[allow(
                         clippy::cast_possible_truncation,
                         clippy::cast_sign_loss,
-                        reason = "Degree is stored as f64 but always an integer, so cast is safe"
+                        reason = "Degree fits in usize"
                     )]
-                    let degree = constants[start] as usize;
-
-                    let mut res = constants[start + 1];
-                    for i in 0..degree {
-                        res = res.mul_add(x, constants[start + 2 + i]);
+                    let degree = self.constants[start] as usize;
+                    let mut res = self.constants[start + 1];
+                    for i in 1..=degree {
+                        res = res.mul_add(val_x, self.constants[start + 1 + i]);
                     }
-                    *x_ptr = res;
+                    registers[dest as usize] = res;
                 }
-
-                // Unary operations
-                Instruction::Neg => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = -*top;
+                Instruction::RecipExpm1 { dest, src } => {
+                    registers[dest as usize] = 1.0 / registers[src as usize].exp_m1();
                 }
-
-                // Trigonometric
-                Instruction::Sin => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = top.sin();
+                Instruction::ExpSqr { dest, src } => {
+                    let x = registers[src as usize];
+                    registers[dest as usize] = (x * x).exp();
                 }
-                Instruction::Cos => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = top.cos();
-                }
-                Instruction::Tan => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = top.tan();
-                }
-                Instruction::Asin => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = top.asin();
-                }
-                Instruction::Acos => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = top.acos();
-                }
-                Instruction::Atan => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = top.atan();
-                }
-                Instruction::Acot => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = stack::eval_acot(*top);
-                }
-
-                // Hyperbolic
-                Instruction::Sinh => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = top.sinh();
-                }
-                Instruction::Cosh => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = top.cosh();
-                }
-                Instruction::Tanh => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = top.tanh();
-                }
-                Instruction::Asinh => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = top.asinh();
-                }
-                Instruction::Acosh => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = top.acosh();
-                }
-                Instruction::Atanh => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = top.atanh();
-                }
-
-                // Exponential/Logarithmic
-                Instruction::Exp => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = top.exp();
-                }
-                Instruction::Ln => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = top.ln();
-                }
-                Instruction::Expm1 => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = top.exp_m1();
-                }
-                Instruction::ExpNeg => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = (-*top).exp();
-                }
-                Instruction::Log1p => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = top.ln_1p();
-                }
-                Instruction::RecipExpm1 => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = 1.0 / top.exp_m1();
-                }
-                Instruction::ExpSqr => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    let x = *top;
-                    *top = (x * x).exp();
-                }
-                Instruction::ExpSqrNeg => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    let x = *top;
-                    *top = (-(x * x)).exp();
-                }
-
-                Instruction::Sqrt => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = top.sqrt();
-                }
-                Instruction::Cbrt => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = top.cbrt();
-                }
-
-                // Special functions (unary)
-                Instruction::Abs => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = top.abs();
-                }
-                Instruction::Signum => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = top.signum();
-                }
-                Instruction::Floor => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = top.floor();
-                }
-                Instruction::Ceil => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = top.ceil();
-                }
-                Instruction::Round => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = top.round();
-                }
-                Instruction::Erf => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = crate::math::eval_erf(*top);
-                }
-                Instruction::Erfc => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = 1.0 - crate::math::eval_erf(*top);
-                }
-                Instruction::Gamma => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = crate::math::eval_gamma(*top).unwrap_or(f64::NAN);
-                }
-                Instruction::Digamma => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = crate::math::eval_digamma(*top).unwrap_or(f64::NAN);
-                }
-                Instruction::Trigamma => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = crate::math::eval_trigamma(*top).unwrap_or(f64::NAN);
-                }
-                Instruction::Tetragamma => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = crate::math::eval_tetragamma(*top).unwrap_or(f64::NAN);
-                }
-                Instruction::Sinc => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = stack::eval_sinc(*top);
-                }
-                Instruction::LambertW => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = crate::math::eval_lambert_w(*top).unwrap_or(f64::NAN);
-                }
-                Instruction::EllipticK => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = crate::math::eval_elliptic_k(*top).unwrap_or(f64::NAN);
-                }
-                Instruction::EllipticE => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = crate::math::eval_elliptic_e(*top).unwrap_or(f64::NAN);
-                }
-                Instruction::Zeta => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = crate::math::eval_zeta(*top).unwrap_or(f64::NAN);
-                }
-                Instruction::ExpPolar => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let top = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *top = crate::math::eval_exp_polar(*top);
-                }
-
-                // Two-argument functions
-                Instruction::Log => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let x = unsafe { stack::scalar_stack_pop(stack) };
-                    // SAFETY: Stack operations are validated at compile time.
-                    let base = unsafe { stack::scalar_stack_top_mut(stack) };
-                    // Exact comparison for base == 1.0 is mathematically intentional
-                    #[allow(
-                        clippy::float_cmp,
-                        reason = "Exact comparison for base == 1.0 is mathematically intentional"
-                    )]
-                    let invalid = *base <= 0.0 || *base == 1.0 || x <= 0.0;
-                    *base = if invalid { f64::NAN } else { x.log(*base) };
-                }
-                Instruction::Atan2 => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let x = unsafe { stack::scalar_stack_pop(stack) };
-                    // SAFETY: Stack operations are validated at compile time.
-                    let y = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *y = y.atan2(x);
-                }
-                Instruction::BesselJ => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let x = unsafe { stack::scalar_stack_pop(stack) };
-                    // SAFETY: Stack operations are validated at compile time.
-                    let n = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *n = if (*n).is_nan() {
-                        f64::NAN
-                    } else {
-                        // Bessel order is always a small integer
-                        #[allow(
-                            clippy::cast_possible_truncation,
-                            reason = "Bessel order is always a small integer"
-                        )]
-                        let order = (*n).round() as i32;
-                        crate::math::bessel_j(order, x).unwrap_or(f64::NAN)
-                    };
-                }
-                Instruction::BesselY => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let x = unsafe { stack::scalar_stack_pop(stack) };
-                    // SAFETY: Stack operations are validated at compile time.
-                    let n = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *n = if (*n).is_nan() {
-                        f64::NAN
-                    } else {
-                        #[allow(
-                            clippy::cast_possible_truncation,
-                            reason = "Bessel order is always a small integer"
-                        )]
-                        let order = (*n).round() as i32;
-                        crate::math::bessel_y(order, x).unwrap_or(f64::NAN)
-                    };
-                }
-                Instruction::BesselI => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let x = unsafe { stack::scalar_stack_pop(stack) };
-                    // SAFETY: Stack operations are validated at compile time.
-                    let n = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *n = if (*n).is_nan() {
-                        f64::NAN
-                    } else {
-                        #[allow(
-                            clippy::cast_possible_truncation,
-                            reason = "Bessel order is always a small integer"
-                        )]
-                        let order = (*n).round() as i32;
-                        crate::math::bessel_i(order, x)
-                    };
-                }
-                Instruction::BesselK => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let x = unsafe { stack::scalar_stack_pop(stack) };
-                    // SAFETY: Stack operations are validated at compile time.
-                    let n = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *n = if (*n).is_nan() {
-                        f64::NAN
-                    } else {
-                        #[allow(
-                            clippy::cast_possible_truncation,
-                            reason = "Bessel order is always a small integer"
-                        )]
-                        let order = (*n).round() as i32;
-                        crate::math::bessel_k(order, x).unwrap_or(f64::NAN)
-                    };
-                }
-                Instruction::Polygamma => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let x = unsafe { stack::scalar_stack_pop(stack) };
-                    // SAFETY: Stack operations are validated at compile time.
-                    let n = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *n = if (*n).is_nan() {
-                        f64::NAN
-                    } else {
-                        #[allow(
-                            clippy::cast_possible_truncation,
-                            reason = "Polygamma order is always a small integer"
-                        )]
-                        let order = (*n).round() as i32;
-                        crate::math::eval_polygamma(order, x).unwrap_or(f64::NAN)
-                    };
-                }
-                Instruction::Beta => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let b = unsafe { stack::scalar_stack_pop(stack) };
-                    // SAFETY: Stack operations are validated at compile time.
-                    let a = unsafe { stack::scalar_stack_top_mut(stack) };
-                    let ga = crate::math::eval_gamma(*a);
-                    let gb = crate::math::eval_gamma(b);
-                    let gab = crate::math::eval_gamma(*a + b);
-                    *a = match (ga, gb, gab) {
-                        (Some(ga), Some(gb), Some(gab)) => ga * gb / gab,
-                        _ => f64::NAN,
-                    };
-                }
-                Instruction::ZetaDeriv => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let s = unsafe { stack::scalar_stack_pop(stack) };
-                    // SAFETY: Stack operations are validated at compile time.
-                    let n = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *n = if (*n).is_nan() {
-                        f64::NAN
-                    } else {
-                        #[allow(
-                            clippy::cast_possible_truncation,
-                            reason = "Zeta derivative order is always a small integer"
-                        )]
-                        let order = (*n).round() as i32;
-                        crate::math::eval_zeta_deriv(order, s).unwrap_or(f64::NAN)
-                    };
-                }
-                Instruction::Hermite => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let x = unsafe { stack::scalar_stack_pop(stack) };
-                    // SAFETY: Stack operations are validated at compile time.
-                    let n = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *n = if (*n).is_nan() || x.is_nan() {
-                        f64::NAN
-                    } else {
-                        #[allow(
-                            clippy::cast_possible_truncation,
-                            reason = "Hermite polynomial degree is always a small integer"
-                        )]
-                        let degree = (*n).round() as i32;
-                        crate::math::eval_hermite(degree, x).unwrap_or(f64::NAN)
-                    };
-                }
-
-                // Three-argument functions
-                Instruction::AssocLegendre => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let x = unsafe { stack::scalar_stack_pop(stack) };
-                    // SAFETY: Stack operations are validated at compile time.
-                    let m = unsafe { stack::scalar_stack_pop(stack) };
-                    // SAFETY: Stack operations are validated at compile time.
-                    let l = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *l = if (*l).is_nan() || m.is_nan() {
-                        f64::NAN
-                    } else {
-                        #[allow(
-                            clippy::cast_possible_truncation,
-                            reason = "Associated Legendre degree is always a small integer"
-                        )]
-                        let l_int = (*l).round() as i32;
-                        #[allow(
-                            clippy::cast_possible_truncation,
-                            reason = "Associated Legendre order is always a small integer"
-                        )]
-                        let m_int = m.round() as i32;
-                        crate::math::eval_assoc_legendre(l_int, m_int, x).unwrap_or(f64::NAN)
-                    };
-                }
-
-                // Four-argument functions
-                Instruction::SphericalHarmonic => {
-                    // SAFETY: Stack operations are validated at compile time.
-                    let phi = unsafe { stack::scalar_stack_pop(stack) };
-                    // SAFETY: Stack operations are validated at compile time.
-                    let theta = unsafe { stack::scalar_stack_pop(stack) };
-                    // SAFETY: Stack operations are validated at compile time.
-                    let m = unsafe { stack::scalar_stack_pop(stack) };
-                    // SAFETY: Stack operations are validated at compile time.
-                    let l = unsafe { stack::scalar_stack_top_mut(stack) };
-                    *l = if (*l).is_nan() || m.is_nan() {
-                        f64::NAN
-                    } else {
-                        #[allow(
-                            clippy::cast_possible_truncation,
-                            reason = "Spherical harmonic degree/order is always a small integer"
-                        )]
-                        let l_int = (*l).round() as i32;
-                        #[allow(
-                            clippy::cast_possible_truncation,
-                            reason = "Spherical harmonic degree/order is always a small integer"
-                        )]
-                        let m_int = m.round() as i32;
-                        crate::math::eval_spherical_harmonic(l_int, m_int, theta, phi)
-                            .unwrap_or(f64::NAN)
-                    };
-                }
-                // CSE instructions
-                Instruction::Dup => {
-                    // SAFETY: Stack is non-empty - validated at compile time.
-                    let top_val = unsafe { stack::scalar_stack_top(stack) };
-                    stack.push(top_val);
-                }
-                Instruction::StoreCached(slot) => {
-                    // SAFETY: Stack is non-empty - validated at compile time.
-                    cache[slot as usize] = unsafe { *stack::scalar_stack_top_mut(stack) };
-                }
-                Instruction::LoadCached(slot) => {
-                    stack.push(cache[slot as usize]);
-                }
+                Instruction::ExpSqrNeg { dest, src } => {
+                    let x = registers[src as usize];
+                    registers[dest as usize] = (-(x * x)).exp();
+                } // Handle unmapped patterns if any
             }
         }
-        stack.pop().unwrap_or(f64::NAN)
+        // Result is always left in register 0
+        registers[0]
     }
 }

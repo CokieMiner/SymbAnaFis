@@ -5,7 +5,10 @@
 use std::cmp::Ordering as CmpOrdering;
 use std::sync::Arc;
 
-use super::{CACHED_NEG_ONE, CACHED_TWO, CACHED_ZERO, EPSILON, EXPR_ONE, Expr, ExprKind, compute_expr_hash, expr_cmp, next_id};
+use super::{
+    CACHED_NEG_ONE, CACHED_TWO, CACHED_ZERO, EPSILON, EXPR_ONE, Expr, ExprKind, compute_expr_hash,
+    expr_cmp, next_id,
+};
 use crate::core::symbol::{InternedSymbol, symb_interned};
 
 impl Expr {
