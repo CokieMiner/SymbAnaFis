@@ -171,6 +171,10 @@ fn main() {
         (evaluator, t.elapsed(), initial_values.clone())
     };
     eprintln!("  Symbolica (compile):             {sym_parsed_compile:?}");
+    eprintln!(
+        "  Symbolica (parsed meta):          instrs={}",
+        sym_parsed_evaluator.export_instructions().0.len()
+    );
 
     // ═══════════════════════════════════════════════════════════════════
     //  3. EVALUATION (parsed expression, ×{EVAL_ITERATIONS})
@@ -307,6 +311,10 @@ fn main() {
         (evaluator, t.elapsed(), initial_values.clone())
     };
     eprintln!("  Symbolica (compile):             {sym_compile_time:?}");
+    eprintln!(
+        "  Symbolica (diff meta):            instrs={}",
+        sym_evaluator.export_instructions().0.len()
+    );
 
     // ═══════════════════════════════════════════════════════════════════
     //  6. EVALUATION of differentiated expressions (×{EVAL_ITERATIONS})

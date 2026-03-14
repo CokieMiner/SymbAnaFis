@@ -19,15 +19,14 @@ pub(super) fn eval_sinc(x: f64) -> f64 {
 pub(super) fn eval_acot(x: f64) -> f64 {
     if x.abs() < EPSILON {
         std::f64::consts::FRAC_PI_2
-    } else if let Some(ordering) = x.partial_cmp(&0.0) {
+    } else {
         let inv = 1.0 / x;
-        if ordering == std::cmp::Ordering::Greater {
+        if x > 0.0 {
             inv.atan()
         } else {
+            // This handles x < 0 and NaN (NaN + PI = NaN)
             inv.atan() + std::f64::consts::PI
         }
-    } else {
-        f64::NAN
     }
 }
 
@@ -48,4 +47,18 @@ pub(super) fn eval_asech(x: f64) -> f64 {
 pub(super) fn eval_acoth(x: f64) -> f64 {
     // acoth(x) = 0.5 * ln((x + 1) / (x - 1))
     0.5 * ((x + 1.0) / (x - 1.0)).ln()
+}
+
+/// Round a float to i32, returning None if out of range or NaN.
+#[inline]
+pub(super) fn round_to_i32(x: f64) -> Option<i32> {
+    let rounded = x.round();
+    if !(rounded >= f64::from(i32::MIN) && rounded <= f64::from(i32::MAX)) {
+        return None;
+    }
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "Range checked above before casting"
+    )]
+    Some(rounded as i32)
 }

@@ -52,7 +52,7 @@ fn main() {
     eprintln!("Starting compile+eval profiling loop...\n");
 
     // ═══ Compile loop ═══
-    let compile_iters = 20;
+    let compile_iters = 10;
     let t0 = Instant::now();
     let mut evaluator = None;
     for _ in 0..compile_iters {
@@ -83,71 +83,75 @@ fn main() {
     );
 
     // ═══ Evaluate loop ═══
-    let eval_iters = 500;
+    let eval_iters = 0;
+    let batch_iters = 10; // Profile batch eval
     let evaluator = evaluator.unwrap();
     let eval_raw = eval_raw.unwrap();
 
     // Scalar eval
-    let t2 = Instant::now();
-    for _ in 0..eval_iters {
-        black_box(evaluator.evaluate(black_box(&values)));
-    }
-    let eval_time = t2.elapsed();
-    eprintln!(
-        "\nEval (parsed) x{eval_iters}: {:?} ({:?}/iter)",
-        eval_time,
-        eval_time / eval_iters
-    );
+    if eval_iters > 0 {
+        let t2 = Instant::now();
+        for _ in 0..eval_iters {
+            black_box(evaluator.evaluate(black_box(&values)));
+        }
+        let eval_time = t2.elapsed();
+        eprintln!(
+            "\nEval (parsed) x{eval_iters}: {:?} ({:?}/iter)",
+            eval_time,
+            eval_time / eval_iters
+        );
 
-    let t3 = Instant::now();
-    for _ in 0..eval_iters {
-        black_box(eval_raw.evaluate(black_box(&values)));
+        let t3 = Instant::now();
+        for _ in 0..eval_iters {
+            black_box(eval_raw.evaluate(black_box(&values)));
+        }
+        let eval_raw_time = t3.elapsed();
+        eprintln!(
+            "Eval (raw deriv) x{eval_iters}: {:?} ({:?}/iter)",
+            eval_raw_time,
+            eval_raw_time / eval_iters
+        );
     }
-    let eval_raw_time = t3.elapsed();
-    eprintln!(
-        "Eval (raw deriv) x{eval_iters}: {:?} ({:?}/iter)",
-        eval_raw_time,
-        eval_raw_time / eval_iters
-    );
 
     // Batch eval
-    let n = 10_000;
-    let columns: Vec<Vec<f64>> = (0..params_str.len())
-        .map(|i| {
-            (0..n)
-                .map(|j| (j as f64).mul_add(0.001, values[i]))
-                .collect()
-        })
-        .collect();
-    let col_refs: Vec<&[f64]> = columns.iter().map(Vec::as_slice).collect();
-    let mut output = vec![0.0; n];
+    if batch_iters > 0 {
+        let n = 1000;
+        let columns: Vec<Vec<f64>> = (0..params_str.len())
+            .map(|i| {
+                (0..n)
+                    .map(|j| (j as f64).mul_add(0.001, values[i]))
+                    .collect()
+            })
+            .collect();
+        let col_refs: Vec<&[f64]> = columns.iter().map(Vec::as_slice).collect();
+        let mut output = vec![0.0; n];
 
-    let batch_iters = 50;
-    let t4 = Instant::now();
-    for _ in 0..batch_iters {
-        evaluator
-            .eval_batch(black_box(&col_refs), black_box(&mut output), None)
-            .unwrap();
-    }
-    let batch_time = t4.elapsed();
-    eprintln!(
-        "\nBatch eval (parsed, {n} pts) x{batch_iters}: {:?} ({:?}/iter)",
-        batch_time,
-        batch_time / batch_iters
-    );
+        let t4 = Instant::now();
+        for _ in 0..batch_iters {
+            evaluator
+                .eval_batch(black_box(&col_refs), black_box(&mut output), None)
+                .unwrap();
+        }
+        let batch_time = t4.elapsed();
+        eprintln!(
+            "\nBatch eval (parsed, {n} pts) x{batch_iters}: {:?} ({:?}/iter)",
+            batch_time,
+            batch_time / batch_iters
+        );
 
-    let t5 = Instant::now();
-    for _ in 0..batch_iters {
-        eval_raw
-            .eval_batch(black_box(&col_refs), black_box(&mut output), None)
-            .unwrap();
+        let t5 = Instant::now();
+        for _ in 0..batch_iters {
+            eval_raw
+                .eval_batch(black_box(&col_refs), black_box(&mut output), None)
+                .unwrap();
+        }
+        let batch_raw_time = t5.elapsed();
+        eprintln!(
+            "Batch eval (raw deriv, {n} pts) x{batch_iters}: {:?} ({:?}/iter)",
+            batch_raw_time,
+            batch_raw_time / batch_iters
+        );
     }
-    let batch_raw_time = t5.elapsed();
-    eprintln!(
-        "Batch eval (raw deriv, {n} pts) x{batch_iters}: {:?} ({:?}/iter)",
-        batch_raw_time,
-        batch_raw_time / batch_iters
-    );
 
     eprintln!("\nDone.");
 }

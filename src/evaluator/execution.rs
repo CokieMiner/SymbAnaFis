@@ -1,4 +1,8 @@
 #![allow(unsafe_op_in_unsafe_fn, reason = "Internal unsafe operations allowed")]
+#![allow(
+    clippy::undocumented_unsafe_blocks,
+    reason = "Internal unsafe operations allowed"
+)]
 //! Scalar evaluation implementation for the register-based evaluator.
 //!
 //! This module provides the `evaluate` method for single-point evaluation.
@@ -6,30 +10,19 @@
 
 use super::CompiledEvaluator;
 use super::instruction::{FnOp, Instruction};
-use crate::core::traits::EPSILON;
 
-const INLINE_REGISTER_SIZE: usize = 256;
-
-#[inline]
-fn round_to_i32(x: f64) -> Option<i32> {
-    let rounded = x.round();
-    if !(rounded >= f64::from(i32::MIN) && rounded <= f64::from(i32::MAX)) {
-        return None;
-    }
-    #[allow(
-        clippy::cast_possible_truncation,
-        reason = "Range checked above before casting"
-    )]
-    Some(rounded as i32)
-}
+const INLINE_REGISTER_SIZE_SMALL: usize = 64;
+const INLINE_REGISTER_SIZE_MEDIUM: usize = 256;
 
 impl CompiledEvaluator {
     /// Evaluates the compiled expression at a single point.
     #[inline]
     #[must_use]
     pub fn evaluate(&self, params: &[f64]) -> f64 {
-        if self.register_count <= INLINE_REGISTER_SIZE {
-            self.evaluate_inline(params)
+        if self.register_count <= INLINE_REGISTER_SIZE_SMALL {
+            self.evaluate_inline_small(params)
+        } else if self.register_count <= INLINE_REGISTER_SIZE_MEDIUM {
+            self.evaluate_inline_medium(params)
         } else {
             let mut registers = vec![0.0; self.register_count];
             self.evaluate_heap(params, &mut registers)
@@ -37,37 +30,41 @@ impl CompiledEvaluator {
     }
 
     #[inline]
-    fn evaluate_inline(&self, params: &[f64]) -> f64 {
-        let mut inline_registers = [0.0; INLINE_REGISTER_SIZE];
-        let p_count = self.param_count.min(params.len());
-        if p_count > 0 {
-            inline_registers[..p_count].copy_from_slice(&params[..p_count]);
-        }
-        // Fill missing params with 0.0
-        if p_count < self.param_count {
-            inline_registers[p_count..self.param_count].fill(0.0);
-        }
-        let c_len = self.constants.len();
-        if c_len > 0 {
-            inline_registers[self.param_count..self.param_count + c_len]
-                .copy_from_slice(&self.constants);
-        }
-        self.exec_instructions(&mut inline_registers)
-    }
-
-    #[inline]
-    pub(crate) fn evaluate_heap(&self, params: &[f64], registers: &mut [f64]) -> f64 {
+    fn setup_registers(&self, params: &[f64], registers: &mut [f64]) {
         let p_count = self.param_count.min(params.len());
         if p_count > 0 {
             registers[..p_count].copy_from_slice(&params[..p_count]);
         }
+        // Fill missing params with 0.0
+        if p_count < self.param_count {
+            registers[p_count..self.param_count].fill(0.0);
+        }
         let c_len = self.constants.len();
         if c_len > 0 {
-            registers[self.param_count..self.param_count + c_len].copy_from_slice(&self.constants);
+            registers[self.param_count..(self.param_count + c_len)]
+                .copy_from_slice(&self.constants);
         }
-        // Fill any missing params with 0.0
-        registers[p_count..self.param_count].fill(0.0);
+    }
 
+    #[inline]
+    fn evaluate_inline_small(&self, params: &[f64]) -> f64 {
+        let mut inline_registers = [0.0; INLINE_REGISTER_SIZE_SMALL];
+        let registers = &mut inline_registers[..self.register_count];
+        self.setup_registers(params, registers);
+        self.exec_instructions(registers)
+    }
+
+    #[inline]
+    fn evaluate_inline_medium(&self, params: &[f64]) -> f64 {
+        let mut inline_registers = [0.0; INLINE_REGISTER_SIZE_MEDIUM];
+        let registers = &mut inline_registers[..self.register_count];
+        self.setup_registers(params, registers);
+        self.exec_instructions(registers)
+    }
+
+    #[inline]
+    pub(crate) fn evaluate_heap(&self, params: &[f64], registers: &mut [f64]) -> f64 {
+        self.setup_registers(params, registers);
         self.exec_instructions(registers)
     }
 
@@ -77,44 +74,169 @@ impl CompiledEvaluator {
         reason = "Single loop handles all instruction variants for performance"
     )]
     fn exec_instructions(&self, registers: &mut [f64]) -> f64 {
-        for instr in &*self.instructions {
+        let mut pc = self.instructions.as_ptr();
+        let end = unsafe { pc.add(self.instructions.len()) };
+
+        while pc < end {
+            let instr = unsafe { &*pc };
+            pc = unsafe { pc.add(1) };
+
             match *instr {
-                Instruction::LoadConst { dest, const_idx } => {
-                    registers[dest as usize] = self.constants[const_idx as usize];
-                }
-                Instruction::Copy { dest, src } => {
-                    registers[dest as usize] = registers[src as usize];
-                }
-                Instruction::Add { dest, a, b } => {
-                    let va = registers[a as usize];
-                    let vb = registers[b as usize];
-                    registers[dest as usize] = va + vb;
-                }
-                Instruction::Mul { dest, a, b } => {
-                    let va = registers[a as usize];
-                    let vb = registers[b as usize];
-                    registers[dest as usize] = va * vb;
-                }
-                Instruction::Sub { dest, a, b } => {
-                    let va = registers[a as usize];
-                    let vb = registers[b as usize];
-                    registers[dest as usize] = va - vb;
-                }
-                Instruction::Div { dest, num, den } => {
-                    let va = registers[num as usize];
-                    let vb = registers[den as usize];
-                    registers[dest as usize] = va / vb;
-                }
-                Instruction::Pow { dest, base, exp } => {
-                    let va = registers[base as usize];
-                    let vb = registers[exp as usize];
-                    registers[dest as usize] = va.powf(vb);
-                }
-                Instruction::Neg { dest, src } => {
-                    registers[dest as usize] = -registers[src as usize];
-                }
-                Instruction::Builtin1 { dest, op, arg } => {
-                    let x = registers[arg as usize];
+                Instruction::Add { dest, a, b } => unsafe {
+                    let va = *registers.get_unchecked(a as usize);
+                    let vb = *registers.get_unchecked(b as usize);
+                    *registers.get_unchecked_mut(dest as usize) = va + vb;
+                },
+                Instruction::Mul { dest, a, b } => unsafe {
+                    let va = *registers.get_unchecked(a as usize);
+                    let vb = *registers.get_unchecked(b as usize);
+                    *registers.get_unchecked_mut(dest as usize) = va * vb;
+                },
+                Instruction::AddN {
+                    dest,
+                    start_idx,
+                    count,
+                } => unsafe {
+                    let mut sum = 0.0;
+                    for i in 0..count {
+                        let reg_idx = *self.arg_pool.get_unchecked((start_idx + i) as usize);
+                        sum += *registers.get_unchecked(reg_idx as usize);
+                    }
+                    *registers.get_unchecked_mut(dest as usize) = sum;
+                },
+                Instruction::MulN {
+                    dest,
+                    start_idx,
+                    count,
+                } => unsafe {
+                    let mut prod = 1.0;
+                    for i in 0..count {
+                        let reg_idx = *self.arg_pool.get_unchecked((start_idx + i) as usize);
+                        prod *= *registers.get_unchecked(reg_idx as usize);
+                    }
+                    *registers.get_unchecked_mut(dest as usize) = prod;
+                },
+                Instruction::Sub { dest, a, b } => unsafe {
+                    let va = *registers.get_unchecked(a as usize);
+                    let vb = *registers.get_unchecked(b as usize);
+                    *registers.get_unchecked_mut(dest as usize) = va - vb;
+                },
+                Instruction::LoadConst { dest, const_idx } => unsafe {
+                    *registers.get_unchecked_mut(dest as usize) =
+                        *self.constants.get_unchecked(const_idx as usize);
+                },
+                Instruction::Copy { dest, src } => unsafe {
+                    *registers.get_unchecked_mut(dest as usize) =
+                        *registers.get_unchecked(src as usize);
+                },
+                Instruction::Square { dest, src } => unsafe {
+                    let val = *registers.get_unchecked(src as usize);
+                    *registers.get_unchecked_mut(dest as usize) = val * val;
+                },
+                Instruction::Neg { dest, src } => unsafe {
+                    *registers.get_unchecked_mut(dest as usize) =
+                        -*registers.get_unchecked(src as usize);
+                },
+                Instruction::MulAdd { dest, a, b, c } => unsafe {
+                    let va = *registers.get_unchecked(a as usize);
+                    let vb = *registers.get_unchecked(b as usize);
+                    let vc = *registers.get_unchecked(c as usize);
+                    *registers.get_unchecked_mut(dest as usize) = va.mul_add(vb, vc);
+                },
+                Instruction::MulAddConst {
+                    dest,
+                    a,
+                    b,
+                    const_idx,
+                } => unsafe {
+                    let va = *registers.get_unchecked(a as usize);
+                    let vb = *registers.get_unchecked(b as usize);
+                    let c = *self.constants.get_unchecked(const_idx as usize);
+                    *registers.get_unchecked_mut(dest as usize) = va.mul_add(vb, c);
+                },
+                Instruction::AddConst {
+                    dest,
+                    src,
+                    const_idx,
+                } => unsafe {
+                    let vs = *registers.get_unchecked(src as usize);
+                    let c = *self.constants.get_unchecked(const_idx as usize);
+                    *registers.get_unchecked_mut(dest as usize) = vs + c;
+                },
+                Instruction::MulConst {
+                    dest,
+                    src,
+                    const_idx,
+                } => unsafe {
+                    let vs = *registers.get_unchecked(src as usize);
+                    let c = *self.constants.get_unchecked(const_idx as usize);
+                    *registers.get_unchecked_mut(dest as usize) = vs * c;
+                },
+                Instruction::SubConst {
+                    dest,
+                    src,
+                    const_idx,
+                } => unsafe {
+                    let vs = *registers.get_unchecked(src as usize);
+                    let c = *self.constants.get_unchecked(const_idx as usize);
+                    *registers.get_unchecked_mut(dest as usize) = vs - c;
+                },
+                Instruction::ConstSub {
+                    dest,
+                    src,
+                    const_idx,
+                } => unsafe {
+                    let vs = *registers.get_unchecked(src as usize);
+                    let c = *self.constants.get_unchecked(const_idx as usize);
+                    *registers.get_unchecked_mut(dest as usize) = c - vs;
+                },
+                Instruction::DivConst {
+                    dest,
+                    src,
+                    const_idx,
+                } => unsafe {
+                    let vs = *registers.get_unchecked(src as usize);
+                    let c = *self.constants.get_unchecked(const_idx as usize);
+                    *registers.get_unchecked_mut(dest as usize) = vs / c;
+                },
+                Instruction::ConstDiv {
+                    dest,
+                    src,
+                    const_idx,
+                } => unsafe {
+                    let vs = *registers.get_unchecked(src as usize);
+                    let c = *self.constants.get_unchecked(const_idx as usize);
+                    *registers.get_unchecked_mut(dest as usize) = c / vs;
+                },
+                Instruction::MulSub { dest, a, b, c } => unsafe {
+                    let va = *registers.get_unchecked(a as usize);
+                    let vb = *registers.get_unchecked(b as usize);
+                    let vc = *registers.get_unchecked(c as usize);
+                    *registers.get_unchecked_mut(dest as usize) = va.mul_add(vb, -vc);
+                },
+                Instruction::MulSubConst {
+                    dest,
+                    a,
+                    b,
+                    const_idx,
+                } => unsafe {
+                    let va = *registers.get_unchecked(a as usize);
+                    let vb = *registers.get_unchecked(b as usize);
+                    let c = *self.constants.get_unchecked(const_idx as usize);
+                    *registers.get_unchecked_mut(dest as usize) = va.mul_add(vb, -c);
+                },
+                Instruction::Div { dest, num, den } => unsafe {
+                    let va = *registers.get_unchecked(num as usize);
+                    let vb = *registers.get_unchecked(den as usize);
+                    *registers.get_unchecked_mut(dest as usize) = va / vb;
+                },
+                Instruction::Pow { dest, base, exp } => unsafe {
+                    let va = *registers.get_unchecked(base as usize);
+                    let vb = *registers.get_unchecked(exp as usize);
+                    *registers.get_unchecked_mut(dest as usize) = va.powf(vb);
+                },
+                Instruction::Builtin1 { dest, op, arg } => unsafe {
+                    let x = *registers.get_unchecked(arg as usize);
                     let res = match op {
                         FnOp::Sin => x.sin(),
                         FnOp::Cos => x.cos(),
@@ -158,13 +280,7 @@ impl CompiledEvaluator {
                         FnOp::Digamma => crate::math::eval_digamma(x).unwrap_or(f64::NAN),
                         FnOp::Trigamma => crate::math::eval_trigamma(x).unwrap_or(f64::NAN),
                         FnOp::Tetragamma => crate::math::eval_tetragamma(x).unwrap_or(f64::NAN),
-                        FnOp::Sinc => {
-                            if x.abs() < EPSILON {
-                                1.0
-                            } else {
-                                x.sin() / x
-                            }
-                        }
+                        FnOp::Sinc => super::eval_math::eval_sinc(x),
                         FnOp::LambertW => crate::math::eval_lambert_w(x).unwrap_or(f64::NAN),
                         FnOp::EllipticK => crate::math::eval_elliptic_k(x).unwrap_or(f64::NAN),
                         FnOp::EllipticE => crate::math::eval_elliptic_e(x).unwrap_or(f64::NAN),
@@ -173,19 +289,19 @@ impl CompiledEvaluator {
                         _ => {
                             debug_assert!(false, "Reached unreachable Builtin1 op: {op:?}");
                             // SAFETY: All Builtin1 ops are exhaustively handled above.
-                            unsafe { std::hint::unreachable_unchecked() }
+                            std::hint::unreachable_unchecked()
                         }
                     };
-                    registers[dest as usize] = res;
-                }
+                    *registers.get_unchecked_mut(dest as usize) = res;
+                },
                 Instruction::Builtin2 {
                     dest,
                     op,
                     arg1,
                     arg2,
-                } => {
-                    let x1 = registers[arg1 as usize];
-                    let x2 = registers[arg2 as usize];
+                } => unsafe {
+                    let x1 = *registers.get_unchecked(arg1 as usize);
+                    let x2 = *registers.get_unchecked(arg2 as usize);
                     let res = match op {
                         FnOp::Atan2 => x1.atan2(x2),
                         FnOp::Log =>
@@ -200,21 +316,21 @@ impl CompiledEvaluator {
                                 x2.log(x1)
                             }
                         }
-                        FnOp::BesselJ => round_to_i32(x1).map_or(f64::NAN, |n| {
+                        FnOp::BesselJ => super::eval_math::round_to_i32(x1).map_or(f64::NAN, |n| {
                             crate::math::bessel_j(n, x2).unwrap_or(f64::NAN)
                         }),
-                        FnOp::BesselY => round_to_i32(x1).map_or(f64::NAN, |n| {
+                        FnOp::BesselY => super::eval_math::round_to_i32(x1).map_or(f64::NAN, |n| {
                             crate::math::bessel_y(n, x2).unwrap_or(f64::NAN)
                         }),
-                        FnOp::BesselI => {
-                            round_to_i32(x1).map_or(f64::NAN, |n| crate::math::bessel_i(n, x2))
-                        }
-                        FnOp::BesselK => round_to_i32(x1).map_or(f64::NAN, |n| {
+                        FnOp::BesselI => super::eval_math::round_to_i32(x1)
+                            .map_or(f64::NAN, |n| crate::math::bessel_i(n, x2)),
+                        FnOp::BesselK => super::eval_math::round_to_i32(x1).map_or(f64::NAN, |n| {
                             crate::math::bessel_k(n, x2).unwrap_or(f64::NAN)
                         }),
-                        FnOp::Polygamma => round_to_i32(x1).map_or(f64::NAN, |n| {
-                            crate::math::eval_polygamma(n, x2).unwrap_or(f64::NAN)
-                        }),
+                        FnOp::Polygamma => super::eval_math::round_to_i32(x1)
+                            .map_or(f64::NAN, |n| {
+                                crate::math::eval_polygamma(n, x2).unwrap_or(f64::NAN)
+                            }),
                         FnOp::Beta => {
                             let ga = crate::math::eval_gamma(x1);
                             let gb = crate::math::eval_gamma(x2);
@@ -224,148 +340,181 @@ impl CompiledEvaluator {
                                 _ => f64::NAN,
                             }
                         }
-                        FnOp::ZetaDeriv => round_to_i32(x1).map_or(f64::NAN, |n| {
-                            crate::math::eval_zeta_deriv(n, x2).unwrap_or(f64::NAN)
-                        }),
-                        FnOp::Hermite => round_to_i32(x1).map_or(f64::NAN, |n| {
+                        FnOp::ZetaDeriv => super::eval_math::round_to_i32(x1)
+                            .map_or(f64::NAN, |n| {
+                                crate::math::eval_zeta_deriv(n, x2).unwrap_or(f64::NAN)
+                            }),
+                        FnOp::Hermite => super::eval_math::round_to_i32(x1).map_or(f64::NAN, |n| {
                             crate::math::eval_hermite(n, x2).unwrap_or(f64::NAN)
                         }),
                         _ => {
                             debug_assert!(false, "Reached unreachable Builtin2 op: {op:?}");
                             // SAFETY: All Builtin2 ops are exhaustively handled above.
-                            unsafe { std::hint::unreachable_unchecked() }
+                            std::hint::unreachable_unchecked()
                         }
                     };
-                    registers[dest as usize] = res;
-                }
+                    *registers.get_unchecked_mut(dest as usize) = res;
+                },
                 Instruction::Builtin3 {
                     dest,
                     op,
-                    arg1,
-                    arg2,
-                    arg3,
-                } => {
-                    let x1 = registers[arg1 as usize];
-                    let x2 = registers[arg2 as usize];
-                    let x3 = registers[arg3 as usize];
-                    let res = if op == FnOp::AssocLegendre {
-                        match (round_to_i32(x1), round_to_i32(x2)) {
-                            (Some(l), Some(m)) => {
-                                crate::math::eval_assoc_legendre(l, m, x3).unwrap_or(f64::NAN)
+                    start_idx,
+                } => unsafe {
+                    let arg1_idx = *self.arg_pool.get_unchecked(start_idx as usize);
+                    let arg2_idx = *self.arg_pool.get_unchecked((start_idx + 1) as usize);
+                    let arg3_idx = *self.arg_pool.get_unchecked((start_idx + 2) as usize);
+                    let x1 = *registers.get_unchecked(arg1_idx as usize);
+                    let x2 = *registers.get_unchecked(arg2_idx as usize);
+                    let x3 = *registers.get_unchecked(arg3_idx as usize);
+                    #[allow(
+                        clippy::single_match_else,
+                        reason = "Match is used for architectural consistency with Builtin1/2 and ease of future expansion"
+                    )]
+                    let res = match op {
+                        FnOp::AssocLegendre => {
+                            match (
+                                super::eval_math::round_to_i32(x1),
+                                super::eval_math::round_to_i32(x2),
+                            ) {
+                                (Some(l), Some(m)) => {
+                                    crate::math::eval_assoc_legendre(l, m, x3).unwrap_or(f64::NAN)
+                                }
+                                _ => f64::NAN,
                             }
-                            _ => f64::NAN,
                         }
-                    } else {
-                        debug_assert!(false, "Reached unreachable Builtin3 op: {op:?}");
-                        // SAFETY: All Builtin3 ops are exhaustively handled above.
-                        unsafe { std::hint::unreachable_unchecked() }
+                        _ => {
+                            debug_assert!(false, "Reached unreachable Builtin3 op: {op:?}");
+                            // SAFETY: All Builtin3 ops are exhaustively handled above.
+                            std::hint::unreachable_unchecked()
+                        }
                     };
-                    registers[dest as usize] = res;
-                }
+                    *registers.get_unchecked_mut(dest as usize) = res;
+                },
                 Instruction::Builtin4 {
                     dest,
                     op,
-                    arg1,
-                    arg2,
-                    arg3,
-                    arg4,
-                } => {
-                    let x1 = registers[arg1 as usize];
-                    let x2 = registers[arg2 as usize];
-                    let x3 = registers[arg3 as usize];
-                    let x4 = registers[arg4 as usize];
-                    let res = if op == FnOp::SphericalHarmonic {
-                        match (round_to_i32(x1), round_to_i32(x2)) {
-                            (Some(l), Some(m)) => {
-                                crate::math::eval_spherical_harmonic(l, m, x3, x4)
-                                    .unwrap_or(f64::NAN)
-                            }
-                            _ => f64::NAN,
-                        }
-                    } else {
-                        debug_assert!(false, "Reached unreachable Builtin4 op: {op:?}");
-                        // SAFETY: All Builtin4 ops are exhaustively handled above.
-                        unsafe { std::hint::unreachable_unchecked() }
-                    };
-                    registers[dest as usize] = res;
-                }
-                Instruction::Square { dest, src } => {
-                    registers[dest as usize] = registers[src as usize] * registers[src as usize];
-                }
-                Instruction::Cube { dest, src } => {
-                    let x = registers[src as usize];
-                    registers[dest as usize] = x * x * x;
-                }
-                Instruction::Pow4 { dest, src } => {
-                    let x = registers[src as usize];
-                    let x2 = x * x;
-                    registers[dest as usize] = x2 * x2;
-                }
-                Instruction::Pow3_2 { dest, src } => {
-                    let x = registers[src as usize];
-                    registers[dest as usize] = x * x.sqrt();
-                }
-                Instruction::InvPow3_2 { dest, src } => {
-                    let x = registers[src as usize];
-                    registers[dest as usize] = 1.0 / (x * x.sqrt());
-                }
-                Instruction::InvSqrt { dest, src } => {
-                    registers[dest as usize] = 1.0 / registers[src as usize].sqrt();
-                }
-                Instruction::InvSquare { dest, src } => {
-                    let x = registers[src as usize];
-                    registers[dest as usize] = 1.0 / (x * x);
-                }
-                Instruction::InvCube { dest, src } => {
-                    let x = registers[src as usize];
-                    registers[dest as usize] = 1.0 / (x * x * x);
-                }
-                Instruction::Recip { dest, src } => {
-                    registers[dest as usize] = 1.0 / registers[src as usize];
-                }
-                Instruction::Powi { dest, src, n } => {
-                    registers[dest as usize] = registers[src as usize].powi(n);
-                }
-                Instruction::MulAdd { dest, a, b, c } => {
-                    registers[dest as usize] =
-                        registers[a as usize].mul_add(registers[b as usize], registers[c as usize]);
-                }
-                Instruction::MulSub { dest, a, b, c } => {
-                    registers[dest as usize] = registers[a as usize]
-                        .mul_add(registers[b as usize], -registers[c as usize]);
-                }
-                Instruction::NegMulAdd { dest, a, b, c } => {
-                    registers[dest as usize] = (-registers[a as usize])
-                        .mul_add(registers[b as usize], registers[c as usize]);
-                }
-                Instruction::PolyEval { dest, x, const_idx } => {
-                    let val_x = registers[x as usize];
-                    let start = const_idx as usize;
+                    start_idx,
+                } => unsafe {
+                    let arg1_idx = *self.arg_pool.get_unchecked(start_idx as usize);
+                    let arg2_idx = *self.arg_pool.get_unchecked((start_idx + 1) as usize);
+                    let arg3_idx = *self.arg_pool.get_unchecked((start_idx + 2) as usize);
+                    let arg4_idx = *self.arg_pool.get_unchecked((start_idx + 3) as usize);
+                    let x1 = *registers.get_unchecked(arg1_idx as usize);
+                    let x2 = *registers.get_unchecked(arg2_idx as usize);
+                    let x3 = *registers.get_unchecked(arg3_idx as usize);
+                    let x4 = *registers.get_unchecked(arg4_idx as usize);
                     #[allow(
-                        clippy::cast_possible_truncation,
-                        clippy::cast_sign_loss,
-                        reason = "Degree fits in usize"
+                        clippy::single_match_else,
+                        reason = "Match is used for architectural consistency with Builtin1/2 and ease of future expansion"
                     )]
-                    let degree = self.constants[start] as usize;
-                    let mut res = self.constants[start + 1];
-                    for i in 1..=degree {
-                        res = res.mul_add(val_x, self.constants[start + 1 + i]);
+                    let res = match op {
+                        FnOp::SphericalHarmonic => {
+                            match (
+                                super::eval_math::round_to_i32(x1),
+                                super::eval_math::round_to_i32(x2),
+                            ) {
+                                (Some(l), Some(m)) => {
+                                    crate::math::eval_spherical_harmonic(l, m, x3, x4)
+                                        .unwrap_or(f64::NAN)
+                                }
+                                _ => f64::NAN,
+                            }
+                        }
+                        _ => {
+                            debug_assert!(false, "Reached unreachable Builtin4 op: {op:?}");
+                            // SAFETY: All Builtin4 ops are exhaustively handled above.
+                            std::hint::unreachable_unchecked()
+                        }
+                    };
+                    *registers.get_unchecked_mut(dest as usize) = res;
+                },
+                Instruction::Cube { dest, src } => unsafe {
+                    let x = *registers.get_unchecked(src as usize);
+                    *registers.get_unchecked_mut(dest as usize) = x * x * x;
+                },
+                Instruction::Pow4 { dest, src } => unsafe {
+                    let x = *registers.get_unchecked(src as usize);
+                    let x2 = x * x;
+                    *registers.get_unchecked_mut(dest as usize) = x2 * x2;
+                },
+                Instruction::Recip { dest, src } => unsafe {
+                    let x = *registers.get_unchecked(src as usize);
+                    *registers.get_unchecked_mut(dest as usize) = 1.0 / x;
+                },
+                Instruction::NegMulAdd { dest, a, b, c }
+                | Instruction::MulSubRev { dest, a, b, c } => unsafe {
+                    let va = *registers.get_unchecked(a as usize);
+                    let vb = *registers.get_unchecked(b as usize);
+                    let vc = *registers.get_unchecked(c as usize);
+                    *registers.get_unchecked_mut(dest as usize) = (-va).mul_add(vb, vc);
+                },
+                Instruction::NegMulAddConst {
+                    dest,
+                    a,
+                    b,
+                    const_idx,
+                }
+                | Instruction::MulSubRevConst {
+                    dest,
+                    a,
+                    b,
+                    const_idx,
+                } => unsafe {
+                    let va = *registers.get_unchecked(a as usize);
+                    let vb = *registers.get_unchecked(b as usize);
+                    let c = *self.constants.get_unchecked(const_idx as usize);
+                    *registers.get_unchecked_mut(dest as usize) = (-va).mul_add(vb, c);
+                },
+                Instruction::PolyEval { dest, x, const_idx } => unsafe {
+                    let val_x = *registers.get_unchecked(x as usize);
+                    let start = const_idx as usize;
+                    #[allow(clippy::cast_possible_truncation, reason = "Degree fits in usize")]
+                    let degree = (*self.constants.get_unchecked(start)).to_bits() as usize;
+                    let mut res = *self.constants.get_unchecked(start + 1);
+                    for i in 0..degree {
+                        res = res.mul_add(val_x, *self.constants.get_unchecked(start + 2 + i));
                     }
-                    registers[dest as usize] = res;
-                }
-                Instruction::RecipExpm1 { dest, src } => {
-                    registers[dest as usize] = 1.0 / registers[src as usize].exp_m1();
-                }
-                Instruction::ExpSqr { dest, src } => {
-                    let x = registers[src as usize];
-                    registers[dest as usize] = (x * x).exp();
-                }
-                Instruction::ExpSqrNeg { dest, src } => {
-                    let x = registers[src as usize];
-                    registers[dest as usize] = (-(x * x)).exp();
-                } // Handle unmapped patterns if any
+                    *registers.get_unchecked_mut(dest as usize) = res;
+                },
+                Instruction::Pow3_2 { dest, src } => unsafe {
+                    let x = *registers.get_unchecked(src as usize);
+                    *registers.get_unchecked_mut(dest as usize) = x * x.sqrt();
+                },
+                Instruction::InvPow3_2 { dest, src } => unsafe {
+                    let x = *registers.get_unchecked(src as usize);
+                    *registers.get_unchecked_mut(dest as usize) = 1.0 / (x * x.sqrt());
+                },
+                Instruction::InvSqrt { dest, src } => unsafe {
+                    let x = *registers.get_unchecked(src as usize);
+                    *registers.get_unchecked_mut(dest as usize) = 1.0 / x.sqrt();
+                },
+                Instruction::InvSquare { dest, src } => unsafe {
+                    let x = *registers.get_unchecked(src as usize);
+                    *registers.get_unchecked_mut(dest as usize) = 1.0 / (x * x);
+                },
+                Instruction::InvCube { dest, src } => unsafe {
+                    let x = *registers.get_unchecked(src as usize);
+                    *registers.get_unchecked_mut(dest as usize) = 1.0 / (x * x * x);
+                },
+                Instruction::Powi { dest, src, n } => unsafe {
+                    let x = *registers.get_unchecked(src as usize);
+                    *registers.get_unchecked_mut(dest as usize) = x.powi(n);
+                },
+                Instruction::RecipExpm1 { dest, src } => unsafe {
+                    let x = *registers.get_unchecked(src as usize);
+                    *registers.get_unchecked_mut(dest as usize) = 1.0 / x.exp_m1();
+                },
+                Instruction::ExpSqr { dest, src } => unsafe {
+                    let x = *registers.get_unchecked(src as usize);
+                    *registers.get_unchecked_mut(dest as usize) = (x * x).exp();
+                },
+                Instruction::ExpSqrNeg { dest, src } => unsafe {
+                    let x = *registers.get_unchecked(src as usize);
+                    *registers.get_unchecked_mut(dest as usize) = (-(x * x)).exp();
+                },
             }
         }
+
         // Result is always left in register 0
         registers[0]
     }

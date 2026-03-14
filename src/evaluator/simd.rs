@@ -1,4 +1,8 @@
 #![allow(unsafe_op_in_unsafe_fn, reason = "Internal unsafe operations allowed")]
+#![allow(
+    clippy::undocumented_unsafe_blocks,
+    reason = "Internal unsafe operations allowed"
+)]
 //! SIMD batch evaluation for the register-based evaluator.
 //!
 //! This module provides vectorized evaluation using `wide::f64x4` (4-wide SIMD).
@@ -10,19 +14,6 @@ use crate::core::error::DiffError;
 use wide::f64x4;
 
 const INLINE_SIMD_REGISTERS: usize = 64;
-
-#[inline]
-fn round_to_i32(x: f64) -> Option<i32> {
-    let rounded = x.round();
-    if !(rounded >= f64::from(i32::MIN) && rounded <= f64::from(i32::MAX)) {
-        return None;
-    }
-    #[allow(
-        clippy::cast_possible_truncation,
-        reason = "Range checked above before casting"
-    )]
-    Some(rounded as i32)
-}
 
 impl CompiledEvaluator {
     /// Evaluates the compiled expression for multiple points in batch.
@@ -114,23 +105,24 @@ impl CompiledEvaluator {
             let base = chunk * 4;
 
             // Load parameters into registers
-            for p in 0..p_count {
-                // SAFETY: We verified that `columns.len() == p_count` and each `col.len() >= base + 3`.
+            for (p, col) in columns.iter().enumerate().take(p_count) {
+                // SAFETY: We verified that `columns.len() == p_count` and each `col.len() >= base + 4`.
                 unsafe {
-                    let col = *columns.get_unchecked(p);
-                    *stack_ptr.add(p) = f64x4::new([
-                        *col.get_unchecked(base),
-                        *col.get_unchecked(base + 1),
-                        *col.get_unchecked(base + 2),
-                        *col.get_unchecked(base + 3),
-                    ]);
+                    let ptr = col.as_ptr().add(base).cast::<[f64; 4]>();
+                    *stack_ptr.add(p) = f64x4::from(std::ptr::read_unaligned(ptr));
                 }
             }
 
             // Execute instructions
             // SAFETY: Instructions are well-formed during compilation.
             unsafe {
-                Self::exec_simd_instructions(instructions, stack_ptr, simd_constants, constants);
+                Self::exec_simd_instructions(
+                    instructions,
+                    stack_ptr,
+                    simd_constants,
+                    constants,
+                    &self.arg_pool,
+                );
             }
 
             // Result is in register 0
@@ -146,19 +138,37 @@ impl CompiledEvaluator {
             }
         }
 
-        // Handle remainder with scalar path (1-3 points)
+        // Handle remainder using SIMD (1-3 points)
         let remainder_start = full_chunks * 4;
-        if remainder_start < n_points {
-            let mut scalar_registers = vec![0.0; self.register_count];
-            let mut params_row = vec![0.0; p_count];
-            for (i, out) in output[remainder_start..n_points].iter_mut().enumerate() {
-                let point_idx = remainder_start + i;
-
-                for p in 0..p_count {
-                    params_row[p] = columns[p][point_idx];
+        let remainder_len = n_points - remainder_start;
+        if remainder_len > 0 {
+            // Load parameters for remainder, padding with 0.0
+            for (p, col) in columns.iter().enumerate().take(p_count) {
+                let mut vals = [0.0; 4];
+                for (i, val) in vals.iter_mut().enumerate().take(remainder_len) {
+                    *val = col[remainder_start + i];
                 }
+                unsafe {
+                    *stack_ptr.add(p) = f64x4::new(vals);
+                }
+            }
 
-                *out = self.evaluate_heap(&params_row, &mut scalar_registers);
+            // Execute instructions
+            unsafe {
+                Self::exec_simd_instructions(
+                    instructions,
+                    stack_ptr,
+                    simd_constants,
+                    constants,
+                    &self.arg_pool,
+                );
+            }
+
+            // Result is in register 0
+            let result = unsafe { *stack_ptr };
+            let arr = result.to_array();
+            for (i, val) in arr.iter().enumerate().take(remainder_len) {
+                output[remainder_start + i] = *val;
             }
         }
 
@@ -225,16 +235,17 @@ impl CompiledEvaluator {
         registers: *mut f64x4,
         simd_constants: &[f64x4],
         constants: &[f64],
+        arg_pool: &[u32],
     ) {
         let one = f64x4::splat(1.0);
-        for instr in instructions {
+        let mut pc = instructions.as_ptr();
+        let end = pc.add(instructions.len());
+
+        while pc < end {
+            let instr = &*pc;
+            pc = pc.add(1);
+
             match *instr {
-                Instruction::LoadConst { dest, const_idx } => {
-                    *registers.add(dest as usize) = simd_constants[const_idx as usize];
-                }
-                Instruction::Copy { dest, src } => {
-                    *registers.add(dest as usize) = *registers.add(src as usize);
-                }
                 Instruction::Add { dest, a, b } => {
                     *registers.add(dest as usize) =
                         *registers.add(a as usize) + *registers.add(b as usize);
@@ -247,6 +258,119 @@ impl CompiledEvaluator {
                     *registers.add(dest as usize) =
                         *registers.add(a as usize) - *registers.add(b as usize);
                 }
+                Instruction::AddN {
+                    dest,
+                    start_idx,
+                    count,
+                } => {
+                    let mut sum = f64x4::splat(0.0);
+                    for i in 0..count {
+                        let reg_idx = *arg_pool.get_unchecked((start_idx + i) as usize);
+                        sum += *registers.add(reg_idx as usize);
+                    }
+                    *registers.add(dest as usize) = sum;
+                }
+                Instruction::MulN {
+                    dest,
+                    start_idx,
+                    count,
+                } => {
+                    let mut prod = f64x4::splat(1.0);
+                    for i in 0..count {
+                        let reg_idx = *arg_pool.get_unchecked((start_idx + i) as usize);
+                        prod *= *registers.add(reg_idx as usize);
+                    }
+                    *registers.add(dest as usize) = prod;
+                }
+                Instruction::LoadConst { dest, const_idx } => {
+                    *registers.add(dest as usize) = simd_constants[const_idx as usize];
+                }
+                Instruction::Copy { dest, src } => {
+                    *registers.add(dest as usize) = *registers.add(src as usize);
+                }
+                Instruction::Square { dest, src } => {
+                    let val = *registers.add(src as usize);
+                    *registers.add(dest as usize) = val * val;
+                }
+                Instruction::Neg { dest, src } => {
+                    *registers.add(dest as usize) = -*registers.add(src as usize);
+                }
+                Instruction::MulAdd { dest, a, b, c } => {
+                    *registers.add(dest as usize) = (*registers.add(a as usize))
+                        .mul_add(*registers.add(b as usize), *registers.add(c as usize));
+                }
+                Instruction::MulAddConst {
+                    dest,
+                    a,
+                    b,
+                    const_idx,
+                } => {
+                    let c = simd_constants[const_idx as usize];
+                    *registers.add(dest as usize) =
+                        (*registers.add(a as usize)).mul_add(*registers.add(b as usize), c);
+                }
+                Instruction::AddConst {
+                    dest,
+                    src,
+                    const_idx,
+                } => {
+                    *registers.add(dest as usize) =
+                        *registers.add(src as usize) + simd_constants[const_idx as usize];
+                }
+                Instruction::MulConst {
+                    dest,
+                    src,
+                    const_idx,
+                } => {
+                    *registers.add(dest as usize) =
+                        *registers.add(src as usize) * simd_constants[const_idx as usize];
+                }
+                Instruction::SubConst {
+                    dest,
+                    src,
+                    const_idx,
+                } => {
+                    *registers.add(dest as usize) =
+                        *registers.add(src as usize) - simd_constants[const_idx as usize];
+                }
+                Instruction::ConstSub {
+                    dest,
+                    src,
+                    const_idx,
+                } => {
+                    *registers.add(dest as usize) =
+                        simd_constants[const_idx as usize] - *registers.add(src as usize);
+                }
+                Instruction::DivConst {
+                    dest,
+                    src,
+                    const_idx,
+                } => {
+                    *registers.add(dest as usize) =
+                        *registers.add(src as usize) / simd_constants[const_idx as usize];
+                }
+                Instruction::ConstDiv {
+                    dest,
+                    src,
+                    const_idx,
+                } => {
+                    *registers.add(dest as usize) =
+                        simd_constants[const_idx as usize] / *registers.add(src as usize);
+                }
+                Instruction::MulSub { dest, a, b, c } => {
+                    *registers.add(dest as usize) = (*registers.add(a as usize))
+                        .mul_add(*registers.add(b as usize), -*registers.add(c as usize));
+                }
+                Instruction::MulSubConst {
+                    dest,
+                    a,
+                    b,
+                    const_idx,
+                } => {
+                    let c = simd_constants[const_idx as usize];
+                    *registers.add(dest as usize) =
+                        (*registers.add(a as usize)).mul_add(*registers.add(b as usize), -c);
+                }
                 Instruction::Div { dest, num, den } => {
                     *registers.add(dest as usize) =
                         *registers.add(num as usize) / *registers.add(den as usize);
@@ -255,15 +379,12 @@ impl CompiledEvaluator {
                     *registers.add(dest as usize) =
                         (*registers.add(base as usize)).pow_f64x4(*registers.add(exp as usize));
                 }
-                Instruction::Neg { dest, src } => {
-                    *registers.add(dest as usize) = -*registers.add(src as usize);
-                }
                 Instruction::Builtin1 { dest, op, arg } => {
                     let dest_ptr = registers.add(dest as usize);
                     let x = *registers.add(arg as usize);
+                    let arr = x.to_array();
                     match op {
                         FnOp::Sin => {
-                            let arr = x.to_array();
                             *dest_ptr = f64x4::new([
                                 arr[0].sin(),
                                 arr[1].sin(),
@@ -272,7 +393,6 @@ impl CompiledEvaluator {
                             ]);
                         }
                         FnOp::Cos => {
-                            let arr = x.to_array();
                             *dest_ptr = f64x4::new([
                                 arr[0].cos(),
                                 arr[1].cos(),
@@ -281,7 +401,6 @@ impl CompiledEvaluator {
                             ]);
                         }
                         FnOp::Tan => {
-                            let arr = x.to_array();
                             *dest_ptr = f64x4::new([
                                 arr[0].tan(),
                                 arr[1].tan(),
@@ -290,34 +409,33 @@ impl CompiledEvaluator {
                             ]);
                         }
                         FnOp::Cot => {
-                            let arr = x.to_array();
-                            *dest_ptr = f64x4::new([
-                                1.0 / arr[0].tan(),
-                                1.0 / arr[1].tan(),
-                                1.0 / arr[2].tan(),
-                                1.0 / arr[3].tan(),
+                            let t = f64x4::new([
+                                arr[0].tan(),
+                                arr[1].tan(),
+                                arr[2].tan(),
+                                arr[3].tan(),
                             ]);
+                            *dest_ptr = one / t;
                         }
                         FnOp::Sec => {
-                            let arr = x.to_array();
-                            *dest_ptr = f64x4::new([
-                                1.0 / arr[0].cos(),
-                                1.0 / arr[1].cos(),
-                                1.0 / arr[2].cos(),
-                                1.0 / arr[3].cos(),
+                            let c = f64x4::new([
+                                arr[0].cos(),
+                                arr[1].cos(),
+                                arr[2].cos(),
+                                arr[3].cos(),
                             ]);
+                            *dest_ptr = one / c;
                         }
                         FnOp::Csc => {
-                            let arr = x.to_array();
-                            *dest_ptr = f64x4::new([
-                                1.0 / arr[0].sin(),
-                                1.0 / arr[1].sin(),
-                                1.0 / arr[2].sin(),
-                                1.0 / arr[3].sin(),
+                            let s = f64x4::new([
+                                arr[0].sin(),
+                                arr[1].sin(),
+                                arr[2].sin(),
+                                arr[3].sin(),
                             ]);
+                            *dest_ptr = one / s;
                         }
                         FnOp::Asin => {
-                            let arr = x.to_array();
                             *dest_ptr = f64x4::new([
                                 arr[0].asin(),
                                 arr[1].asin(),
@@ -326,7 +444,6 @@ impl CompiledEvaluator {
                             ]);
                         }
                         FnOp::Acos => {
-                            let arr = x.to_array();
                             *dest_ptr = f64x4::new([
                                 arr[0].acos(),
                                 arr[1].acos(),
@@ -335,7 +452,6 @@ impl CompiledEvaluator {
                             ]);
                         }
                         FnOp::Atan => {
-                            let arr = x.to_array();
                             *dest_ptr = f64x4::new([
                                 arr[0].atan(),
                                 arr[1].atan(),
@@ -344,7 +460,6 @@ impl CompiledEvaluator {
                             ]);
                         }
                         FnOp::Acot => {
-                            let arr = x.to_array();
                             *dest_ptr = f64x4::new([
                                 eval_math::eval_acot(arr[0]),
                                 eval_math::eval_acot(arr[1]),
@@ -353,25 +468,24 @@ impl CompiledEvaluator {
                             ]);
                         }
                         FnOp::Asec => {
-                            let arr = x.to_array();
+                            let inv = (one / x).to_array();
                             *dest_ptr = f64x4::new([
-                                (1.0 / arr[0]).acos(),
-                                (1.0 / arr[1]).acos(),
-                                (1.0 / arr[2]).acos(),
-                                (1.0 / arr[3]).acos(),
+                                inv[0].acos(),
+                                inv[1].acos(),
+                                inv[2].acos(),
+                                inv[3].acos(),
                             ]);
                         }
                         FnOp::Acsc => {
-                            let arr = x.to_array();
+                            let inv = (one / x).to_array();
                             *dest_ptr = f64x4::new([
-                                (1.0 / arr[0]).asin(),
-                                (1.0 / arr[1]).asin(),
-                                (1.0 / arr[2]).asin(),
-                                (1.0 / arr[3]).asin(),
+                                inv[0].asin(),
+                                inv[1].asin(),
+                                inv[2].asin(),
+                                inv[3].asin(),
                             ]);
                         }
                         FnOp::Sinh => {
-                            let arr = x.to_array();
                             *dest_ptr = f64x4::new([
                                 arr[0].sinh(),
                                 arr[1].sinh(),
@@ -380,7 +494,6 @@ impl CompiledEvaluator {
                             ]);
                         }
                         FnOp::Cosh => {
-                            let arr = x.to_array();
                             *dest_ptr = f64x4::new([
                                 arr[0].cosh(),
                                 arr[1].cosh(),
@@ -389,7 +502,6 @@ impl CompiledEvaluator {
                             ]);
                         }
                         FnOp::Tanh => {
-                            let arr = x.to_array();
                             *dest_ptr = f64x4::new([
                                 arr[0].tanh(),
                                 arr[1].tanh(),
@@ -398,34 +510,33 @@ impl CompiledEvaluator {
                             ]);
                         }
                         FnOp::Coth => {
-                            let arr = x.to_array();
-                            *dest_ptr = f64x4::new([
-                                1.0 / arr[0].tanh(),
-                                1.0 / arr[1].tanh(),
-                                1.0 / arr[2].tanh(),
-                                1.0 / arr[3].tanh(),
+                            let t = f64x4::new([
+                                arr[0].tanh(),
+                                arr[1].tanh(),
+                                arr[2].tanh(),
+                                arr[3].tanh(),
                             ]);
+                            *dest_ptr = one / t;
                         }
                         FnOp::Sech => {
-                            let arr = x.to_array();
-                            *dest_ptr = f64x4::new([
-                                1.0 / arr[0].cosh(),
-                                1.0 / arr[1].cosh(),
-                                1.0 / arr[2].cosh(),
-                                1.0 / arr[3].cosh(),
+                            let c = f64x4::new([
+                                arr[0].cosh(),
+                                arr[1].cosh(),
+                                arr[2].cosh(),
+                                arr[3].cosh(),
                             ]);
+                            *dest_ptr = one / c;
                         }
                         FnOp::Csch => {
-                            let arr = x.to_array();
-                            *dest_ptr = f64x4::new([
-                                1.0 / arr[0].sinh(),
-                                1.0 / arr[1].sinh(),
-                                1.0 / arr[2].sinh(),
-                                1.0 / arr[3].sinh(),
+                            let s = f64x4::new([
+                                arr[0].sinh(),
+                                arr[1].sinh(),
+                                arr[2].sinh(),
+                                arr[3].sinh(),
                             ]);
+                            *dest_ptr = one / s;
                         }
                         FnOp::Asinh => {
-                            let arr = x.to_array();
                             *dest_ptr = f64x4::new([
                                 arr[0].asinh(),
                                 arr[1].asinh(),
@@ -434,7 +545,6 @@ impl CompiledEvaluator {
                             ]);
                         }
                         FnOp::Acosh => {
-                            let arr = x.to_array();
                             *dest_ptr = f64x4::new([
                                 arr[0].acosh(),
                                 arr[1].acosh(),
@@ -443,7 +553,6 @@ impl CompiledEvaluator {
                             ]);
                         }
                         FnOp::Atanh => {
-                            let arr = x.to_array();
                             *dest_ptr = f64x4::new([
                                 arr[0].atanh(),
                                 arr[1].atanh(),
@@ -452,7 +561,6 @@ impl CompiledEvaluator {
                             ]);
                         }
                         FnOp::Acoth => {
-                            let arr = x.to_array();
                             *dest_ptr = f64x4::new([
                                 eval_math::eval_acoth(arr[0]),
                                 eval_math::eval_acoth(arr[1]),
@@ -461,7 +569,6 @@ impl CompiledEvaluator {
                             ]);
                         }
                         FnOp::Acsch => {
-                            let arr = x.to_array();
                             *dest_ptr = f64x4::new([
                                 eval_math::eval_acsch(arr[0]),
                                 eval_math::eval_acsch(arr[1]),
@@ -470,7 +577,6 @@ impl CompiledEvaluator {
                             ]);
                         }
                         FnOp::Asech => {
-                            let arr = x.to_array();
                             *dest_ptr = f64x4::new([
                                 eval_math::eval_asech(arr[0]),
                                 eval_math::eval_asech(arr[1]),
@@ -479,7 +585,6 @@ impl CompiledEvaluator {
                             ]);
                         }
                         FnOp::Exp => {
-                            let arr = x.to_array();
                             *dest_ptr = f64x4::new([
                                 arr[0].exp(),
                                 arr[1].exp(),
@@ -488,7 +593,6 @@ impl CompiledEvaluator {
                             ]);
                         }
                         FnOp::Expm1 => {
-                            let arr = x.to_array();
                             *dest_ptr = f64x4::new([
                                 arr[0].exp_m1(),
                                 arr[1].exp_m1(),
@@ -497,21 +601,19 @@ impl CompiledEvaluator {
                             ]);
                         }
                         FnOp::ExpNeg => {
-                            let arr = x.to_array();
+                            let neg_arr = (-x).to_array();
                             *dest_ptr = f64x4::new([
-                                (-arr[0]).exp(),
-                                (-arr[1]).exp(),
-                                (-arr[2]).exp(),
-                                (-arr[3]).exp(),
+                                neg_arr[0].exp(),
+                                neg_arr[1].exp(),
+                                neg_arr[2].exp(),
+                                neg_arr[3].exp(),
                             ]);
                         }
                         FnOp::Ln => {
-                            let arr = x.to_array();
                             *dest_ptr =
                                 f64x4::new([arr[0].ln(), arr[1].ln(), arr[2].ln(), arr[3].ln()]);
                         }
                         FnOp::Log1p => {
-                            let arr = x.to_array();
                             *dest_ptr = f64x4::new([
                                 arr[0].ln_1p(),
                                 arr[1].ln_1p(),
@@ -523,7 +625,6 @@ impl CompiledEvaluator {
                             *dest_ptr = x.sqrt();
                         }
                         FnOp::Cbrt => {
-                            let arr = x.to_array();
                             *dest_ptr = f64x4::new([
                                 arr[0].cbrt(),
                                 arr[1].cbrt(),
@@ -535,7 +636,6 @@ impl CompiledEvaluator {
                             *dest_ptr = x.abs();
                         }
                         FnOp::Signum => {
-                            let arr = x.to_array();
                             *dest_ptr = f64x4::new([
                                 arr[0].signum(),
                                 arr[1].signum(),
@@ -544,7 +644,6 @@ impl CompiledEvaluator {
                             ]);
                         }
                         FnOp::Floor => {
-                            let arr = x.to_array();
                             *dest_ptr = f64x4::new([
                                 arr[0].floor(),
                                 arr[1].floor(),
@@ -553,7 +652,6 @@ impl CompiledEvaluator {
                             ]);
                         }
                         FnOp::Ceil => {
-                            let arr = x.to_array();
                             *dest_ptr = f64x4::new([
                                 arr[0].ceil(),
                                 arr[1].ceil(),
@@ -562,7 +660,6 @@ impl CompiledEvaluator {
                             ]);
                         }
                         FnOp::Round => {
-                            let arr = x.to_array();
                             *dest_ptr = f64x4::new([
                                 arr[0].round(),
                                 arr[1].round(),
@@ -571,7 +668,6 @@ impl CompiledEvaluator {
                             ]);
                         }
                         FnOp::Erf => {
-                            let arr = x.to_array();
                             *dest_ptr = f64x4::new([
                                 crate::math::eval_erf(arr[0]),
                                 crate::math::eval_erf(arr[1]),
@@ -580,7 +676,6 @@ impl CompiledEvaluator {
                             ]);
                         }
                         FnOp::Erfc => {
-                            let arr = x.to_array();
                             *dest_ptr = f64x4::new([
                                 crate::math::eval_erfc(arr[0]),
                                 crate::math::eval_erfc(arr[1]),
@@ -589,7 +684,6 @@ impl CompiledEvaluator {
                             ]);
                         }
                         FnOp::Gamma => {
-                            let arr = x.to_array();
                             *dest_ptr = f64x4::new([
                                 crate::math::eval_gamma(arr[0]).unwrap_or(f64::NAN),
                                 crate::math::eval_gamma(arr[1]).unwrap_or(f64::NAN),
@@ -598,7 +692,6 @@ impl CompiledEvaluator {
                             ]);
                         }
                         FnOp::Digamma => {
-                            let arr = x.to_array();
                             *dest_ptr = f64x4::new([
                                 crate::math::eval_digamma(arr[0]).unwrap_or(f64::NAN),
                                 crate::math::eval_digamma(arr[1]).unwrap_or(f64::NAN),
@@ -607,7 +700,6 @@ impl CompiledEvaluator {
                             ]);
                         }
                         FnOp::Trigamma => {
-                            let arr = x.to_array();
                             *dest_ptr = f64x4::new([
                                 crate::math::eval_trigamma(arr[0]).unwrap_or(f64::NAN),
                                 crate::math::eval_trigamma(arr[1]).unwrap_or(f64::NAN),
@@ -616,7 +708,6 @@ impl CompiledEvaluator {
                             ]);
                         }
                         FnOp::Tetragamma => {
-                            let arr = x.to_array();
                             *dest_ptr = f64x4::new([
                                 crate::math::eval_tetragamma(arr[0]).unwrap_or(f64::NAN),
                                 crate::math::eval_tetragamma(arr[1]).unwrap_or(f64::NAN),
@@ -625,7 +716,6 @@ impl CompiledEvaluator {
                             ]);
                         }
                         FnOp::Sinc => {
-                            let arr = x.to_array();
                             *dest_ptr = f64x4::new([
                                 eval_math::eval_sinc(arr[0]),
                                 eval_math::eval_sinc(arr[1]),
@@ -634,7 +724,6 @@ impl CompiledEvaluator {
                             ]);
                         }
                         FnOp::LambertW => {
-                            let arr = x.to_array();
                             *dest_ptr = f64x4::new([
                                 crate::math::eval_lambert_w(arr[0]).unwrap_or(f64::NAN),
                                 crate::math::eval_lambert_w(arr[1]).unwrap_or(f64::NAN),
@@ -643,7 +732,6 @@ impl CompiledEvaluator {
                             ]);
                         }
                         FnOp::EllipticK => {
-                            let arr = x.to_array();
                             *dest_ptr = f64x4::new([
                                 crate::math::eval_elliptic_k(arr[0]).unwrap_or(f64::NAN),
                                 crate::math::eval_elliptic_k(arr[1]).unwrap_or(f64::NAN),
@@ -652,7 +740,6 @@ impl CompiledEvaluator {
                             ]);
                         }
                         FnOp::EllipticE => {
-                            let arr = x.to_array();
                             *dest_ptr = f64x4::new([
                                 crate::math::eval_elliptic_e(arr[0]).unwrap_or(f64::NAN),
                                 crate::math::eval_elliptic_e(arr[1]).unwrap_or(f64::NAN),
@@ -661,7 +748,6 @@ impl CompiledEvaluator {
                             ]);
                         }
                         FnOp::Zeta => {
-                            let arr = x.to_array();
                             *dest_ptr = f64x4::new([
                                 crate::math::eval_zeta(arr[0]).unwrap_or(f64::NAN),
                                 crate::math::eval_zeta(arr[1]).unwrap_or(f64::NAN),
@@ -670,7 +756,6 @@ impl CompiledEvaluator {
                             ]);
                         }
                         FnOp::ExpPolar => {
-                            let arr = x.to_array();
                             *dest_ptr = f64x4::new([
                                 crate::math::eval_exp_polar(arr[0]),
                                 crate::math::eval_exp_polar(arr[1]),
@@ -726,7 +811,7 @@ impl CompiledEvaluator {
                         }
                         FnOp::BesselJ => {
                             let f = |n_f: f64, val: f64| {
-                                round_to_i32(n_f).map_or(f64::NAN, |n| {
+                                eval_math::round_to_i32(n_f).map_or(f64::NAN, |n| {
                                     crate::math::bessel_j(n, val).unwrap_or(f64::NAN)
                                 })
                             };
@@ -739,7 +824,7 @@ impl CompiledEvaluator {
                         }
                         FnOp::BesselY => {
                             let f = |n_f: f64, val: f64| {
-                                round_to_i32(n_f).map_or(f64::NAN, |n| {
+                                eval_math::round_to_i32(n_f).map_or(f64::NAN, |n| {
                                     crate::math::bessel_y(n, val).unwrap_or(f64::NAN)
                                 })
                             };
@@ -752,7 +837,7 @@ impl CompiledEvaluator {
                         }
                         FnOp::BesselI => {
                             let f = |n_f: f64, val: f64| {
-                                round_to_i32(n_f)
+                                eval_math::round_to_i32(n_f)
                                     .map_or(f64::NAN, |n| crate::math::bessel_i(n, val))
                             };
                             *dest_ptr = f64x4::new([
@@ -764,7 +849,7 @@ impl CompiledEvaluator {
                         }
                         FnOp::BesselK => {
                             let f = |n_f: f64, val: f64| {
-                                round_to_i32(n_f).map_or(f64::NAN, |n| {
+                                eval_math::round_to_i32(n_f).map_or(f64::NAN, |n| {
                                     crate::math::bessel_k(n, val).unwrap_or(f64::NAN)
                                 })
                             };
@@ -777,7 +862,7 @@ impl CompiledEvaluator {
                         }
                         FnOp::Polygamma => {
                             let f = |n_f: f64, val: f64| {
-                                round_to_i32(n_f).map_or(f64::NAN, |n| {
+                                eval_math::round_to_i32(n_f).map_or(f64::NAN, |n| {
                                     crate::math::eval_polygamma(n, val).unwrap_or(f64::NAN)
                                 })
                             };
@@ -807,7 +892,7 @@ impl CompiledEvaluator {
                         }
                         FnOp::ZetaDeriv => {
                             let f = |n_f: f64, val: f64| {
-                                round_to_i32(n_f).map_or(f64::NAN, |n| {
+                                eval_math::round_to_i32(n_f).map_or(f64::NAN, |n| {
                                     crate::math::eval_zeta_deriv(n, val).unwrap_or(f64::NAN)
                                 })
                             };
@@ -820,7 +905,7 @@ impl CompiledEvaluator {
                         }
                         FnOp::Hermite => {
                             let f = |n_f: f64, val: f64| {
-                                round_to_i32(n_f).map_or(f64::NAN, |n| {
+                                eval_math::round_to_i32(n_f).map_or(f64::NAN, |n| {
                                     crate::math::eval_hermite(n, val).unwrap_or(f64::NAN)
                                 })
                             };
@@ -841,81 +926,94 @@ impl CompiledEvaluator {
                 Instruction::Builtin3 {
                     dest,
                     op,
-                    arg1,
-                    arg2,
-                    arg3,
+                    start_idx,
                 } => {
                     let dest_ptr = registers.add(dest as usize);
-                    let x1 = *registers.add(arg1 as usize);
-                    let x2 = *registers.add(arg2 as usize);
-                    let x3 = *registers.add(arg3 as usize);
+                    let arg1_idx = *arg_pool.get_unchecked(start_idx as usize);
+                    let arg2_idx = *arg_pool.get_unchecked((start_idx + 1) as usize);
+                    let arg3_idx = *arg_pool.get_unchecked((start_idx + 2) as usize);
+                    let x1 = *registers.add(arg1_idx as usize);
+                    let x2 = *registers.add(arg2_idx as usize);
+                    let x3 = *registers.add(arg3_idx as usize);
                     let arr1 = x1.to_array();
                     let arr2 = x2.to_array();
                     let arr3 = x3.to_array();
-                    if op == FnOp::AssocLegendre {
-                        let f = |l_f: f64, m_f: f64, val: f64| match (
-                            round_to_i32(l_f),
-                            round_to_i32(m_f),
-                        ) {
-                            (Some(l), Some(m)) => {
-                                crate::math::eval_assoc_legendre(l, m, val).unwrap_or(f64::NAN)
-                            }
-                            _ => f64::NAN,
-                        };
-                        *dest_ptr = f64x4::new([
-                            f(arr1[0], arr2[0], arr3[0]),
-                            f(arr1[1], arr2[1], arr3[1]),
-                            f(arr1[2], arr2[2], arr3[2]),
-                            f(arr1[3], arr2[3], arr3[3]),
-                        ]);
-                    } else {
-                        debug_assert!(false, "Reached unreachable SIMD Builtin3 op: {op:?}");
-                        // SAFETY: All Builtin3 ops are exhaustively handled above.
-                        unsafe { std::hint::unreachable_unchecked() }
+                    #[allow(
+                        clippy::single_match_else,
+                        reason = "Match is used for architectural consistency with Builtin1/2 and ease of future expansion"
+                    )]
+                    match op {
+                        FnOp::AssocLegendre => {
+                            let f = |l_f: f64, m_f: f64, val: f64| match (
+                                eval_math::round_to_i32(l_f),
+                                eval_math::round_to_i32(m_f),
+                            ) {
+                                (Some(l), Some(m)) => {
+                                    crate::math::eval_assoc_legendre(l, m, val).unwrap_or(f64::NAN)
+                                }
+                                _ => f64::NAN,
+                            };
+                            *dest_ptr = f64x4::new([
+                                f(arr1[0], arr2[0], arr3[0]),
+                                f(arr1[1], arr2[1], arr3[1]),
+                                f(arr1[2], arr2[2], arr3[2]),
+                                f(arr1[3], arr2[3], arr3[3]),
+                            ]);
+                        }
+                        _ => {
+                            debug_assert!(false, "Reached unreachable SIMD Builtin3 op: {op:?}");
+                            // SAFETY: All Builtin3 ops are exhaustively handled above.
+                            unsafe { std::hint::unreachable_unchecked() }
+                        }
                     }
                 }
                 Instruction::Builtin4 {
                     dest,
                     op,
-                    arg1,
-                    arg2,
-                    arg3,
-                    arg4,
+                    start_idx,
                 } => {
                     let dest_ptr = registers.add(dest as usize);
-                    let x1 = *registers.add(arg1 as usize);
-                    let x2 = *registers.add(arg2 as usize);
-                    let x3 = *registers.add(arg3 as usize);
-                    let x4 = *registers.add(arg4 as usize);
+                    let arg1_idx = *arg_pool.get_unchecked(start_idx as usize);
+                    let arg2_idx = *arg_pool.get_unchecked((start_idx + 1) as usize);
+                    let arg3_idx = *arg_pool.get_unchecked((start_idx + 2) as usize);
+                    let arg4_idx = *arg_pool.get_unchecked((start_idx + 3) as usize);
+                    let x1 = *registers.add(arg1_idx as usize);
+                    let x2 = *registers.add(arg2_idx as usize);
+                    let x3 = *registers.add(arg3_idx as usize);
+                    let x4 = *registers.add(arg4_idx as usize);
                     let arr1 = x1.to_array();
                     let arr2 = x2.to_array();
                     let arr3 = x3.to_array();
                     let arr4 = x4.to_array();
-                    if op == FnOp::SphericalHarmonic {
-                        let f = |l_f: f64, m_f: f64, t: f64, p: f64| match (
-                            round_to_i32(l_f),
-                            round_to_i32(m_f),
-                        ) {
-                            (Some(l), Some(m)) => {
-                                crate::math::eval_spherical_harmonic(l, m, t, p).unwrap_or(f64::NAN)
-                            }
-                            _ => f64::NAN,
-                        };
-                        *dest_ptr = f64x4::new([
-                            f(arr1[0], arr2[0], arr3[0], arr4[0]),
-                            f(arr1[1], arr2[1], arr3[1], arr4[1]),
-                            f(arr1[2], arr2[2], arr3[2], arr4[2]),
-                            f(arr1[3], arr2[3], arr3[3], arr4[3]),
-                        ]);
-                    } else {
-                        debug_assert!(false, "Reached unreachable SIMD Builtin4 op: {op:?}");
-                        // SAFETY: All Builtin4 ops are exhaustively handled above.
-                        unsafe { std::hint::unreachable_unchecked() }
+                    #[allow(
+                        clippy::single_match_else,
+                        reason = "Match is used for architectural consistency with Builtin1/2 and ease of future expansion"
+                    )]
+                    match op {
+                        FnOp::SphericalHarmonic => {
+                            let f = |l_f: f64, m_f: f64, t: f64, p: f64| match (
+                                eval_math::round_to_i32(l_f),
+                                eval_math::round_to_i32(m_f),
+                            ) {
+                                (Some(l), Some(m)) => {
+                                    crate::math::eval_spherical_harmonic(l, m, t, p)
+                                        .unwrap_or(f64::NAN)
+                                }
+                                _ => f64::NAN,
+                            };
+                            *dest_ptr = f64x4::new([
+                                f(arr1[0], arr2[0], arr3[0], arr4[0]),
+                                f(arr1[1], arr2[1], arr3[1], arr4[1]),
+                                f(arr1[2], arr2[2], arr3[2], arr4[2]),
+                                f(arr1[3], arr2[3], arr3[3], arr4[3]),
+                            ]);
+                        }
+                        _ => {
+                            debug_assert!(false, "Reached unreachable SIMD Builtin4 op: {op:?}");
+                            // SAFETY: All Builtin4 ops are exhaustively handled above.
+                            unsafe { std::hint::unreachable_unchecked() }
+                        }
                     }
-                }
-                Instruction::Square { dest, src } => {
-                    let val = *registers.add(src as usize);
-                    *registers.add(dest as usize) = val * val;
                 }
                 Instruction::Cube { dest, src } => {
                     let val = *registers.add(src as usize);
@@ -925,6 +1023,50 @@ impl CompiledEvaluator {
                     let val = *registers.add(src as usize);
                     let val2 = val * val;
                     *registers.add(dest as usize) = val2 * val2;
+                }
+                Instruction::Recip { dest, src } => {
+                    *registers.add(dest as usize) = one / *registers.add(src as usize);
+                }
+                Instruction::NegMulAdd { dest, a, b, c }
+                | Instruction::MulSubRev { dest, a, b, c } => {
+                    let va = *registers.add(a as usize);
+                    let vb = *registers.add(b as usize);
+                    let vc = *registers.add(c as usize);
+                    *registers.add(dest as usize) = (-va).mul_add(vb, vc);
+                }
+                Instruction::NegMulAddConst {
+                    dest,
+                    a,
+                    b,
+                    const_idx,
+                }
+                | Instruction::MulSubRevConst {
+                    dest,
+                    a,
+                    b,
+                    const_idx,
+                } => {
+                    let va = *registers.add(a as usize);
+                    let vb = *registers.add(b as usize);
+                    let c = *simd_constants.get_unchecked(const_idx as usize);
+                    *registers.add(dest as usize) = (-va).mul_add(vb, c);
+                }
+                Instruction::PolyEval { dest, x, const_idx } => {
+                    let start = const_idx as usize;
+                    #[allow(
+                        clippy::cast_possible_truncation,
+                        reason = "Polynomial degree fits in usize"
+                    )]
+                    let degree = constants[start].to_bits() as usize;
+                    // Safety: `compile_polynomial_with_base` stores [degree, c0..cN] contiguously
+                    // in the constants pool, so `start + 1 + degree` is always in-bounds here.
+                    let mut acc = *simd_constants.get_unchecked(start + 1);
+                    let val_x = *registers.add(x as usize);
+                    for i in 0..degree {
+                        let coeff = *simd_constants.get_unchecked(start + 2 + i);
+                        acc = acc.mul_add(val_x, coeff);
+                    }
+                    *registers.add(dest as usize) = acc;
                 }
                 Instruction::Pow3_2 { dest, src } => {
                     let val = *registers.add(src as usize);
@@ -945,9 +1087,6 @@ impl CompiledEvaluator {
                     let val = *registers.add(src as usize);
                     *registers.add(dest as usize) = one / (val * val * val);
                 }
-                Instruction::Recip { dest, src } => {
-                    *registers.add(dest as usize) = one / *registers.add(src as usize);
-                }
                 Instruction::Powi { dest, src, n } => {
                     let arr = (*registers.add(src as usize)).to_array();
                     *registers.add(dest as usize) = f64x4::new([
@@ -957,62 +1096,29 @@ impl CompiledEvaluator {
                         arr[3].powi(n),
                     ]);
                 }
-                Instruction::MulAdd { dest, a, b, c } => {
-                    *registers.add(dest as usize) = (*registers.add(a as usize))
-                        .mul_add(*registers.add(b as usize), *registers.add(c as usize));
-                }
-                Instruction::MulSub { dest, a, b, c } => {
-                    *registers.add(dest as usize) = (*registers.add(a as usize))
-                        .mul_add(*registers.add(b as usize), -*registers.add(c as usize));
-                }
-                Instruction::NegMulAdd { dest, a, b, c } => {
-                    *registers.add(dest as usize) = (-*registers.add(a as usize))
-                        .mul_add(*registers.add(b as usize), *registers.add(c as usize));
-                }
-                Instruction::PolyEval { dest, x, const_idx } => {
-                    let start = const_idx as usize;
-                    #[allow(
-                        clippy::cast_possible_truncation,
-                        clippy::cast_sign_loss,
-                        reason = "Polynomial degree fits in usize"
-                    )]
-                    let degree = constants[start] as usize;
-                    // Safety: `compile_polynomial_with_base` stores [degree, c0..cN] contiguously
-                    // in the constants pool, so `start + 1 + degree` is always in-bounds here.
-                    let mut acc = *simd_constants.get_unchecked(start + 1);
-                    let val_x = *registers.add(x as usize);
-                    for i in 0..degree {
-                        let coeff = *simd_constants.get_unchecked(start + 2 + i);
-                        acc = acc.mul_add(val_x, coeff);
-                    }
-                    *registers.add(dest as usize) = acc;
-                }
                 Instruction::RecipExpm1 { dest, src } => {
                     let arr = (*registers.add(src as usize)).to_array();
-                    *registers.add(dest as usize) = f64x4::new([
-                        1.0 / arr[0].exp_m1(),
-                        1.0 / arr[1].exp_m1(),
-                        1.0 / arr[2].exp_m1(),
-                        1.0 / arr[3].exp_m1(),
+                    let expm1 = f64x4::new([
+                        arr[0].exp_m1(),
+                        arr[1].exp_m1(),
+                        arr[2].exp_m1(),
+                        arr[3].exp_m1(),
                     ]);
+                    *registers.add(dest as usize) = one / expm1;
                 }
                 Instruction::ExpSqr { dest, src } => {
-                    let arr = (*registers.add(src as usize)).to_array();
-                    *registers.add(dest as usize) = f64x4::new([
-                        (arr[0] * arr[0]).exp(),
-                        (arr[1] * arr[1]).exp(),
-                        (arr[2] * arr[2]).exp(),
-                        (arr[3] * arr[3]).exp(),
-                    ]);
+                    let val = *registers.add(src as usize);
+                    let val2 = val * val;
+                    let arr = val2.to_array();
+                    *registers.add(dest as usize) =
+                        f64x4::new([arr[0].exp(), arr[1].exp(), arr[2].exp(), arr[3].exp()]);
                 }
                 Instruction::ExpSqrNeg { dest, src } => {
-                    let arr = (*registers.add(src as usize)).to_array();
-                    *registers.add(dest as usize) = f64x4::new([
-                        (-(arr[0] * arr[0])).exp(),
-                        (-(arr[1] * arr[1])).exp(),
-                        (-(arr[2] * arr[2])).exp(),
-                        (-(arr[3] * arr[3])).exp(),
-                    ]);
+                    let val = *registers.add(src as usize);
+                    let val2 = -(val * val);
+                    let arr = val2.to_array();
+                    *registers.add(dest as usize) =
+                        f64x4::new([arr[0].exp(), arr[1].exp(), arr[2].exp(), arr[3].exp()]);
                 }
             }
         }

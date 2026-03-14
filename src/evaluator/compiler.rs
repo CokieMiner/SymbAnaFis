@@ -101,9 +101,19 @@ enum VInstruction {
         dest: VReg,
         srcs: Vec<VReg>,
     },
+    Add2 {
+        dest: VReg,
+        a: VReg,
+        b: VReg,
+    },
     Mul {
         dest: VReg,
         srcs: Vec<VReg>,
+    },
+    Mul2 {
+        dest: VReg,
+        a: VReg,
+        b: VReg,
     },
     Sub {
         dest: VReg,
@@ -128,6 +138,17 @@ enum VInstruction {
         dest: VReg,
         op: FnOp,
         args: Vec<VReg>,
+    },
+    Builtin1 {
+        dest: VReg,
+        op: FnOp,
+        arg: VReg,
+    },
+    Builtin2 {
+        dest: VReg,
+        op: FnOp,
+        arg1: VReg,
+        arg2: VReg,
     },
     Square {
         dest: VReg,
@@ -207,16 +228,26 @@ enum VInstruction {
     },
 }
 
+struct NodeData {
+    vreg: Option<VReg>,
+    const_val: Option<f64>,
+    is_expensive: bool,
+}
+
 impl VInstruction {
     const fn dest(&self) -> VReg {
         match self {
             Self::Add { dest, .. }
+            | Self::Add2 { dest, .. }
             | Self::Mul { dest, .. }
+            | Self::Mul2 { dest, .. }
             | Self::Sub { dest, .. }
             | Self::Div { dest, .. }
             | Self::Pow { dest, .. }
             | Self::Neg { dest, .. }
             | Self::BuiltinFun { dest, .. }
+            | Self::Builtin1 { dest, .. }
+            | Self::Builtin2 { dest, .. }
             | Self::Square { dest, .. }
             | Self::Cube { dest, .. }
             | Self::Pow4 { dest, .. }
@@ -244,7 +275,9 @@ impl VInstruction {
                     f(s);
                 }
             }
-            Self::Sub { a, b, .. }
+            Self::Add2 { a, b, .. }
+            | Self::Mul2 { a, b, .. }
+            | Self::Sub { a, b, .. }
             | Self::Div { num: a, den: b, .. }
             | Self::Pow {
                 base: a, exp: b, ..
@@ -256,6 +289,11 @@ impl VInstruction {
                 for &a in args {
                     f(a);
                 }
+            }
+            Self::Builtin1 { arg, .. } => f(*arg),
+            Self::Builtin2 { arg1, arg2, .. } => {
+                f(*arg1);
+                f(*arg2);
             }
             Self::MulAdd { a, b, c, .. }
             | Self::MulSub { a, b, c, .. }
@@ -283,15 +321,48 @@ impl VInstruction {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+struct CseKey(*const Expr);
+
+impl PartialEq for CseKey {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+            || (
+                // SAFETY: CseKey pointers always point to valid nodes in the current expression tree
+                unsafe { &*self.0 }
+                    ==
+                // SAFETY: CseKey pointers always point to valid nodes in the current expression tree
+                unsafe { &*other.0 }
+            )
+    }
+}
+
+impl Eq for CseKey {}
+
+impl std::hash::Hash for CseKey {
+    #[inline]
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // SAFETY: CseKey pointers always point to valid nodes in the current expression tree
+        unsafe {
+            (*self.0).hash.hash(state);
+        }
+    }
+}
+
 pub struct Compiler {
     vinstrs: Vec<VInstruction>,
     param_ids: Vec<u64>,
     param_index: FxHashMap<u64, usize>,
-    cse_cache: FxHashMap<u64, Vec<(*const Expr, VReg)>>,
+    cse_cache: FxHashMap<CseKey, VReg>,
     constants: Vec<f64>,
     const_map: FxHashMap<u64, u32>,
+    /// Pool for N-ary instruction register indices
+    arg_pool: Vec<u32>,
     next_vreg: u32,
     final_vreg: Option<VReg>,
+    used_params: Vec<bool>,
+    used_constants: Vec<bool>,
 }
 
 impl Compiler {
@@ -308,8 +379,11 @@ impl Compiler {
             cse_cache: FxHashMap::default(),
             constants: Vec::new(),
             const_map: FxHashMap::default(),
+            arg_pool: Vec::with_capacity(128),
             next_vreg: 0,
             final_vreg: None,
+            used_params: vec![false; param_ids.len()],
+            used_constants: Vec::new(),
         };
         // Pre-add 0.0 so it's always available (e.g. for empty expressions)
         compiler.add_const(0.0);
@@ -327,10 +401,15 @@ impl Compiler {
     pub(crate) fn add_const(&mut self, val: f64) -> u32 {
         let bits = val.to_bits();
         match self.const_map.entry(bits) {
-            Entry::Occupied(o) => *o.get(),
+            Entry::Occupied(o) => {
+                let idx = *o.get();
+                self.used_constants[idx as usize] = true;
+                idx
+            }
             Entry::Vacant(v) => {
                 let idx = u32::try_from(self.constants.len()).unwrap_or(u32::MAX);
                 self.constants.push(val);
+                self.used_constants.push(true);
                 v.insert(idx);
                 idx
             }
@@ -346,7 +425,7 @@ impl Compiler {
         clippy::too_many_lines,
         reason = "Main compiler pass which needs to handle all instruction variants inline"
     )]
-    pub(crate) fn into_parts(mut self) -> (Vec<Instruction>, Vec<f64>, usize, usize) {
+    pub(crate) fn into_parts(mut self) -> (Vec<Instruction>, Vec<f64>, Vec<u32>, usize, usize) {
         let num_temps = self.next_vreg as usize;
         let n_instrs = self.vinstrs.len();
 
@@ -360,17 +439,18 @@ impl Compiler {
             });
         }
 
-        // deaths_at[i] = temps whose last use is exactly instruction i
-        let mut deaths_at: Vec<Vec<u32>> = vec![Vec::new(); n_instrs.max(1)];
-        for (t, lu_opt) in last_use.iter().enumerate() {
-            if let Some(lu) = lu_opt {
-                #[allow(
-                    clippy::cast_possible_truncation,
-                    reason = "Temporary register count is bounded by instruction count"
-                )]
-                deaths_at[*lu].push(t as u32);
-            }
-        }
+        // deaths: sorted list of (last_use_idx, temp_id) pairs
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "Temp index comes from u32 so it will fit"
+        )]
+        let mut deaths: Vec<(usize, u32)> = last_use
+            .iter()
+            .enumerate()
+            .filter_map(|(t, lu_opt)| lu_opt.map(|lu| (lu, t as u32)))
+            .collect();
+        deaths.sort_unstable_by_key(|&(idx, _)| idx);
+        let mut death_cursor = 0;
 
         let param_count = u32::try_from(self.param_ids.len()).unwrap_or(u32::MAX);
         let const_count = u32::try_from(self.constants.len()).unwrap_or(u32::MAX);
@@ -384,6 +464,14 @@ impl Compiler {
         let vinstrs = std::mem::take(&mut self.vinstrs);
 
         for (idx, instr) in vinstrs.into_iter().enumerate() {
+            let map_vreg_phys = |vreg: VReg, t2p: &[u32]| -> u32 {
+                match vreg {
+                    VReg::Param(p) => p,
+                    VReg::Const(c) => param_count + c,
+                    VReg::Temp(t) => t2p[t as usize],
+                }
+            };
+
             let dest_vreg = instr.dest();
             let dest_phys = match dest_vreg {
                 VReg::Param(p) => p,
@@ -403,112 +491,142 @@ impl Compiler {
                 }
             };
 
-            let map_vreg = |vreg: VReg| -> u32 {
-                match vreg {
-                    VReg::Param(p) => p,
-                    VReg::Const(c) => param_count + c,
-                    VReg::Temp(t) => temp_to_phys[t as usize],
-                }
-            };
+            let map_vreg_local = |vreg: VReg| map_vreg_phys(vreg, &temp_to_phys);
 
             match instr {
                 VInstruction::Add { srcs, .. } => {
-                    // NOTE: Multi-operand Add is lowered into a dest-accumulator chain.
-                    // The extra reads of `dest` happen within this single VInstruction
-                    // expansion, so liveness computed at VInstruction granularity
-                    // remains valid.
                     debug_assert!(!srcs.is_empty(), "Empty Add sources in into_parts");
-                    if srcs.len() == 1 {
-                        instructions.push(Instruction::Copy {
-                            dest: dest_phys,
-                            src: map_vreg(srcs[0]),
-                        });
-                    } else {
-                        let mut a = map_vreg(srcs[0]);
-                        for &src in srcs.iter().skip(1) {
+                    match srcs.len() {
+                        1 => {
+                            instructions.push(Instruction::Copy {
+                                dest: dest_phys,
+                                src: map_vreg_local(srcs[0]),
+                            });
+                        }
+                        2 => {
                             instructions.push(Instruction::Add {
                                 dest: dest_phys,
-                                a,
-                                b: map_vreg(src),
+                                a: map_vreg_local(srcs[0]),
+                                b: map_vreg_local(srcs[1]),
                             });
-                            a = dest_phys;
+                        }
+                        _ => {
+                            let start_idx = u32::try_from(self.arg_pool.len()).unwrap_or(u32::MAX);
+                            for &s in &srcs {
+                                self.arg_pool.push(map_vreg_local(s));
+                            }
+                            instructions.push(Instruction::AddN {
+                                dest: dest_phys,
+                                start_idx,
+                                count: u32::try_from(srcs.len()).unwrap_or(u32::MAX),
+                            });
                         }
                     }
                 }
+                VInstruction::Add2 { a, b, .. } => {
+                    instructions.push(Instruction::Add {
+                        dest: dest_phys,
+                        a: map_vreg_local(a),
+                        b: map_vreg_local(b),
+                    });
+                }
                 VInstruction::Mul { srcs, .. } => {
-                    // Same accumulator lowering rationale as Add above.
                     debug_assert!(!srcs.is_empty(), "Empty Mul sources in into_parts");
-                    if srcs.len() == 1 {
-                        instructions.push(Instruction::Copy {
-                            dest: dest_phys,
-                            src: map_vreg(srcs[0]),
-                        });
-                    } else {
-                        let mut a = map_vreg(srcs[0]);
-                        for &src in srcs.iter().skip(1) {
+                    match srcs.len() {
+                        1 => {
+                            instructions.push(Instruction::Copy {
+                                dest: dest_phys,
+                                src: map_vreg_local(srcs[0]),
+                            });
+                        }
+                        2 => {
                             instructions.push(Instruction::Mul {
                                 dest: dest_phys,
-                                a,
-                                b: map_vreg(src),
+                                a: map_vreg_local(srcs[0]),
+                                b: map_vreg_local(srcs[1]),
                             });
-                            a = dest_phys;
+                        }
+                        _ => {
+                            let start_idx = u32::try_from(self.arg_pool.len()).unwrap_or(u32::MAX);
+                            for &s in &srcs {
+                                self.arg_pool.push(map_vreg_local(s));
+                            }
+                            instructions.push(Instruction::MulN {
+                                dest: dest_phys,
+                                start_idx,
+                                count: u32::try_from(srcs.len()).unwrap_or(u32::MAX),
+                            });
                         }
                     }
+                }
+                VInstruction::Mul2 { a, b, .. } => {
+                    instructions.push(Instruction::Mul {
+                        dest: dest_phys,
+                        a: map_vreg_local(a),
+                        b: map_vreg_local(b),
+                    });
                 }
                 VInstruction::Sub { a, b, .. } => {
                     instructions.push(Instruction::Sub {
                         dest: dest_phys,
-                        a: map_vreg(a),
-                        b: map_vreg(b),
+                        a: map_vreg_local(a),
+                        b: map_vreg_local(b),
                     });
                 }
                 VInstruction::Div { num, den, .. } => {
                     instructions.push(Instruction::Div {
                         dest: dest_phys,
-                        num: map_vreg(num),
-                        den: map_vreg(den),
+                        num: map_vreg_local(num),
+                        den: map_vreg_local(den),
                     });
                 }
                 VInstruction::Pow { base, exp, .. } => {
                     instructions.push(Instruction::Pow {
                         dest: dest_phys,
-                        base: map_vreg(base),
-                        exp: map_vreg(exp),
+                        base: map_vreg_local(base),
+                        exp: map_vreg_local(exp),
                     });
                 }
                 VInstruction::Neg { src, .. } => {
                     instructions.push(Instruction::Neg {
                         dest: dest_phys,
-                        src: map_vreg(src),
+                        src: map_vreg_local(src),
                     });
                 }
                 VInstruction::BuiltinFun { op, args, .. } => match args.len() {
                     1 => instructions.push(Instruction::Builtin1 {
                         dest: dest_phys,
                         op,
-                        arg: map_vreg(args[0]),
+                        arg: map_vreg_local(args[0]),
                     }),
                     2 => instructions.push(Instruction::Builtin2 {
                         dest: dest_phys,
                         op,
-                        arg1: map_vreg(args[0]),
-                        arg2: map_vreg(args[1]),
+                        arg1: map_vreg_local(args[0]),
+                        arg2: map_vreg_local(args[1]),
                     }),
-                    3 => instructions.push(Instruction::Builtin3 {
-                        dest: dest_phys,
-                        op,
-                        arg1: map_vreg(args[0]),
-                        arg2: map_vreg(args[1]),
-                        arg3: map_vreg(args[2]),
-                    }),
-                    4 => instructions.push(Instruction::Builtin4 {
-                        dest: dest_phys,
-                        op,
-                        arg1: map_vreg(args[0]),
-                        arg2: map_vreg(args[1]),
-                        arg3: map_vreg(args[2]),
-                        arg4: map_vreg(args[3]),
-                    }),
+                    3 => {
+                        let start_idx = u32::try_from(self.arg_pool.len()).unwrap_or(u32::MAX);
+                        for &s in &args {
+                            self.arg_pool.push(map_vreg_local(s));
+                        }
+                        instructions.push(Instruction::Builtin3 {
+                            dest: dest_phys,
+                            op,
+                            start_idx,
+                        });
+                    }
+                    4 => {
+                        let start_idx = u32::try_from(self.arg_pool.len()).unwrap_or(u32::MAX);
+                        for &s in &args {
+                            self.arg_pool.push(map_vreg_local(s));
+                        }
+                        instructions.push(Instruction::Builtin4 {
+                            dest: dest_phys,
+                            op,
+                            start_idx,
+                        });
+                    }
                     _ => {
                         debug_assert!(
                             false,
@@ -521,124 +639,168 @@ impl Compiler {
                         });
                     }
                 },
+                VInstruction::Builtin1 { op, arg, .. } => {
+                    instructions.push(Instruction::Builtin1 {
+                        dest: dest_phys,
+                        op,
+                        arg: map_vreg_local(arg),
+                    });
+                }
+                VInstruction::Builtin2 { op, arg1, arg2, .. } => {
+                    instructions.push(Instruction::Builtin2 {
+                        dest: dest_phys,
+                        op,
+                        arg1: map_vreg_local(arg1),
+                        arg2: map_vreg_local(arg2),
+                    });
+                }
                 VInstruction::Square { src, .. } => {
                     instructions.push(Instruction::Square {
                         dest: dest_phys,
-                        src: map_vreg(src),
+                        src: map_vreg_local(src),
                     });
                 }
                 VInstruction::Cube { src, .. } => {
                     instructions.push(Instruction::Cube {
                         dest: dest_phys,
-                        src: map_vreg(src),
+                        src: map_vreg_local(src),
                     });
                 }
                 VInstruction::Pow4 { src, .. } => {
                     instructions.push(Instruction::Pow4 {
                         dest: dest_phys,
-                        src: map_vreg(src),
+                        src: map_vreg_local(src),
                     });
                 }
                 VInstruction::Pow3_2 { src, .. } => {
                     instructions.push(Instruction::Pow3_2 {
                         dest: dest_phys,
-                        src: map_vreg(src),
+                        src: map_vreg_local(src),
                     });
                 }
                 VInstruction::InvPow3_2 { src, .. } => {
                     instructions.push(Instruction::InvPow3_2 {
                         dest: dest_phys,
-                        src: map_vreg(src),
+                        src: map_vreg_local(src),
                     });
                 }
                 VInstruction::InvSqrt { src, .. } => {
                     instructions.push(Instruction::InvSqrt {
                         dest: dest_phys,
-                        src: map_vreg(src),
+                        src: map_vreg_local(src),
                     });
                 }
                 VInstruction::InvSquare { src, .. } => {
                     instructions.push(Instruction::InvSquare {
                         dest: dest_phys,
-                        src: map_vreg(src),
+                        src: map_vreg_local(src),
                     });
                 }
                 VInstruction::InvCube { src, .. } => {
                     instructions.push(Instruction::InvCube {
                         dest: dest_phys,
-                        src: map_vreg(src),
+                        src: map_vreg_local(src),
                     });
                 }
                 VInstruction::Recip { src, .. } => {
                     instructions.push(Instruction::Recip {
                         dest: dest_phys,
-                        src: map_vreg(src),
+                        src: map_vreg_local(src),
                     });
                 }
                 VInstruction::Powi { src, n, .. } => {
                     instructions.push(Instruction::Powi {
                         dest: dest_phys,
-                        src: map_vreg(src),
+                        src: map_vreg_local(src),
                         n,
                     });
                 }
                 VInstruction::MulAdd { a, b, c, .. } => {
-                    instructions.push(Instruction::MulAdd {
-                        dest: dest_phys,
-                        a: map_vreg(a),
-                        b: map_vreg(b),
-                        c: map_vreg(c),
-                    });
+                    if let VReg::Const(c_idx) = c {
+                        instructions.push(Instruction::MulAddConst {
+                            dest: dest_phys,
+                            a: map_vreg_local(a),
+                            b: map_vreg_local(b),
+                            const_idx: c_idx,
+                        });
+                    } else {
+                        instructions.push(Instruction::MulAdd {
+                            dest: dest_phys,
+                            a: map_vreg_local(a),
+                            b: map_vreg_local(b),
+                            c: map_vreg_local(c),
+                        });
+                    }
                 }
                 VInstruction::MulSub { a, b, c, .. } => {
-                    instructions.push(Instruction::MulSub {
-                        dest: dest_phys,
-                        a: map_vreg(a),
-                        b: map_vreg(b),
-                        c: map_vreg(c),
-                    });
+                    if let VReg::Const(c_idx) = c {
+                        instructions.push(Instruction::MulSubConst {
+                            dest: dest_phys,
+                            a: map_vreg_local(a),
+                            b: map_vreg_local(b),
+                            const_idx: c_idx,
+                        });
+                    } else {
+                        instructions.push(Instruction::MulSub {
+                            dest: dest_phys,
+                            a: map_vreg_local(a),
+                            b: map_vreg_local(b),
+                            c: map_vreg_local(c),
+                        });
+                    }
                 }
                 VInstruction::NegMulAdd { a, b, c, .. } => {
-                    instructions.push(Instruction::NegMulAdd {
-                        dest: dest_phys,
-                        a: map_vreg(a),
-                        b: map_vreg(b),
-                        c: map_vreg(c),
-                    });
+                    if let VReg::Const(c_idx) = c {
+                        instructions.push(Instruction::NegMulAddConst {
+                            dest: dest_phys,
+                            a: map_vreg_local(a),
+                            b: map_vreg_local(b),
+                            const_idx: c_idx,
+                        });
+                    } else {
+                        instructions.push(Instruction::NegMulAdd {
+                            dest: dest_phys,
+                            a: map_vreg_local(a),
+                            b: map_vreg_local(b),
+                            c: map_vreg_local(c),
+                        });
+                    }
                 }
                 VInstruction::PolyEval { x, const_idx, .. } => {
                     instructions.push(Instruction::PolyEval {
                         dest: dest_phys,
-                        x: map_vreg(x),
+                        x: map_vreg_local(x),
                         const_idx,
                     });
                 }
                 VInstruction::RecipExpm1 { src, .. } => {
                     instructions.push(Instruction::RecipExpm1 {
                         dest: dest_phys,
-                        src: map_vreg(src),
+                        src: map_vreg_local(src),
                     });
                 }
                 VInstruction::ExpSqr { src, .. } => {
                     instructions.push(Instruction::ExpSqr {
                         dest: dest_phys,
-                        src: map_vreg(src),
+                        src: map_vreg_local(src),
                     });
                 }
                 VInstruction::ExpSqrNeg { src, .. } => {
                     instructions.push(Instruction::ExpSqrNeg {
                         dest: dest_phys,
-                        src: map_vreg(src),
+                        src: map_vreg_local(src),
                     });
                 }
             }
 
             // Free dead temps whose last use was THIS instruction
-            for &t_id in &deaths_at[idx] {
+            while death_cursor < deaths.len() && deaths[death_cursor].0 == idx {
+                let t_id = deaths[death_cursor].1;
                 let p = temp_to_phys[t_id as usize];
                 if p != u32::MAX {
                     free_phys.push(p);
                 }
+                death_cursor += 1;
             }
         }
 
@@ -665,10 +827,11 @@ impl Compiler {
 
         let register_count = max_phys as usize;
 
-        // return tuple: (instructions, constants, stack_size(now register_count), param_count)
+        // return tuple: (instructions, constants, arg_pool, stack_size(now register_count), param_count)
         (
             instructions,
             self.constants,
+            self.arg_pool,
             register_count,
             param_count as usize,
         )
@@ -676,13 +839,12 @@ impl Compiler {
 
     fn compute_expensive_from_children(
         expr: &Expr,
-        consts: &FxHashMap<*const Expr, Option<f64>>,
-        expensive: &FxHashMap<*const Expr, bool>,
+        node_map: &FxHashMap<*const Expr, NodeData>,
     ) -> bool {
         match &expr.kind {
             ExprKind::FunctionCall { .. } | ExprKind::Div(..) | ExprKind::Poly(_) => true,
             ExprKind::Pow(base, exp) => {
-                if Self::const_from_map(consts, exp.as_ref())
+                if Self::const_from_map(node_map, exp.as_ref())
                     .is_none_or(|n| (n - n.round()).abs() > EPSILON)
                 {
                     true
@@ -690,15 +852,27 @@ impl Compiler {
                     !matches!(base.kind, ExprKind::Number(_))
                 }
             }
-            ExprKind::Sum(terms) | ExprKind::Product(terms) => {
-                if terms.len() >= 2 {
-                    true
-                } else {
-                    terms
-                        .iter()
-                        .any(|t| expensive.get(&Arc::as_ptr(t)).copied().unwrap_or(false))
+            ExprKind::Sum(terms) | ExprKind::Product(terms) => match terms.len().cmp(&2) {
+                std::cmp::Ordering::Greater => true,
+                std::cmp::Ordering::Equal => {
+                    // Only consider it expensive if at least one term is not a simple terminal
+                    // or is already marked as expensive.
+                    terms.iter().any(|t| {
+                        if node_map
+                            .get(&Arc::as_ptr(t))
+                            .is_some_and(|data| data.is_expensive)
+                        {
+                            return true;
+                        }
+                        !matches!(t.kind, ExprKind::Number(_) | ExprKind::Symbol(_))
+                    })
                 }
-            }
+                std::cmp::Ordering::Less => terms.iter().any(|t| {
+                    node_map
+                        .get(&Arc::as_ptr(t))
+                        .is_some_and(|data| data.is_expensive)
+                }),
+            },
             _ => false,
         }
     }
@@ -723,14 +897,19 @@ impl Compiler {
         Ok(vreg)
     }
 
-    fn const_from_map(consts: &FxHashMap<*const Expr, Option<f64>>, expr: &Expr) -> Option<f64> {
-        consts.get(&std::ptr::from_ref(expr)).copied().flatten()
+    fn const_from_map(node_map: &FxHashMap<*const Expr, NodeData>, expr: &Expr) -> Option<f64> {
+        node_map
+            .get(&std::ptr::from_ref(expr))
+            .and_then(|data| data.const_val)
     }
 
-    fn vreg_from_map(vregs: &FxHashMap<*const Expr, VReg>, expr: &Expr) -> Result<VReg, DiffError> {
-        vregs
+    fn vreg_from_map(
+        node_map: &FxHashMap<*const Expr, NodeData>,
+        expr: &Expr,
+    ) -> Result<VReg, DiffError> {
+        node_map
             .get(&std::ptr::from_ref(expr))
-            .copied()
+            .and_then(|data| data.vreg)
             .ok_or_else(|| {
                 DiffError::UnsupportedExpression(
                     "Internal compile error: missing child vreg".to_owned(),
@@ -740,7 +919,7 @@ impl Compiler {
 
     fn compute_const_from_children(
         expr: &Expr,
-        consts: &FxHashMap<*const Expr, Option<f64>>,
+        node_map: &FxHashMap<*const Expr, NodeData>,
     ) -> Option<f64> {
         match &expr.kind {
             ExprKind::Number(n) => Some(*n),
@@ -748,28 +927,28 @@ impl Compiler {
             ExprKind::Sum(terms) => {
                 let mut sum = 0.0;
                 for t in terms {
-                    sum += Self::const_from_map(consts, t.as_ref())?;
+                    sum += Self::const_from_map(node_map, t.as_ref())?;
                 }
                 Some(sum)
             }
             ExprKind::Product(factors) => {
                 let mut product = 1.0;
                 for f in factors {
-                    product *= Self::const_from_map(consts, f.as_ref())?;
+                    product *= Self::const_from_map(node_map, f.as_ref())?;
                 }
                 Some(product)
             }
             ExprKind::Div(num, den) => Some(
-                Self::const_from_map(consts, num.as_ref())?
-                    / Self::const_from_map(consts, den.as_ref())?,
+                Self::const_from_map(node_map, num.as_ref())?
+                    / Self::const_from_map(node_map, den.as_ref())?,
             ),
             ExprKind::Pow(base, exp) => Some(
-                Self::const_from_map(consts, base.as_ref())?
-                    .powf(Self::const_from_map(consts, exp.as_ref())?),
+                Self::const_from_map(node_map, base.as_ref())?
+                    .powf(Self::const_from_map(node_map, exp.as_ref())?),
             ),
             ExprKind::FunctionCall { name, args } => match args.len() {
                 1 => {
-                    let x = Self::const_from_map(consts, args[0].as_ref())?;
+                    let x = Self::const_from_map(node_map, args[0].as_ref())?;
                     let id = name.id();
                     let ks = &*KS;
                     if id == ks.sin {
@@ -797,8 +976,8 @@ impl Compiler {
                     }
                 }
                 2 => {
-                    let a = Self::const_from_map(consts, args[0].as_ref())?;
-                    let b = Self::const_from_map(consts, args[1].as_ref())?;
+                    let a = Self::const_from_map(node_map, args[0].as_ref())?;
+                    let b = Self::const_from_map(node_map, args[1].as_ref())?;
                     let id = name.id();
                     let ks = &*KS;
                     if id == ks.atan2 {
@@ -818,17 +997,40 @@ impl Compiler {
     fn negated_inner_vreg(
         &mut self,
         term: &Expr,
-        vregs: &FxHashMap<*const Expr, VReg>,
-        consts: &FxHashMap<*const Expr, Option<f64>>,
+        node_map: &FxHashMap<*const Expr, NodeData>,
     ) -> Option<VReg> {
         if let ExprKind::Product(factors) = &term.kind {
             let neg_idx = factors.iter().position(|f| {
-                Self::const_from_map(consts, f.as_ref()).is_some_and(|n| (n + 1.0).abs() < EPSILON)
+                Self::const_from_map(node_map, f.as_ref())
+                    .is_some_and(|n| (n + 1.0).abs() < EPSILON)
             })?;
-            let mut inner_vregs: Vec<VReg> = Vec::new();
+            // Determine how many actual factors we have
+            let num_inner = factors.len().saturating_sub(1);
+            if num_inner == 0 {
+                let idx = self.add_const(1.0);
+                return Some(VReg::Const(idx));
+            }
+            if num_inner == 1 {
+                for (i, f) in factors.iter().enumerate() {
+                    if i != neg_idx {
+                        return node_map.get(&Arc::as_ptr(f))?.vreg;
+                    }
+                }
+            }
+            if num_inner == 2 {
+                let mut iter = factors.iter().enumerate().filter(|(i, _)| *i != neg_idx);
+                let (_, f1) = iter.next()?;
+                let (_, f2) = iter.next()?;
+                let a = node_map.get(&Arc::as_ptr(f1))?.vreg?;
+                let b = node_map.get(&Arc::as_ptr(f2))?.vreg?;
+                let d = self.alloc_vreg();
+                self.emit(VInstruction::Mul2 { dest: d, a, b });
+                return Some(d);
+            }
+            let mut inner_vregs: Vec<VReg> = Vec::with_capacity(num_inner);
             for (i, f) in factors.iter().enumerate() {
                 if i != neg_idx {
-                    inner_vregs.push(*vregs.get(&Arc::as_ptr(f))?);
+                    inner_vregs.push(node_map.get(&Arc::as_ptr(f))?.vreg?);
                 }
             }
             return Some(match inner_vregs.len() {
@@ -852,19 +1054,19 @@ impl Compiler {
 
     fn product_two_vregs(
         term: &Expr,
-        vregs: &FxHashMap<*const Expr, VReg>,
-        consts: &FxHashMap<*const Expr, Option<f64>>,
+        node_map: &FxHashMap<*const Expr, NodeData>,
     ) -> Option<(VReg, VReg)> {
         if let ExprKind::Product(factors) = &term.kind
             && factors.len() == 2
         {
             if factors.iter().any(|f| {
-                Self::const_from_map(consts, f.as_ref()).is_some_and(|n| (n + 1.0).abs() < EPSILON)
+                Self::const_from_map(node_map, f.as_ref())
+                    .is_some_and(|n| (n + 1.0).abs() < EPSILON)
             }) {
                 return None;
             }
-            let a = Self::vreg_from_map(vregs, factors[0].as_ref()).ok()?;
-            let b = Self::vreg_from_map(vregs, factors[1].as_ref()).ok()?;
+            let a = Self::vreg_from_map(node_map, factors[0].as_ref()).ok()?;
+            let b = Self::vreg_from_map(node_map, factors[1].as_ref()).ok()?;
             return Some((a, b));
         }
         None
@@ -872,8 +1074,7 @@ impl Compiler {
 
     fn negated_product_two_vregs(
         term: &Expr,
-        vregs: &FxHashMap<*const Expr, VReg>,
-        consts: &FxHashMap<*const Expr, Option<f64>>,
+        node_map: &FxHashMap<*const Expr, NodeData>,
     ) -> Option<(VReg, VReg)> {
         let ExprKind::Product(factors) = &term.kind else {
             return None;
@@ -883,7 +1084,8 @@ impl Compiler {
         }
         let mut neg_idx = None;
         for (i, f) in factors.iter().enumerate() {
-            if Self::const_from_map(consts, f.as_ref()).is_some_and(|n| (n + 1.0).abs() < EPSILON) {
+            if Self::const_from_map(node_map, f.as_ref()).is_some_and(|n| (n + 1.0).abs() < EPSILON)
+            {
                 if neg_idx.is_some() {
                     return None;
                 }
@@ -896,8 +1098,8 @@ impl Compiler {
             .enumerate()
             .filter(|(i, _)| *i != neg_idx)
             .map(|(_, f)| f);
-        let a = Self::vreg_from_map(vregs, iter.next()?.as_ref()).ok()?;
-        let b = Self::vreg_from_map(vregs, iter.next()?.as_ref()).ok()?;
+        let a = Self::vreg_from_map(node_map, iter.next()?.as_ref()).ok()?;
+        let b = Self::vreg_from_map(node_map, iter.next()?.as_ref()).ok()?;
         if iter.next().is_some() {
             return None;
         }
@@ -916,10 +1118,11 @@ impl Compiler {
 
     fn pow2_base<'expr>(
         expr: &'expr Expr,
-        consts: &FxHashMap<*const Expr, Option<f64>>,
+        node_map: &FxHashMap<*const Expr, NodeData>,
     ) -> Option<&'expr Expr> {
         if let ExprKind::Pow(base, exp) = &expr.kind
-            && Self::const_from_map(consts, exp.as_ref()).is_some_and(|n| (n - 2.0).abs() < EPSILON)
+            && Self::const_from_map(node_map, exp.as_ref())
+                .is_some_and(|n| (n - 2.0).abs() < EPSILON)
         {
             return Some(base.as_ref());
         }
@@ -928,7 +1131,7 @@ impl Compiler {
 
     fn recip_expm1_arg<'expr>(
         den: &'expr Expr,
-        consts: &FxHashMap<*const Expr, Option<f64>>,
+        node_map: &FxHashMap<*const Expr, NodeData>,
     ) -> Option<&'expr Expr> {
         let ExprKind::Sum(terms) = &den.kind else {
             return None;
@@ -940,7 +1143,7 @@ impl Compiler {
         let b = terms[1].as_ref();
 
         let is_neg_one = |expr: &Expr| -> bool {
-            Self::const_from_map(consts, expr).is_some_and(|n| (n + 1.0).abs() < EPSILON)
+            Self::const_from_map(node_map, expr).is_some_and(|n| (n + 1.0).abs() < EPSILON)
         };
 
         if let Some(arg) = Self::exp_call_arg(a)
@@ -958,30 +1161,29 @@ impl Compiler {
 
     fn exp_sqr_arg(
         arg: &Expr,
-        consts: &FxHashMap<*const Expr, Option<f64>>,
-        vregs: &FxHashMap<*const Expr, VReg>,
+        node_map: &FxHashMap<*const Expr, NodeData>,
     ) -> Option<(VReg, bool)> {
-        if let Some(base) = Self::pow2_base(arg, consts) {
-            let base_v = Self::vreg_from_map(vregs, base).ok()?;
+        if let Some(base) = Self::pow2_base(arg, node_map) {
+            let base_v = Self::vreg_from_map(node_map, base).ok()?;
             return Some((base_v, false));
         }
 
         if let ExprKind::Product(factors) = &arg.kind
             && factors.len() == 2
         {
-            let (_neg_idx, other_idx) = if Self::const_from_map(consts, factors[0].as_ref())
+            let (_neg_idx, other_idx) = if Self::const_from_map(node_map, factors[0].as_ref())
                 .is_some_and(|n| (n + 1.0).abs() < EPSILON)
             {
                 (0, 1)
-            } else if Self::const_from_map(consts, factors[1].as_ref())
+            } else if Self::const_from_map(node_map, factors[1].as_ref())
                 .is_some_and(|n| (n + 1.0).abs() < EPSILON)
             {
                 (1, 0)
             } else {
                 return None;
             };
-            if let Some(base) = Self::pow2_base(factors[other_idx].as_ref(), consts) {
-                let base_v = Self::vreg_from_map(vregs, base).ok()?;
+            if let Some(base) = Self::pow2_base(factors[other_idx].as_ref(), node_map) {
+                let base_v = Self::vreg_from_map(node_map, base).ok()?;
                 return Some((base_v, true));
             }
         }
@@ -992,14 +1194,13 @@ impl Compiler {
     fn compile_exp_neg_arg(
         &mut self,
         arg: &Expr,
-        vregs: &FxHashMap<*const Expr, VReg>,
-        consts: &FxHashMap<*const Expr, Option<f64>>,
+        node_map: &FxHashMap<*const Expr, NodeData>,
     ) -> Option<VReg> {
         let compile_pos_product = |compiler: &mut Self, factors: &[Arc<Expr>]| -> Option<VReg> {
             let mut const_total = 1.0_f64;
             let mut has_const = false;
             for f in factors {
-                if let Some(c) = Self::const_from_map(consts, f.as_ref()) {
+                if let Some(c) = Self::const_from_map(node_map, f.as_ref()) {
                     const_total *= c;
                     has_const = true;
                 }
@@ -1010,8 +1211,8 @@ impl Compiler {
             let pos_c = -const_total;
             let mut vregs_local: Vec<VReg> = Vec::new();
             for f in factors {
-                if Self::const_from_map(consts, f.as_ref()).is_none() {
-                    vregs_local.push(*vregs.get(&Arc::as_ptr(f))?);
+                if Self::const_from_map(node_map, f.as_ref()).is_none() {
+                    vregs_local.push(node_map.get(&Arc::as_ptr(f))?.vreg?);
                 }
             }
             if (pos_c - 1.0).abs() > EPSILON {
@@ -1041,7 +1242,7 @@ impl Compiler {
                 if let ExprKind::Product(nf) = &num.kind
                     && let Some(pos_num) = compile_pos_product(self, nf)
                 {
-                    let den_v = *vregs.get(&Arc::as_ptr(den))?;
+                    let den_v = node_map.get(&Arc::as_ptr(den))?.vreg?;
                     let d = self.alloc_vreg();
                     self.emit(VInstruction::Div {
                         dest: d,
@@ -1050,12 +1251,12 @@ impl Compiler {
                     });
                     return Some(d);
                 }
-                if let Some(n) = Self::const_from_map(consts, num.as_ref())
+                if let Some(n) = Self::const_from_map(node_map, num.as_ref())
                     && n < 0.0
                     && n.is_finite()
                 {
                     let pos_idx = self.add_const(-n);
-                    let den_v = *vregs.get(&Arc::as_ptr(den))?;
+                    let den_v = node_map.get(&Arc::as_ptr(den))?.vreg?;
                     let d = self.alloc_vreg();
                     self.emit(VInstruction::Div {
                         dest: d,
@@ -1080,7 +1281,8 @@ impl Compiler {
         let degree = terms.last().map_or(0, |t| t.0);
         let start_idx = u32::try_from(self.constants.len()).unwrap_or(u32::MAX);
 
-        self.constants.push(f64::from(degree));
+        self.constants.push(f64::from_bits(u64::from(degree)));
+        self.used_constants.push(true);
         let mut term_idx = terms.len();
         for current_pow in (0..=degree).rev() {
             let coeff = if term_idx > 0 && terms[term_idx - 1].0 == current_pow {
@@ -1090,6 +1292,7 @@ impl Compiler {
                 0.0
             };
             self.constants.push(coeff);
+            self.used_constants.push(true);
         }
 
         let dest = self.alloc_vreg();
@@ -1101,10 +1304,15 @@ impl Compiler {
         dest
     }
 
-    fn compile_symbol_node(&self, sym: &InternedSymbol) -> Result<VReg, DiffError> {
+    fn compile_symbol_node(&mut self, sym: &InternedSymbol) -> Result<VReg, DiffError> {
         let sym_id = sym.id();
         if let Some(&idx) = self.param_index.get(&sym_id) {
+            self.used_params[idx] = true;
             Ok(VReg::Param(u32::try_from(idx).unwrap_or(u32::MAX)))
+        } else if let Some(val) = crate::core::known_symbols::get_constant_value_by_id(sym_id) {
+            let idx = self.add_const(val);
+            self.used_constants[idx as usize] = true;
+            Ok(VReg::Const(idx))
         } else {
             Err(DiffError::UnboundVariable(sym.as_str().to_owned()))
         }
@@ -1112,89 +1320,95 @@ impl Compiler {
 
     fn map_args_vregs(
         args: &[Arc<Expr>],
-        vregs: &FxHashMap<*const Expr, VReg>,
+        node_map: &FxHashMap<*const Expr, NodeData>,
     ) -> Result<Vec<VReg>, DiffError> {
         let mut out = Vec::with_capacity(args.len());
         for arg in args {
-            out.push(Self::vreg_from_map(vregs, arg.as_ref())?);
+            out.push(Self::vreg_from_map(node_map, arg.as_ref())?);
         }
         Ok(out)
     }
 
     #[allow(
         clippy::too_many_lines,
+        clippy::integer_division,
         reason = "Sum compilation handles many algebraic optimizations inline"
     )]
     fn compile_sum_node(
         &mut self,
         terms: &[Arc<Expr>],
-        vregs: &FxHashMap<*const Expr, VReg>,
-        consts: &FxHashMap<*const Expr, Option<f64>>,
+        node_map: &FxHashMap<*const Expr, NodeData>,
     ) -> Result<VReg, DiffError> {
         if terms.is_empty() {
             let idx = self.add_const(0.0);
             return Ok(VReg::Const(idx));
         }
         if terms.len() == 1 {
-            return Self::vreg_from_map(vregs, terms[0].as_ref());
+            return Self::vreg_from_map(node_map, terms[0].as_ref());
         }
 
         if terms.len() == 2 {
             let t0 = terms[0].as_ref();
             let t1 = terms[1].as_ref();
 
-            if let Some((a, b)) = Self::product_two_vregs(t0, vregs, consts)
-                && let Some(c) = self.negated_inner_vreg(t1, vregs, consts)
+            if let Some((a, b)) = Self::product_two_vregs(t0, node_map)
+                && let Some(c) = self.negated_inner_vreg(t1, node_map)
             {
                 let dest = self.alloc_vreg();
                 self.emit(VInstruction::MulSub { dest, a, b, c });
                 return Ok(dest);
             }
-            if let Some((a, b)) = Self::product_two_vregs(t1, vregs, consts)
-                && let Some(c) = self.negated_inner_vreg(t0, vregs, consts)
+            if let Some((a, b)) = Self::product_two_vregs(t1, node_map)
+                && let Some(c) = self.negated_inner_vreg(t0, node_map)
             {
                 let dest = self.alloc_vreg();
                 self.emit(VInstruction::MulSub { dest, a, b, c });
                 return Ok(dest);
             }
-            if let Some((a, b)) = Self::negated_product_two_vregs(t0, vregs, consts) {
-                let c = Self::vreg_from_map(vregs, t1)?;
+            if let Some((a, b)) = Self::negated_product_two_vregs(t0, node_map) {
+                let c = Self::vreg_from_map(node_map, t1)?;
                 let dest = self.alloc_vreg();
                 self.emit(VInstruction::NegMulAdd { dest, a, b, c });
                 return Ok(dest);
             }
-            if let Some((a, b)) = Self::negated_product_two_vregs(t1, vregs, consts) {
-                let c = Self::vreg_from_map(vregs, t0)?;
+            if let Some((a, b)) = Self::negated_product_two_vregs(t1, node_map) {
+                let c = Self::vreg_from_map(node_map, t0)?;
                 let dest = self.alloc_vreg();
                 self.emit(VInstruction::NegMulAdd { dest, a, b, c });
                 return Ok(dest);
             }
-            if let Some((a, b)) = Self::product_two_vregs(t0, vregs, consts)
-                && self.negated_inner_vreg(t1, vregs, consts).is_none()
-            {
-                let c = Self::vreg_from_map(vregs, t1)?;
+            if let Some((a, b)) = Self::product_two_vregs(t0, node_map) {
+                let c = Self::vreg_from_map(node_map, t1)?;
                 let dest = self.alloc_vreg();
                 self.emit(VInstruction::MulAdd { dest, a, b, c });
                 return Ok(dest);
             }
-            if let Some((a, b)) = Self::product_two_vregs(t1, vregs, consts)
-                && self.negated_inner_vreg(t0, vregs, consts).is_none()
-            {
-                let c = Self::vreg_from_map(vregs, t0)?;
+            if let Some((a, b)) = Self::product_two_vregs(t1, node_map) {
+                let c = Self::vreg_from_map(node_map, t0)?;
                 let dest = self.alloc_vreg();
                 self.emit(VInstruction::MulAdd { dest, a, b, c });
                 return Ok(dest);
             }
+
+            // Simple 2-term sum without FMA
+            let a = Self::vreg_from_map(node_map, t0)?;
+            let b = Self::vreg_from_map(node_map, t1)?;
+            let dest = self.alloc_vreg();
+            self.emit(VInstruction::Add2 { dest, a, b });
+            return Ok(dest);
         }
 
         let mut pos_vregs = Vec::with_capacity(terms.len());
-        let mut neg_vregs = Vec::with_capacity(terms.len());
+        let mut neg_vregs = Vec::new();
 
         for term in terms {
-            if let Some(inner) = self.negated_inner_vreg(term.as_ref(), vregs, consts) {
+            if let Some(inner) = self.negated_inner_vreg(term.as_ref(), node_map) {
+                if neg_vregs.capacity() == 0 {
+                    neg_vregs.reserve(terms.len() / 2 + 1);
+                }
                 neg_vregs.push(inner);
             } else {
-                pos_vregs.push(Self::vreg_from_map(vregs, term.as_ref())?);
+                pos_vregs.push(Self::vreg_from_map(node_map, term.as_ref())?);
             }
         }
 
@@ -1207,6 +1421,15 @@ impl Compiler {
             if pos_vregs.len() == 1 {
                 return Ok(pos_vregs[0]);
             }
+            if pos_vregs.len() == 2 {
+                let dest = self.alloc_vreg();
+                self.emit(VInstruction::Add2 {
+                    dest,
+                    a: pos_vregs[0],
+                    b: pos_vregs[1],
+                });
+                return Ok(dest);
+            }
             let dest = self.alloc_vreg();
             self.emit(VInstruction::Add {
                 dest,
@@ -1218,6 +1441,14 @@ impl Compiler {
         if pos_vregs.is_empty() {
             let inner = if neg_vregs.len() == 1 {
                 neg_vregs[0]
+            } else if neg_vregs.len() == 2 {
+                let s_v = self.alloc_vreg();
+                self.emit(VInstruction::Add2 {
+                    dest: s_v,
+                    a: neg_vregs[0],
+                    b: neg_vregs[1],
+                });
+                s_v
             } else {
                 let s_v = self.alloc_vreg();
                 self.emit(VInstruction::Add {
@@ -1233,6 +1464,14 @@ impl Compiler {
 
         let pos_v = if pos_vregs.len() == 1 {
             pos_vregs[0]
+        } else if pos_vregs.len() == 2 {
+            let s_v = self.alloc_vreg();
+            self.emit(VInstruction::Add2 {
+                dest: s_v,
+                a: pos_vregs[0],
+                b: pos_vregs[1],
+            });
+            s_v
         } else {
             let s_v = self.alloc_vreg();
             self.emit(VInstruction::Add {
@@ -1243,6 +1482,14 @@ impl Compiler {
         };
         let neg_v = if neg_vregs.len() == 1 {
             neg_vregs[0]
+        } else if neg_vregs.len() == 2 {
+            let s_v = self.alloc_vreg();
+            self.emit(VInstruction::Add2 {
+                dest: s_v,
+                a: neg_vregs[0],
+                b: neg_vregs[1],
+            });
+            s_v
         } else {
             let s_v = self.alloc_vreg();
             self.emit(VInstruction::Add {
@@ -1260,24 +1507,88 @@ impl Compiler {
         Ok(dest)
     }
 
+    #[allow(
+        clippy::too_many_lines,
+        reason = "Product compilation handles constant folding and arity optimizations inline"
+    )]
     fn compile_product_node(
         &mut self,
         factors: &[Arc<Expr>],
-        vregs: &FxHashMap<*const Expr, VReg>,
-        consts: &FxHashMap<*const Expr, Option<f64>>,
+        node_map: &FxHashMap<*const Expr, NodeData>,
     ) -> Result<VReg, DiffError> {
         if factors.is_empty() {
             let idx = self.add_const(1.0);
             return Ok(VReg::Const(idx));
         }
 
+        // Optimize 2-factor products to avoid Vec allocation
+        if factors.len() == 2 {
+            let f0 = factors[0].as_ref();
+            let f1 = factors[1].as_ref();
+            let c0 = Self::const_from_map(node_map, f0);
+            let c1 = Self::const_from_map(node_map, f1);
+
+            match (c0, c1) {
+                (Some(v0), Some(v1)) => {
+                    let val = v0 * v1;
+                    if val.is_finite() {
+                        let idx = self.add_const(val);
+                        return Ok(VReg::Const(idx));
+                    }
+                }
+                (Some(v0), None) => {
+                    if v0.is_finite() {
+                        if (v0 - 1.0).abs() < EPSILON {
+                            return Self::vreg_from_map(node_map, f1);
+                        }
+                        let c_idx = self.add_const(v0);
+                        let v1_reg = Self::vreg_from_map(node_map, f1)?;
+                        let dest = self.alloc_vreg();
+                        self.emit(VInstruction::Mul2 {
+                            dest,
+                            a: VReg::Const(c_idx),
+                            b: v1_reg,
+                        });
+                        return Ok(dest);
+                    }
+                }
+                (None, Some(v1)) => {
+                    if v1.is_finite() {
+                        if (v1 - 1.0).abs() < EPSILON {
+                            return Self::vreg_from_map(node_map, f0);
+                        }
+                        let c_idx = self.add_const(v1);
+                        let v0_reg = Self::vreg_from_map(node_map, f0)?;
+                        let dest = self.alloc_vreg();
+                        self.emit(VInstruction::Mul2 {
+                            dest,
+                            a: v0_reg,
+                            b: VReg::Const(c_idx),
+                        });
+                        return Ok(dest);
+                    }
+                }
+                (None, None) => {
+                    let v0_reg = Self::vreg_from_map(node_map, f0)?;
+                    let v1_reg = Self::vreg_from_map(node_map, f1)?;
+                    let dest = self.alloc_vreg();
+                    self.emit(VInstruction::Mul2 {
+                        dest,
+                        a: v0_reg,
+                        b: v1_reg,
+                    });
+                    return Ok(dest);
+                }
+            }
+        }
+
         let mut constant_acc = 1.0_f64;
         let mut variable_vregs = Vec::with_capacity(factors.len());
         for f in factors {
-            if let Some(c) = Self::const_from_map(consts, f.as_ref()) {
+            if let Some(c) = Self::const_from_map(node_map, f.as_ref()) {
                 constant_acc *= c;
             } else {
-                variable_vregs.push(Self::vreg_from_map(vregs, f.as_ref())?);
+                variable_vregs.push(Self::vreg_from_map(node_map, f.as_ref())?);
             }
         }
 
@@ -1288,9 +1599,14 @@ impl Compiler {
                 vregs_all.push(VReg::Const(c_idx));
             }
         } else {
+            // If the constant accumulator is non-finite (NaN or Inf),
+            // we must include the constant factors individually to preserve
+            // the exact non-finite behavior (e.g., which specific Inf it was).
+            // vregs_all already has capacity factors.len()
             for f in factors {
-                if Self::const_from_map(consts, f.as_ref()).is_some() {
-                    vregs_all.push(Self::vreg_from_map(vregs, f.as_ref())?);
+                if let Some(c) = Self::const_from_map(node_map, f.as_ref()) {
+                    let c_idx = self.add_const(c);
+                    vregs_all.push(VReg::Const(c_idx));
                 }
             }
         }
@@ -1301,6 +1617,15 @@ impl Compiler {
         }
         if vregs_all.len() == 1 {
             return Ok(vregs_all[0]);
+        }
+        if vregs_all.len() == 2 {
+            let dest = self.alloc_vreg();
+            self.emit(VInstruction::Mul2 {
+                dest,
+                a: vregs_all[0],
+                b: vregs_all[1],
+            });
+            return Ok(dest);
         }
 
         let dest = self.alloc_vreg();
@@ -1315,19 +1640,18 @@ impl Compiler {
         &mut self,
         num: &Expr,
         den: &Expr,
-        vregs: &FxHashMap<*const Expr, VReg>,
-        consts: &FxHashMap<*const Expr, Option<f64>>,
+        node_map: &FxHashMap<*const Expr, NodeData>,
     ) -> Result<VReg, DiffError> {
         if num == den {
             let idx = self.add_const(1.0);
             return Ok(VReg::Const(idx));
         }
 
-        if let Some(n) = Self::const_from_map(consts, num)
+        if let Some(n) = Self::const_from_map(node_map, num)
             && (n - 1.0).abs() < EPSILON
-            && let Some(arg) = Self::recip_expm1_arg(den, consts)
+            && let Some(arg) = Self::recip_expm1_arg(den, node_map)
         {
-            let src = Self::vreg_from_map(vregs, arg)?;
+            let src = Self::vreg_from_map(node_map, arg)?;
             let dest = self.alloc_vreg();
             self.emit(VInstruction::RecipExpm1 { dest, src });
             return Ok(dest);
@@ -1338,7 +1662,7 @@ impl Compiler {
             && name.id() == KS.sin
             && args[0].as_ref() == den
         {
-            let den_v = Self::vreg_from_map(vregs, args[0].as_ref())?;
+            let den_v = Self::vreg_from_map(node_map, args[0].as_ref())?;
             let dest = self.alloc_vreg();
             self.emit(VInstruction::BuiltinFun {
                 dest,
@@ -1348,8 +1672,8 @@ impl Compiler {
             return Ok(dest);
         }
 
-        let num_v = Self::vreg_from_map(vregs, num)?;
-        let den_v = Self::vreg_from_map(vregs, den)?;
+        let num_v = Self::vreg_from_map(node_map, num)?;
+        let den_v = Self::vreg_from_map(node_map, den)?;
         let dest = self.alloc_vreg();
         self.emit(VInstruction::Div {
             dest,
@@ -1367,10 +1691,9 @@ impl Compiler {
         &mut self,
         base: &Expr,
         exp: &Expr,
-        vregs: &FxHashMap<*const Expr, VReg>,
-        consts: &FxHashMap<*const Expr, Option<f64>>,
+        node_map: &FxHashMap<*const Expr, NodeData>,
     ) -> Result<VReg, DiffError> {
-        if let Some(n_val) = Self::const_from_map(consts, exp) {
+        if let Some(n_val) = Self::const_from_map(node_map, exp) {
             let is_integer = (n_val - n_val.round()).abs() < EPSILON;
             if is_integer {
                 #[allow(
@@ -1383,7 +1706,7 @@ impl Compiler {
                     return Ok(VReg::Const(idx));
                 }
 
-                let base_v = Self::vreg_from_map(vregs, base)?;
+                let base_v = Self::vreg_from_map(node_map, base)?;
                 let out = match n_int {
                     1 => base_v,
                     2 => {
@@ -1426,7 +1749,7 @@ impl Compiler {
                             });
                             dest
                         } else {
-                            let exp_v = Self::vreg_from_map(vregs, exp)?;
+                            let exp_v = Self::vreg_from_map(node_map, exp)?;
                             let dest = self.alloc_vreg();
                             self.emit(VInstruction::Pow {
                                 dest,
@@ -1439,20 +1762,8 @@ impl Compiler {
                 };
                 return Ok(out);
             }
-            if (n_val - 1.5).abs() < EPSILON {
-                let base_v = Self::vreg_from_map(vregs, base)?;
-                let dest = self.alloc_vreg();
-                self.emit(VInstruction::Pow3_2 { dest, src: base_v });
-                return Ok(dest);
-            }
-            if (n_val + 1.5).abs() < EPSILON {
-                let base_v = Self::vreg_from_map(vregs, base)?;
-                let dest = self.alloc_vreg();
-                self.emit(VInstruction::InvPow3_2 { dest, src: base_v });
-                return Ok(dest);
-            }
             if (n_val - 0.5).abs() < EPSILON {
-                let base_v = Self::vreg_from_map(vregs, base)?;
+                let base_v = Self::vreg_from_map(node_map, base)?;
                 let dest = self.alloc_vreg();
                 self.emit(VInstruction::BuiltinFun {
                     dest,
@@ -1462,15 +1773,27 @@ impl Compiler {
                 return Ok(dest);
             }
             if (n_val + 0.5).abs() < EPSILON {
-                let base_v = Self::vreg_from_map(vregs, base)?;
+                let base_v = Self::vreg_from_map(node_map, base)?;
                 let dest = self.alloc_vreg();
                 self.emit(VInstruction::InvSqrt { dest, src: base_v });
                 return Ok(dest);
             }
+            if (n_val - 1.5).abs() < EPSILON {
+                let base_v = Self::vreg_from_map(node_map, base)?;
+                let dest = self.alloc_vreg();
+                self.emit(VInstruction::Pow3_2 { dest, src: base_v });
+                return Ok(dest);
+            }
+            if (n_val + 1.5).abs() < EPSILON {
+                let base_v = Self::vreg_from_map(node_map, base)?;
+                let dest = self.alloc_vreg();
+                self.emit(VInstruction::InvPow3_2 { dest, src: base_v });
+                return Ok(dest);
+            }
         }
 
-        let base_v = Self::vreg_from_map(vregs, base)?;
-        let exp_v = Self::vreg_from_map(vregs, exp)?;
+        let base_v = Self::vreg_from_map(node_map, base)?;
+        let exp_v = Self::vreg_from_map(node_map, exp)?;
         let dest = self.alloc_vreg();
         self.emit(VInstruction::Pow {
             dest,
@@ -1484,8 +1807,7 @@ impl Compiler {
         &mut self,
         name: &InternedSymbol,
         args: &[Arc<Expr>],
-        vregs: &FxHashMap<*const Expr, VReg>,
-        consts: &FxHashMap<*const Expr, Option<f64>>,
+        node_map: &FxHashMap<*const Expr, NodeData>,
     ) -> Result<VReg, DiffError> {
         let id = name.id();
         let ks = &*KS;
@@ -1493,7 +1815,7 @@ impl Compiler {
 
         if id == ks.exp
             && args.len() == 1
-            && let Some((src, neg)) = Self::exp_sqr_arg(args[0].as_ref(), consts, vregs)
+            && let Some((src, neg)) = Self::exp_sqr_arg(args[0].as_ref(), node_map)
         {
             if neg {
                 self.emit(VInstruction::ExpSqrNeg { dest, src });
@@ -1505,33 +1827,49 @@ impl Compiler {
 
         if id == ks.exp
             && args.len() == 1
-            && let Some(pos_vreg) = self.compile_exp_neg_arg(&args[0], vregs, consts)
+            && let Some(pos_vreg) = self.compile_exp_neg_arg(&args[0], node_map)
         {
-            self.emit(VInstruction::BuiltinFun {
+            self.emit(VInstruction::Builtin1 {
                 dest,
                 op: FnOp::ExpNeg,
-                args: vec![pos_vreg],
-            });
-            return Ok(dest);
-        }
-
-        let arg_vregs = Self::map_args_vregs(args, vregs)?;
-
-        if id == ks.log && args.len() == 1 {
-            self.emit(VInstruction::BuiltinFun {
-                dest,
-                op: FnOp::Ln,
-                args: arg_vregs,
+                arg: pos_vreg,
             });
             return Ok(dest);
         }
 
         if let Some(&op) = FN_MAP.get(&id) {
-            self.emit(VInstruction::BuiltinFun {
-                dest,
-                op,
-                args: arg_vregs,
-            });
+            match args.len() {
+                1 => {
+                    let arg = Self::vreg_from_map(node_map, args[0].as_ref())?;
+                    if id == ks.log {
+                        self.emit(VInstruction::Builtin1 {
+                            dest,
+                            op: FnOp::Ln,
+                            arg,
+                        });
+                    } else {
+                        self.emit(VInstruction::Builtin1 { dest, op, arg });
+                    }
+                }
+                2 => {
+                    let vreg1 = Self::vreg_from_map(node_map, args[0].as_ref())?;
+                    let vreg2 = Self::vreg_from_map(node_map, args[1].as_ref())?;
+                    self.emit(VInstruction::Builtin2 {
+                        dest,
+                        op,
+                        arg1: vreg1,
+                        arg2: vreg2,
+                    });
+                }
+                _ => {
+                    let arg_vregs = Self::map_args_vregs(args, node_map)?;
+                    self.emit(VInstruction::BuiltinFun {
+                        dest,
+                        op,
+                        args: arg_vregs,
+                    });
+                }
+            }
             return Ok(dest);
         }
 
@@ -1545,10 +1883,12 @@ impl Compiler {
             };
             if let Some(bv) = base_val {
                 let base_idx = self.add_const(bv);
-                self.emit(VInstruction::BuiltinFun {
+                let arg = Self::vreg_from_map(node_map, args[0].as_ref())?;
+                self.emit(VInstruction::Builtin2 {
                     dest,
                     op: FnOp::Log,
-                    args: vec![VReg::Const(base_idx), arg_vregs[0]],
+                    arg1: VReg::Const(base_idx),
+                    arg2: arg,
                 });
                 return Ok(dest);
             }
@@ -1560,24 +1900,16 @@ impl Compiler {
     fn compile_poly_node(
         &mut self,
         poly: &Polynomial,
-        vregs: &FxHashMap<*const Expr, VReg>,
+        node_map: &FxHashMap<*const Expr, NodeData>,
     ) -> Result<VReg, DiffError> {
-        let base_v = Self::vreg_from_map(vregs, poly.base().as_ref())?;
+        let base_v = Self::vreg_from_map(node_map, poly.base().as_ref())?;
         Ok(self.compile_polynomial_with_base(poly, base_v))
     }
 
     fn lookup_cse(&self, expr: &Expr) -> Option<VReg> {
-        let ptr = expr as *const Expr;
-        self.cse_cache.get(&expr.hash).and_then(|entries| {
-            entries
-                .iter()
-                .find(|(cached_ptr, _)| {
-                    // SAFETY: cached_ptr originates from the current expression tree, which
-                    // outlives compilation, so dereferencing is valid for structural equality.
-                    *cached_ptr == ptr || unsafe { &**cached_ptr } == expr
-                })
-                .map(|(_, v)| *v)
-        })
+        self.cse_cache
+            .get(&CseKey(std::ptr::from_ref::<Expr>(expr)))
+            .copied()
     }
 
     fn push_children(expr: &Expr, stack: &mut Vec<(*const Expr, bool)>) {
@@ -1613,26 +1945,23 @@ impl Compiler {
     fn compile_nonconst_node(
         &mut self,
         expr: &Expr,
-        vregs: &FxHashMap<*const Expr, VReg>,
-        consts: &FxHashMap<*const Expr, Option<f64>>,
+        node_map: &FxHashMap<*const Expr, NodeData>,
     ) -> Result<VReg, DiffError> {
         match &expr.kind {
             ExprKind::Number(_) => Err(DiffError::UnsupportedExpression(
                 "Numerical values are unreachable here".to_owned(),
             )),
             ExprKind::Symbol(s) => self.compile_symbol_node(s),
-            ExprKind::Sum(terms) => self.compile_sum_node(terms, vregs, consts),
-            ExprKind::Product(factors) => self.compile_product_node(factors, vregs, consts),
-            ExprKind::Div(num, den) => {
-                self.compile_div_node(num.as_ref(), den.as_ref(), vregs, consts)
-            }
+            ExprKind::Sum(terms) => self.compile_sum_node(terms, node_map),
+            ExprKind::Product(factors) => self.compile_product_node(factors, node_map),
+            ExprKind::Div(num, den) => self.compile_div_node(num.as_ref(), den.as_ref(), node_map),
             ExprKind::Pow(base, exp) => {
-                self.compile_pow_node(base.as_ref(), exp.as_ref(), vregs, consts)
+                self.compile_pow_node(base.as_ref(), exp.as_ref(), node_map)
             }
             ExprKind::FunctionCall { name, args } => {
-                self.compile_function_node(name, args, vregs, consts)
+                self.compile_function_node(name, args, node_map)
             }
-            ExprKind::Poly(poly) => self.compile_poly_node(poly, vregs),
+            ExprKind::Poly(poly) => self.compile_poly_node(poly, node_map),
             ExprKind::Derivative { .. } => Err(DiffError::UnsupportedExpression(
                 "Derivatives cannot be numerically evaluated - simplify first".to_owned(),
             )),
@@ -1645,13 +1974,8 @@ impl Compiler {
         node_count: usize,
     ) -> Result<VReg, DiffError> {
         let mut stack: Vec<(*const Expr, bool)> = Vec::with_capacity(node_count);
-        let mut vregs: FxHashMap<*const Expr, VReg> = FxHashMap::default();
-        let mut consts: FxHashMap<*const Expr, Option<f64>> = FxHashMap::default();
-        let mut expensive: FxHashMap<*const Expr, bool> = FxHashMap::default();
-
-        vregs.reserve(node_count);
-        consts.reserve(node_count);
-        expensive.reserve(node_count);
+        let mut node_map: FxHashMap<*const Expr, NodeData> = FxHashMap::default();
+        node_map.reserve(node_count);
 
         let root_ptr = root as *const Expr;
         stack.push((root_ptr, false));
@@ -1661,17 +1985,22 @@ impl Compiler {
             let expr = unsafe { &*ptr };
 
             if visited {
-                if vregs.contains_key(&ptr) {
+                if node_map.get(&ptr).and_then(|data| data.vreg).is_some() {
                     continue;
                 }
 
-                let const_val = Self::compute_const_from_children(expr, &consts);
-                consts.insert(ptr, const_val);
+                let const_val = Self::compute_const_from_children(expr, &node_map);
+                let is_expensive = Self::compute_expensive_from_children(expr, &node_map);
 
-                let cache_this = Self::compute_expensive_from_children(expr, &consts, &expensive);
-                expensive.insert(ptr, cache_this);
-                if cache_this && let Some(cached) = self.lookup_cse(expr) {
-                    vregs.insert(ptr, cached);
+                if is_expensive && let Some(cached) = self.lookup_cse(expr) {
+                    node_map.insert(
+                        ptr,
+                        NodeData {
+                            vreg: Some(cached),
+                            const_val,
+                            is_expensive,
+                        },
+                    );
                     continue;
                 }
 
@@ -1679,26 +2008,44 @@ impl Compiler {
                     && val.is_finite()
                 {
                     let idx = self.add_const(val);
-                    vregs.insert(ptr, VReg::Const(idx));
+                    let vreg = VReg::Const(idx);
+                    node_map.insert(
+                        ptr,
+                        NodeData {
+                            vreg: Some(vreg),
+                            const_val,
+                            is_expensive,
+                        },
+                    );
                     continue;
                 }
 
-                let result_vreg = self.compile_nonconst_node(expr, &vregs, &consts)?;
-                vregs.insert(ptr, result_vreg);
-                if cache_this {
-                    self.cse_cache
-                        .entry(expr.hash)
-                        .or_default()
-                        .push((ptr, result_vreg));
+                let result_vreg = self.compile_nonconst_node(expr, &node_map)?;
+                node_map.insert(
+                    ptr,
+                    NodeData {
+                        vreg: Some(result_vreg),
+                        const_val,
+                        is_expensive,
+                    },
+                );
+
+                if is_expensive {
+                    self.cse_cache.insert(CseKey(ptr), result_vreg);
                 }
-            } else if !vregs.contains_key(&ptr) {
+            } else if !node_map.contains_key(&ptr) {
                 stack.push((ptr, true));
                 Self::push_children(expr, &mut stack);
             }
         }
 
-        vregs.get(&root_ptr).copied().ok_or_else(|| {
-            DiffError::UnsupportedExpression("Internal compile error: missing root vreg".to_owned())
-        })
+        node_map
+            .get(&root_ptr)
+            .and_then(|data| data.vreg)
+            .ok_or_else(|| {
+                DiffError::UnsupportedExpression(
+                    "Internal compile error: missing root vreg".to_owned(),
+                )
+            })
     }
 }

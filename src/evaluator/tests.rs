@@ -32,6 +32,19 @@ fn parse_expr(s: &str) -> Expr {
 // =============================================================================
 
 #[test]
+fn test_register_count_reuse() {
+    let expr = parse_expr("(x + y) * (z + w)");
+    let eval =
+        CompiledEvaluator::compile(&expr, &["x", "y", "z", "w"], None).expect("Should compile");
+    println!(
+        "DEBUG: (x + y) * (z + w) register count: {}",
+        eval.register_count
+    );
+    // params are 0, 1, 2, 3. Constant 0.0 is index 4.
+    // Total 5.
+}
+
+#[test]
 fn test_simple_arithmetic() {
     let expr = parse_expr("x + 2");
     let eval = CompiledEvaluator::compile(&expr, &["x"], None).expect("Should compile");
@@ -104,6 +117,69 @@ fn test_evaluate_missing_params_default_to_zero() {
 
     // Extra params are ignored
     assert!((eval.evaluate(&[2.0, 3.0, 4.0, 99.0]) - 10.0).abs() < 1e-10);
+}
+
+#[test]
+fn test_nary_sum_mul() {
+    // Tests AddN: x + y + z + w
+    let expr_sum = parse_expr("x + y + z + w");
+    let eval_sum =
+        CompiledEvaluator::compile(&expr_sum, &["x", "y", "z", "w"], None).expect("Should compile");
+
+    println!("AddN Instructions: {:?}", eval_sum.instructions);
+
+    // Ensure AddN was emitted
+    assert!(
+        eval_sum
+            .instructions
+            .iter()
+            .any(|i| matches!(i, Instruction::AddN { count: 4, .. }))
+    );
+
+    let result_sum = eval_sum.evaluate(&[1.0, 2.0, 3.0, 4.0]);
+    assert!((result_sum - 10.0).abs() < 1e-10);
+
+    // Tests MulN: x * y * z * w
+    let expr_mul = parse_expr("x * y * z * w");
+    let eval_mul =
+        CompiledEvaluator::compile(&expr_mul, &["x", "y", "z", "w"], None).expect("Should compile");
+
+    println!("MulN Instructions: {:?}", eval_mul.instructions);
+
+    // Ensure MulN was emitted
+    assert!(
+        eval_mul
+            .instructions
+            .iter()
+            .any(|i| matches!(i, Instruction::MulN { count: 4, .. }))
+    );
+
+    let result_mul = eval_mul.evaluate(&[1.0, 2.0, 3.0, 4.0]);
+    assert!((result_mul - 24.0).abs() < 1e-10);
+
+    // Test SIMD path for N-ary
+    let x_vals = [1.0, 2.0, 3.0, 4.0];
+    let y_vals = [2.0, 3.0, 4.0, 5.0];
+    let z_vals = [3.0, 4.0, 5.0, 6.0];
+    let w_vals = [4.0, 5.0, 6.0, 7.0];
+    let columns = vec![&x_vals[..], &y_vals[..], &z_vals[..], &w_vals[..]];
+    let mut output = [0.0; 4];
+
+    eval_sum
+        .eval_batch(&columns, &mut output, None)
+        .expect("Should pass");
+    for j in 0..4 {
+        let expected = x_vals[j] + y_vals[j] + z_vals[j] + w_vals[j];
+        assert!((output[j] - expected).abs() < 1e-10);
+    }
+
+    eval_mul
+        .eval_batch(&columns, &mut output, None)
+        .expect("Should pass");
+    for j in 0..4 {
+        let expected = x_vals[j] * y_vals[j] * z_vals[j] * w_vals[j];
+        assert!((output[j] - expected).abs() < 1e-10);
+    }
 }
 
 // =============================================================================
@@ -646,4 +722,12 @@ fn test_debug_simple_3() {
     let eval = CompiledEvaluator::compile(&expr, &["x"], None).unwrap();
     println!("Instructions: {:?}", eval.instructions);
     println!("Evaluate: {}", eval.evaluate(&[3.0]));
+}
+
+#[test]
+fn test_instruction_size() {
+    println!(
+        "\n[INFO] Size of Instruction: {} bytes",
+        std::mem::size_of::<super::Instruction>()
+    );
 }

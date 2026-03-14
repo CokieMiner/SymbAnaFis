@@ -1063,31 +1063,26 @@ results = eval_f64(
 
 ## Compilation & Performance
 
-For tight loops or massive repeated evaluation, use the `CompiledEvaluator`. It compiles the expression tree into a flat bytecode that is interpreted efficiently, avoiding tree traversal overhead and enabling SIMD optimizations.
+For tight loops or massive repeated evaluation, use the `CompiledEvaluator`. It compiles the expression tree into a flat bytecode that is executed by a high-performance **register-based virtual machine**, avoiding tree traversal overhead and enabling SIMD optimizations.
 
-### Common Subexpression Elimination (CSE)
+### Optimization Pipeline
 
-The compiler automatically detects and caches repeated subexpressions using 64-bit structural hashing. This provides up to **28% faster evaluation** for expressions with repeated patterns.
+| Phase | Description |
+| :--- | :--- |
+| **Common Subexpression Elimination (CSE)** | Automatically detects and caches repeated subexpressions using 64-bit structural hashing. Repeated terms are computed once and stored in a temporary register for reuse. |
+| **Register Allocation** | Analyzes the liveness of intermediate results to minimize the number of required registers, improving cache locality and reducing memory footprint. |
+| **Peephole Fusion** | Scans bytecode for patterns (like `Mul` followed by `Add`) and fuses them into high-performance instructions (like `MulAdd` or `InvSquare`). |
+| **Unsafe Hot Path** | The execution engine uses `get_unchecked` for register access, achieving near-native speed by eliminating redundant bounds checks. |
 
-```rust
-// Expression: sin(x)² + sin(x) - repeated subexpression sin(x)
-let expr = x.sin().pow(2.0) + x.sin();
-let compiled = expr.compile()?;
+### Peephole Optimization Patterns
 
-// CSE automatically:
-// 1. Detects sin(x) appears twice (same structural hash)
-// 2. Generates: StoreCached(0) after first sin(x)
-// 3. Uses: LoadCached(0) for second occurrence
-// Result: sin(x) computed once, reused from cache
-```
+The compiler automatically fuses many instruction sequences into optimized forms:
 
-| CSE Bytecode Instructions | Description                           |
-| ------------------------- | ------------------------------------- |
-| `StoreCached(slot)`       | Pop value from stack, store in cache  |
-| `LoadCached(slot)`        | Push cached value onto stack          |
-
-> [!NOTE]
-> CSE is automatic and requires no configuration. The cache is pre-allocated based on detected subexpressions during compilation.
+*   **FMA**: `x * y + z` → `MulAdd(x, y, z)`
+*   **Power**: `x * x` → `Square(x)`, `x^2 * x` → `Cube(x)`
+*   **Inverse**: `1 / sqrt(x)` → `InvSqrt(x)`, `1 / x^2` → `InvSquare(x)`
+*   **Inverse Power**: `1 / x^4` → `Square(x) + InvSquare(t)`
+*   **Exp-Neg**: `exp(-x)` → `ExpNeg(x)`
 
 ### `CompiledEvaluator`
 
@@ -1104,7 +1099,7 @@ let compiled = expr.compile()?;
 let compiled = expr.compile_with_params(&["x"])?;
 let compiled = expr.compile_with_params(&[&x])?;  // Also works with symbols!
 
-// Evaluate repeatedly (much faster than expr.evaluate)
+// Evaluate repeatedly (up to 40x faster than expr.evaluate)
 let result = compiled.evaluate(&[0.5]); // Result at x=0.5
 ```
 
