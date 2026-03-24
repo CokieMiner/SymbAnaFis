@@ -28,13 +28,13 @@ fn approx_eq(a: f64, b: f64, rel: f64, abs: f64) -> bool {
     diff <= abs || diff <= rel * a.abs().max(b.abs()).max(1.0)
 }
 
-fn finite_diff_opt<F>(f: F, x: f64, h: f64) -> Option<f64>
+fn finite_diff<F>(f: F, x: f64, h: f64) -> f64
 where
-    F: Fn(f64) -> Option<f64>,
+    F: Fn(f64) -> f64,
 {
-    let f_plus = f(x + h)?;
-    let f_minus = f(x - h)?;
-    Some((f_plus - f_minus) / (2.0 * h))
+    let f_plus = f(x + h);
+    let f_minus = f(x - h);
+    (f_plus - f_minus) / (2.0 * h)
 }
 
 #[test]
@@ -47,26 +47,22 @@ fn fuzz_bessel_j_parity_and_recurrence() {
             x = if x.is_sign_negative() { -0.25 } else { 0.25 };
         }
 
-        let jn = bessel_j(n, x);
-        let jneg = bessel_j(-n, x);
-        if let (Some(jn_val), Some(jneg_val)) = (jn, jneg) {
-            let sign = if n % 2 == 0 { 1.0 } else { -1.0 };
-            assert!(
-                approx_eq(jneg_val, sign * jn_val, 5e-7, 1e-10),
-                "J parity failed: n={n}, x={x}, Jn={jn_val}, Jneg={jneg_val}"
-            );
-        }
+        let jn_val = bessel_j(n, x);
+        let jneg_val = bessel_j(-n, x);
+        let sign = if n % 2 == 0 { 1.0 } else { -1.0 };
+        assert!(
+            approx_eq(jneg_val, sign * jn_val, 5e-7, 1e-10),
+            "J parity failed: n={n}, x={x}, Jn={jn_val}, Jneg={jneg_val}"
+        );
 
         if n > 0 {
-            let jm1 = bessel_j(n - 1, x);
-            let jp1 = bessel_j(n + 1, x);
-            if let (Some(jm1_val), Some(jn_val), Some(jp1_val)) = (jm1, jn, jp1) {
-                let lhs = jp1_val - ((2.0 * f64::from(n) / x) * jn_val - jm1_val);
-                assert!(
-                    approx_eq(lhs, 0.0, 2e-6, 1e-8),
-                    "J recurrence failed: n={n}, x={x}, residual={lhs}"
-                );
-            }
+            let jm1_val = bessel_j(n - 1, x);
+            let jp1_val = bessel_j(n + 1, x);
+            let lhs = jp1_val - ((2.0 * f64::from(n) / x) * jn_val - jm1_val);
+            assert!(
+                approx_eq(lhs, 0.0, 2e-6, 1e-8),
+                "J recurrence failed: n={n}, x={x}, residual={lhs}"
+            );
         }
     }
 }
@@ -78,16 +74,14 @@ fn fuzz_bessel_y_i_k_recurrence_and_domain() {
         let n: i32 = rng.random_range(1..=6);
         let x: f64 = rng.random_range(0.35..20.0);
 
-        let ym1 = bessel_y(n - 1, x);
-        let yn = bessel_y(n, x);
-        let yp1 = bessel_y(n + 1, x);
-        if let (Some(ym1_val), Some(yn_val), Some(yp1_val)) = (ym1, yn, yp1) {
-            let lhs = yp1_val - ((2.0 * f64::from(n) / x) * yn_val - ym1_val);
-            assert!(
-                approx_eq(lhs, 0.0, 1e-6, 1e-8),
-                "Y recurrence failed: n={n}, x={x}, residual={lhs}"
-            );
-        }
+        let ym1_val = bessel_y(n - 1, x);
+        let yn_val = bessel_y(n, x);
+        let yp1_val = bessel_y(n + 1, x);
+        let lhs = yp1_val - ((2.0 * f64::from(n) / x) * yn_val - ym1_val);
+        assert!(
+            approx_eq(lhs, 0.0, 1e-6, 1e-8),
+            "Y recurrence failed: n={n}, x={x}, residual={lhs}"
+        );
 
         let i_n = bessel_i(n, x);
         let i_neg_n = bessel_i(-n, x);
@@ -100,24 +94,22 @@ fn fuzz_bessel_y_i_k_recurrence_and_domain() {
             "I parity failed: n={n}, x={x}, I_n={i_n}, I_-n={i_neg_n}"
         );
 
-        let km1 = bessel_k(n - 1, x);
-        let k_n = bessel_k(n, x);
-        let kp1 = bessel_k(n + 1, x);
-        if let (Some(km1_val), Some(kn_val), Some(kp1_val)) = (km1, k_n, kp1) {
-            let lhs = kp1_val - (km1_val + (2.0 * f64::from(n) / x) * kn_val);
-            assert!(
-                approx_eq(lhs, 0.0, 2e-5, 1e-8),
-                "K recurrence failed: n={n}, x={x}, residual={lhs}"
-            );
-        }
+        let km1_val = bessel_k(n - 1, x);
+        let kn_val = bessel_k(n, x);
+        let kp1_val = bessel_k(n + 1, x);
+        let lhs_k = kp1_val - (km1_val + (2.0 * f64::from(n) / x) * kn_val);
+        assert!(
+            approx_eq(lhs_k, 0.0, 2e-5, 1e-8),
+            "K recurrence failed: n={n}, x={x}, residual={lhs_k}"
+        );
 
         let x_bad: f64 = -rng.random_range(0.1..10.0);
         assert!(
-            bessel_y(n, x_bad).is_some_and(f64::is_nan),
+            bessel_y(n, x_bad).is_nan(),
             "Y should return NaN for x={x_bad}"
         );
         assert!(
-            bessel_k(n, x_bad).is_some_and(f64::is_nan),
+            bessel_k(n, x_bad).is_nan(),
             "K should return NaN for x={x_bad}"
         );
     }
@@ -130,41 +122,30 @@ fn fuzz_elliptic_symmetry_and_domain_edges() {
 
     for _ in 0..400 {
         let k: f64 = rng.random_range(-0.95..0.95);
-        let k_val = eval_elliptic_k(k);
-        let k_neg_val = eval_elliptic_k(-k);
-        let e_val = eval_elliptic_e(k);
-        let e_neg_val = eval_elliptic_e(-k);
+        let k1 = eval_elliptic_k(k);
+        let k2 = eval_elliptic_k(-k);
+        let e1 = eval_elliptic_e(k);
+        let e2 = eval_elliptic_e(-k);
 
-        if let (Some(k1), Some(k2), Some(e1), Some(e2)) = (k_val, k_neg_val, e_val, e_neg_val) {
-            assert!(
-                approx_eq(k1, k2, 1e-9, 1e-12),
-                "K evenness failed for k={k}"
-            );
-            assert!(
-                approx_eq(e1, e2, 1e-9, 1e-12),
-                "E evenness failed for k={k}"
-            );
-            assert!(k1 >= half_pi - 1e-9, "K bound failed for k={k}: K={k1}");
-            assert!(e1 <= half_pi + 1e-9, "E bound failed for k={k}: E={e1}");
-            assert!(e1 > 0.0, "E positivity failed for k={k}: E={e1}");
-        }
+        assert!(
+            approx_eq(k1, k2, 1e-9, 1e-12),
+            "K evenness failed for k={k}"
+        );
+        assert!(
+            approx_eq(e1, e2, 1e-9, 1e-12),
+            "E evenness failed for k={k}"
+        );
+        assert!(k1 >= half_pi - 1e-9, "K bound failed for k={k}: K={k1}");
+        assert!(e1 <= half_pi + 1e-9, "E bound failed for k={k}: E={e1}");
+        assert!(e1 > 0.0, "E positivity failed for k={k}: E={e1}");
     }
 
     let k_at_one = eval_elliptic_k(1.0);
-    assert!(
-        k_at_one.is_some_and(f64::is_infinite),
-        "Expected K(1) to be infinite"
-    );
+    assert!(k_at_one.is_infinite(), "Expected K(1) to be infinite");
     let k_outside = eval_elliptic_k(1.2);
-    assert!(
-        k_outside.is_some_and(f64::is_nan),
-        "Expected K(|k|>1) to be NaN"
-    );
+    assert!(k_outside.is_nan(), "Expected K(|k|>1) to be NaN");
     let e_outside = eval_elliptic_e(1.2);
-    assert!(
-        e_outside.is_some_and(f64::is_nan),
-        "Expected E(|k|>1) to be NaN"
-    );
+    assert!(e_outside.is_nan(), "Expected E(|k|>1) to be NaN");
 }
 
 #[test]
@@ -175,40 +156,36 @@ fn fuzz_polynomial_recurrence_and_domain_checks() {
         let n: i32 = rng.random_range(1..15);
         let x: f64 = rng.random_range(-3.0..3.0);
 
-        let hm1 = eval_hermite(n - 1, x);
-        let h_n = eval_hermite(n, x);
-        let hp1 = eval_hermite(n + 1, x);
+        let hm1_val = eval_hermite(n - 1, x);
+        let hn_val = eval_hermite(n, x);
+        let hp1_val = eval_hermite(n + 1, x);
 
-        if let (Some(hm1_val), Some(hn_val), Some(hp1_val)) = (hm1, h_n, hp1) {
-            let lhs = hp1_val - (2.0 * x * hn_val - 2.0 * f64::from(n) * hm1_val);
-            assert!(
-                approx_eq(lhs, 0.0, 1e-8, 1e-8),
-                "Hermite recurrence failed: n={n}, x={x}, residual={lhs}"
-            );
-        }
+        let lhs = hp1_val - (2.0 * x * hn_val - 2.0 * f64::from(n) * hm1_val);
+        assert!(
+            approx_eq(lhs, 0.0, 1e-8, 1e-8),
+            "Hermite recurrence failed: n={n}, x={x}, residual={lhs}"
+        );
 
         let l: i32 = rng.random_range(1..10);
         let x_leg: f64 = rng.random_range(-0.95..0.95);
-        let plm1 = eval_assoc_legendre(l - 1, 0, x_leg);
-        let pl = eval_assoc_legendre(l, 0, x_leg);
-        let plp1 = eval_assoc_legendre(l + 1, 0, x_leg);
+        let plm1_val = eval_assoc_legendre(l - 1, 0, x_leg);
+        let pl_val = eval_assoc_legendre(l, 0, x_leg);
+        let plp1_val = eval_assoc_legendre(l + 1, 0, x_leg);
 
-        if let (Some(plm1_val), Some(pl_val), Some(plp1_val)) = (plm1, pl, plp1) {
-            let lhs = f64::from(l + 1) * plp1_val;
-            let rhs = f64::from(2 * l + 1) * x_leg * pl_val - f64::from(l) * plm1_val;
-            assert!(
-                approx_eq(lhs, rhs, 2e-6, 2e-8),
-                "Legendre recurrence failed: l={l}, x={x_leg}, lhs={lhs}, rhs={rhs}"
-            );
-        }
+        let lhs_leg = f64::from(l + 1) * plp1_val;
+        let rhs_leg = f64::from(2 * l + 1) * x_leg * pl_val - f64::from(l) * plm1_val;
+        assert!(
+            approx_eq(lhs_leg, rhs_leg, 2e-6, 2e-8),
+            "Legendre recurrence failed: l={l}, x={x_leg}, lhs={lhs_leg}, rhs={rhs_leg}"
+        );
 
         let m_bad = l + 1;
         assert!(
-            eval_assoc_legendre(l, m_bad, x_leg).is_some_and(f64::is_nan),
+            eval_assoc_legendre(l, m_bad, x_leg).is_nan(),
             "Assoc Legendre should return NaN for |m|>l"
         );
         assert!(
-            eval_assoc_legendre(l, 0, 1.1).is_some_and(f64::is_nan),
+            eval_assoc_legendre(l, 0, 1.1).is_nan(),
             "Assoc Legendre should return NaN for |x|>1"
         );
     }
@@ -221,12 +198,12 @@ fn fuzz_polynomial_recurrence_and_domain_checks() {
 
         let ylm = eval_spherical_harmonic(l, m, theta, phi);
         assert!(
-            ylm.is_some_and(f64::is_finite),
+            ylm.is_finite(),
             "Spherical harmonic should be finite: l={l}, m={m}, theta={theta}, phi={phi}"
         );
 
         assert!(
-            eval_spherical_harmonic(l, l + 1, theta, phi).is_some_and(f64::is_nan),
+            eval_spherical_harmonic(l, l + 1, theta, phi).is_nan(),
             "Spherical harmonic should return NaN for |m|>l"
         );
     }
@@ -261,56 +238,46 @@ fn fuzz_dual_special_derivatives() {
         let n: i32 = rng.random_range(0..=6);
         let x_b: f64 = rng.random_range(0.3..12.0);
         let dual_bessel = Dual::new(x_b, 1.0).bessel_j(n);
-        let fd_bessel = finite_diff_opt(|t| bessel_j(n, t), x_b, 1e-6);
-        if let (Some(d), Some(fd)) = (dual_bessel, fd_bessel) {
-            assert!(
-                approx_eq(d.eps, fd, 2e-4, 1e-6),
-                "Dual Bessel derivative mismatch: n={n}, x={x_b}, dual={}, fd={fd}",
-                d.eps
-            );
-        }
+        let fd_bessel = finite_diff(|t| bessel_j(n, t), x_b, 1e-6);
+        assert!(
+            approx_eq(dual_bessel.eps, fd_bessel, 2e-4, 1e-6),
+            "Dual Bessel derivative mismatch: n={n}, x={x_b}, dual={}, fd={fd_bessel}",
+            dual_bessel.eps
+        );
 
         let k: f64 = rng.random_range(-0.85..0.85);
         let dual_k = Dual::new(k, 1.0).elliptic_k();
-        let fd_k = finite_diff_opt(eval_elliptic_k, k, 1e-6);
-        if let (Some(dk), Some(fd)) = (dual_k, fd_k) {
-            assert!(
-                approx_eq(dk.eps, fd, 2e-4, 1e-6),
-                "Dual elliptic_k derivative mismatch: k={k}, dual={}, fd={fd}",
-                dk.eps
-            );
-        }
+        let fd_k = finite_diff(eval_elliptic_k, k, 1e-6);
+        assert!(
+            approx_eq(dual_k.eps, fd_k, 2e-4, 1e-6),
+            "Dual elliptic_k derivative mismatch: k={k}, dual={}, fd={fd_k}",
+            dual_k.eps
+        );
 
         let dual_e = Dual::new(k, 1.0).elliptic_e();
-        let fd_e = finite_diff_opt(eval_elliptic_e, k, 1e-6);
-        if let (Some(de), Some(fd)) = (dual_e, fd_e) {
-            assert!(
-                approx_eq(de.eps, fd, 2e-4, 1e-6),
-                "Dual elliptic_e derivative mismatch: k={k}, dual={}, fd={fd}",
-                de.eps
-            );
-        }
+        let fd_e = finite_diff(eval_elliptic_e, k, 1e-6);
+        assert!(
+            approx_eq(dual_e.eps, fd_e, 2e-4, 1e-6),
+            "Dual elliptic_e derivative mismatch: k={k}, dual={}, fd={fd_e}",
+            dual_e.eps
+        );
 
         let x_w: f64 = rng.random_range(-0.35..8.0);
         let dual_w = Dual::new(x_w, 1.0).lambert_w();
-        let fd_w = finite_diff_opt(eval_lambert_w, x_w, 1e-6);
-        if let (Some(dw), Some(fd)) = (dual_w, fd_w) {
-            assert!(
-                approx_eq(dw.eps, fd, 3e-4, 1e-6),
-                "Dual lambert_w derivative mismatch: x={x_w}, dual={}, fd={fd}",
-                dw.eps
-            );
-        }
+        let fd_w = finite_diff(eval_lambert_w, x_w, 1e-6);
+        assert!(
+            approx_eq(dual_w.eps, fd_w, 3e-4, 1e-6),
+            "Dual lambert_w derivative mismatch: x={x_w}, dual={}, fd={fd_w}",
+            dual_w.eps
+        );
 
         let x_g: f64 = rng.random_range(0.5..8.0);
         let dual_g = Dual::new(x_g, 1.0).gamma();
-        let fd_g = finite_diff_opt(eval_gamma, x_g, 1e-6);
-        if let (Some(dg), Some(fd)) = (dual_g, fd_g) {
-            assert!(
-                approx_eq(dg.eps, fd, 5e-4, 1e-6),
-                "Dual gamma derivative mismatch: x={x_g}, dual={}, fd={fd}",
-                dg.eps
-            );
-        }
+        let fd_g = finite_diff(eval_gamma, x_g, 1e-6);
+        assert!(
+            approx_eq(dual_g.eps, fd_g, 5e-4, 1e-6),
+            "Dual gamma derivative mismatch: x={x_g}, dual={}, fd={fd_g}",
+            dual_g.eps
+        );
     }
 }

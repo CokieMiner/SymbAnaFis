@@ -82,7 +82,10 @@ impl PyCompiledEvaluator {
         };
 
         // Check if any input is a NumPy array to decide output format
-        let use_numpy = inputs.iter().any(|d| matches!(d, DataInput::Array(_)));
+        // "Same type as entrance": if the first argument is NumPy, we return NumPy
+        let use_numpy = inputs
+            .first()
+            .is_some_and(|d| matches!(d, DataInput::Array(_)));
 
         // Zero-copy access (or slice from vec)
         let col_refs: Vec<&[f64]> = inputs
@@ -106,22 +109,22 @@ impl PyCompiledEvaluator {
 
     /// Get parameter names in order
     fn param_names(&self) -> Vec<String> {
-        self.evaluator.param_names().to_vec()
+        self.evaluator.param_names.to_vec()
     }
 
     /// Get number of parameters
-    fn param_count(&self) -> usize {
-        self.evaluator.param_count()
+    const fn param_count(&self) -> usize {
+        self.evaluator.param_count
     }
 
     /// Get number of bytecode instructions
     fn instruction_count(&self) -> usize {
-        self.evaluator.instruction_count()
+        self.evaluator.instructions.len()
     }
 
-    /// Get required stack size
-    const fn stack_size(&self) -> usize {
-        self.evaluator.register_count
+    /// Get required workspace size
+    const fn workspace_size(&self) -> usize {
+        self.evaluator.workspace_size
     }
 }
 

@@ -163,7 +163,7 @@ SymbAnaFis supports over 50 built-in mathematical functions:
 | **Exp/Log**                | `exp`, `ln`, `log(b, x)`, `log10`, `log2`, `exp_polar`¹   |
 | **Roots**                  | `sqrt`, `cbrt`                                                                |
 | **Error Functions**        | `erf`, `erfc`                                                                 |
-| **Gamma Family**           | `gamma`, `digamma`, `trigamma`, `tetragamma`, `polygamma(n, x)`, `beta(a, b)` |
+| **Gamma Family**           | `gamma`, `lgamma`, `digamma`, `trigamma`, `tetragamma`, `polygamma(n, x)`, `beta(a, b)` |
 | **Zeta**                   | `zeta`, `zeta_deriv(n, s)`                                                    |
 | **Bessel**                 | `besselj(n, x)`, `bessely(n, x)`, `besseli(n, x)`, `besselk(n, x)`            |
 | **Elliptic Integrals**     | `elliptic_k`, `elliptic_e`                                                    |

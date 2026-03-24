@@ -18,7 +18,7 @@ fn test_builder_configuration() {
 
 #[test]
 fn test_custom_derivatives() {
-    use crate::core::unified_context::UserFunction;
+    use crate::core::context::UserFunction;
 
     // Custom rule: d/dx[my_func(u)] = 3*u^2 * u'
     // Define my_func(u) with ∂my_func/∂u = 3*u^2
@@ -131,7 +131,7 @@ fn test_api_reusability() {
 
 #[test]
 fn test_error_handling() {
-    use crate::core::unified_context::UserFunction;
+    use crate::core::context::UserFunction;
 
     // Pass closure directly
     let user_fn = UserFunction::new(1..=1)

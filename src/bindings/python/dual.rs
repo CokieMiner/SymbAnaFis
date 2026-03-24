@@ -366,67 +366,51 @@ impl PyDual {
         Self(self.0.erfc())
     }
     /// Gamma function
-    fn gamma(&self) -> PyResult<Self> {
-        self.0.gamma().map(PyDual).ok_or_else(|| {
-            PyErr::new::<pyo3::exceptions::PyValueError, _>("Gamma function undefined")
-        })
+    fn gamma(&self) -> Self {
+        Self(self.0.gamma())
+    }
+    /// Log-Gamma function
+    fn lgamma(&self) -> Self {
+        Self(self.0.lgamma())
     }
     /// Digamma function
-    fn digamma(&self) -> PyResult<Self> {
-        self.0.digamma().map(PyDual).ok_or_else(|| {
-            PyErr::new::<pyo3::exceptions::PyValueError, _>("Digamma function undefined")
-        })
+    fn digamma(&self) -> Self {
+        Self(self.0.digamma())
     }
     /// Trigamma function
-    fn trigamma(&self) -> PyResult<Self> {
-        self.0.trigamma().map(PyDual).ok_or_else(|| {
-            PyErr::new::<pyo3::exceptions::PyValueError, _>("Trigamma function undefined")
-        })
+    fn trigamma(&self) -> Self {
+        Self(self.0.trigamma())
     }
     /// Polygamma function
-    fn polygamma(&self, n: i32) -> PyResult<Self> {
-        self.0.polygamma(n).map(PyDual).ok_or_else(|| {
-            PyErr::new::<pyo3::exceptions::PyValueError, _>("Polygamma function undefined")
-        })
+    fn polygamma(&self, n: i32) -> Self {
+        Self(self.0.polygamma(n))
     }
     /// Riemann zeta function
-    fn zeta(&self) -> PyResult<Self> {
-        self.0.zeta().map(PyDual).ok_or_else(|| {
-            PyErr::new::<pyo3::exceptions::PyValueError, _>("Zeta function undefined")
-        })
+    fn zeta(&self) -> Self {
+        Self(self.0.zeta())
     }
     /// Lambert W function
-    fn lambert_w(&self) -> PyResult<Self> {
-        self.0.lambert_w().map(PyDual).ok_or_else(|| {
-            PyErr::new::<pyo3::exceptions::PyValueError, _>("Lambert W function undefined")
-        })
+    fn lambert_w(&self) -> Self {
+        Self(self.0.lambert_w())
     }
     /// Bessel function of the first kind
-    fn bessel_j(&self, n: i32) -> PyResult<Self> {
-        self.0.bessel_j(n).map(PyDual).ok_or_else(|| {
-            PyErr::new::<pyo3::exceptions::PyValueError, _>("Bessel J function undefined")
-        })
+    fn bessel_j(&self, n: i32) -> Self {
+        Self(self.0.bessel_j(n))
     }
     /// Sinc function
     fn sinc(&self) -> Self {
         Self(self.0.sinc())
     }
     /// Complete elliptic integral of the first kind
-    fn elliptic_k(&self) -> PyResult<Self> {
-        self.0.elliptic_k().map(PyDual).ok_or_else(|| {
-            PyErr::new::<pyo3::exceptions::PyValueError, _>("Elliptic K function undefined")
-        })
+    fn elliptic_k(&self) -> Self {
+        Self(self.0.elliptic_k())
     }
     /// Complete elliptic integral of the second kind
-    fn elliptic_e(&self) -> PyResult<Self> {
-        self.0.elliptic_e().map(PyDual).ok_or_else(|| {
-            PyErr::new::<pyo3::exceptions::PyValueError, _>("Elliptic E function undefined")
-        })
+    fn elliptic_e(&self) -> Self {
+        Self(self.0.elliptic_e())
     }
     /// Beta function
-    fn beta(&self, b: &Self) -> PyResult<Self> {
-        self.0.beta(b.0).map(PyDual).ok_or_else(|| {
-            PyErr::new::<pyo3::exceptions::PyValueError, _>("Beta function undefined")
-        })
+    fn beta(&self, b: &Self) -> Self {
+        Self(self.0.beta(b.0))
     }
 }

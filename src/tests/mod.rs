@@ -14,7 +14,6 @@ mod custom_functions;
 mod debug_applications;
 mod debug_div_hang;
 mod debug_division_structure;
-mod debug_factoring_logic;
 mod debug_gaussian_cycle;
 mod debug_issue;
 mod debug_rc;

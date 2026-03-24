@@ -874,7 +874,7 @@ mod function_accuracy_tests {
 
         // Test first derivative at s=2
         // ζ'(2) = -Σ ln(n)/n² ≈ -0.9375...
-        let zeta_prime_2 = eval_zeta_deriv(1, 2.0_f64).unwrap();
+        let zeta_prime_2 = eval_zeta_deriv(1, 2.0_f64);
         assert!(zeta_prime_2 < 0.0, "ζ'(2) should be negative");
         assert!(
             zeta_prime_2.abs() < 1.0 && zeta_prime_2.abs() > 0.9,
@@ -884,22 +884,22 @@ mod function_accuracy_tests {
 
         // Test second derivative at s=2
         // ζ''(2) = Σ [ln(n)]²/n² > 0
-        let zeta_double_prime_2 = eval_zeta_deriv(2, 2.0_f64).unwrap();
+        let zeta_double_prime_2 = eval_zeta_deriv(2, 2.0_f64);
         assert!(zeta_double_prime_2 > 0.0, "ζ''(2) should be positive");
 
         // Test derivatives at s=3
-        let zeta_prime_3 = eval_zeta_deriv(1, 3.0_f64).unwrap();
+        let zeta_prime_3 = eval_zeta_deriv(1, 3.0_f64);
         assert!(zeta_prime_3 < 0.0, "ζ'(3) should be negative");
 
         // Test that derivative gets smaller for larger s (convergence)
-        let zeta_prime_10 = eval_zeta_deriv(1, 10.0_f64).unwrap();
+        let zeta_prime_10 = eval_zeta_deriv(1, 10.0_f64);
         assert!(
             zeta_prime_10.abs() < zeta_prime_3.abs(),
             "|ζ'(10)| should be less than |ζ'(3)|"
         );
 
         // Test n=0 gives the function itself
-        let zeta_0_deriv = eval_zeta_deriv(0, 2.0_f64).unwrap();
+        let zeta_0_deriv = eval_zeta_deriv(0, 2.0_f64);
         let zeta_direct = eval("zeta(2)").unwrap();
         assert!(
             approx_eq(zeta_0_deriv, zeta_direct, LOOSE_EPSILON),
@@ -908,7 +908,7 @@ mod function_accuracy_tests {
 
         // Test that pole at s=1 returns infinity
         assert!(
-            eval_zeta_deriv(1, 1.0_f64).is_some_and(f64::is_infinite),
+            eval_zeta_deriv(1, 1.0_f64).is_infinite(),
             "Derivative should be infinite at pole s=1"
         );
     }
@@ -919,7 +919,7 @@ mod function_accuracy_tests {
 
         // Test s = -2.0 (Reflection formula active)
         // ζ'(-2) = -ζ(3)/(4π²) ≈ -0.0304482576
-        let z_prime_minus2 = eval_zeta_deriv(1, -2.0_f64).unwrap();
+        let z_prime_minus2 = eval_zeta_deriv(1, -2.0_f64);
         let expected = -1.202_056_903_159_594 / (4.0 * PI * PI);
         assert!(
             approx_eq(z_prime_minus2, expected, LOOSE_EPSILON),
@@ -930,11 +930,11 @@ mod function_accuracy_tests {
 
         // Test 3rd derivative (Triggers fixed 3-point stencil)
         // Just verify it returns a valid finite number
-        let z_prime3 = eval_zeta_deriv(3, -2.0_f64).unwrap();
+        let z_prime3 = eval_zeta_deriv(3, -2.0_f64);
         assert!(z_prime3.is_finite());
 
         // Test 5th derivative (Triggers simplified recursion)
-        let z_prime5 = eval_zeta_deriv(5, -2.0_f64).unwrap();
+        let z_prime5 = eval_zeta_deriv(5, -2.0_f64);
         assert!(z_prime5.is_finite());
     }
 
@@ -1149,7 +1149,7 @@ mod edge_case_tests {
 // ============================================================
 
 mod custom_fn_differentiation_tests {
-    use crate::core::unified_context::UserFunction;
+    use crate::core::context::UserFunction;
     use crate::{Diff, Expr, symb};
 
     /// Test basic UserFunction registration and differentiation

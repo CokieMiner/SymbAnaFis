@@ -1,63 +1,15 @@
-//! Core types for symbolic mathematics
+//! Core types for symbolic mathematics.
 //!
-//! This module contains the fundamental public types:
-//!
-//! ## Expression Types
-//! - [`Expr`] - The main expression type (AST node)
-//! - [`ExprKind`] - Enum of expression variants (Number, Symbol, Add, etc.)
-//! - [`Span`] - Source location information for error messages
-//!
-//! ## Symbol System
-//! - [`Symbol`] - Lightweight, copyable symbol reference
-//!
-//! ## Evaluation
-//! - `CompiledEvaluator` - Fast bytecode-based numeric evaluation (see `crate::evaluator`)
-//!
-//! ## Error Handling
-//! - [`DiffError`] - Error type for differentiation and parsing
-//! - [`SymbolError`] - Error type for symbol operations
-//!
-//! ## AST Traversal
-//! - [`visitor`] module - Visitor pattern for walking the AST
-//!
-//! ## Display Formatting
-//! Expressions support multiple output formats via methods:
-//! - `to_string()` - Standard mathematical notation
-//! - `to_latex()` - LaTeX formatted output
-//! - `to_unicode()` - Unicode mathematical symbols
+//! Public entry points are declared in [`api_user`].
+//! Implementation details live in the submodules.
 
-// ============================================================================
-// Internal Modules
-// ============================================================================
+mod api_crate;
+mod api_user;
+mod logic;
 
-pub mod display; // Display implementations for Expr
-pub mod error; // Error types (DiffError, Span)
-pub mod expr; // Expression AST (Expr, ExprKind)
-pub mod known_symbols; // Well-known symbol IDs (pi, e, etc.)
-pub mod poly; // Polynomial representation (internal)
-pub mod symbol; // Symbol interning system
-pub mod traits; // Common traits (MathScalar, epsilon helpers)
-pub mod unified_context; // Unified context for symbols and functions
+pub mod context;
+pub mod expr;
+pub mod symbol;
 
-// ============================================================================
-// Public Modules
-// ============================================================================
-
-pub mod visitor; // Public visitor pattern for AST traversal
-
-// ============================================================================
-// Public Re-exports
-// ============================================================================
-
-// --- Error Types ---
-pub use error::{DiffError, Span};
-pub use symbol::SymbolError;
-
-// --- Expression Types ---
-pub use expr::{Expr, ExprKind};
-
-// --- Symbol Management ---
-pub use symbol::{
-    ArcExprExt, Symbol, clear_symbols, remove_symbol, symb, symb_get, symb_new, symbol_count,
-    symbol_exists, symbol_names,
-};
+pub use api_crate::*;
+pub use api_user::*;

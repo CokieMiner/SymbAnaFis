@@ -3,7 +3,7 @@
 //! This module provides context management for isolated symbol and function registries.
 
 use crate::Expr as RustExpr;
-use crate::core::unified_context::Context as RustContext;
+use crate::core::context::Context as RustContext;
 use pyo3::prelude::*;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -98,7 +98,7 @@ impl PyContext {
         body_callback: Option<Py<PyAny>>,
         partials: Option<Vec<Py<PyAny>>>,
     ) -> PyResult<PyRefMut<'_, Self>> {
-        use crate::core::unified_context::{BodyFn, UserFunction};
+        use crate::core::context::{BodyFn, UserFunction};
         use std::sync::Arc;
 
         let mut user_fn = UserFunction::new(arity..=arity);

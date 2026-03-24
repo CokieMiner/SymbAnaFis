@@ -4,16 +4,40 @@ All notable changes to symb_anafis will be documented in this file.
 
 ## [unreleased]
 
+### Breaking Changes
+
+- **Builder API Renames**:
+  - `Diff::with_context()` has been renamed to `Diff::context()`.
+  - `Simplify::with_context()` has been renamed to `Simplify::context()`.
+- **Python Bindings**:
+  - Similar method renames in Python builders (e.g., `.with_context()` -> `.context()`).
+
 ### Added
 
+- **Architectural Refactor**: Complete reorganization of the codebase into a strict tiered structure to improve modularity and maintainability.
+  - New hierarchy: `core/`, `parser/`, `simplification/`, `diff/`, `evaluator/`, `uncertainty/`, `functions/`, `math/`, and `convenience/`.
+  - Each major component now follows a clear separation between `api` (public traits/wrappers) and `logic` (internal implementation).
+  - **`src/convenience`**: New module for high-level logic (calculus, evaluation helpers).
+  - **`src/core/context`** and **`src/core/expr`**: Modular core structures with separate logic and test files.
+- **Enhanced Evaluator Pipeline**:
+  - Division of compilation into discrete stages: `expand` → `reg_alloc` → `optimize`.
+  - New optimization passes: `dce` (Dead Code Elimination), `fusion` (Instruction Fusion), `strength_reduction`, and `power_chain` optimization.
+  - Introduction of **`vir` (Virtual Intermediate Representation)** for evaluator-specific optimizations before final bytecode emission.
+- **Advanced Math Support**:
+  - Expansion of `src/math` with dedicated logic for `bessel`, `beta`, `erf`, `gamma`, `lambert_w`, and `zeta` functions.
+  - Added support for `polar` and `polygamma` coordinates.
 - **`Expr::variables_ordered()`**: New method to collect all variable names in order of first appearance (pre-order traversal).
 - **Improved `erfc` accuracy**: Implemented `eval_erfc` using continued fractions for large arguments ($x \ge 1.5$) to maintain ~15 digits of relative precision and avoid catastrophic cancellation.
-- **Flamegraph Profiling**: Added dedicated benchmarking and profiling examples (`flamegraph_benchmarks.rs`, `flamegraph_compile_eval.rs`, `flamegraph_profile.rs`) to easily generate flamegraphs for isolated hot-paths.
+- **Flamegraph Profiling**: Added dedicated benchmarking and profiling examples (`flamegraph_benchmarks.rs`, `flamegraph_compile_eval.rs`, `flamegraph_profile.rs`).
 
 ### Changed
 
+- **Internal Directory Structure**: Massive movement of logic files into `logic/` subdirectories across all modules.
+- **Python Bindings**: Updated to the new tiered architecture, with logic moved to `src/bindings/python`.
+- **Benchmark & Example Organization**:
+  - Python examples moved to `examples/python/`.
+  - Heavy benchmarks moved to `examples/benchmarks/`.
 - **Register-based Evaluator**: Major architectural refactor of the bytecode evaluator from a stack-based to a register-based virtual machine.
-  - Replaced implicit stack operations with explicit register-indexed instructions (`dest`, `src`, `a`, `b`).
   - Merged the CSE cache into the general register file (removed `cache_size`).
   - Updated metadata: `stack_size` renamed to `register_count`.
 - **Compiler Register Allocation**: The bytecode compiler now performs a single-pass register allocation with precise live-range analysis to minimize register usage and improve cache locality.
@@ -32,6 +56,8 @@ All notable changes to symb_anafis will be documented in this file.
 - **cos(x) factor dropped during simplification**: Fixed a regression where `(-(x) + x*x) * -(cos(x))` lost the `cos(x)` factor after simplification. Added regression test `test_regression_cos_factor_not_dropped`.
 
 ### Code Quality
+
+- **Lint Configuration Hardening**: Upgraded several static analysis lints in `Cargo.toml` to `deny` (e.g., `suspicious_xor_used_as_pow`, `try_err`, `unseparated_literal_suffix`) to enforce strict safety and clean code standards.
 
 - **Deleted legacy `stack.rs`**: Removed legacy stack-based primitive operations following the transition to the register-based evaluator.
 - **Added `eval_math.rs`**: Centralized evaluator-specific mathematical helper functions (e.g., `acot`, `sinc`, `erfc`) to improve modularity.

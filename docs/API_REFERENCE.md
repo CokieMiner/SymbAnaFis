@@ -132,7 +132,7 @@ let expr = x1 + y;  // Uses symbols from ctx1
 
 // Use with builders to ensure correct symbol resolution
 let diff = Diff::new()
-    .with_context(&ctx1)
+    .context(&ctx1)
     .diff_str("x^2 + y", "x")?;
 ```
 
@@ -228,13 +228,13 @@ let result = Diff::new()
     .skip_simplification(true) // Return raw derivative (faster, for benchmarks)
     .max_depth(200)          // AST depth limit
     .max_nodes(50000)        // Node count limit
-    .with_context(&ctx)      // Use specific symbol context
+    .context(&ctx)      // Use specific symbol context
     .fixed_var(&symb("a"))   // Single constant
     .user_fn("f", UserFunction::new(1..=1))  // Register custom function
     .diff_str("a * f(x)", "x", &[])?;
 ```
 
-| `with_context(&Context)`      | Sets the symbol context for variable resolution.|
+| `context(&Context)`      | Sets the symbol context for variable resolution.|
 
 > [!TIP]
 > **Python API:** `fixed_var` and `fixed_vars` support duck typing. You can pass either strings or `Symbol` objects. `differentiate` also accepts both strings and `Symbol` objects for the variable argument.
@@ -251,7 +251,7 @@ let result = Simplify::new()
 // Without: "x"
 ```
 
-| `with_context(&Context)`      |Sets the symbol context (parsing hints).        |
+| `context(&Context)`      |Sets the symbol context (parsing hints).        |
 
 > [!TIP]
 > **Python API:** `Simplify` supports domain safety and maximum iterations.

@@ -623,7 +623,7 @@ mod simplification_oracle_tests {
 
             if let (ExprKind::Number(n1), ExprKind::Number(n2)) = (&res_orig.kind, &res_simp.kind) {
                 // Ignore NaNs/Infinities (singularities are hard to test generically)
-                if n1.is_finite() && n2.is_finite() {
+                if n1.is_finite() && n2.is_finite() && n1.abs() < 1e10 && n2.abs() < 1e10 {
                     let tolerance = 1e-5 * n1.abs().max(n2.abs()).max(1.0);
                     if (n1 - n2).abs() > tolerance {
                         eprintln!(

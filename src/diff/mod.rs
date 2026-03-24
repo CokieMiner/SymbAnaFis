@@ -10,4 +10,7 @@
 //! The main entry point is [`Expr::derive()`](crate::Expr::derive),
 //! typically called via the [`Diff`](crate::Diff) builder API.
 
-mod engine;
+mod api;
+mod logic;
+
+pub use api::{Diff, diff};

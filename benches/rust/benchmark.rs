@@ -199,7 +199,7 @@ fn bench_eval(c: &mut Criterion) {
         // Benchmark: evaluate compiled (raw)
         if let Ok(ref evaluator) = compiled_raw {
             let param_count = evaluator.param_count();
-            let param_names = evaluator.param_names();
+            let param_names = &evaluator.param_names();
             let var_idx = param_names.iter().position(|p| p == var).unwrap_or(0);
 
             group.bench_with_input(

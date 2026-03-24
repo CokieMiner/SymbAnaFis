@@ -9,7 +9,7 @@
 )]
 
 #[cfg(feature = "parallel")]
-use crate::bindings::eval_f64::eval_f64;
+use crate::evaluator::eval_f64;
 use crate::{CompiledEvaluator, Expr, Symbol, symb};
 use rand::prelude::*;
 use rand::rngs::StdRng;
@@ -111,6 +111,7 @@ impl ExprGenerator {
             "erfc",
             // Gamma/Zeta/Elliptic
             "gamma",
+            "lgamma",
             "digamma",
             "trigamma",
             "tetragamma",
@@ -249,7 +250,7 @@ fn fuzz_simd_instruction_surface_differential() {
     let seed: u64 = rand::random();
     let mut rng = StdRng::seed_from_u64(seed);
 
-    let corpus: [(&str, &[&str]); 35] = [
+    let corpus: [(&str, &[&str]); 36] = [
         ("asin(x/10)", &["x"]),
         ("acos(x/10)", &["x"]),
         ("atan(x)", &["x"]),
@@ -259,6 +260,7 @@ fn fuzz_simd_instruction_surface_differential() {
         ("erf(x)", &["x"]),
         ("erfc(x)", &["x"]),
         ("gamma(abs(x)+1.2)", &["x"]),
+        ("lgamma(abs(x)+1.2)", &["x"]),
         ("digamma(abs(x)+1.2)", &["x"]),
         ("trigamma(abs(x)+1.2)", &["x"]),
         ("tetragamma(abs(x)+1.2)", &["x"]),
@@ -289,7 +291,7 @@ fn fuzz_simd_instruction_surface_differential() {
 
     for (expr_str, vars) in &corpus {
         let expr = parse_expr_or_panic(expr_str);
-        let compiled = CompiledEvaluator::compile(&expr, vars, None)
+        let _compiled = CompiledEvaluator::compile(&expr, vars, None)
             .unwrap_or_else(|e| panic!("Compilation failed (seed {seed}) for {expr_str}: {e}"));
 
         let n_points = 16;
@@ -299,23 +301,26 @@ fn fuzz_simd_instruction_surface_differential() {
                 *v = rng.random_range(-4.0..4.0);
             }
         }
-        let columns: Vec<&[f64]> = columns_owned.iter().map(Vec::as_slice).collect();
+        let _columns: Vec<&[f64]> = columns_owned.iter().map(Vec::as_slice).collect();
 
-        let mut batch_out = vec![0.0; n_points];
-        compiled
-            .eval_batch(&columns, &mut batch_out, None)
-            .unwrap_or_else(|e| {
-                panic!("eval_batch failed (seed {seed}) for {expr_str}: {e}");
-            });
+        #[cfg(feature = "parallel")]
+        {
+            let mut batch_out = vec![0.0; n_points];
+            _compiled
+                .eval_batch(&_columns, &mut batch_out, None)
+                .unwrap_or_else(|e| {
+                    panic!("eval_batch failed (seed {seed}) for {expr_str}: {e}");
+                });
 
-        for row in 0..n_points {
-            let params: Vec<f64> = columns_owned.iter().map(|col| col[row]).collect();
-            let scalar = compiled.evaluate(&params);
-            assert!(
-                close_enough(scalar, batch_out[row]),
-                "SIMD surface mismatch (seed {seed}) for {expr_str} at row {row}: scalar={scalar}, simd={}",
-                batch_out[row]
-            );
+            for row in 0..n_points {
+                let params: Vec<f64> = columns_owned.iter().map(|col| col[row]).collect();
+                let scalar = _compiled.evaluate(&params);
+                assert!(
+                    close_enough(scalar, batch_out[row]),
+                    "SIMD surface mismatch (seed {seed}) for {expr_str} at row {row}: scalar={scalar}, simd={}",
+                    batch_out[row]
+                );
+            }
         }
     }
 }
@@ -384,57 +389,60 @@ fn fuzz_comprehensive_evaluator_impl() {
         );
 
         // 4. SIMD Serial (eval_batch) - Single Point
-        let mut single_batch_out = vec![0.0; 1];
-        let single_col_slices: Vec<&[f64]> = data_vec.iter().map(std::slice::from_ref).collect();
-        compiled
-            .eval_batch(&single_col_slices, &mut single_batch_out, None)
-            .expect("eval_batch failed");
-
-        assert!(
-            close_enough(ground_truth, single_batch_out[0]),
-            "SIMD Single mismatch (seed {})!\nExpr: {}\nVars: {:?}\nGround Truth: {}\nSIMD: {}",
-            seed,
-            expr,
-            data_map,
-            ground_truth,
-            single_batch_out[0]
-        );
-
-        // 5. SIMD Serial (eval_batch) - Large Batch
-        // Compile a "reference" truth for the batch using scalar eval loop
-        // (Expensive but correct)
-        let mut batch_ground_truth = Vec::with_capacity(batch_size);
-        for row in 0..batch_size {
-            let row_vars: Vec<f64> = batch_columns.iter().map(|col| col[row]).collect();
-            // We trust scalar compiled now
-            batch_ground_truth.push(compiled.evaluate(&row_vars));
-        }
-
-        let mut batch_out = vec![0.0; batch_size];
-        let batch_col_slices: Vec<&[f64]> = batch_columns.iter().map(|c| c.as_slice()).collect();
-        compiled
-            .eval_batch(&batch_col_slices, &mut batch_out, None)
-            .expect("eval_batch large failed");
-
-        for row in 0..batch_size {
-            if !close_enough(batch_ground_truth[row], batch_out[row]) {
-                let row_vars: Vec<(&str, f64)> = var_strs
-                    .iter()
-                    .enumerate()
-                    .map(|(i, &name)| (name, batch_columns[i][row]))
-                    .collect();
-                panic!(
-                    "SIMD Batch mismatch (seed {}) at row {}!\nExpr: {}\nVars: {:?}\nGround Truth: {}\nSIMD: {}",
-                    seed, row, expr, row_vars, batch_ground_truth[row], batch_out[row]
-                );
-            }
-        }
-
-        // 6. SIMD Parallel (eval_f64)
-        // Note: eval_f64 takes multiple expressions, we pass just one
-        // It expects &[&[f64]] mapping to vars
         #[cfg(feature = "parallel")]
         {
+            let mut single_batch_out = vec![0.0; 1];
+            let single_col_slices: Vec<&[f64]> =
+                data_vec.iter().map(std::slice::from_ref).collect();
+            compiled
+                .eval_batch(&single_col_slices, &mut single_batch_out, None)
+                .expect("eval_batch failed");
+
+            assert!(
+                close_enough(ground_truth, single_batch_out[0]),
+                "SIMD Single mismatch (seed {})!\nExpr: {}\nVars: {:?}\nGround Truth: {}\nSIMD: {}",
+                seed,
+                expr,
+                data_map,
+                ground_truth,
+                single_batch_out[0]
+            );
+        }
+
+        // 5. SIMD Serial (eval_batch) - Large Batch
+        #[cfg(feature = "parallel")]
+        {
+            // Compile a "reference" truth for the batch using scalar eval loop
+            // (Expensive but correct)
+            let mut batch_ground_truth = Vec::with_capacity(batch_size);
+            for row in 0..batch_size {
+                let row_vars: Vec<f64> = batch_columns.iter().map(|col| col[row]).collect();
+                // We trust scalar compiled now
+                batch_ground_truth.push(compiled.evaluate(&row_vars));
+            }
+
+            let mut batch_out = vec![0.0; batch_size];
+            let batch_col_slices: Vec<&[f64]> =
+                batch_columns.iter().map(|c| c.as_slice()).collect();
+            compiled
+                .eval_batch(&batch_col_slices, &mut batch_out, None)
+                .expect("eval_batch large failed");
+
+            for row in 0..batch_size {
+                if !close_enough(batch_ground_truth[row], batch_out[row]) {
+                    let row_vars: Vec<(&str, f64)> = var_strs
+                        .iter()
+                        .enumerate()
+                        .map(|(i, &name)| (name, batch_columns[i][row]))
+                        .collect();
+                    panic!(
+                        "SIMD Batch mismatch (seed {}) at row {}!\nExpr: {}\nVars: {:?}\nGround Truth: {}\nSIMD: {}",
+                        seed, row, expr, row_vars, batch_ground_truth[row], batch_out[row]
+                    );
+                }
+            }
+
+            // 6. SIMD Parallel (eval_f64)
             let parallel_data: Vec<&[f64]> = batch_columns.iter().map(|c| c.as_slice()).collect();
             let parallel_res = eval_f64(&[&expr], &[var_strs.as_slice()], &[&parallel_data])
                 .expect("eval_f64 failed");
@@ -458,6 +466,7 @@ fn fuzz_comprehensive_evaluator_impl() {
 }
 
 /// Test wide::f64x4 edge cases to identify NaN/domain divergence from scalar f64
+#[cfg(feature = "parallel")]
 #[test]
 fn test_wide_simd_nan_edge_cases() {
     use wide::f64x4;

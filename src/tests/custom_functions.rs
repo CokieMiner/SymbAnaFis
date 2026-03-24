@@ -1,9 +1,9 @@
 use crate::Expr;
-use crate::core::unified_context::Context;
+use crate::core::context::Context;
 
 #[test]
 fn test_context_registration() {
-    use crate::core::unified_context::UserFunction;
+    use crate::core::context::UserFunction;
 
     // times_two(x) = 2*x  (body is symbolic Expr)
     let user_fn = UserFunction::new(1..=1)
@@ -19,7 +19,7 @@ fn test_context_registration() {
 
 #[test]
 fn test_context_isolation() {
-    use crate::core::unified_context::UserFunction;
+    use crate::core::context::UserFunction;
 
     // f(x) = 2*x
     let user_fn = UserFunction::new(1..=1)
@@ -36,7 +36,7 @@ fn test_context_isolation() {
 
 #[test]
 fn test_compiled_evaluation_with_context() {
-    use crate::core::unified_context::UserFunction;
+    use crate::core::context::UserFunction;
 
     // times_two(x) = 2*x
     let user_fn = UserFunction::new(1..=1)
@@ -75,7 +75,7 @@ fn test_compiled_evaluation_missing_context() {
 
 #[test]
 fn test_arity_check() {
-    use crate::core::unified_context::UserFunction;
+    use crate::core::context::UserFunction;
 
     // add2(x, y) = x + y
     // Note: the body must handle the case when called with wrong arity during expansion

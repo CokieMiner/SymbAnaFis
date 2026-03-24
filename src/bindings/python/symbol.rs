@@ -292,6 +292,10 @@ impl PySymbol {
     fn gamma(&self) -> super::expr::PyExpr {
         super::expr::PyExpr(self.0.gamma())
     }
+    /// Log-Gamma function.
+    fn lgamma(&self) -> super::expr::PyExpr {
+        super::expr::PyExpr(self.0.lgamma())
+    }
 
     // Additional inverse trig
     /// Inverse cotangent.

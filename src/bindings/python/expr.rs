@@ -397,6 +397,17 @@ impl PyExpr {
         }
         Ok(Self(self.0.clone().gamma()))
     }
+    /// Log-Gamma function
+    fn lgamma(&self) -> PyResult<Self> {
+        if let Some(n) = get_numeric_value(&self.0)
+            && is_gamma_pole(n)
+        {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                "lgamma({n}) undefined: pole at non-positive integer"
+            )));
+        }
+        Ok(Self(self.0.clone().lgamma()))
+    }
     /// Digamma function
     fn digamma(&self) -> PyResult<Self> {
         if let Some(n) = get_numeric_value(&self.0)

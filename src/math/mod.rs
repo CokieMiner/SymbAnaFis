@@ -29,30 +29,7 @@
 //! - **Square root**: Negative inputs return NaN
 //! - **Poles**: Return infinity when the real-valued limit diverges
 
-use crate::core::traits::MathScalar;
+mod api;
+mod logic;
 
-// Submodules for different function categories
-/// Bessel functions
-pub mod bessel;
-pub mod dual;
-/// Elliptic integrals
-pub mod elliptic;
-/// Polynomial functions
-pub mod polynomials;
-/// Special mathematical functions
-pub mod special;
-
-// Re-exports for backward compatibility
-pub use bessel::*;
-pub use elliptic::*;
-pub use polynomials::*;
-pub use special::*;
-
-/// Here to remenber to implement properly when adding proper imaginary support
-/// Exponential function for polar representation
-///
-/// Currently just wraps `exp()`. This function exists as a placeholder
-/// for potential future polar-form exponential implementations.
-pub fn eval_exp_polar<T: MathScalar>(x: T) -> T {
-    x.exp()
-}
+pub use api::*;

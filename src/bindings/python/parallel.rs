@@ -120,36 +120,45 @@ pub mod parallel_impl {
         results
             .into_iter()
             .zip(was_expr.iter())
-            .map(|(expr_results, &input_was_expr)| {
-                expr_results
-                    .into_iter()
-                    .map(|r| -> PyResult<Py<PyAny>> {
-                        Ok(match r {
-                            parallel::EvalResult::String(s) => {
-                                if let Ok(n) = s.parse::<f64>() {
-                                    // Numeric result → float
-                                    n.into_pyobject(py)?.into_any().unbind()
-                                } else {
-                                    // Symbolic result → str
-                                    s.into_pyobject(py)?.into_any().unbind()
+            .map(
+                |(expr_results, &input_was_expr): (Vec<parallel::EvalResult>, &bool)| {
+                    expr_results
+                        .into_iter()
+                        .map(|r| -> PyResult<Py<PyAny>> {
+                            Ok(match r {
+                                parallel::EvalResult::String(s) => {
+                                    if let Ok(n) = s.parse::<f64>() {
+                                        // Numeric result → float
+                                        let val: Bound<'_, pyo3::types::PyFloat> =
+                                            n.into_pyobject(py)?;
+                                        val.into_any().unbind()
+                                    } else {
+                                        // Symbolic result → str
+                                        let val: Bound<'_, pyo3::types::PyString> =
+                                            s.into_pyobject(py)?;
+                                        val.into_any().unbind()
+                                    }
                                 }
-                            }
-                            parallel::EvalResult::Expr(e) => {
-                                if let crate::ExprKind::Number(n) = &e.kind {
-                                    // Numeric result → float
-                                    n.into_pyobject(py)?.into_any().unbind()
-                                } else if input_was_expr {
-                                    // Symbolic result, input was Expr → Expr
-                                    PyExpr(e).into_pyobject(py)?.into_any().unbind()
-                                } else {
-                                    // Symbolic result, input was str → str
-                                    e.to_string().into_pyobject(py)?.into_any().unbind()
+                                parallel::EvalResult::Expr(e) => {
+                                    if let crate::ExprKind::Number(n) = &e.kind {
+                                        // Numeric result → float
+                                        let val: Bound<'_, pyo3::types::PyFloat> =
+                                            n.into_pyobject(py)?;
+                                        val.into_any().unbind()
+                                    } else if input_was_expr {
+                                        // Symbolic result, input was Expr → Expr
+                                        let val: Bound<'_, PyExpr> = PyExpr(e).into_pyobject(py)?;
+                                        val.into_any().unbind()
+                                    } else {
+                                        // Symbolic result, input was str → str
+                                        e.to_string().into_pyobject(py)?.into_any().unbind()
+                                    }
                                 }
-                            }
+                            })
                         })
-                    })
-                    .collect::<PyResult<Vec<_>>>()
-            })
+                        .collect::<PyResult<Vec<_>>>()
+                },
+            )
             .collect::<PyResult<Vec<_>>>()
     }
 
@@ -178,8 +187,8 @@ pub mod parallel_impl {
         data: Vec<Vec<Bound<'py, PyAny>>>,
     ) -> PyResult<Py<PyAny>> {
         use crate::Expr as RustExpr;
-        use crate::bindings::eval_f64::eval_f64 as rust_eval_f64;
         use crate::bindings::python::evaluator::{DataInput, extract_data_input};
+        use crate::evaluator::eval_f64 as rust_eval_f64;
         use numpy::{PyArray1, PyArray2, PyArrayMethods};
 
         let expr_refs: Vec<&RustExpr> = expressions.iter().map(|e| &e.0).collect();

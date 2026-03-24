@@ -773,7 +773,7 @@ class Diff:
         """Set maximum node count limit."""
         ...
 
-    def with_context(self, context: Context) -> "Diff":
+    def context(self, context: Context) -> "Diff":
         """Set the context for symbol resolution."""
         ...
 
@@ -849,7 +849,7 @@ class Simplify:
         """Set maximum node count limit."""
         ...
 
-    def with_context(self, context: Context) -> "Simplify":
+    def context(self, context: Context) -> "Simplify":
         """Set the context for symbol resolution."""
         ...
 

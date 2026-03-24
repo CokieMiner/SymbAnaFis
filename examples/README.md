@@ -17,12 +17,12 @@ This directory contains examples demonstrating SymbAnaFis capabilities.
 
 These Python scripts demonstrate high-performance simulation and visualization capabilities.
 
-| Benchmark                        | Description                          | Run With                                       |
-| -------------------------------- | ------------------------------------ | ---------------------------------------------- |
-| **aizawa_flow.py**               | Aizawa Attractor (3D Chaotic System) | `python examples/aizawa_flow.py`               |
-| **clifford_benchmark.py**        | Clifford Attractor (2D Discrete Map) | `python examples/clifford_benchmark.py`        |
-| **double_pendulum_benchmark.py** | Double Pendulum Phase Space (Chaos)  | `python examples/double_pendulum_benchmark.py` |
-| **gradient_descent.py**          | Gradient Descent on Complex Terrain  | `python examples/gradient_descent.py`          |
+| Benchmark                        | Description                          | Run With                                              |
+| -------------------------------- | ------------------------------------ | ----------------------------------------------------- |
+| **aizawa_flow.py**               | Aizawa Attractor (3D Chaotic System) | `python examples/python/aizawa_flow.py`               |
+| **clifford_benchmark.py**        | Clifford Attractor (2D Discrete Map) | `python examples/python/clifford_benchmark.py`        |
+| **double_pendulum_benchmark.py** | Double Pendulum Phase Space (Chaos)  | `python examples/python/double_pendulum_benchmark.py` |
+| **gradient_descent.py**          | Gradient Descent on Complex Terrain  | `python examples/python/gradient_descent.py`          |
 
 ## quickstart.rs - Get Started Fast
 
@@ -59,7 +59,7 @@ cargo run --example api_showcase
 cargo run --example api_showcase --features parallel  # Include Section 11
 ```
 
-Python version available: `python examples/api_showcase.py`
+Python version available: `python examples/python/api_showcase.py`
 
 ## dual_autodiff.rs - Automatic Differentiation
 
@@ -90,7 +90,7 @@ Error: 0.00e0
 cargo run --example dual_autodiff
 ```
 
-Python version available: `python examples/dual_autodiff.py`
+Python version available: `python examples/python/dual_autodiff.py`
 
 ## applications.rs - Real-World Physics
 

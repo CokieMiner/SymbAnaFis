@@ -385,7 +385,7 @@ fn test_custom_function_diff() {
 
 #[test]
 fn test_custom_function_with_custom_derivative() {
-    use crate::core::unified_context::UserFunction;
+    use crate::core::context::UserFunction;
 
     // Register a custom derivative: d/dx[f(x)] = 2*x
     // Using the builder pattern correctly

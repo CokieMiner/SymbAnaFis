@@ -544,102 +544,70 @@ flowchart LR
 
 ## Module Structure
 
-```
+SymbAnaFis strictly follows a **3-tier Boundary-First Architecture** for every major subsystem:
+`mod.rs` (Boundary Manager) ➜ `api.rs` (Public Gatekeeper) ➜ `logic/` (Core Algorithms).
+
+```text
 src/
-├── lib.rs                    # Public API: diff(), simplify(), re-exports (6KB)
-├── core/                     # Core types and utilities
-│   ├── mod.rs               # Re-exports
-│   ├── expr/                # Expr, ExprKind - core expression types
-│   │   ├── mod.rs           # Expr struct and ExprKind enum
-│   │   ├── constructors.rs  # Expression builders
-│   │   ├── evaluate.rs      # Tree-walking evaluation
-│   │   ├── hash.rs          # Structural hashing for CSE
-│   │   ├── ordering.rs      # Expression ordering
-│   │   └── analysis.rs      # Expression analysis utilities
-│   ├── symbol/              # InternedSymbol, Symbol - Copy symbols
-│   │   ├── mod.rs           # Symbol types
-│   │   ├── interned.rs      # Interning registry
-│   │   ├── registry.rs      # Global symbol management
-│   │   ├── operators.rs     # Symbol operations
-│   │   └── math_methods.rs  # Mathematical methods on symbols
-│   ├── evaluator/           # Modular bytecode evaluation system (v0.7.0)
-│   │   ├── mod.rs           # Public API: CompiledEvaluator (464 lines)
-│   │   ├── compiler.rs      # Bytecode compilation with CSE (941 lines)
-│   │   ├── execution.rs     # Scalar evaluation hot path (668 lines)
-│   │   ├── simd.rs          # SIMD batch evaluation with f64x4 (1106 lines)
-│   │   ├── stack.rs         # Unsafe stack primitives (380 lines)
-│   │   ├── instruction.rs   # Bytecode instruction definitions (615 lines)
-│   │   └── tests.rs         # Unit tests (402 lines)
-│   ├── unified_context.rs   # Context, UserFunction - isolated registries (19KB)
-│   ├── display.rs           # to_string(), to_latex(), to_unicode() (34KB)
-│   ├── error.rs             # DiffError, Span - error types (14KB)
-│   ├── traits.rs            # MathScalar trait
-│   ├── poly.rs              # Univariate polynomial type (24KB)
-│   ├── visitor.rs           # AST visitor pattern
-│   ├── known_symbols.rs     # Pre-interned symbols for O(1) lookup
-│   └── analysis.rs          # Expression analysis utilities
+├── lib.rs                    # Public API aggregating logical layers
 │
-├── parser/                   # String → Expr
-│   ├── mod.rs               # parse() function
-│   ├── lexer.rs             # Tokenizer (30KB)
-│   ├── tokens.rs            # Token definitions (13KB)
-│   ├── pratt.rs             # Pratt parsing algorithm (17KB)
-│   └── implicit_mul.rs      # 2x → 2*x handling
+├── core/                     # Fundamental math abstractions
+│   ├── mod.rs               # Sub-module declarative re-exporter
+│   ├── api_user.rs         # Developer-facing interfaces (Expr, Symbol)
+│   ├── api_crate.rs        # Internal system registry indices
+│   └── logic/               # Implementation Details
+│       ├── expr/            # AST types & builders
+│       ├── symbol/          # Intern interning registry
+│       └── visitor.rs       # Visitor patterns
 │
-├── api/                      # Builder layer
-│   ├── mod.rs               # Re-exports
-│   ├── builder.rs           # Diff, Simplify builders (fluent API) (14KB)
-│   └── helpers.rs           # gradient, hessian, jacobian (8KB)
+├── parser/                   # String ➜ Expr Converter
+│   ├── mod.rs               
+│   ├── api.rs               # Public Surface: parse()
+│   └── logic/               
+│       ├── lexer.rs         # Tokenizer
+│       ├── tokens.rs        # Token definitions
+│       ├── pratt.rs         # Pratt parsing algorithm
+│       └── implicit_mul.rs  # Implicit multiplier streams
 │
-├── diff/                     # Differentiation engine
-│   ├── mod.rs               # Module exports
-│   └── engine.rs            # Core differentiation logic (23KB)
+├── diff/                     # Differentiation Engine
+│   ├── mod.rs               
+│   ├── api.rs               # Public Surface: Diff builder, diff()
+│   └── logic/               
+│       └── engine.rs        # Derivative computes & rules
 │
-├── simplification/           # Rule-based simplification
-│   ├── mod.rs               # simplify_expr() entry point
-│   ├── engine.rs            # Multi-pass engine (13KB)
-│   ├── helpers.rs           # Expression utilities (27KB)
-│   ├── README.md            # Rule documentation
-│   ├── patterns/            # Pattern matching
-│   └── rules/               # 120+ rules organized by category
-│       ├── mod.rs           # Rule trait, priority system, RuleRegistry (21KB)
-│       ├── numeric/         # 0+x→x, constant folding
-│       ├── algebraic/       # 9 files: factoring, power, terms, etc.
-│       ├── trigonometric/   # 7 files: Pythagorean, double angle, etc.
-│       ├── hyperbolic/      # 5 files: sinh/cosh identities
-│       ├── exponential/     # exp/ln rules
-│       └── root/            # sqrt/cbrt rules
+├── simplification/           # Code Simplifiers
+│   ├── mod.rs               
+│   ├── api.rs               # Public Surface: Simplify builder, simplify()
+│   └── logic/               
+│       ├── engine.rs        # Bottom-up traverser
+│       └── rules/           # 120+ rule triggers (algebraic, trig, etc.)
 │
-├── uncertainty.rs            # Uncertainty propagation (GUM formula) (12KB)
+├── functions/                # Function Registry
+│   ├── mod.rs               
+│   ├── api.rs               # Public Surface aggregates
+│   └── logic/               
+│       ├── registry.rs      # Lookup tables
+│       ├── definitions/     # Trigonometric, Exponential loaded definitions
+│       └── context.rs       # Context and FunctionContext
 │
-├── functions/                # Built-in functions
-│   ├── mod.rs               # Function registry
-│   ├── definitions.rs       # 50+ function defs (55KB)
-│   └── registry.rs          # Name → Function lookup
+├── evaluator/                # Fast execution VM
+│   ├── mod.rs               
+│   ├── api.rs               # Public Surface: CompiledEvaluator
+│   └── logic/               
+│       ├── compile/         # CSE & VM Compiler triggers
+│       └── execute/         # Scalar, SIMD, and Parallel backends
 │
-├── math/                     # Numeric implementations
-│   ├── mod.rs               # Special function evaluations (gamma, bessel, etc.)
-│   └── dual.rs              # Dual numbers for automatic differentiation
+├── convenience/              # Fast One-Call Helpers
+│   ├── mod.rs               
+│   ├── api.rs               # gradient, hessian, jacobian
+│   └── logic/               # Aggregation loaders
 │
-├── bindings/                 # Optional feature-gated bindings
-│   ├── mod.rs               # Feature gates
-│   ├── eval_f64.rs          # Fast f64 evaluation helper (6KB)
-│   ├── parallel.rs          # (parallel feature) Rayon batch evaluation (25KB)
-│   └── python/              # (python feature) PyO3 bindings
-│       ├── mod.rs           # Python module definition
-│       ├── expr.rs          # PyExpr wrapper
-│       ├── symbol.rs        # PySymbol wrapper
-│       ├── builder.rs       # Diff, Simplify builders
-│       ├── evaluator.rs     # CompiledEvaluator binding
-│       ├── functions.rs     # Core API functions
-│       ├── context.rs       # Context and FunctionContext
-│       ├── error.rs         # Error handling
-│       ├── dual.rs          # Dual numbers
-│       ├── parallel.rs      # Parallel evaluation
-│       ├── utilities.rs     # Symbol management utilities
-│       ├── visitor.rs       # AST visitor utilities
-│       └── eval_f64.rs      # Fast evaluation helpers
-│
+└── bindings/                 # Foreign Runtimes
+    ├── mod.rs               
+    └── python/              
+        ├── api.rs           # `#[pymodule]` definitions
+        └── [file].rs        # Flat single-purpose adapters (PyExpr, etc.)
+
 └── tests/                    # 65 test files (+22 integration tests at root)
 ```
 
@@ -787,7 +755,7 @@ let ctx = Context::new()
 
 let x = ctx.symb("x");
 let derivative = Diff::new()
-    .with_context(&ctx)
+    .context(&ctx)
     .differentiate(&Expr::func("f", x), &x);
 ```
 
@@ -935,19 +903,15 @@ Implements the GUM formula: σ_f = √(Σᵢ Σⱼ (∂f/∂xᵢ)(∂f/∂xⱼ) 
 uncertainty_propagation(&expr, &["x", "y"], Some(&cov_matrix))?;
 ```
 
-### Parallel Evaluation (`parallel.rs`, requires `parallel` feature)
+### Parallel Evaluation (requires `parallel` feature)
 
-Batch evaluation using Rayon:
+Batch evaluation using Rayon VM backends.
 
 ```rust
-eval_parallel!(
-    [expr1, expr2],
-    [["x"], ["x", "y"]],
-    [[[1.0, 2.0]], [[1.0, 2.0], [3.0, 4.0]]]
-)
+// High-performance evaluation triggers loaded
 ```
 
-### Python Bindings (`python.rs`, requires `python` feature)
+### Python Bindings (requires `python` feature)
 
 PyO3 bindings exposing:
 - `diff()`, `simplify()`, `parse()`
@@ -976,5 +940,5 @@ PyO3 bindings exposing:
 
 1. **Custom functions:** `Diff::new().user_fn("f", UserFunction)` with partial derivatives and evaluation
 2. **Custom evaluation:** `Diff::new().custom_eval("f", ...)`
-3. **New simplification rules:** Add to `simplification/rules/`
-4. **New functions:** Add to `functions/definitions.rs` and `registry.rs`
+3. **New simplification rules:** Add to `simplification/logic/rules/`
+4. **New functions:** Add a file to `functions/logic/definitions/` and re-export in `registry.rs`

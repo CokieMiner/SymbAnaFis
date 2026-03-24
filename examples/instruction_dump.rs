@@ -104,25 +104,25 @@ fn main() {
 
         println!(
             "Raw Instructions ({} total):",
-            compiled_raw.instructions.len()
+            compiled_raw.instruction_count()
         );
         println!(
             "Simplified Instructions ({} total):",
-            compiled_simp.instructions.len()
+            compiled_simp.instruction_count()
         );
 
-        println!("\n--- Simplified Instructions Details ---");
-        for (i, instr) in compiled_simp.instructions.iter().enumerate() {
-            println!("  {i:3}: {instr:?}");
-        }
+        //println!("\n--- Simplified Instructions Details ---");
+        //for (i, instr) in compiled_simp.instructions().iter().enumerate() {
+        //   println!("  {i:3}: {instr}");
+        //}
 
-        println!("\n--- Raw Instructions Details ---");
-        for (i, instr) in compiled_raw.instructions.iter().enumerate() {
-            println!("  {i:3}: {instr:?}");
-        }
+        //println!("\n--- Raw Instructions Details ---");
+        //for (i, instr) in compiled_raw.instructions().iter().enumerate() {
+        //    println!("  {i:3}: {instr}");
+        //}
 
-        println!("Constants (Simp): {:?}", compiled_simp.constants);
-        println!("Stack size (Simp): {}", compiled_simp.register_count);
-        println!();
+        //println!("Constants (Simp): {:?}", compiled_simp.constants());
+        //println!("Stack size (Simp): {}", compiled_simp.workspace_size());
+        //println!();
     }
 }

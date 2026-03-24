@@ -231,7 +231,7 @@ fn test_evaluate_compiled_derivatives() {
         let compiled = CompiledEvaluator::compile_auto(&parsed, None);
 
         if let Ok(evaluator) = compiled {
-            let params = evaluator.param_names();
+            let params = &evaluator.param_names;
             eprintln!("{}: params = {:?}", name, params);
 
             // Build values based on actual parameter order
@@ -285,7 +285,7 @@ fn test_full_pipeline_lorentz_factor() {
 
     // Compile
     let compiled = CompiledEvaluator::compile_auto(&diff, None).unwrap();
-    eprintln!("Params: {:?}", compiled.param_names());
+    eprintln!("Params: {:?}", compiled.param_names);
 
     // Evaluate at v=0
     // Params are ["c", "v"] (alphabetical), so [c=1.0, v=0.0]
@@ -314,7 +314,7 @@ fn test_full_pipeline_damped_oscillator() {
     let compiled = CompiledEvaluator::compile_auto(&diff, None).unwrap();
 
     // Evaluate at t=0
-    let param_count = compiled.param_count();
+    let param_count = compiled.param_count;
     let values = vec![1.0; param_count];
     let result = compiled.evaluate(&values);
 
@@ -411,7 +411,7 @@ fn test_all_benchmarks_produce_valid_results() {
         }
         let evaluator = compiled.unwrap();
 
-        let params = evaluator.param_names();
+        let params = &evaluator.param_names;
         let values: Vec<f64> = params.iter().map(|p| get_param_value(p)).collect();
 
         let result = evaluator.evaluate(&values);
@@ -443,6 +443,7 @@ fn test_all_benchmarks_produce_valid_results() {
 // =============================================================================
 
 /// Test eval_batch for single-variable expressions
+#[cfg(feature = "parallel")]
 #[test]
 fn test_eval_batch_single_var() {
     let empty = HashSet::new();
@@ -491,6 +492,7 @@ fn test_eval_batch_single_var() {
 }
 
 /// Test scaling: 100, 1000, 10000 points
+#[cfg(feature = "parallel")]
 #[test]
 fn test_eval_scaling() {
     let empty = HashSet::new();
@@ -524,6 +526,7 @@ fn test_eval_scaling() {
 }
 
 /// Test multi-expression evaluation
+#[cfg(feature = "parallel")]
 #[test]
 fn test_multi_expression_batch() {
     let empty = HashSet::new();

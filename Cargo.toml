@@ -1,6 +1,6 @@
 [package]
 name = "symb_anafis"
-version = "0.8.1"
+version = "0.9.0"
 edition = "2024"
 authors = ["CokieMiner"]
 description = "Fast symbolic differentiation library for Rust"
@@ -29,25 +29,25 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 num-traits = "0.2.19"
-pyo3 = { version = "0.28.2", features = ["extension-module"], optional = true }
-numpy = { version = "0.28.0", optional = true }
 rustc-hash = "2.1.1"
-rayon = { version = "1.11.0", optional = true }
-wide = "1.1.1"
 slotmap = { version = "1.1.1" }
+numpy = { version = "0.28.0", optional = true }
+pyo3 = { version = "0.28.2", features = ["extension-module"], optional = true }
+rayon = { version = "1.11.0", optional = true }
+wide = { version = "1.2.0", optional = true }
 
 [dev-dependencies]
-criterion = "0.8.1"
 ahash = "0.8.12"
-symbolica = "1.4.0"
+criterion = "0.8.2"
+dotenvy = "0.15.7"
 quickcheck = "1.1.0"
-dotenvy = "0.15"
 rand = "0.10.0"
+symbolica = "1.4.0"
 
 [features]
 default = []
 python = ["pyo3", "numpy"]
-parallel = ["rayon"]
+parallel = ["rayon", "wide"]
 
 [[bench]]
 name = "benchmark"
@@ -70,8 +70,33 @@ harness = false
 path = "benches/rust/benchmark_parallel.rs"
 required-features = ["parallel"]
 
-[profile.release]
-debug = true
+# =============================================================================
+# EXPLICIT EXAMPLES
+# =============================================================================
+
+[[example]]
+name = "flamegraph_benchmarks"
+path = "examples/benchmarks/flamegraph_benchmarks.rs"
+
+[[example]]
+name = "flamegraph_compile_eval"
+path = "examples/benchmarks/flamegraph_compile_eval.rs"
+
+[[example]]
+name = "flamegraph_profile"
+path = "examples/benchmarks/flamegraph_profile.rs"
+
+[[example]]
+name = "profile_pipeline"
+path = "examples/benchmarks/profile_pipeline.rs"
+
+[[example]]
+name = "simplification_comparison"
+path = "examples/benchmarks/simplification_comparison.rs"
+
+[[example]]
+name = "expr_with_4649517_caracters-comparison"
+path = "examples/benchmarks/expr_with_4649517_caracters-comparison.rs"
 
 # ============================================================================
 # Lints Configuration (applies to lib, tests, examples, benches)
@@ -93,90 +118,84 @@ all = { level = "deny", priority = -1 }
 # =============================================================================
 # QUALITY & STYLE (PEDANTIC)
 # =============================================================================
-pedantic = { level = "warn", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
 
 # =============================================================================
 # NURSERY (EXPERIMENTAL BUT VALUABLE)
 # =============================================================================
-nursery = { level = "warn", priority = -1 }
+nursery = { level = "deny", priority = -1 }
 
 # =============================================================================
-# RESTRICTION (MAXIMUM STRICTNESS)
+# CODE QUALITY & STYLE (RESTRICTION)
 # =============================================================================
-# Code Quality
-clone_on_ref_ptr = "warn"                # Avoid double indirection performance hit
-create_dir = "warn"                      # Force error handling for filesystem ops
+allow_attributes_without_reason = "deny" # Require explicit reasons for allow attributes
+clone_on_ref_ptr = "deny"                # Avoid double indirection performance hit
+create_dir = "deny"                      # Force error handling for filesystem ops
 dbg_macro = "deny"                       # No debug artifacts in production (upgraded)
-empty_drop = "warn"                      # Detect accidentally empty Drop implementations
-empty_structs_with_brackets = "warn"     # Consistent struct syntax
-exit = "warn"                            # No hard exits in library code
-filetype_is_file = "warn"                # More robust file type checking
-fn_to_numeric_cast = "warn"              # Prevent function pointer casting bugs
-format_push_string = "warn"              # Performance: use write! instead of format!
-get_unwrap = "warn"                      # Use [] indexing instead of get().unwrap()
-if_then_some_else_none = "warn"          # Use bool::then_some for clarity
-inline_asm_x86_att_syntax = "warn"       # Consistent ASM syntax if used
-inline_asm_x86_intel_syntax = "warn"
-integer_division = "warn"                # Force explicit float division
-large_include_file = "warn"              # No embedding huge files
-let_underscore_must_use = "warn"         # Don't ignore important return values
+empty_drop = "deny"                      # Detect accidentally empty Drop implementations
+empty_structs_with_brackets = "deny"     # Consistent struct syntax
+exit = "deny"                            # No hard exits in library code
+filetype_is_file = "deny"                # More robust file type checking
+fn_to_numeric_cast = "deny"              # Prevent function pointer casting bugs
+format_push_string = "deny"              # Performance: use write! instead of format!
+get_unwrap = "deny"                      # Use [] indexing instead of get().unwrap()
+if_then_some_else_none = "deny"          # Use bool::then_some for clarity
+inline_asm_x86_att_syntax = "deny"       # Consistent ASM syntax if used
+inline_asm_x86_intel_syntax = "deny"    # Consistent ASM syntax
+integer_division = "deny"                # Force explicit float division
+large_include_file = "deny"              # No embedding huge files
+let_underscore_must_use = "deny"         # Don't ignore important return values
 lossy_float_literal = "deny"             # Stricter float precision (upgraded)
-map_err_ignore = "warn"                  # Don't lose error context
-mem_forget = "warn"                      # No memory leaks
-mixed_read_write_in_expression = "warn"  # Avoid subtle bugs
+map_err_ignore = "deny"                  # Don't lose error context
+mem_forget = "deny"                      # No memory leaks
+mixed_read_write_in_expression = "deny"  # Avoid subtle bugs
 mutex_atomic = "deny"                    # Performance critical (upgraded)
-non_ascii_literal = "warn"               # Keep code portable
+non_ascii_literal = "deny"               # Keep code portable
 panic_in_result_fn = "deny"              # No panics in Result-returning functions
-partial_pub_fields = "warn"              # Consistent field visibility
-print_stderr = "warn"                    # No side effects to stderr
+partial_pub_fields = "deny"              # Consistent field visibility
+print_stderr = "deny"                    # No side effects to stderr
 print_stdout = "deny"                    # No side effects to stdout (upgraded)
-pub_without_shorthand = "warn"           # Consistent pub syntax
+pub_without_shorthand = "deny"           # Consistent pub syntax
 rc_buffer = "deny"                       # Memory efficiency (upgraded)
-rc_mutex = "warn"                        # Performance: prefer Arc<Mutex<T>>
-allow_attributes_without_reason = "deny"
-shadow_unrelated = "deny"
+rc_mutex = "deny"                        # Performance: prefer Arc<Mutex<T>>
+redundant_type_annotations = "deny"      # Clean up unnecessary annotations
+rest_pat_in_fully_bound_structs = "deny" # Explicit field handling
+same_name_method = "deny"                # Avoid confusing method names
+self_named_module_files = "deny"         # Consistent module naming
+semicolon_inside_block = "deny"          # Consistent semicolon style
+shadow_unrelated = "deny"                # Prevent confusing variable shadowing
+single_char_lifetime_names = "deny"      # Descriptive lifetime names
+unnecessary_self_imports = "deny"        # Clean imports
+unneeded_field_pattern = "deny"          # Clean pattern matching
+unseparated_literal_suffix = "deny"      # Readable numeric literals
+use_debug = "deny"                       # No Debug in production formatting
+verbose_file_reads = "deny"              # Use fs::read_to_string when appropriate
 
 # =============================================================================
-# MATHEMATICAL CODE ALLOWANCES 
+# PERFORMANCE (HPC FOCUSED)
 # =============================================================================
-# These lints are disabled because they're too noisy for mathematical/scientific code
-redundant_type_annotations = "warn"      # Clean up unnecessary annotations
-rest_pat_in_fully_bound_structs = "warn" # Explicit field handling
-same_name_method = "warn"                # Avoid confusing method names
-self_named_module_files = "warn"         # Consistent module naming
-semicolon_inside_block = "warn"          # Consistent semicolon style
-single_char_lifetime_names = "warn"      # Descriptive lifetime names
-str_to_string = "warn"                   # Performance: avoid unnecessary allocations
-string_add = "warn"                      # Performance: use format! or push_str
-string_slice = "warn"                    # Performance: consider &str instead
-suspicious_xor_used_as_pow = "warn"      # Catch common XOR/pow confusion
-todo = "deny"                            # No unfinished code (upgraded)
-try_err = "warn"                         # Use ? operator consistently
-undocumented_unsafe_blocks = "deny"      # All unsafe must be documented
-unimplemented = "deny"                   # No unfinished implementations
-unnecessary_self_imports = "warn"        # Clean imports
-unneeded_field_pattern = "warn"          # Clean pattern matching
-unseparated_literal_suffix = "warn"      # Readable numeric literals
-use_debug = "warn"                       # No Debug in production formatting
-verbose_file_reads = "warn"              # Use fs::read_to_string when appropriate
-
-# =============================================================================
-# PERFORMANCE (HPC FOCUSED) 
-# =============================================================================
-perf = { level = "deny", priority = -1 }
-suboptimal_flops = "deny"                # Mathematical precision is critical (upgraded)
 large_stack_arrays = "deny"              # Prevent stack overflows (upgraded)
+perf = { level = "deny", priority = -1 }
+str_to_string = "deny"                   # Performance: avoid unnecessary allocations
+string_add = "deny"                      # Performance: use format! or push_str
+string_slice = "deny"                    # Performance: consider &str instead
+suboptimal_flops = "deny"                # Mathematical precision is critical (upgraded)
 
 # =============================================================================
-# ROBUSTNESS (NO SURPRISES)
+# ROBUSTNESS & ERROR HANDLING
 # =============================================================================
-unwrap_used = "deny"                # No unwraps - use expect with context
+debug_assert_with_mut_call = "deny" # Side effects in debug asserts
+missing_panics_doc = "deny"         # Document when functions can panic
 panic = "deny"                      # No panics in library code
+todo = "deny"                       # No unfinished code (upgraded)
+try_err = "deny"                    # Use ? operator consistently
+undocumented_unsafe_blocks = "deny" # All unsafe must be documented
+unimplemented = "deny"              # No unfinished implementations
 unreachable = "deny"                # All code paths must be explicitly handled
-missing_panics_doc = "warn"         # Document when functions can panic
-debug_assert_with_mut_call = "warn" # Side effects in debug asserts
+unwrap_used = "deny"                # No unwraps - use expect with context
 
 # =============================================================================
 # MATH PRECISION & CORRECTNESS
 # =============================================================================
-imprecise_flops = "deny" # Mathematical precision critical (upgraded)
+imprecise_flops = "deny"            # Mathematical precision critical (upgraded)
+suspicious_xor_used_as_pow = "deny" # Catch common XOR/pow confusion

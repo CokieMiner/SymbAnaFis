@@ -3,8 +3,9 @@
 //! This module provides the `PyDiff` and `PySimplify` classes which wrap
 //! Rust's builder types for fine-grained control over operations.
 
+use crate::Diff;
 use crate::Expr as RustExpr;
-use crate::api::builder;
+use crate::Simplify;
 use pyo3::prelude::*;
 use std::sync::Arc;
 
@@ -15,7 +16,7 @@ type PartialDerivativeFn = Arc<dyn Fn(&[Arc<RustExpr>]) -> RustExpr + Send + Syn
 #[pyclass(name = "Diff")]
 pub struct PyDiff {
     /// The inner Rust Diff builder
-    pub inner: builder::Diff,
+    pub inner: Diff,
 }
 
 #[pymethods]
@@ -23,9 +24,7 @@ impl PyDiff {
     /// Create a new Diff builder
     #[new]
     fn new() -> Self {
-        Self {
-            inner: builder::Diff::new(),
-        }
+        Self { inner: Diff::new() }
     }
 
     /// Set domain safety for differentiation
@@ -83,11 +82,11 @@ impl PyDiff {
     }
 
     /// Set context for differentiation
-    fn with_context<'py>(
+    fn context<'py>(
         mut self_: PyRefMut<'py, Self>,
         context: &'py super::context::PyContext,
     ) -> PyRefMut<'py, Self> {
-        self_.inner = self_.inner.clone().with_context(&context.inner);
+        self_.inner = self_.inner.clone().context(&context.inner);
         self_
     }
 
@@ -100,8 +99,8 @@ impl PyDiff {
         body_callback: Option<Py<PyAny>>,
         partials: Option<Vec<Py<PyAny>>>,
     ) -> PyResult<PyRefMut<'_, Self>> {
-        use crate::core::unified_context::BodyFn;
-        use crate::core::unified_context::UserFunction;
+        use crate::core::context::BodyFn;
+        use crate::core::context::UserFunction;
 
         let mut user_fn = UserFunction::new(arity..=arity);
 
@@ -198,7 +197,7 @@ impl PyDiff {
 #[pyclass(name = "Simplify")]
 pub struct PySimplify {
     /// The inner Rust Simplify builder
-    pub inner: builder::Simplify,
+    pub inner: Simplify,
 }
 
 #[pymethods]
@@ -207,7 +206,7 @@ impl PySimplify {
     #[new]
     fn new() -> Self {
         Self {
-            inner: builder::Simplify::new(),
+            inner: Simplify::new(),
         }
     }
 
@@ -266,11 +265,11 @@ impl PySimplify {
     }
 
     /// Set context for simplification
-    fn with_context<'py>(
+    fn context<'py>(
         mut self_: PyRefMut<'py, Self>,
         context: &'py super::context::PyContext,
     ) -> PyRefMut<'py, Self> {
-        self_.inner = self_.inner.clone().with_context(&context.inner);
+        self_.inner = self_.inner.clone().context(&context.inner);
         self_
     }
 

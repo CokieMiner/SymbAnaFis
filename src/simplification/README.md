@@ -485,6 +485,7 @@ In older versions, `known_symbols` was used to distinguish between Euler's numbe
 - All rules are applied recursively bottom-up through the expression tree
 - The system uses cycle detection to prevent infinite loops
 - Rules are applied in multiple passes until convergence
+- **Optimized Dispatch Indexing**: Rules are indexed by `ExprKind` and `FunctionCall` name ID upon registry load. This enables O(1) skipping of non-applicable rules during traversal passes, optimizing AST descent speeds.
 - Numeric precision uses ε = 1e-14 (EPSILON) for floating-point comparisons
 - The system preserves exact symbolic forms when possible
 - **Rule priority ordering**: Higher priority numbers run first (e.g., priority 95 runs before 40). Key priority tiers:

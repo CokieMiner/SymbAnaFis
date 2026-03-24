@@ -473,6 +473,23 @@ fn test_eval_gamma() {
     assert!((gamma_half - std::f64::consts::PI.sqrt()).abs() < 0.001);
 }
 
+#[test]
+fn test_eval_lgamma() {
+    // ln(Γ(1)) = 0, ln(Γ(2)) = 0
+    assert!(approx_eq(eval_expr("lgamma(1)", &[]).unwrap(), 0.0));
+    assert!(approx_eq(eval_expr("lgamma(2)", &[]).unwrap(), 0.0));
+    // ln(Γ(3)) = ln(2)
+    assert!(approx_eq(
+        eval_expr("lgamma(3)", &[]).unwrap(),
+        std::f64::consts::LN_2
+    ));
+    // ln(Γ(4)) = ln(6)
+    assert!(approx_eq(
+        eval_expr("lgamma(4)", &[]).unwrap(),
+        6.0_f64.ln()
+    ));
+}
+
 // ===== Digamma and trigamma =====
 #[test]
 fn test_eval_digamma() {
