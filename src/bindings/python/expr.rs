@@ -10,7 +10,7 @@
 )]
 
 use crate::Expr as RustExpr;
-use crate::core::traits::EPSILON;
+use crate::EPSILON;
 use pyo3::prelude::*;
 
 /// Python wrapper for symbolic expressions
@@ -74,7 +74,7 @@ impl PyExpr {
 
     /// Convert to float if the expression is a numeric constant
     fn __float__(&self) -> PyResult<f64> {
-        if let crate::ExprKind::Number(n) = &self.0.kind {
+        if let crate::core::ExprKind::Number(n) = &self.0.kind {
             Ok(*n)
         } else {
             Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(format!(
@@ -755,12 +755,12 @@ impl PyExpr {
 
     /// Check if expression is a raw symbol
     const fn is_symbol(&self) -> bool {
-        matches!(self.0.kind, crate::ExprKind::Symbol(_))
+        matches!(self.0.kind, crate::core::ExprKind::Symbol(_))
     }
 
     /// Check if expression is a constant number
     const fn is_number(&self) -> bool {
-        matches!(self.0.kind, crate::ExprKind::Number(_))
+        matches!(self.0.kind, crate::core::ExprKind::Number(_))
     }
 
     /// Check if expression is effectively zero
@@ -914,7 +914,7 @@ fn is_log_value_domain_error(x: f64) -> bool {
 
 /// Extracts the numeric value from an expression if it is a number.
 const fn get_numeric_value(expr: &RustExpr) -> Option<f64> {
-    if let crate::ExprKind::Number(n) = &expr.kind {
+    if let crate::core::ExprKind::Number(n) = &expr.kind {
         Some(*n)
     } else {
         None

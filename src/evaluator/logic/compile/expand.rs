@@ -1,5 +1,5 @@
 use crate::core::context::Context;
-use crate::{Expr, ExprKind};
+use crate::{Expr, core::ExprKind};
 use rustc_hash::FxHashSet;
 use std::sync::Arc;
 

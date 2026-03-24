@@ -1,8 +1,8 @@
 // Algebraic combination operations on validated expressions
 
 use super::super::core::{ExprKind, Rule, RuleCategory, RuleContext};
-use crate::core::traits::EPSILON;
-use crate::{Expr, ExprKind as AstKind};
+use crate::EPSILON;
+use crate::{Expr, core::ExprKind as AstKind};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::sync::Arc;
 

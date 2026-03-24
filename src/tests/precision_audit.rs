@@ -1,5 +1,5 @@
 use crate::parser::parse;
-use crate::{ExprKind, diff};
+use crate::{core::ExprKind, diff};
 use std::collections::{HashMap, HashSet};
 
 const REL_TOL: f64 = 1e-12; // Relative tolerance for standard functions (trig, exp, log)

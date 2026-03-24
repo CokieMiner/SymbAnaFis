@@ -1,5 +1,5 @@
 use crate::parser::parse;
-use crate::{Expr, ExprKind, diff};
+use crate::{Expr, core::ExprKind, diff};
 use std::collections::HashSet;
 
 #[test]

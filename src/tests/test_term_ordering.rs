@@ -1,6 +1,6 @@
 // Test to verify that hyperbolic conversion patterns handle different term orderings
 use crate::simplification::simplify_expr;
-use crate::{Expr, ExprKind};
+use crate::{Expr, core::ExprKind};
 
 #[cfg(test)]
 mod tests {

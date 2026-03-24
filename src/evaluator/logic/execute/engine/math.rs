@@ -1,6 +1,6 @@
 //! Helper math functions for evaluator-only special cases.
 
-use crate::core::traits::EPSILON;
+use crate::EPSILON;
 
 /// Compute sinc function with removable singularity handling.
 ///

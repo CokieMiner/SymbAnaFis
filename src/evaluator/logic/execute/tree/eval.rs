@@ -10,9 +10,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::Expr;
 use crate::core::expr::CustomEvalMap;
-use crate::core::symbol::InternedSymbol;
-use crate::{Expr, ExprKind};
+use crate::core::{ExprKind, symbol::InternedSymbol};
 
 /// Trait for variable value lookup during evaluation.
 ///
@@ -24,23 +24,15 @@ pub trait VarLookup {
 }
 
 // String-based lookup (backward compatible, convenient)
-impl VarLookup for HashMap<&str, f64> {
+impl<S: std::hash::BuildHasher> VarLookup for HashMap<&str, f64, S> {
     #[inline]
     fn get_value(&self, symbol: &InternedSymbol) -> Option<f64> {
         symbol.name().and_then(|name| self.get(name).copied())
     }
 }
 
-// ID-based lookup (fast, O(1) with FxHash)
-impl VarLookup for rustc_hash::FxHashMap<u64, f64> {
-    #[inline]
-    fn get_value(&self, symbol: &InternedSymbol) -> Option<f64> {
-        self.get(&symbol.id()).copied()
-    }
-}
-
-// Also support standard HashMap with u64 keys
-impl VarLookup for HashMap<u64, f64> {
+// ID-based lookup (fast, O(1) with custom or standard hasher)
+impl<S: std::hash::BuildHasher> VarLookup for HashMap<u64, f64, S> {
     #[inline]
     fn get_value(&self, symbol: &InternedSymbol) -> Option<f64> {
         self.get(&symbol.id()).copied()

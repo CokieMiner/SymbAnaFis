@@ -11,6 +11,8 @@ All notable changes to symb_anafis will be documented in this file.
   - `Simplify::with_context()` has been renamed to `Simplify::context()`.
 - **Python Bindings**:
   - Similar method renames in Python builders (e.g., `.with_context()` -> `.context()`).
+- **Batch Evaluation**:
+  - Batch and SIMD-based evaluation are now gated behind the `parallel` feature flag.
 
 ### Added
 
@@ -19,6 +21,9 @@ All notable changes to symb_anafis will be documented in this file.
   - Each major component now follows a clear separation between `api` (public traits/wrappers) and `logic` (internal implementation).
   - **`src/convenience`**: New module for high-level logic (calculus, evaluation helpers).
   - **`src/core/context`** and **`src/core/expr`**: Modular core structures with separate logic and test files.
+  - **Submodule Organization**: Re-organized `src/evaluator/logic/execute/` flat files into structured `engine/`, `drivers/`, and `tree/` subdirectories for better modularity.
+  - **Constant Consolidation**: Moved global crate constants (`DEFAULT_MAX_DEPTH`, `DEFAULT_MAX_NODES`, and `EPSILON`) into `src/lib.rs` and refactored dependent imports to use the crate root directly.
+  - **Encapsulate Boundaries**: Moved `ExprKind` out of the root level back into `crate::core::ExprKind` to enforce strict architectural separation between core items and high-level APIs.
 - **Enhanced Evaluator Pipeline**:
   - Division of compilation into discrete stages: `expand` → `reg_alloc` → `optimize`.
   - New optimization passes: `dce` (Dead Code Elimination), `fusion` (Instruction Fusion), `strength_reduction`, and `power_chain` optimization.

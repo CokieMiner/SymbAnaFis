@@ -2,7 +2,7 @@
 //! Tests cover: constants, trig, hyperbolic, inverse trig/hyp, exp/log,
 //! special functions (gamma, bessel, erf, zeta), and two-argument functions
 
-use crate::{ExprKind, parser::parse};
+use crate::{core::ExprKind, parser::parse};
 use std::collections::{HashMap, HashSet};
 
 const EPSILON: f64 = 1e-6;

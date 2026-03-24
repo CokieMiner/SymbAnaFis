@@ -1,5 +1,5 @@
 use crate::simplification::simplify_expr;
-use crate::{Expr, ExprKind};
+use crate::{Expr, core::ExprKind};
 use std::collections::{HashMap, HashSet};
 
 #[test]

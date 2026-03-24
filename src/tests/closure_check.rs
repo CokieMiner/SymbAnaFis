@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::{ExprKind, diff, parser};
+    use crate::{core::ExprKind, diff, parser};
     use std::collections::{HashMap, HashSet};
 
     #[test]

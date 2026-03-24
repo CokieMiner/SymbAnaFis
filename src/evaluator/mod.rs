@@ -9,7 +9,4 @@
 mod api;
 pub mod logic;
 
-#[cfg(feature = "parallel")]
-pub use logic::execute::parallel;
-
 pub use api::*;

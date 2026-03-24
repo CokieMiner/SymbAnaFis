@@ -4,7 +4,7 @@
 //! These are not mathematical correctness tests, but API design tests.
 
 use crate::parser::parse as parser_parse;
-use crate::{Diff, Expr, ExprKind, Simplify, diff, symb};
+use crate::{Diff, Expr, core::ExprKind, Simplify, diff, symb};
 use std::collections::{HashMap, HashSet};
 
 // ============================================================================

@@ -145,7 +145,7 @@ pub fn relative_uncertainty(
 // Covariance Matrix Data Structures
 // ============================================================================
 
-use crate::core::traits::EPSILON;
+use crate::EPSILON;
 
 /// Covariance matrix entry - can be numeric or symbolic
 #[derive(Debug, Clone)]

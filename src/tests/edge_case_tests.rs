@@ -78,7 +78,7 @@ mod number_parsing {
 
 mod parentheses_edge_cases {
 
-    use crate::ExprKind;
+    use crate::core::ExprKind;
     use crate::diff;
     use std::collections::HashSet;
 

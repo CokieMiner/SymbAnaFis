@@ -4,7 +4,7 @@
 //! cycle detection, and configurable limits (iterations, depth).
 
 use super::rules::{ExprKind, RuleContext, RuleRegistry};
-use crate::{Expr, ExprKind as AstKind};
+use crate::{Expr, core::ExprKind as AstKind};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};

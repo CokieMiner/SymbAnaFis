@@ -336,7 +336,7 @@ fn bench_eval_apis(c: &mut Criterion) {
     // ---------------------------------------------------------------------
     group.bench_function("evaluate_parallel", |b| {
         // Prepare inputs in the format evaluate_parallel expects
-        use symb_anafis::parallel::{EvalResult, ExprInput, Value, VarInput, evaluate_parallel};
+        use symb_anafis::{EvalResult, ExprInput, Value, VarInput, evaluate_parallel};
 
         let exprs = vec![ExprInput::Parsed(diff_expr.clone())];
 

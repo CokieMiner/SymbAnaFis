@@ -4,7 +4,7 @@
 //! We verify both symbolic output and numerical evaluation at test points.
 
 use crate::parser::parse as parser_parse;
-use crate::{ExprKind, Simplify, diff};
+use crate::{core::ExprKind, Simplify, diff};
 use std::collections::{HashMap, HashSet};
 
 /// Helper to evaluate expression at x=val

@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::simplify as simplify_string;
-    use crate::{Expr, ExprKind, parser::parse};
+    use crate::{Expr, core::ExprKind, parser::parse};
     use std::collections::HashSet;
 
     // NOTE: The e^a → exp(a) rule has been intentionally removed to avoid

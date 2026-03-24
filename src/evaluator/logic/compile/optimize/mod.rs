@@ -3,16 +3,13 @@ use crate::core::error::DiffError;
 use crate::evaluator::CompiledEvaluator;
 use crate::evaluator::logic::instruction::Instruction;
 
-pub mod compact;
-pub mod dce;
-pub mod fusion;
-pub mod helper;
-pub mod poly_share;
-pub mod power_chain;
-pub mod strength_reduction;
-
-#[cfg(test)]
-mod tests;
+pub(super) mod compact;
+pub(super) mod dce;
+pub(super) mod fusion;
+pub(super) mod helper;
+pub(super) mod poly_share;
+pub(super) mod power_chain;
+pub(super) mod strength_reduction;
 
 impl CompiledEvaluator {
     /// Post-compilation optimization pass that fuses instruction patterns.

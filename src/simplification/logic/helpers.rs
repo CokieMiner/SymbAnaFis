@@ -3,9 +3,9 @@
 //! Provides expression manipulation utilities: flattening, normalization,
 //! coefficient extraction, root prettification, and like-term grouping.
 
+use crate::EPSILON;
 use crate::core::known_symbols as ks;
-use crate::core::traits::EPSILON;
-use crate::{Expr, ExprKind};
+use crate::{Expr, core::ExprKind};
 use std::f64::consts::PI;
 use std::sync::Arc;
 
@@ -127,7 +127,9 @@ pub fn is_three_pi_over_two(expr: &Expr) -> bool {
 /// Used to establish a consistent term order in sums and products
 /// for algebraic simplification rules.
 pub fn compare_expr(a: &Expr, b: &Expr) -> std::cmp::Ordering {
-    use crate::ExprKind::{Derivative, Div, FunctionCall, Number, Poly, Pow, Product, Sum, Symbol};
+    use crate::core::ExprKind::{
+        Derivative, Div, FunctionCall, Number, Poly, Pow, Product, Sum, Symbol,
+    };
     use std::cmp::Ordering;
 
     /// Extract (`base_name`, degree) for polynomial-style ordering.
@@ -198,7 +200,9 @@ pub fn compare_expr(a: &Expr, b: &Expr) -> std::cmp::Ordering {
 /// Compare multiplication factors for canonical ordering.
 /// Used for organizing terms in products during simplification.
 pub fn compare_mul_factors(a: &Expr, b: &Expr) -> std::cmp::Ordering {
-    use crate::ExprKind::{Derivative, Div, FunctionCall, Number, Poly, Pow, Product, Sum, Symbol};
+    use crate::core::ExprKind::{
+        Derivative, Div, FunctionCall, Number, Poly, Pow, Product, Sum, Symbol,
+    };
     use std::cmp::Ordering;
 
     fn factor_priority(e: &Expr) -> i32 {

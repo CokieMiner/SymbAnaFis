@@ -11,10 +11,10 @@
 //!
 //! This module provides vectorized evaluation using `wide::f64x4` (4-wide SIMD).
 
+use super::super::super::instruction::{FnOp, Instruction};
 use super::math as eval_math;
 use crate::core::error::DiffError;
 use crate::evaluator::CompiledEvaluator;
-use crate::evaluator::logic::instruction::{FnOp, Instruction};
 use wide::f64x4;
 
 const INLINE_SIMD_REGISTERS: usize = 64;

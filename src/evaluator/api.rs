@@ -6,8 +6,13 @@
 //! - [`ToParamName`] — trait for types usable as parameter names
 //! - [`eval_f64`] — parallel batch evaluation over multiple expressions (requires `parallel` feature)
 
-use super::logic::compile::{Compiler, expand::expand_user_functions};
+pub use super::logic::VarLookup;
 use super::logic::instruction::Instruction;
+use super::logic::{Compiler, expand_user_functions};
+
+#[cfg(feature = "parallel")]
+pub use super::logic::{EvalResult, ExprInput, SKIP, Value, VarInput, evaluate_parallel};
+
 use crate::{
     Expr,
     core::{context::Context, error::DiffError},
@@ -296,7 +301,7 @@ pub fn eval_f64<V: ToParamName + Sync>(
     (0..exprs.len())
         .into_par_iter()
         .map(|expr_idx| {
-            super::logic::execute::batch::eval_single_expr_chunked(
+            super::logic::eval_single_expr_chunked(
                 exprs[expr_idx],
                 var_names[expr_idx],
                 data[expr_idx],

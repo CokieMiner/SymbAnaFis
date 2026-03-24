@@ -1,5 +1,5 @@
 use crate::parser::parse as parser_parse;
-use crate::{CompiledEvaluator, Expr, ExprKind, Simplify, diff};
+use crate::{CompiledEvaluator, Expr, core::ExprKind, Simplify, diff};
 use std::collections::{HashMap, HashSet};
 use std::f64::consts::PI;
 

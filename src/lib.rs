@@ -199,22 +199,22 @@
 // ============================================================================
 
 // Core infrastructure
-mod core; // Core types: Expr, Symbol, Error, Display, Visitor
-mod parser; // String-to-AST parsing
+mod core;
+mod parser;
 
 // Computation engines
-mod diff; // Differentiation engine
-mod evaluator; // Compiled evaluator
-mod simplification; // Expression simplification
+mod diff;
+mod evaluator;
+mod simplification;
 
 // Function and math support
-mod functions; // Function definitions and registry
-mod math; // Mathematical function implementations
-mod uncertainty; // Uncertainty propagation
+mod functions;
+mod math;
+mod uncertainty;
 
 // User-facing APIs
-mod bindings; // External bindings (Python)
-mod convenience; // Convenience one-call APIs
+mod bindings;
+mod convenience;
 
 // ============================================================================
 // Feature Flags Documentation
@@ -298,14 +298,14 @@ pub use core::visitor;
 // === 5. High-Performance Evaluation ===
 
 /// High-performance compiled evaluator for repeated numeric computations.
-pub use evaluator::{CompiledEvaluator, EvaluatorBuilder, ToParamName};
+pub use evaluator::{CompiledEvaluator, EvaluatorBuilder, ToParamName, VarLookup};
 
 /// High-performance parallel evaluation (requires `parallel` feature).
 /// Enables automatic chunked parallel execution with SIMD vectorization.
 #[cfg(feature = "parallel")]
 pub use evaluator::eval_f64;
 #[cfg(feature = "parallel")]
-pub use evaluator::parallel;
+pub use evaluator::{EvalResult, ExprInput, SKIP, Value, VarInput, evaluate_parallel};
 
 // ============================================================================
 // Constants
@@ -319,25 +319,12 @@ pub(crate) const DEFAULT_MAX_DEPTH: usize = 100;
 /// This limit prevents memory exhaustion from extremely large expressions.
 pub(crate) const DEFAULT_MAX_NODES: usize = 10_000;
 
-// ============================================================================
-// Internal Re-exports (for crate use only)
-// ============================================================================
-
-// ExprKind is NOT re-exported at the crate root to encourage use of Expr constructors
-// (Expr::sum, Expr::product, etc.) instead of direct ExprKind construction.
-// IMPORTANT: ExprKind is currently NOT accessible from outside this crate because
-// the `core` module is private. This means users cannot pattern match on ExprKind
-// variants or write custom formatters/backparsers. See issue for discussion and for future plans to expose ExprKind in a controlled way if needed:
-// This pub(crate) re-export is only for internal crate usage.
-pub(crate) use core::ExprKind;
-
-// ============================================================================
-// Test Module
-// ============================================================================
+/// Tolerance for floating-point comparisons (used throughout expression operations)
+pub const EPSILON: f64 = 1e-14;
 
 #[cfg(test)]
 #[allow(missing_docs)]
 #[allow(clippy::pedantic, clippy::nursery, clippy::restriction)]
 #[allow(clippy::cast_possible_truncation, clippy::float_cmp)]
-#[allow(clippy::print_stdout, clippy::unwrap_used)] // Standard in tests
+#[allow(clippy::print_stdout, clippy::unwrap_used)]
 mod tests;

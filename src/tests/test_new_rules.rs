@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::core::known_symbols::KS;
-    use crate::{Expr, ExprKind, simplification::simplify_expr};
+    use crate::{Expr, core::ExprKind, simplification::simplify_expr};
     use std::collections::{HashMap, HashSet};
 
     #[test]

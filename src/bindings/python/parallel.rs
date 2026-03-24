@@ -5,7 +5,10 @@
 #[cfg(feature = "parallel")]
 use crate::bindings::python::expr::PyExpr;
 #[cfg(feature = "parallel")]
-use crate::parallel::{self, ExprInput, Value, VarInput};
+use crate::evaluator::{EvalResult, ExprInput, Value, VarInput};
+
+#[cfg(feature = "parallel")]
+use crate::evaluator::logic::evaluate_parallel_with_hint;
 #[cfg(feature = "parallel")]
 use numpy::PyReadonlyArray1;
 #[cfg(feature = "parallel")]
@@ -15,8 +18,9 @@ use pyo3::prelude::*;
 #[cfg(feature = "parallel")]
 pub mod parallel_impl {
     use super::{
-        Bound, ExprInput, IntoPyObject, Py, PyAny, PyAnyMethods, PyErr, PyExpr, PyReadonlyArray1,
-        PyResult, Python, Value, VarInput, parallel, pyfunction,
+        Bound, EvalResult, ExprInput, IntoPyObject, Py, PyAny, PyAnyMethods, PyErr, PyExpr,
+        PyReadonlyArray1, PyResult, Python, Value, VarInput, evaluate_parallel_with_hint,
+        pyfunction,
     };
 
     /// Parallel evaluation of multiple expressions at multiple points.
@@ -109,49 +113,40 @@ pub mod parallel_impl {
             .collect();
 
         // Use the hint-based version to skip double-scan
-        let results: Vec<Vec<parallel::EvalResult>> = parallel::evaluate_parallel_with_hint(
-            exprs,
-            vars,
-            converted_values,
-            Some(is_fully_numeric),
-        )?;
+        let results: Vec<Vec<EvalResult>> =
+            evaluate_parallel_with_hint(exprs, vars, converted_values, Some(is_fully_numeric))?;
 
         // Convert Rust results to Python objects
         results
             .into_iter()
             .zip(was_expr.iter())
             .map(
-                |(expr_results, &input_was_expr): (Vec<parallel::EvalResult>, &bool)| {
+                |(expr_results, &input_was_expr): (Vec<EvalResult>, &bool)| {
                     expr_results
                         .into_iter()
                         .map(|r| -> PyResult<Py<PyAny>> {
                             Ok(match r {
-                                parallel::EvalResult::String(s) => {
-                                    if let Ok(n) = s.parse::<f64>() {
-                                        // Numeric result → float
-                                        let val: Bound<'_, pyo3::types::PyFloat> =
-                                            n.into_pyobject(py)?;
+                                EvalResult::String(s) => s.parse::<f64>().map_or_else(
+                                    |_| {
+                                        let val = pyo3::types::PyString::new(py, &s);
                                         val.into_any().unbind()
-                                    } else {
-                                        // Symbolic result → str
-                                        let val: Bound<'_, pyo3::types::PyString> =
-                                            s.into_pyobject(py)?;
+                                    },
+                                    |n| {
+                                        let val = pyo3::types::PyFloat::new(py, n);
                                         val.into_any().unbind()
-                                    }
-                                }
-                                parallel::EvalResult::Expr(e) => {
-                                    if let crate::ExprKind::Number(n) = &e.kind {
-                                        // Numeric result → float
-                                        let val: Bound<'_, pyo3::types::PyFloat> =
-                                            n.into_pyobject(py)?;
+                                    },
+                                ),
+                                EvalResult::Expr(e) => {
+                                    if let crate::core::ExprKind::Number(n) = &e.kind {
+                                        let val = pyo3::types::PyFloat::new(py, *n);
                                         val.into_any().unbind()
                                     } else if input_was_expr {
-                                        // Symbolic result, input was Expr → Expr
                                         let val: Bound<'_, PyExpr> = PyExpr(e).into_pyobject(py)?;
                                         val.into_any().unbind()
                                     } else {
-                                        // Symbolic result, input was str → str
-                                        e.to_string().into_pyobject(py)?.into_any().unbind()
+                                        pyo3::types::PyString::new(py, &e.to_string())
+                                            .into_any()
+                                            .unbind()
                                     }
                                 }
                             })

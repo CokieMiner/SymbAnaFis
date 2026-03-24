@@ -1,6 +1,6 @@
 use super::super::core::{ExprKind, Rule, RuleCategory, RuleContext};
 use crate::core::known_symbols::KS;
-use crate::{Expr, ExprKind as AstKind};
+use crate::{Expr, core::ExprKind as AstKind};
 use std::sync::Arc;
 
 rule_arc!(ExpLnRule, "exp_ln", 80, Algebraic, &[ExprKind::Function], alters_domain: true, |expr: &Expr, _context: &RuleContext| {

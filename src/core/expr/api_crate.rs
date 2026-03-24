@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use super::api_user::{Expr, ExprKind};
 
 pub use super::logic::hash::{compute_expr_hash, compute_term_hash};
-pub use crate::core::traits::EPSILON;
+pub use crate::EPSILON;
 
 // ============================================================================
 // Expression ID counter

@@ -16,6 +16,6 @@ fn test_merging_terms() {
     println!("Size of Expr: {} bytes", std::mem::size_of::<crate::Expr>());
     println!(
         "Size of ExprKind: {} bytes",
-        std::mem::size_of::<crate::ExprKind>()
+        std::mem::size_of::<crate::core::ExprKind>()
     );
 }

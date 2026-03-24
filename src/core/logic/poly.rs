@@ -3,8 +3,8 @@
 //! Provides efficient polynomial operations with any expression as base.
 //! The base is stored once; terms are just (power, coefficient) pairs.
 
-use crate::core::traits::EPSILON;
-use crate::{Expr, ExprKind};
+use crate::EPSILON;
+use crate::{Expr, core::ExprKind};
 use std::sync::Arc;
 
 // =============================================================================

@@ -1,8 +1,8 @@
 use super::super::core::{ExprKind, Rule, RuleCategory, RuleContext};
+use crate::EPSILON;
 use crate::Expr;
-use crate::ExprKind as AstKind;
+use crate::core::ExprKind as AstKind;
 use crate::core::known_symbols::KS;
-use crate::core::traits::EPSILON;
 use std::sync::Arc;
 
 // ===== Identity Rules for Sum (Priority 100) =====

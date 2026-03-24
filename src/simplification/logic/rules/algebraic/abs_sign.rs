@@ -1,6 +1,6 @@
 use super::super::core::{ExprKind, Rule, RuleCategory, RuleContext};
 use crate::core::known_symbols::{KS, get_symbol};
-use crate::{Expr, ExprKind as AstKind};
+use crate::{Expr, core::ExprKind as AstKind};
 use std::sync::Arc;
 
 rule_arc!(

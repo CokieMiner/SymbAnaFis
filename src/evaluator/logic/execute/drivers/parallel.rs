@@ -712,10 +712,10 @@ macro_rules! eval_parallel {
         vars: [$([$($v:expr),* $(,)?]),* $(,)?],
         values: [$([$([$($val:expr),* $(,)?]),* $(,)?]),* $(,)?]
     ) => {{
-        $crate::parallel::evaluate_parallel(
-            vec![$($crate::parallel::ExprInput::from($e)),*],
-            vec![$(vec![$($crate::parallel::VarInput::from($v)),*]),*],
-            vec![$(vec![$(vec![$($crate::parallel::Value::from($val)),*]),*]),*],
+        $crate::evaluator::evaluate_parallel(
+            vec![$($crate::evaluator::ExprInput::from($e)),*],
+            vec![$(vec![$($crate::evaluator::VarInput::from($v)),*]),*],
+            vec![$(vec![$(vec![$($crate::evaluator::Value::from($val)),*]),*]),*],
         )
     }};
 }
@@ -727,7 +727,7 @@ macro_rules! eval_parallel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ExprKind, symb};
+    use crate::{core::ExprKind, symb};
 
     fn get_num(expr: &Expr) -> f64 {
         match &expr.kind {

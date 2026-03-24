@@ -3,14 +3,12 @@
 //! Provides `MathScalar` trait aggregating all numeric operations, and
 //! tolerance-based comparison functions for floating-point values.
 
+use crate::EPSILON;
 use num_traits::{Float, FloatConst, FromPrimitive, Signed, ToPrimitive};
 use std::fmt::{Debug, Display};
 use std::ops::{
     Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
 };
-
-/// Tolerance for floating-point comparisons (used throughout expression operations)
-pub const EPSILON: f64 = 1e-14;
 
 /// A trait comprising all operations required for mathematical scalars
 /// in the `SymbAnaFis` library.

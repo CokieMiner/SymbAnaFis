@@ -1,5 +1,5 @@
 use crate::Expr;
-use crate::ExprKind as AstKind;
+use crate::core::ExprKind as AstKind;
 use crate::core::context::BodyFn;
 use rustc_hash::FxHashMap;
 use std::sync::Arc;

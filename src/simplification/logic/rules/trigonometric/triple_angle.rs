@@ -1,7 +1,7 @@
 use super::super::core::{ExprKind, Rule, RuleCategory, RuleContext};
 use crate::core::expr::{Expr, ExprKind as AstKind};
 use crate::core::known_symbols::{KS, get_symbol};
-use crate::core::traits::EPSILON;
+use crate::EPSILON;
 
 /// Checks for the triple angle pattern 3*sin(x) - 4*sin^3(x).
 fn check_sin_triple(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {

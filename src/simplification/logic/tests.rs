@@ -99,7 +99,7 @@ mod rule_registry_tests {
 )]
 mod debug_factoring_logic_tests {
     use super::super::helpers;
-    use crate::{Expr, ExprKind};
+    use crate::{Expr, core::ExprKind};
 
     #[test]
     fn debug_perfect_square_logic() {

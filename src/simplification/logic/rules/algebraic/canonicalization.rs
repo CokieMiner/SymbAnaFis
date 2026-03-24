@@ -1,6 +1,6 @@
 use super::super::core::{ExprKind, Rule, RuleCategory, RuleContext};
-use crate::core::traits::EPSILON;
-use crate::{Expr, ExprKind as AstKind};
+use crate::EPSILON;
+use crate::{Expr, core::ExprKind as AstKind};
 use std::sync::Arc;
 
 // Note: With n-ary Sum and Product, canonicalization is simpler.

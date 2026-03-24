@@ -17,7 +17,7 @@
 
 use crate::core::context::Context;
 use crate::core::known_symbols as ks;
-use crate::{Expr, ExprKind};
+use crate::{Expr, core::ExprKind};
 use std::sync::Arc;
 
 impl Expr {

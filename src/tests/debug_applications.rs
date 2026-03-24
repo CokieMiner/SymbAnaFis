@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::ExprKind;
+    use crate::core::ExprKind;
     use crate::parser::parse;
     use crate::simplify;
     use std::collections::HashSet;

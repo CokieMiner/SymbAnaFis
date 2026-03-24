@@ -105,7 +105,7 @@ mod api_tests {
 )]
 mod engine_tests {
     use crate::core::known_symbols as ks;
-    use crate::{Expr, ExprKind};
+    use crate::{Expr, core::ExprKind};
 
     #[test]
     fn test_derive_sinh() {

@@ -8,8 +8,8 @@
 use super::registry::CONST_FOLD_MAP;
 use super::vir::VReg;
 use crate::core::known_symbols::KS;
-use crate::core::traits::EPSILON;
-use crate::{Expr, ExprKind};
+use crate::EPSILON;
+use crate::{Expr, core::ExprKind};
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
 

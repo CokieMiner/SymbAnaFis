@@ -1,7 +1,7 @@
 use quickcheck::{Arbitrary, Gen, QuickCheck, TestResult};
 use std::collections::HashSet;
 
-use crate::{ExprKind, diff, parser, simplify};
+use crate::{core::ExprKind, diff, parser, simplify};
 
 // ============================================================
 // PART 1: EXPRESSION GENERATORS FOR PROPERTY TESTS

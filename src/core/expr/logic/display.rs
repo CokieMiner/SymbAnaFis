@@ -25,8 +25,8 @@
 //! - Derivatives use ∂ notation
 
 use crate::core::known_symbols as ks;
-use crate::core::traits::EPSILON;
-use crate::{Expr, ExprKind};
+use crate::EPSILON;
+use crate::{Expr, core::ExprKind};
 use rustc_hash::FxHashMap;
 use std::fmt;
 use std::sync::Arc;

@@ -21,7 +21,7 @@
 //! }
 //! ```
 
-use crate::{Expr, ExprKind};
+use crate::{Expr, core::ExprKind};
 use std::borrow::Cow;
 use std::sync::Arc;
 

@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::{Expr, ExprKind, simplification::simplify_expr};
+    use crate::{Expr, core::ExprKind, simplification::simplify_expr};
     use std::collections::{HashMap, HashSet};
     use std::sync::Arc;
 

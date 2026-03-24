@@ -1,4 +1,5 @@
-use crate::core::{expr::EPSILON, traits::MathScalar};
+use crate::EPSILON;
+use crate::core::traits::MathScalar;
 use core::cmp::Ordering;
 
 /// Complete elliptic integral of the first kind K(k)

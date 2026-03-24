@@ -1,6 +1,6 @@
 use super::super::core::{ExprKind, Rule, RuleCategory, RuleContext};
-use crate::core::traits::EPSILON;
-use crate::{Expr, ExprKind as AstKind};
+use crate::EPSILON;
+use crate::{Expr, core::ExprKind as AstKind};
 use std::sync::Arc;
 
 rule_arc!(DivSelfRule, "div_self", 78, Algebraic, &[ExprKind::Div], alters_domain: true, |expr: &Expr, _context: &RuleContext| {
