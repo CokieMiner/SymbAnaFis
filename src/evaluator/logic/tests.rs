@@ -21,7 +21,7 @@
 
 use super::*;
 use crate::core::error::DiffError;
-use crate::evaluator::logic::instruction::Instruction;
+use crate::evaluator::logic::bytecode::instruction::Instruction;
 use crate::{Expr, parser};
 use std::collections::HashSet;
 use std::fmt::Write;
@@ -556,7 +556,7 @@ fn test_normal_pdf_derivative_uses_expneg_fusion() {
     assert!(eval.instructions.iter().any(|i| matches!(
         i,
         Instruction::Builtin1 {
-            op: crate::evaluator::logic::instruction::FnOp::ExpNeg,
+            op: crate::evaluator::logic::bytecode::instruction::FnOp::ExpNeg,
             ..
         } | Instruction::ExpSqrNeg { .. }
     )));

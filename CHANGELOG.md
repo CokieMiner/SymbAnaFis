@@ -34,6 +34,10 @@ All notable changes to symb_anafis will be documented in this file.
 - **`Expr::variables_ordered()`**: New method to collect all variable names in order of first appearance (pre-order traversal).
 - **Improved `erfc` accuracy**: Implemented `eval_erfc` using continued fractions for large arguments ($x \ge 1.5$) to maintain ~15 digits of relative precision and avoid catastrophic cancellation.
 - **Flamegraph Profiling**: Added dedicated benchmarking and profiling examples (`flamegraph_benchmarks.rs`, `flamegraph_compile_eval.rs`, `flamegraph_profile.rs`).
+- **Paradigm-Oriented Architectural Refactor**: Reorganized `src/evaluator/logic/` by execution paradigm:
+  - `bytecode/`: Master-stream consolidating `compile/` and `execute/` with Virtual IR hooks.
+  - `tree/`: Dedicated module layer isolating tree evaluator interpreters.
+- **Granular Dispatcher Pipeline**: Decomposed the large monolithic `codegen/lower.rs` file into a modular suite (`sum.rs`, `product.rs`, `pow.rs`, etc.) to enforce declarative maintenance.
 
 ### Changed
 
@@ -49,6 +53,8 @@ All notable changes to symb_anafis will be documented in this file.
 - **Mathematical Domain Errors**: Refactored special functions to return `Some(NaN)` instead of `None` on domain errors (e.g., negative arguments for logarithms or Bessel Y/K). This ensures IEEE-754 style propagation through arithmetic rather than aborting evaluation.
 - **Mathematical Poles**: Functions with known poles (`gamma`, `digamma`, `trigamma`, `tetragamma`, `zeta`) now return `Some(±infinity)` with the correct directional sign instead of `None` when evaluated exactly at the pole.
 - **Dual Number Arithmetic**: Automatic differentiation (`Dual` numbers) now propagates `NaN` values for derivatives at domain boundaries instead of short-circuiting with `None`.
+- **Strict Encapsulation Boundary**: Tightened high-level backend modularity from fully public to internal crate visibility (`pub(crate) mod logic;` inside `evaluator/mod.rs`).
+- **Inlining Traversal Optimization**: Added `#[inline]` guidelines on `vir/node.rs` micro patterns to minimize function setups on massive trees.
 
 ### Fixed
 

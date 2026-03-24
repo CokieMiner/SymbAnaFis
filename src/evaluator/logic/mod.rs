@@ -1,19 +1,18 @@
 //! Evaluator Implementation Details (Core Engines)
 
-pub mod compile;
-pub(super) mod execute;
-pub mod instruction;
+pub mod bytecode;
+pub mod tree;
 
 // Re-exports for api.rs / Evaluator API Boundary
-pub use compile::Compiler;
-pub use compile::expand::expand_user_functions;
+pub use bytecode::compile::Compiler;
+pub use bytecode::compile::codegen::expand::expand_user_functions;
 
 #[cfg(feature = "parallel")]
-pub use execute::batch::eval_single_expr_chunked;
+pub use bytecode::execute::drivers::batch::eval_single_expr_chunked;
 
 #[cfg(feature = "parallel")]
-pub use execute::parallel::{
+pub use bytecode::execute::drivers::parallel::{
     EvalResult, ExprInput, SKIP, Value, VarInput, evaluate_parallel, evaluate_parallel_with_hint,
 };
 
-pub use execute::tree::VarLookup;
+pub use tree::eval::VarLookup;

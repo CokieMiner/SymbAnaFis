@@ -7,7 +7,7 @@
 //! - [`eval_f64`] — parallel batch evaluation over multiple expressions (requires `parallel` feature)
 
 pub use super::logic::VarLookup;
-use super::logic::instruction::Instruction;
+use super::logic::bytecode::Instruction;
 use super::logic::{Compiler, expand_user_functions};
 
 #[cfg(feature = "parallel")]
