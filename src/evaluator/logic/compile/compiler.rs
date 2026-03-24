@@ -472,10 +472,10 @@ impl Compiler {
         }
         self.vinstrs = optimized;
 
-        if let Some(f) = &mut self.final_vreg {
-            if let Some(&canonical) = alias.get(f) {
-                *f = canonical;
-            }
+        if let Some(f) = &mut self.final_vreg
+            && let Some(&canonical) = alias.get(f)
+        {
+            *f = canonical;
         }
     }
 

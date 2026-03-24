@@ -237,7 +237,7 @@ impl VInstruction {
     }
 
     /// Sets the destination register of this instruction.
-    pub fn set_dest(&mut self, new_dest: VReg) {
+    pub const fn set_dest(&mut self, new_dest: VReg) {
         match self {
             Self::Add { dest, .. }
             | Self::Add2 { dest, .. }

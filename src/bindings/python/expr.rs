@@ -9,8 +9,8 @@
     reason = "PyO3 from_py_object macro generates lifetimes"
 )]
 
-use crate::Expr as RustExpr;
 use crate::EPSILON;
+use crate::Expr as RustExpr;
 use pyo3::prelude::*;
 
 /// Python wrapper for symbolic expressions

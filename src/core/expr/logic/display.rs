@@ -24,8 +24,8 @@
 //! - `e^x` is always displayed as `exp(x)` for consistency
 //! - Derivatives use ∂ notation
 
-use crate::core::known_symbols as ks;
 use crate::EPSILON;
+use crate::core::known_symbols as ks;
 use crate::{Expr, core::ExprKind};
 use rustc_hash::FxHashMap;
 use std::fmt;

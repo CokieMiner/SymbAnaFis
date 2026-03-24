@@ -4,7 +4,7 @@
 //! This catches errors where symbolic form is mathematically correct but evaluation fails.
 
 use crate::parser::parse as parser_parse;
-use crate::{core::ExprKind, Simplify, diff};
+use crate::{Simplify, core::ExprKind, diff};
 use std::collections::{HashMap, HashSet};
 
 /// Compute numerical derivative using central differences

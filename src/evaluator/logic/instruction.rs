@@ -361,7 +361,6 @@ pub enum Instruction {
         const_idx: u32,
     },
 
-
     RecipExpm1 {
         dest: u32,
         src: u32,

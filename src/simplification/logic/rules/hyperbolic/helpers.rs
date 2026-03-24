@@ -1,6 +1,6 @@
+use crate::EPSILON;
 use crate::core::expr::{Expr, ExprKind as AstKind};
 use crate::core::known_symbols::KS;
-use crate::EPSILON;
 use std::sync::Arc;
 
 // ============================================================================

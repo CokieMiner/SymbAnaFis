@@ -1,6 +1,6 @@
 use super::super::core::{ExprKind, Rule, RuleCategory, RuleContext};
-use crate::core::known_symbols::KS;
 use crate::EPSILON;
+use crate::core::known_symbols::KS;
 use crate::{Expr, core::ExprKind as AstKind};
 
 rule!(

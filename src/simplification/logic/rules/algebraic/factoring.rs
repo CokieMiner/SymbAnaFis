@@ -1,7 +1,7 @@
 use super::super::core::{ExprKind, Rule, RuleCategory, RuleContext};
+use crate::EPSILON;
 use crate::core::known_symbols::KS;
 use crate::core::poly::Polynomial;
-use crate::EPSILON;
 use crate::{Expr, core::ExprKind as AstKind};
 use rustc_hash::FxHashMap;
 use std::sync::Arc;

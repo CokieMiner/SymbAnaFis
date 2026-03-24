@@ -1,8 +1,8 @@
 use super::super::core::{ExprKind, Rule, RuleCategory, RuleContext};
 use super::helpers::get_trig_function;
+use crate::EPSILON;
 use crate::core::expr::{Expr, ExprKind as AstKind};
 use crate::core::known_symbols::{KS, get_symbol};
-use crate::EPSILON;
 use crate::simplification::helpers;
 
 rule!(

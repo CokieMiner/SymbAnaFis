@@ -3,7 +3,7 @@
 //! Tests all public APIs and verifies numerical accuracy of all implemented functions.
 
 use crate::parser::parse as parser_parse;
-use crate::{Diff, Expr, core::ExprKind, Simplify, diff, simplify, symb};
+use crate::{Diff, Expr, Simplify, core::ExprKind, diff, simplify, symb};
 use std::collections::{HashMap, HashSet};
 
 const EPSILON: f64 = 1e-9;
