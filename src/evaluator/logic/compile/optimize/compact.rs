@@ -70,18 +70,6 @@ fn collect_used_constant_indices(
             | Instruction::ConstDiv { const_idx, .. } => {
                 used_pool_indices.insert(*const_idx);
             }
-            #[allow(
-                clippy::cast_possible_truncation,
-                reason = "Degree and polynomial length fit in u32 and are strictly positive"
-            )]
-            Instruction::PolyEval {
-                const_idx, degree, ..
-            } => {
-                let start = *const_idx as usize;
-                for offset in 0..=*degree as usize {
-                    used_pool_indices.insert((start + offset) as u32);
-                }
-            }
             _ => {}
         }
     }
@@ -169,8 +157,7 @@ fn remap_instruction_consts(instr: &mut Instruction, index_map: &rustc_hash::FxH
         | Instruction::ConstSub { const_idx, .. }
         | Instruction::DivConst { const_idx, .. }
         | Instruction::ConstDiv { const_idx, .. }
-        | Instruction::NegMulConst { const_idx, .. }
-        | Instruction::PolyEval { const_idx, .. } => {
+        | Instruction::NegMulConst { const_idx, .. } => {
             if let Some(&new_idx) = index_map.get(const_idx) {
                 *const_idx = new_idx;
             }

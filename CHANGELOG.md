@@ -89,6 +89,10 @@ All notable changes to symb_anafis will be documented in this file.
   - `prettify_roots`, `normalize_for_comparison`, `is_known_non_negative` (simplification helpers) — use a Visit/Assemble two-stack post-order pattern for owned transforms.
 - **`can_apply()` pre-check on `Rule` trait**: New default method returns `true`; the engine calls it before `apply()` on cache-miss. Avoids building the call frame and cache insertion for non-matching expressions. Implemented for `PerfectSquareRule` (skip sums with ≠2–3 terms) and `PolyGcdSimplifyRule` (skip plain-number numerator/denominator).
 - **Simplifier `max_depth` raised to 200**: Up from 50 to accommodate deeper expressions that previously hit the limit prematurely.
+- **Streamlined Polynomial Evaluation**: Removed opaque `PolyEval` instruction from entire pipeline in favor of in-line arithmetic chains to improve downstream fusion transparency.
+- **Estrin's Scheme Tree Expansion**: Reconfigured polynomial expansion for degree $\ge 4$ to build a balanced, logarithmic arithmetic tree for better superscalar pipeline depth utilization.
+- **Instruction-Level CSE (GVN)**: Implemented forward-iteration Global Value Numbering pass on Virtual IR to deduplicate algebraic redundancies escaping top-level AST-structural caches.
+- **Commutative Normalization**: Enabled GVN to sort commutative operands of virtual instructions, boosting redundancy matches for commutative pairs.
 
 
 ## [0.8.1] - 2026-02-15

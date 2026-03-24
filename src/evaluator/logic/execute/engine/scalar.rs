@@ -456,21 +456,6 @@ impl CompiledEvaluator {
                     let c = *self.constants.get_unchecked(const_idx as usize);
                     *registers.get_unchecked_mut(dest as usize) = (-va).mul_add(vb, c);
                 },
-                Instruction::PolyEval {
-                    dest,
-                    x,
-                    const_idx,
-                    degree,
-                } => unsafe {
-                    let val_x = *registers.get_unchecked(x as usize);
-                    let start = const_idx as usize;
-                    let mut res = *self.constants.get_unchecked(start);
-                    for i in 0..degree {
-                        res = res
-                            .mul_add(val_x, *self.constants.get_unchecked(start + 1 + i as usize));
-                    }
-                    *registers.get_unchecked_mut(dest as usize) = res;
-                },
                 Instruction::Pow3_2 { dest, src } => unsafe {
                     let x = *registers.get_unchecked(src as usize);
                     *registers.get_unchecked_mut(dest as usize) = x * x.sqrt();

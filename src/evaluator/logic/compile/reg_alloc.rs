@@ -357,19 +357,6 @@ impl RegAllocator {
                         });
                     }
                 }
-                VInstruction::PolyEval {
-                    x,
-                    const_idx,
-                    degree,
-                    ..
-                } => {
-                    instructions.push(Instruction::PolyEval {
-                        dest: dest_phys,
-                        x: map_vreg_local(x),
-                        const_idx,
-                        degree,
-                    });
-                }
                 VInstruction::RecipExpm1 { src, .. } => {
                     instructions.push(Instruction::RecipExpm1 {
                         dest: dest_phys,

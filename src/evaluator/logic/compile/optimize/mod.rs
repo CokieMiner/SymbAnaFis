@@ -7,7 +7,6 @@ pub(super) mod compact;
 pub(super) mod dce;
 pub(super) mod fusion;
 pub(super) mod helper;
-pub(super) mod poly_share;
 pub(super) mod power_chain;
 pub(super) mod strength_reduction;
 
@@ -76,14 +75,6 @@ impl CompiledEvaluator {
         // Power chain pass
         power_chain::optimize_power_chains(&mut out);
 
-        // Shared polynomial base optimization
-        let mut next_reg = max_reg_idx + 1;
-        let out = poly_share::optimize_shared_poly_bases(out, pool.as_slice(), &mut next_reg);
-
-        // Re-calculate use_count after potential expansions
-        if next_reg as usize > use_count.len() {
-            use_count.resize(next_reg as usize, 0);
-        }
         helper::calculate_use_count(&out, &mut use_count, arg_pool);
 
         // Final fusion pass (catches patterns from expansion)

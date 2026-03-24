@@ -115,6 +115,9 @@ impl Compiler {
         let param_count = u32::try_from(self.param_ids.len()).expect("Param count too large");
         let const_count = u32::try_from(self.constants.len()).expect("Const count too large");
         let num_temps = self.next_vreg as usize;
+
+        self.optimize_vir_cse();
+
         let vinstrs = std::mem::take(&mut self.vinstrs);
 
         let allocator = RegAllocator::new(param_count, const_count, num_temps, &vinstrs);
@@ -304,9 +307,21 @@ impl Compiler {
         }
 
         let degree = terms.last().map_or(0, |t| t.0);
-        let start_idx = u32::try_from(self.constants.len()).expect("Const index too large");
+
+        if degree >= 4 {
+            let mut coeffs = vec![0.0; (degree + 1) as usize];
+            for &(p, c) in terms {
+                coeffs[p as usize] = c;
+            }
+            let mut powers = rustc_hash::FxHashMap::default();
+            powers.insert(1, base_vreg);
+            return self.compile_poly_estrin(&coeffs, base_vreg, &mut powers);
+        }
 
         let mut term_idx = terms.len();
+        let mut current_vreg = VReg::Const(self.add_const(0.0));
+        let mut first = true;
+
         for current_pow in (0..=degree).rev() {
             let coeff = if term_idx > 0 && terms[term_idx - 1].0 == current_pow {
                 term_idx -= 1;
@@ -314,17 +329,154 @@ impl Compiler {
             } else {
                 0.0
             };
-            self.constants.push(coeff);
+
+            if first {
+                let idx = self.add_const(coeff);
+                current_vreg = VReg::Const(idx);
+                first = false;
+            } else {
+                let next_vreg = self.alloc_vreg();
+                let c_idx = self.add_const(coeff);
+                self.emit(VInstruction::MulAdd {
+                    dest: next_vreg,
+                    a: current_vreg,
+                    b: base_vreg,
+                    c: VReg::Const(c_idx),
+                });
+                current_vreg = next_vreg;
+            }
         }
 
+        current_vreg
+    }
+
+    fn compile_poly_estrin(
+        &mut self,
+        coeffs: &[f64],
+        x: VReg,
+        powers: &mut rustc_hash::FxHashMap<usize, VReg>,
+    ) -> VReg {
+        if coeffs.iter().all(|&c| c == 0.0) {
+            return VReg::Const(self.add_const(0.0));
+        }
+        if coeffs.len() == 1 {
+            return VReg::Const(self.add_const(coeffs[0]));
+        }
+        if coeffs.len() == 2 {
+            let dest = self.alloc_vreg();
+            let c1 = self.add_const(coeffs[1]);
+            let c0 = self.add_const(coeffs[0]);
+            self.emit(VInstruction::MulAdd {
+                dest,
+                a: VReg::Const(c1),
+                b: x,
+                c: VReg::Const(c0),
+            });
+            return dest;
+        }
+
+        let mid = coeffs.len().div_ceil(2);
+        let left = &coeffs[..mid];
+        let right = &coeffs[mid..];
+
+        let left_vreg = self.compile_poly_estrin(left, x, powers);
+        let right_vreg = self.compile_poly_estrin(right, x, powers);
+
+        let x_pow_mid = self.get_power_vreg(x, mid, powers);
+
         let dest = self.alloc_vreg();
-        self.emit(VInstruction::PolyEval {
-            dest,
-            x: base_vreg,
-            const_idx: start_idx,
-            degree,
-        });
+        if self.is_const_zero(left_vreg) {
+            self.emit(VInstruction::Mul2 {
+                dest,
+                a: right_vreg,
+                b: x_pow_mid,
+            });
+        } else {
+            self.emit(VInstruction::MulAdd {
+                dest,
+                a: right_vreg,
+                b: x_pow_mid,
+                c: left_vreg,
+            });
+        }
         dest
+    }
+
+    fn get_power_vreg(
+        &mut self,
+        x: VReg,
+        n: usize,
+        powers: &mut rustc_hash::FxHashMap<usize, VReg>,
+    ) -> VReg {
+        if n == 1 {
+            return x;
+        }
+        #[allow(
+            clippy::manual_is_multiple_of,
+            clippy::integer_division,
+            reason = "Intentional integer power splitting"
+        )]
+        let v = if n % 2 == 0 {
+            let half = self.get_power_vreg(x, n / 2, powers);
+            let dest = self.alloc_vreg();
+            self.emit(VInstruction::Mul2 {
+                dest,
+                a: half,
+                b: half,
+            });
+            dest
+        } else {
+            let prev = self.get_power_vreg(x, n - 1, powers);
+            let dest = self.alloc_vreg();
+            self.emit(VInstruction::Mul2 {
+                dest,
+                a: prev,
+                b: x,
+            });
+            dest
+        };
+        powers.insert(n, v);
+        v
+    }
+
+    fn is_const_zero(&self, vreg: VReg) -> bool {
+        match vreg {
+            VReg::Const(idx) => self.constants[idx as usize] == 0.0,
+            _ => false,
+        }
+    }
+
+    fn optimize_vir_cse(&mut self) {
+        let mut seen = rustc_hash::FxHashMap::default();
+        let mut alias = rustc_hash::FxHashMap::default();
+        let mut optimized = Vec::with_capacity(self.vinstrs.len());
+
+        for mut instr in std::mem::take(&mut self.vinstrs) {
+            instr.for_each_read_mut(|r| {
+                if let Some(&canonical) = alias.get(r) {
+                    *r = canonical;
+                }
+            });
+
+            instr.sort_operands();
+
+            let mut key = instr.clone();
+            key.set_dest(VReg::Temp(u32::MAX));
+
+            if let Some(&existing_vreg) = seen.get(&key) {
+                alias.insert(instr.dest(), existing_vreg);
+            } else {
+                seen.insert(key, instr.dest());
+                optimized.push(instr);
+            }
+        }
+        self.vinstrs = optimized;
+
+        if let Some(f) = &mut self.final_vreg {
+            if let Some(&canonical) = alias.get(f) {
+                *f = canonical;
+            }
+        }
     }
 
     fn compile_symbol_node(&mut self, sym: &InternedSymbol) -> Result<VReg, DiffError> {

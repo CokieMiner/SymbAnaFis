@@ -46,10 +46,6 @@ impl<'pool> ConstantPool<'pool> {
         self.constants[idx as usize]
     }
 
-    pub(super) fn as_slice(&self) -> &[f64] {
-        self.constants
-    }
-
     /// Decompose the pool back into its parts for the compact pass,
     /// which needs to own and rewrite both structures.
     pub(super) fn into_parts(self) -> (&'pool mut Vec<f64>, FxHashMap<u64, u32>) {
@@ -154,16 +150,6 @@ pub(super) fn validate_program(
                 if const_idx as usize >= constants.len() {
                     return Err(err(format!(
                         "constant C{const_idx} out of bounds at instruction {instr_idx}"
-                    )));
-                }
-            }
-            Instruction::PolyEval {
-                const_idx, degree, ..
-            } => {
-                let end = const_idx as usize + degree as usize + 1;
-                if end > constants.len() {
-                    return Err(err(format!(
-                        "poly constant range C[{const_idx}..{end}) out of bounds at instruction {instr_idx}"
                     )));
                 }
             }

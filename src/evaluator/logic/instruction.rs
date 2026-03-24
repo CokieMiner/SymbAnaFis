@@ -361,12 +361,6 @@ pub enum Instruction {
         const_idx: u32,
     },
 
-    PolyEval {
-        dest: u32,
-        x: u32,
-        const_idx: u32,
-        degree: u32,
-    },
 
     RecipExpm1 {
         dest: u32,
@@ -463,7 +457,6 @@ impl Instruction {
             | Self::NegMulAddConst { dest, .. }
             | Self::NegMul { dest, .. }
             | Self::NegMulConst { dest, .. }
-            | Self::PolyEval { dest, .. }
             | Self::RecipExpm1 { dest, .. }
             | Self::ExpSqr { dest, .. }
             | Self::ExpSqrNeg { dest, .. } => dest,
@@ -550,10 +543,6 @@ impl Instruction {
                 callback(b);
                 callback(c);
             }
-            Self::PolyEval { dest, x, .. } => {
-                callback(dest);
-                callback(x);
-            }
         }
     }
 
@@ -620,9 +609,6 @@ impl Instruction {
                 callback(b);
                 callback(c);
             }
-            Self::PolyEval { x, .. } => {
-                callback(x);
-            }
         }
     }
 
@@ -688,9 +674,6 @@ impl Instruction {
                 *a = mapper(*a);
                 *b = mapper(*b);
                 *c = mapper(*c);
-            }
-            Self::PolyEval { x, .. } => {
-                *x = mapper(*x);
             }
         }
     }
@@ -772,10 +755,6 @@ impl Instruction {
                 *a = mapper(*a);
                 *b = mapper(*b);
                 *c = mapper(*c);
-            }
-            Self::PolyEval { dest, x, .. } => {
-                *dest = mapper(*dest);
-                *x = mapper(*x);
             }
         }
     }
@@ -918,16 +897,6 @@ impl fmt::Display for Instruction {
                 b,
                 const_idx,
             } => write!(formatter, "R{dest} = -(R{a} * R{b}) + C{const_idx}"),
-            Self::PolyEval {
-                dest,
-                x,
-                const_idx,
-                degree,
-            } => write!(
-                formatter,
-                "R{dest} = poly(R{x}, C[{const_idx}..{}], deg={degree})",
-                const_idx + degree + 1
-            ),
             Self::RecipExpm1 { dest, src } => {
                 write!(formatter, "R{dest} = 1/(exp(R{src})-1)")
             }

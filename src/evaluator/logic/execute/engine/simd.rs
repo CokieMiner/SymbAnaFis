@@ -800,21 +800,6 @@ impl CompiledEvaluator {
                     let c = *simd_constants.get_unchecked(const_idx as usize);
                     *registers.add(dest as usize) = (-va).mul_add(vb, c);
                 }
-                Instruction::PolyEval {
-                    dest,
-                    x,
-                    const_idx,
-                    degree,
-                } => {
-                    let start = const_idx as usize;
-                    let mut acc = *simd_constants.get_unchecked(start);
-                    let val_x = *registers.add(x as usize);
-                    for i in 0..degree {
-                        let coeff = *simd_constants.get_unchecked(start + 1 + i as usize);
-                        acc = acc.mul_add(val_x, coeff);
-                    }
-                    *registers.add(dest as usize) = acc;
-                }
                 Instruction::Pow3_2 { dest, src } => {
                     let val = *registers.add(src as usize);
                     *registers.add(dest as usize) = val * val.sqrt();
