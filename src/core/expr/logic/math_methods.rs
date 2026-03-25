@@ -20,6 +20,7 @@ macro_rules! impl_math_functions_expr {
             $(
                 #[doc = concat!("Apply the `", stringify!($fn_name), "` function to this expression.")]
                 #[must_use]
+                #[inline]
                 pub fn $fn_name(self) -> Expr {
                     Expr::func_symbol(ks::get_interned($symbol_id), self)
                 }

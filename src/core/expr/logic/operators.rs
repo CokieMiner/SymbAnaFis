@@ -17,24 +17,28 @@ macro_rules! impl_binary_ops_expr {
     ($lhs:ty, $rhs:ty, $to_lhs:expr, $to_rhs:expr) => {
         impl Add<$rhs> for $lhs {
             type Output = Expr;
+            #[inline]
             fn add(self, rhs: $rhs) -> Expr {
                 Expr::add_expr($to_lhs(self), $to_rhs(rhs))
             }
         }
         impl Sub<$rhs> for $lhs {
             type Output = Expr;
+            #[inline]
             fn sub(self, rhs: $rhs) -> Expr {
                 Expr::sub_expr($to_lhs(self), $to_rhs(rhs))
             }
         }
         impl Mul<$rhs> for $lhs {
             type Output = Expr;
+            #[inline]
             fn mul(self, rhs: $rhs) -> Expr {
                 Expr::mul_expr($to_lhs(self), $to_rhs(rhs))
             }
         }
         impl Div<$rhs> for $lhs {
             type Output = Expr;
+            #[inline]
             fn div(self, rhs: $rhs) -> Expr {
                 Expr::div_expr($to_lhs(self), $to_rhs(rhs))
             }
