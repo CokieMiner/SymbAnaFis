@@ -555,10 +555,11 @@ src/
 │   ├── mod.rs               # Sub-module declarative re-exporter
 │   ├── api_user.rs         # Developer-facing interfaces (Expr, Symbol)
 │   ├── api_crate.rs        # Internal system registry indices
+│   ├── helpers/             # Consolidated internal gadgets (traits, visitor, known_symbols)
 │   └── logic/               # Implementation Details
-│       ├── expr/            # AST types & builders
-│       ├── symbol/          # Intern interning registry
-│       └── visitor.rs       # Visitor patterns
+│       ├── expr/            # Modularized: constructors/, math_methods.rs, operators.rs
+│       └── symbol/          # Intern interning registry
+
 │
 ├── parser/                   # String ➜ Expr Converter
 │   ├── mod.rs               
@@ -629,7 +630,7 @@ src/
 
 ## Core Components
 
-### 1. Expression AST (`core/expr.rs`)
+### 1. Expression AST (`core/expr/`)
 
 The fundamental data structure is `Expr`, a tree-based AST using `Arc` for shared ownership.
 
@@ -762,7 +763,7 @@ let derivative = Diff::new()
 **Key features:**
 - **Isolated registries**: Symbols created via `ctx.symb()` don't collide with global symbols
 - **User-defined functions**: `UserFunction` with optional body and partial derivatives
-- **Thread-safe**: Uses `Arc<RwLock>` internally for concurrent access
+- **Unified State**: Consolidates `symbols` and `user_functions` into a single `Arc<RwLock<ContextInner>>` to maintain atomic snapshot coherency and avoid nested lock overhead.
 
 | Method                              | Purpose                                     |
 | ----------------------------------- | ------------------------------------------- |
