@@ -1,5 +1,5 @@
-use crate::core::error::DiffError;
 use super::super::super::instruction::Instruction;
+use crate::core::error::DiffError;
 use rustc_hash::FxHashMap;
 
 /// Constant pool pairing a value vec with a bit-keyed index map.

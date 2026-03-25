@@ -1,9 +1,9 @@
+use super::super::super::vir::node::{self, NodeData};
+use super::super::super::vir::{VInstruction, VReg};
 use crate::EPSILON;
 use crate::Expr;
 use crate::core::error::DiffError;
 use crate::core::expr::ExprKind;
-use super::super::super::vir::node::{self, NodeData};
-use super::super::super::vir::{VInstruction, VReg};
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
 

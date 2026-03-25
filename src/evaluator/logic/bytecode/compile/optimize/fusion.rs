@@ -1,5 +1,5 @@
-use super::helper::ConstantPool;
 use super::super::super::instruction::{FnOp, Instruction};
+use super::helper::ConstantPool;
 
 #[allow(
     clippy::too_many_lines,

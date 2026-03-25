@@ -1,10 +1,10 @@
+use super::super::super::vir::VReg;
+use super::super::super::vir::node::NodeData;
 use crate::Expr;
 use crate::core::error::DiffError;
 use crate::core::expr::ExprKind;
 use crate::core::poly::Polynomial;
 use crate::core::symbol::InternedSymbol;
-use super::super::super::vir::VReg;
-use super::super::super::vir::node::NodeData;
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
 

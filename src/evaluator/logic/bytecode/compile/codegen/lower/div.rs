@@ -1,10 +1,10 @@
+use super::super::super::vir::node::{self, NodeData};
+use super::super::super::vir::{VInstruction, VReg};
 use crate::EPSILON;
 use crate::Expr;
 use crate::core::error::DiffError;
 use crate::core::expr::ExprKind;
 use crate::core::known_symbols::KS;
-use super::super::super::vir::node::{self, NodeData};
-use super::super::super::vir::{VInstruction, VReg};
 use crate::evaluator::logic::bytecode::instruction::FnOp;
 use rustc_hash::FxHashMap;
 

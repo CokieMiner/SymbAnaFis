@@ -1,8 +1,8 @@
+use super::super::super::vir::VReg;
+use super::super::super::vir::node::NodeData;
 use crate::Expr;
 use crate::core::error::DiffError;
 use crate::core::expr::ExprKind;
-use super::super::super::vir::VReg;
-use super::super::super::vir::node::NodeData;
 use rustc_hash::FxHashMap;
 
 use super::super::super::Compiler;
