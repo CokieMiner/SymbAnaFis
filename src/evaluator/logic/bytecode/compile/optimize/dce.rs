@@ -1,4 +1,4 @@
-use crate::evaluator::logic::bytecode::instruction::Instruction;
+use super::super::super::instruction::Instruction;
 
 #[allow(clippy::too_many_lines, reason = "DCE pass with multiple sub-steps")]
 pub(super) fn eliminate_dead_code(

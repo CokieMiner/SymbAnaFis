@@ -1,5 +1,5 @@
 use super::helper::ConstantPool;
-use crate::evaluator::logic::bytecode::instruction::{FnOp, Instruction};
+use super::super::super::instruction::{FnOp, Instruction};
 
 #[allow(
     clippy::too_many_lines,

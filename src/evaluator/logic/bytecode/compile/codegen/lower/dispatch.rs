@@ -1,8 +1,8 @@
 use crate::Expr;
 use crate::core::error::DiffError;
 use crate::core::expr::ExprKind;
-use crate::evaluator::logic::bytecode::compile::vir::VReg;
-use crate::evaluator::logic::bytecode::compile::vir::node::NodeData;
+use super::super::super::vir::VReg;
+use super::super::super::vir::node::NodeData;
 use rustc_hash::FxHashMap;
 
 use super::super::super::Compiler;

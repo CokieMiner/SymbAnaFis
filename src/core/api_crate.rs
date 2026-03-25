@@ -3,15 +3,10 @@
 //! Exposes foundational logic modules as submodules to preserve
 //! internal module paths (`crate::core::poly`, `crate::core::error`, etc).
 
+pub use super::helpers::known_symbols;
+pub use super::helpers::poly;
+pub use super::helpers::traits;
+
 pub mod error {
-    pub use super::super::logic::error::*;
-}
-pub mod known_symbols {
-    pub use super::super::logic::known_symbols::*;
-}
-pub mod poly {
-    pub use super::super::logic::poly::*;
-}
-pub mod traits {
-    pub use super::super::logic::traits::*;
+    pub use super::super::helpers::DiffError;
 }

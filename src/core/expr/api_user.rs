@@ -12,6 +12,8 @@ use std::sync::Arc;
 
 use crate::core::symbol::InternedSymbol;
 
+pub use super::logic::math_methods::ArcExprExt;
+
 use super::api_crate::DUMMY_ARC;
 
 // ============================================================================

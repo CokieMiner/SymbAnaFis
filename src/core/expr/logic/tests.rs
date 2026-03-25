@@ -10,7 +10,7 @@
     reason = "Standard test relaxations"
 )]
 mod api_user_tests {
-    use crate::core::expr::{Expr, ExprKind};
+    use super::super::super::{Expr, ExprKind};
 
     #[test]
     fn test_sum_flattening() {

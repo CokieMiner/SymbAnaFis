@@ -5,7 +5,7 @@
 
 mod api_crate;
 mod api_user;
-mod logic;
+pub mod helpers;
 
 pub mod context;
 pub mod expr;

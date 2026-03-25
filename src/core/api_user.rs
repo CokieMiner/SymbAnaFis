@@ -5,7 +5,7 @@
 //! interface; everything else is an implementation detail.
 
 // --- Error types ---
-pub use super::logic::error::{DiffError, Span};
+pub use super::helpers::{DiffError, Span};
 pub use super::symbol::SymbolError;
 
 // --- Expression types ---
@@ -14,7 +14,7 @@ pub use super::expr::{Expr, ExprKind};
 // --- Visitor pattern ---
 /// Expression visitor utilities
 pub mod visitor {
-    pub use super::super::logic::visitor::*;
+    pub use super::super::helpers::visitor::*;
 }
 
 // --- Symbol management ---

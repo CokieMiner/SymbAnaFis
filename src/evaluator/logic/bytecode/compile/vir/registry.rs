@@ -1,5 +1,5 @@
+use super::super::super::instruction::FnOp;
 use crate::core::known_symbols::KS;
-use crate::evaluator::logic::bytecode::instruction::FnOp;
 use rustc_hash::FxHashMap;
 use std::sync::LazyLock;
 

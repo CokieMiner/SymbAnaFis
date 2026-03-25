@@ -1,5 +1,5 @@
+use super::super::vir::VReg;
 use crate::Expr;
-use crate::evaluator::logic::bytecode::compile::vir::VReg;
 
 #[derive(Clone, Copy, Debug)]
 pub struct CseKey(pub *const Expr);

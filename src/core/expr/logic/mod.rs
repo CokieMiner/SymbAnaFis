@@ -7,6 +7,8 @@
 pub(super) mod analysis;
 pub(super) mod constructors;
 pub(super) mod hash;
+pub(super) mod math_methods;
+pub(super) mod operators;
 pub(super) mod ordering;
 
 // display is pub(in crate::core) so upper modules can wire the Display impl

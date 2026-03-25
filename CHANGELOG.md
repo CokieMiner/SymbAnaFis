@@ -42,6 +42,8 @@ All notable changes to symb_anafis will be documented in this file.
 ### Changed
 
 - **Internal Directory Structure**: Massive movement of logic files into `logic/` subdirectories across all modules.
+- **Unified `core/context` State**: Re-engineered `Context` mapping to share internal state via a single unified `Arc<RwLock<ContextInner>>`, making `Context::clone()` an $O(1)$ operation.
+- **Decomposed monolithic `core/expr/constructors.rs`**: Segmented heavy AST core generators into thematic isolated files (`binary.rs`, `nary.rs`, `functions.rs`).
 - **Python Bindings**: Updated to the new tiered architecture, with logic moved to `src/bindings/python`.
 - **Benchmark & Example Organization**:
   - Python examples moved to `examples/python/`.
@@ -69,6 +71,8 @@ All notable changes to symb_anafis will be documented in this file.
 ### Code Quality
 
 - **Lint Configuration Hardening**: Upgraded several static analysis lints in `Cargo.toml` to `deny` (e.g., `suspicious_xor_used_as_pow`, `try_err`, `unseparated_literal_suffix`) to enforce strict safety and clean code standards.
+- **Reorganized `core/logic` gadgets**: Migrated unclassified internal tools into a standardized `core/helpers` space with bounded `api_user.rs` and `api_crate.rs` gates following architecture compliance.
+- **Normalized Local Imports**: Rescoped self-referencing absolute addresses across `core/`, `evaluator/`, and `simplification/` to relative `super::` step-ups.
 
 - **Deleted legacy `stack.rs`**: Removed legacy stack-based primitive operations following the transition to the register-based evaluator.
 - **Added `eval_math.rs`**: Centralized evaluator-specific mathematical helper functions (e.g., `acot`, `sinc`, `erfc`) to improve modularity.

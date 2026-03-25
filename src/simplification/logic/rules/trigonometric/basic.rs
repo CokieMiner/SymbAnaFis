@@ -2,7 +2,7 @@ use super::super::core::{ExprKind, Rule, RuleCategory, RuleContext};
 use crate::EPSILON;
 use crate::core::expr::{Expr, ExprKind as AstKind};
 use crate::core::known_symbols::{KS, get_symbol};
-use crate::simplification::helpers;
+use super::super::super::super::helpers;
 use std::f64::consts::PI;
 use std::sync::Arc;
 

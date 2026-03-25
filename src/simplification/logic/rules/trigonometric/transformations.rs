@@ -3,7 +3,7 @@ use super::helpers::get_trig_function;
 use crate::EPSILON;
 use crate::core::expr::{Expr, ExprKind as AstKind};
 use crate::core::known_symbols::{KS, get_symbol};
-use crate::simplification::helpers;
+use super::super::super::super::helpers;
 
 rule!(
     CofunctionIdentityRule,

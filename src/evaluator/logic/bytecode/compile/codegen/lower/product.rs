@@ -1,8 +1,8 @@
+use super::super::super::vir::node::{self, NodeData};
+use super::super::super::vir::{VInstruction, VReg};
 use crate::EPSILON;
 use crate::Expr;
-use crate::core::error::DiffError;
-use crate::evaluator::logic::bytecode::compile::vir::node::{self, NodeData};
-use crate::evaluator::logic::bytecode::compile::vir::{VInstruction, VReg};
+use crate::core::DiffError;
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
 

@@ -171,7 +171,7 @@ pub fn simplify_expr(
     if let Some(ctx) = context {
         for id in ctx.fn_name_to_id().values() {
             if let Some(body) = ctx.get_body_by_id(*id) {
-                custom_bodies.insert(*id, Arc::clone(body));
+                custom_bodies.insert(*id, Arc::clone(&body));
             }
         }
     }

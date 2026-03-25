@@ -1,5 +1,5 @@
-use crate::evaluator::logic::bytecode::compile::vir::{VInstruction, VReg};
-use crate::evaluator::logic::bytecode::instruction::Instruction;
+use super::super::super::instruction::Instruction;
+use super::super::vir::{VInstruction, VReg};
 
 pub struct RegAllocator {
     param_count: u32,

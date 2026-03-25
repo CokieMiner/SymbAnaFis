@@ -1,10 +1,10 @@
+use super::super::super::vir::node::{self, NodeData};
+use super::super::super::vir::registry::FN_MAP;
+use super::super::super::vir::{VInstruction, VReg};
 use crate::Expr;
-use crate::core::error::DiffError;
+use crate::core::DiffError;
 use crate::core::known_symbols::KS;
 use crate::core::symbol::InternedSymbol;
-use crate::evaluator::logic::bytecode::compile::vir::node::{self, NodeData};
-use crate::evaluator::logic::bytecode::compile::vir::registry::FN_MAP;
-use crate::evaluator::logic::bytecode::compile::vir::{VInstruction, VReg};
 use crate::evaluator::logic::bytecode::instruction::FnOp;
 use rustc_hash::FxHashMap;
 use std::sync::Arc;

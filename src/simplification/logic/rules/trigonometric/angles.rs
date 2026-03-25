@@ -3,7 +3,7 @@ use crate::EPSILON;
 use crate::core::expr::{Expr, ExprKind as AstKind};
 use crate::core::known_symbols::{KS, get_symbol};
 use crate::core::symbol::InternedSymbol;
-use crate::simplification::helpers::extract_coeff_arc;
+use super::super::super::super::helpers::extract_coeff_arc;
 use std::sync::Arc;
 
 rule_with_helpers_arc!(

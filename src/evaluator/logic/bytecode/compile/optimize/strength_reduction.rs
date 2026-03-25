@@ -1,5 +1,5 @@
+use super::super::super::instruction::Instruction;
 use super::helper::ConstantPool;
-use crate::evaluator::logic::bytecode::instruction::Instruction;
 
 /// Performs strength reduction on instructions, such as converting `Mul { a, a }` to `Square { a }`,
 /// and `DivConst` to `MulConst` by computing the reciprocal.

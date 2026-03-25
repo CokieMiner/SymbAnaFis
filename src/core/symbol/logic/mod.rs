@@ -3,6 +3,7 @@
 //! Contains symbol interning, registry, operator overloads, and math methods.
 //! All items here are internal to the symbol subsystem.
 
+pub(super) mod conversions;
 pub(super) mod interned;
 pub(super) mod math_methods;
 pub(super) mod operators;

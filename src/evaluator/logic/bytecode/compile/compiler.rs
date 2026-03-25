@@ -3,11 +3,11 @@
 //! This module compiles symbolic [`Expr`] expressions into efficient bytecode
 //! ([`Instruction`]s) that can be executed by the [`CompiledEvaluator`].
 
+use super::super::instruction::Instruction;
 use super::emit::RegAllocator;
 use super::vir::{VInstruction, VReg};
 use crate::Expr;
 use crate::core::error::DiffError;
-use crate::evaluator::logic::bytecode::instruction::Instruction;
 use rustc_hash::FxHashMap;
 use std::collections::hash_map::Entry;
 

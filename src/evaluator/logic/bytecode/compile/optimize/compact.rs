@@ -1,4 +1,4 @@
-use crate::evaluator::logic::bytecode::instruction::Instruction;
+use super::super::super::instruction::Instruction;
 use rustc_hash::FxHashSet;
 
 #[allow(

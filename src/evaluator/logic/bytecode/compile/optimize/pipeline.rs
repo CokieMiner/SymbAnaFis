@@ -2,7 +2,7 @@ use super::helper::ConstantPool;
 use super::{compact, dce, fusion, helper, power_chain, strength_reduction};
 use crate::core::error::DiffError;
 use crate::evaluator::CompiledEvaluator;
-use crate::evaluator::logic::bytecode::instruction::Instruction;
+use super::super::super::instruction::Instruction;
 
 impl CompiledEvaluator {
     /// Post-compilation optimization pass that fuses instruction patterns.

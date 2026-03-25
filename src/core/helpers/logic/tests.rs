@@ -11,9 +11,9 @@
     reason = "Standard test relaxations"
 )]
 mod poly_tests {
+    use super::super::known_symbols as ks;
+    use super::super::poly::*;
     use crate::Expr;
-    use crate::core::known_symbols as ks;
-    use crate::core::poly::*;
     use std::sync::Arc;
 
     #[test]
@@ -161,7 +161,7 @@ mod poly_tests {
     reason = "Standard test relaxations"
 )]
 mod error_tests {
-    use crate::core::error::*;
+    use super::super::error::*;
 
     #[test]
     fn test_span_creation() {
@@ -260,7 +260,7 @@ mod error_tests {
     reason = "Standard test relaxations"
 )]
 mod traits_tests {
-    use crate::core::traits::*;
+    use super::super::traits::*;
 
     #[test]
     fn test_is_zero() {
@@ -298,8 +298,8 @@ mod traits_tests {
     reason = "Standard test relaxations"
 )]
 mod visitor_tests {
+    use super::super::visitor::*;
     use crate::Expr;
-    use crate::core::visitor::*;
     use crate::symb;
 
     #[test]

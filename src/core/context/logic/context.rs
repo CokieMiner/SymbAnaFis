@@ -9,7 +9,7 @@ use rustc_hash::FxHashMap;
 use crate::Expr;
 use crate::core::symbol::{InternedSymbol, Symbol, symb_interned};
 
-use crate::core::context::api_crate::{BodyFn, PartialFn};
+use super::super::api_crate::{BodyFn, PartialFn};
 
 // =============================================================================
 // UserFunction
@@ -162,6 +162,8 @@ static NEXT_CONTEXT_ID: AtomicU64 = AtomicU64::new(1);
 #[derive(Debug, Default)]
 struct ContextInner {
     symbols: FxHashMap<String, InternedSymbol>,
+    user_functions: FxHashMap<u64, UserFunction>,
+    fn_name_to_id: FxHashMap<String, u64>,
 }
 
 /// Unified context for all `symb_anafis` operations.
@@ -181,8 +183,6 @@ struct ContextInner {
 pub struct Context {
     id: u64,
     inner: Arc<RwLock<ContextInner>>,
-    user_functions: FxHashMap<u64, UserFunction>,
-    fn_name_to_id: FxHashMap<String, u64>,
 }
 
 impl Default for Context {
@@ -197,8 +197,6 @@ impl Context {
         Self {
             id: NEXT_CONTEXT_ID.fetch_add(1, Ordering::Relaxed),
             inner: Arc::new(RwLock::new(ContextInner::default())),
-            user_functions: FxHashMap::default(),
-            fn_name_to_id: FxHashMap::default(),
         }
     }
 
@@ -318,26 +316,41 @@ impl Context {
     // =========================================================================
 
     /// Register a user-defined function (builder pattern).
+    ///
+    /// # Panics
+    /// Panics if the internal lock is poisoned.
     #[must_use]
-    pub fn with_function(mut self, name: &str, func: UserFunction) -> Self {
+    pub fn with_function(self, name: &str, func: UserFunction) -> Self {
         let id = symb_interned(name).id();
-        self.user_functions.insert(id, func);
-        self.fn_name_to_id.insert(name.to_owned(), id);
+        {
+            let mut inner = self.inner.write().expect("Context lock poisoned");
+            inner.user_functions.insert(id, func);
+            inner.fn_name_to_id.insert(name.to_owned(), id);
+        }
         self
     }
 
     /// Register a function name only (for parsing, no eval/partial).
+    ///
+    /// # Panics
+    /// Panics if the internal lock is poisoned.
     #[must_use]
-    pub fn with_function_name(mut self, name: &str) -> Self {
+    pub fn with_function_name(self, name: &str) -> Self {
         let id = symb_interned(name).id();
-        if let std::collections::hash_map::Entry::Vacant(e) = self.user_functions.entry(id) {
-            e.insert(UserFunction::new(0..=usize::MAX));
-            self.fn_name_to_id.insert(name.to_owned(), id);
+        {
+            let mut inner = self.inner.write().expect("Context lock poisoned");
+            if let std::collections::hash_map::Entry::Vacant(e) = inner.user_functions.entry(id) {
+                e.insert(UserFunction::new(0..=usize::MAX));
+                inner.fn_name_to_id.insert(name.to_owned(), id);
+            }
         }
         self
     }
 
     /// Register multiple function names (for parsing).
+    ///
+    /// # Panics
+    /// Panics if the internal lock is poisoned.
     #[must_use]
     pub fn with_function_names<I, S>(mut self, names: I) -> Self
     where
@@ -351,70 +364,139 @@ impl Context {
     }
 
     /// Get a user function by name.
+    ///
+    /// # Panics
+    /// Panics if the internal lock is poisoned.
     #[inline]
     #[must_use]
-    pub fn get_user_fn(&self, name: &str) -> Option<&UserFunction> {
+    pub fn get_user_fn(&self, name: &str) -> Option<UserFunction> {
         let id = symb_interned(name).id();
-        self.user_functions.get(&id)
+        self.inner
+            .read()
+            .expect("Context lock poisoned")
+            .user_functions
+            .get(&id)
+            .cloned()
     }
 
     /// Check if a function is registered.
+    ///
+    /// # Panics
+    /// Panics if the internal lock is poisoned.
     #[inline]
     #[must_use]
     pub fn has_function(&self, name: &str) -> bool {
         let id = symb_interned(name).id();
-        self.user_functions.contains_key(&id)
+        self.inner
+            .read()
+            .expect("Context lock poisoned")
+            .user_functions
+            .contains_key(&id)
     }
 
     /// Get all registered function names.
+    ///
+    /// # Panics
+    /// Panics if the internal lock is poisoned.
     #[must_use]
     pub fn function_names(&self) -> HashSet<String> {
-        self.fn_name_to_id.keys().cloned().collect()
+        self.inner
+            .read()
+            .expect("Context lock poisoned")
+            .fn_name_to_id
+            .keys()
+            .cloned()
+            .collect()
     }
 
     /// Get the name → ID mapping for user functions.
+    ///
+    /// # Panics
+    /// Panics if the internal lock is poisoned.
     #[must_use]
-    pub const fn fn_name_to_id(&self) -> &FxHashMap<String, u64> {
-        &self.fn_name_to_id
+    pub fn fn_name_to_id(&self) -> FxHashMap<String, u64> {
+        self.inner
+            .read()
+            .expect("Context lock poisoned")
+            .fn_name_to_id
+            .clone()
     }
 
     /// Get the body function for a user function by name.
+    ///
+    /// # Panics
+    /// Panics if the internal lock is poisoned.
     #[inline]
     #[must_use]
-    pub fn get_body(&self, name: &str) -> Option<&BodyFn> {
+    pub fn get_body(&self, name: &str) -> Option<BodyFn> {
         let id = symb_interned(name).id();
-        self.user_functions.get(&id).and_then(|f| f.body.as_ref())
+        self.inner
+            .read()
+            .expect("Context lock poisoned")
+            .user_functions
+            .get(&id)
+            .and_then(|f| f.body.clone())
     }
 
     /// Get the body function by symbol ID.
+    ///
+    /// # Panics
+    /// Panics if the internal lock is poisoned.
     #[inline]
     #[must_use]
-    pub fn get_body_by_id(&self, id: u64) -> Option<&BodyFn> {
-        self.user_functions.get(&id).and_then(|f| f.body.as_ref())
+    pub fn get_body_by_id(&self, id: u64) -> Option<BodyFn> {
+        self.inner
+            .read()
+            .expect("Context lock poisoned")
+            .user_functions
+            .get(&id)
+            .and_then(|f| f.body.clone())
     }
 
     /// Get a partial derivative function by name and argument index.
+    ///
+    /// # Panics
+    /// Panics if the internal lock is poisoned.
     #[inline]
     #[must_use]
-    pub fn get_partial(&self, name: &str, arg_idx: usize) -> Option<&PartialFn> {
+    pub fn get_partial(&self, name: &str, arg_idx: usize) -> Option<PartialFn> {
         let id = symb_interned(name).id();
-        self.user_functions
+        self.inner
+            .read()
+            .expect("Context lock poisoned")
+            .user_functions
             .get(&id)
-            .and_then(|f| f.partials.get(&arg_idx))
+            .and_then(|f| f.partials.get(&arg_idx).cloned())
     }
 
     /// Get a user function by symbol ID.
+    ///
+    /// # Panics
+    /// Panics if the internal lock is poisoned.
     #[inline]
     #[must_use]
-    pub fn get_user_fn_by_id(&self, id: u64) -> Option<&UserFunction> {
-        self.user_functions.get(&id)
+    pub fn get_user_fn_by_id(&self, id: u64) -> Option<UserFunction> {
+        self.inner
+            .read()
+            .expect("Context lock poisoned")
+            .user_functions
+            .get(&id)
+            .cloned()
     }
 
     /// Returns `true` if any registered function has a body that can be expanded.
+    ///
+    /// # Panics
+    /// Panics if the internal lock is poisoned.
     #[inline]
     #[must_use]
     pub fn has_expandable_functions(&self) -> bool {
-        self.user_functions.values().any(|f| f.body.is_some())
+        self.inner
+            .read()
+            .expect("Context lock poisoned")
+            .user_functions
+            .values()
+            .any(|f| f.body.is_some())
     }
 
     // =========================================================================
@@ -435,12 +517,15 @@ impl Context {
     }
 
     /// Remove a user function. Returns `true` if it was present.
+    ///
+    /// # Panics
+    /// Panics if the internal lock is poisoned.
     pub fn remove_function(&mut self, name: &str) -> bool {
-        if let Some(id) = self.fn_name_to_id.remove(name) {
-            self.user_functions.remove(&id).is_some()
-        } else {
-            false
-        }
+        let mut inner = self.inner.write().expect("Context lock poisoned");
+        inner
+            .fn_name_to_id
+            .remove(name)
+            .is_some_and(|id| inner.user_functions.remove(&id).is_some())
     }
 
     /// Clear all symbols.
@@ -456,12 +541,19 @@ impl Context {
     }
 
     /// Clear all user functions.
+    ///
+    /// # Panics
+    /// Panics if the internal lock is poisoned.
     pub fn clear_functions(&mut self) {
-        self.user_functions.clear();
-        self.fn_name_to_id.clear();
+        let mut inner = self.inner.write().expect("Context lock poisoned");
+        inner.user_functions.clear();
+        inner.fn_name_to_id.clear();
     }
 
     /// Clear everything.
+    ///
+    /// # Panics
+    /// Panics if the internal lock is poisoned.
     pub fn clear_all(&mut self) {
         self.clear_symbols();
         self.clear_functions();
@@ -481,20 +573,25 @@ impl Context {
     }
 
     /// Returns `true` if no symbols and no functions are registered.
+    ///
+    /// # Panics
+    /// Panics if the internal lock is poisoned.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.symbol_count() == 0 && self.user_functions.is_empty()
+        let inner = self.inner.read().expect("Context lock poisoned");
+        inner.symbols.len() == 0 && inner.user_functions.is_empty()
     }
 }
 
 impl std::fmt::Debug for Context {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let inner = self.inner.read().expect("Context lock poisoned");
         f.debug_struct("Context")
             .field("id", &self.id)
             .field("symbols", &self.symbol_names())
             .field(
                 "user_functions",
-                &self.fn_name_to_id.keys().collect::<Vec<_>>(),
+                &inner.fn_name_to_id.keys().collect::<Vec<_>>(),
             )
             .finish_non_exhaustive()
     }

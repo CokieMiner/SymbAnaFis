@@ -8,8 +8,8 @@
     reason = "Standard test relaxations"
 )]
 mod api_user_tests {
+    use super::super::super::{Context, UserFunction};
     use crate::Expr;
-    use crate::core::context::{Context, UserFunction};
 
     #[test]
     fn test_context_creation() {

@@ -3,7 +3,7 @@
 //! [`VReg`] (virtual registers) and [`VInstruction`] are used by the [`Compiler`] before
 //! final physical register allocation via [`RegAllocator`].
 
-use crate::evaluator::logic::bytecode::instruction::FnOp;
+use super::super::super::instruction::FnOp;
 
 /// Virtual register used during expression compilation.
 ///
