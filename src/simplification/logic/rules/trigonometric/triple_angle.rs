@@ -1,18 +1,18 @@
-use super::{ExprKind, Rule, RuleCategory, RuleContext};
+use super::{Rule, RuleCategory, RuleContext, RuleExprKind};
 use crate::EPSILON;
 use crate::core::known_symbols::{KS, get_symbol};
-use crate::core::{Expr, ExprKind as AstKind};
+use crate::core::{Expr, ExprKind};
 use std::sync::Arc;
 
 /// Checks for the triple angle pattern 3*sin(x) - 4*sin^3(x).
 fn check_sin_triple(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
     // Check for 3*sin(x) - 4*sin^3(x) pattern
-    if let AstKind::Product(factors) = &u.kind {
+    if let ExprKind::Product(factors) = &u.kind {
         // Look for coefficient 3 and sin(x)
         if factors.len() == 2
-            && let AstKind::Number(n) = &factors[0].kind
+            && let ExprKind::Number(n) = &factors[0].kind
             && (n - 3.0).abs() < eps
-            && let AstKind::FunctionCall { name, args } = &factors[1].kind
+            && let ExprKind::FunctionCall { name, args } = &factors[1].kind
             && name.id() == KS.sin
             && args.len() == 1
         {
@@ -33,11 +33,11 @@ fn check_sin_triple(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
 /// Checks for the triple angle addition pattern 3*sin(x) + 4*sin^3(x).
 fn check_sin_triple_add(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
     // Check for 3*sin(x) + (-4*sin^3(x)) pattern
-    if let AstKind::Product(factors) = &u.kind
+    if let ExprKind::Product(factors) = &u.kind
         && factors.len() == 2
-        && let AstKind::Number(n) = &factors[0].kind
+        && let ExprKind::Number(n) = &factors[0].kind
         && (n - 3.0).abs() < eps
-        && let AstKind::FunctionCall { name, args } = &factors[1].kind
+        && let ExprKind::FunctionCall { name, args } = &factors[1].kind
         && name.id() == KS.sin
         && args.len() == 1
     {
@@ -53,11 +53,11 @@ fn check_sin_triple_add(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
         }
     }
     // Check reversed
-    if let AstKind::Product(factors) = &v.kind
+    if let ExprKind::Product(factors) = &v.kind
         && factors.len() == 2
-        && let AstKind::Number(n) = &factors[0].kind
+        && let ExprKind::Number(n) = &factors[0].kind
         && (n - 3.0).abs() < eps
-        && let AstKind::FunctionCall { name, args } = &factors[1].kind
+        && let ExprKind::FunctionCall { name, args } = &factors[1].kind
         && name.id() == KS.sin
         && args.len() == 1
     {
@@ -78,13 +78,13 @@ fn check_sin_triple_add(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
 /// Checks for the triple angle pattern 4*cos^3(x) - 3*cos(x).
 fn check_cos_triple(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
     // Check for 4*cos^3(x) - 3*cos(x) pattern
-    if let AstKind::Product(factors) = &u.kind
+    if let ExprKind::Product(factors) = &u.kind
         && factors.len() == 2
-        && let AstKind::Number(n) = &factors[0].kind
+        && let ExprKind::Number(n) = &factors[0].kind
         && (n - 4.0).abs() < eps
-        && let AstKind::Pow(base, exp) = &factors[1].kind
-        && let AstKind::Number(e) = &exp.kind
-        && let AstKind::FunctionCall { name, args } = &base.kind
+        && let ExprKind::Pow(base, exp) = &factors[1].kind
+        && let ExprKind::Number(e) = &exp.kind
+        && let ExprKind::FunctionCall { name, args } = &base.kind
         && name.id() == KS.cos
         && args.len() == 1
     {
@@ -110,13 +110,13 @@ fn check_cos_triple(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
 /// Checks for the triple angle addition pattern 4*cos^3(x) + 3*cos(x).
 fn check_cos_triple_add(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
     // Check for 4*cos^3(x) + (-3*cos(x)) pattern
-    if let AstKind::Product(factors) = &u.kind
+    if let ExprKind::Product(factors) = &u.kind
         && factors.len() == 2
-        && let AstKind::Number(n) = &factors[0].kind
+        && let ExprKind::Number(n) = &factors[0].kind
         && (n - 4.0).abs() < eps
-        && let AstKind::Pow(base, exp) = &factors[1].kind
-        && let AstKind::Number(e) = &exp.kind
-        && let AstKind::FunctionCall { name, args } = &base.kind
+        && let ExprKind::Pow(base, exp) = &factors[1].kind
+        && let ExprKind::Number(e) = &exp.kind
+        && let ExprKind::FunctionCall { name, args } = &base.kind
         && name.id() == KS.cos
         && args.len() == 1
     {
@@ -138,13 +138,13 @@ fn check_cos_triple_add(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
         }
     }
     // Check reversed
-    if let AstKind::Product(factors) = &v.kind
+    if let ExprKind::Product(factors) = &v.kind
         && factors.len() == 2
-        && let AstKind::Number(n) = &factors[0].kind
+        && let ExprKind::Number(n) = &factors[0].kind
         && (n - 4.0).abs() < eps
-        && let AstKind::Pow(base, exp) = &factors[1].kind
-        && let AstKind::Number(e) = &exp.kind
-        && let AstKind::FunctionCall { name, args } = &base.kind
+        && let ExprKind::Pow(base, exp) = &factors[1].kind
+        && let ExprKind::Number(e) = &exp.kind
+        && let ExprKind::FunctionCall { name, args } = &base.kind
         && name.id() == KS.cos
         && args.len() == 1
     {
@@ -170,12 +170,12 @@ fn check_cos_triple_add(u: &Expr, v: &Expr, eps: f64) -> Option<Expr> {
 /// Extracts sin^3(x) from an expression.
 fn extract_sin_cubed(expr: &Expr, x: &Arc<Expr>, _eps: f64) -> Option<(f64, bool)> {
     // Match c * sin^3(x) pattern
-    if let AstKind::Product(factors) = &expr.kind
+    if let ExprKind::Product(factors) = &expr.kind
         && factors.len() == 2
-        && let AstKind::Number(n) = &factors[0].kind
-        && let AstKind::Pow(base, exp) = &factors[1].kind
-        && let AstKind::Number(e) = &exp.kind
-        && let AstKind::FunctionCall { name, args } = &base.kind
+        && let ExprKind::Number(n) = &factors[0].kind
+        && let ExprKind::Pow(base, exp) = &factors[1].kind
+        && let ExprKind::Number(e) = &exp.kind
+        && let ExprKind::FunctionCall { name, args } = &base.kind
         && name.id() == KS.sin
         && args.len() == 1
         && &args[0] == x
@@ -192,10 +192,10 @@ fn extract_sin_cubed(expr: &Expr, x: &Arc<Expr>, _eps: f64) -> Option<(f64, bool
 /// Extracts cos(x) from an expression.
 fn extract_cos(expr: &Expr, x: &Arc<Expr>, _eps: f64) -> Option<(f64, bool)> {
     // Match c * cos(x) pattern
-    if let AstKind::Product(factors) = &expr.kind
+    if let ExprKind::Product(factors) = &expr.kind
         && factors.len() == 2
-        && let AstKind::Number(n) = &factors[0].kind
-        && let AstKind::FunctionCall { name, args } = &factors[1].kind
+        && let ExprKind::Number(n) = &factors[0].kind
+        && let ExprKind::FunctionCall { name, args } = &factors[1].kind
         && name.id() == KS.cos
         && args.len() == 1
         && &args[0] == x
@@ -210,17 +210,17 @@ rule!(
     "trig_triple_angle",
     70,
     Trigonometric,
-    &[ExprKind::Sum, ExprKind::Poly],
+    &[RuleExprKind::Sum, RuleExprKind::Poly],
     |expr: &Expr, _context: &RuleContext| {
         let eps = EPSILON; // Use reasonable floating point tolerance for triple angle identities
 
         // Handle Poly form: Poly(sin(x), [(1, 3.0), (3, -4.0)]) -> sin(3x)
-        if let AstKind::Poly(poly) = &expr.kind {
+        if let ExprKind::Poly(poly) = &expr.kind {
             let base = poly.base();
             let terms = poly.terms();
 
             // Check if base is sin(x) or cos(x)
-            if let AstKind::FunctionCall { name, args } = &base.kind {
+            if let ExprKind::FunctionCall { name, args } = &base.kind {
                 if args.len() != 1 {
                     return None;
                 }
@@ -273,14 +273,14 @@ rule!(
         }
 
         // Original Sum handling
-        if let AstKind::Sum(terms) = &expr.kind
+        if let ExprKind::Sum(terms) = &expr.kind
             && terms.len() == 2
         {
             // Helper to extract negated term from Product([-1, x])
             fn extract_negated(term: &Expr) -> Option<Expr> {
-                if let AstKind::Product(factors) = &term.kind
+                if let ExprKind::Product(factors) = &term.kind
                     && factors.len() >= 2
-                    && let AstKind::Number(n) = &factors[0].kind
+                    && let ExprKind::Number(n) = &factors[0].kind
                     && (n + 1.0).abs() < EPSILON
                 {
                     // Rebuild without the -1 factor

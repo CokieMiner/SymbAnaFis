@@ -5,7 +5,7 @@
 )]
 mod rule_registry_tests {
     use super::super::engine::global_registry;
-    use super::super::rules::{ExprKind, RuleCategory};
+    use super::super::rules::{RuleCategory, RuleExprKind};
     use std::collections::{HashMap, HashSet};
 
     #[test]
@@ -82,9 +82,9 @@ mod rule_registry_tests {
     fn test_kind_indexing_works() {
         let registry = global_registry();
 
-        let sum_rules = registry.get_rules_for_kind(ExprKind::Sum);
-        let product_rules = registry.get_rules_for_kind(ExprKind::Product);
-        let pow_rules = registry.get_rules_for_kind(ExprKind::Pow);
+        let sum_rules = registry.get_rules_for_kind(RuleExprKind::Sum);
+        let product_rules = registry.get_rules_for_kind(RuleExprKind::Product);
+        let pow_rules = registry.get_rules_for_kind(RuleExprKind::Pow);
 
         assert!(!sum_rules.is_empty(), "Sum should have rules");
         assert!(!product_rules.is_empty(), "Product should have rules");

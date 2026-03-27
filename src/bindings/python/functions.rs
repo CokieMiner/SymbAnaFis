@@ -3,16 +3,22 @@
 //! This module provides the main API functions like `diff`, `simplify`, `parse`, etc.
 
 use super::expr::PyExpr;
-use crate::Expr as RustExpr;
+use crate::convenience::{
+    evaluate_str as rust_evaluate_str, gradient as rust_gradient,
+    gradient_str as rust_gradient_str, hessian as rust_hessian, hessian_str as rust_hessian_str,
+    jacobian as rust_jacobian, jacobian_str as rust_jacobian_str,
+};
+use crate::core::Expr as RustExpr;
 use crate::core::Symbol as RustSymbol;
+use crate::core::symb;
+use crate::diff::diff as rust_diff;
 use crate::parser::parse as parse_expr;
-use crate::{
-    CovEntry, CovarianceMatrix, diff as rust_diff, evaluate_str as rust_evaluate_str,
-    gradient as rust_gradient, gradient_str as rust_gradient_str, hessian as rust_hessian,
-    hessian_str as rust_hessian_str, jacobian as rust_jacobian, jacobian_str as rust_jacobian_str,
-    relative_uncertainty as rust_relative_uncertainty, simplify as rust_simplify, symb,
+use crate::simplification::simplify as rust_simplify;
+use crate::uncertainty::{
+    CovEntry, CovarianceMatrix, relative_uncertainty as rust_relative_uncertainty,
     uncertainty_propagation as rust_uncertainty_propagation,
 };
+
 use pyo3::prelude::*;
 use std::collections::{HashMap, HashSet};
 

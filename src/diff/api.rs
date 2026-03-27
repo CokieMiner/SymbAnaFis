@@ -3,10 +3,11 @@
 //! This module provides the [`Diff`] builder and the convenience [`diff`] function.
 
 use crate::core::{Context, UserFunction, symb_interned};
+use crate::core::{DiffError, Expr, Symbol, symb};
 use crate::evaluator::ToParamName;
 use crate::parser::parse;
 use crate::simplification::{CustomBodyMap, simplify_expr};
-use crate::{DEFAULT_MAX_DEPTH, DEFAULT_MAX_NODES, DiffError, Expr, Symbol, symb};
+use crate::{DEFAULT_MAX_DEPTH, DEFAULT_MAX_NODES};
 use rustc_hash::FxHashMap;
 use std::collections::HashSet;
 use std::sync::Arc;

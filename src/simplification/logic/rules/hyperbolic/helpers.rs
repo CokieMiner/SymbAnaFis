@@ -1,6 +1,6 @@
 use crate::EPSILON;
 use crate::core::known_symbols::KS;
-use crate::core::{Expr, ExprKind as AstKind};
+use crate::core::{Expr, ExprKind};
 use std::sync::Arc;
 
 // ============================================================================
@@ -28,8 +28,8 @@ impl ExpTerm {
         }
 
         // Reciprocal form: 1/e^x or 1/exp(x)
-        if let AstKind::Div(num, den) = &expr.kind
-            && let AstKind::Number(n) = &num.kind
+        if let ExprKind::Div(num, den) = &expr.kind
+            && let ExprKind::Number(n) = &num.kind
             && {
                 // Exact check for constant 1.0
                 #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
@@ -51,21 +51,21 @@ impl ExpTerm {
     /// Returns a shared Arc to avoid deep cloning the argument
     pub fn get_direct_exp_arg(expr: &Expr) -> Option<Arc<Expr>> {
         match &expr.kind {
-            AstKind::Pow(base, exp) => {
-                if let AstKind::Symbol(b) = &base.kind
+            ExprKind::Pow(base, exp) => {
+                if let ExprKind::Symbol(b) = &base.kind
                     && b.id() == KS.e
                 {
                     return Some(Arc::clone(exp));
                 }
                 None
             }
-            AstKind::FunctionCall { name, args } => {
+            ExprKind::FunctionCall { name, args } => {
                 if name.id() == KS.exp && args.len() == 1 {
                     return Some(Arc::clone(&args[0]));
                 }
                 None
             }
-            AstKind::Poly(p) => {
+            ExprKind::Poly(p) => {
                 // Check if Poly base is e^x or exp(x)
                 // If it is, and we have term like 1*base^1, we return arg
                 if p.terms().len() == 1 && p.terms()[0] == (1, 1.0) {
@@ -85,13 +85,13 @@ impl ExpTerm {
     /// Check if two arguments are negations of each other: arg1 = -arg2
     pub fn args_are_negations(arg1: &Expr, arg2: &Expr) -> bool {
         // Check if arg1 = Product([-1, arg2])
-        if let AstKind::Product(factors) = &arg1.kind
+        if let ExprKind::Product(factors) = &arg1.kind
             && factors.len() == 2
         {
             if {
                 // Exact check for constant -1.0
                 #[allow(clippy::float_cmp, reason = "Comparing against exact constant -1.0")]
-                let is_neg_one = matches!(&factors[0].kind, AstKind::Number(n) if *n == -1.0_f64);
+                let is_neg_one = matches!(&factors[0].kind, ExprKind::Number(n) if *n == -1.0_f64);
                 is_neg_one
             } && *factors[1] == *arg2
             {
@@ -100,7 +100,7 @@ impl ExpTerm {
             if {
                 // Exact check for constant -1.0
                 #[allow(clippy::float_cmp, reason = "Comparing against exact constant -1.0")]
-                let is_neg_one = matches!(&factors[1].kind, AstKind::Number(n) if *n == -1.0_f64);
+                let is_neg_one = matches!(&factors[1].kind, ExprKind::Number(n) if *n == -1.0_f64);
                 is_neg_one
             } && *factors[0] == *arg2
             {
@@ -108,13 +108,13 @@ impl ExpTerm {
             }
         }
         // Check if arg2 = Product([-1, arg1])
-        if let AstKind::Product(factors) = &arg2.kind
+        if let ExprKind::Product(factors) = &arg2.kind
             && factors.len() == 2
         {
             if {
                 // Exact check for constant -1.0
                 #[allow(clippy::float_cmp, reason = "Comparing against exact constant -1.0")]
-                let is_neg_one = matches!(&factors[0].kind, AstKind::Number(n) if *n == -1.0);
+                let is_neg_one = matches!(&factors[0].kind, ExprKind::Number(n) if *n == -1.0);
                 is_neg_one
             } && *factors[1] == *arg1
             {
@@ -123,7 +123,7 @@ impl ExpTerm {
             if {
                 // Exact check for constant -1.0
                 #[allow(clippy::float_cmp, reason = "Comparing against exact constant -1.0")]
-                let is_neg_one = matches!(&factors[1].kind, AstKind::Number(n) if *n == -1.0);
+                let is_neg_one = matches!(&factors[1].kind, ExprKind::Number(n) if *n == -1.0);
                 is_neg_one
             } && *factors[0] == *arg1
             {
@@ -136,10 +136,10 @@ impl ExpTerm {
     /// Create the negation of an expression: x -> -1 * x
     pub fn negate(expr: &Expr) -> Expr {
         // If it's already a negation, return the inner part
-        if let AstKind::Product(factors) = &expr.kind
+        if let ExprKind::Product(factors) = &expr.kind
             && factors.len() == 2
         {
-            if let AstKind::Number(n) = &factors[0].kind
+            if let ExprKind::Number(n) = &factors[0].kind
                 && {
                     // Exact check for constant -1.0
                     #[allow(clippy::float_cmp, reason = "Comparing against exact constant -1.0")]
@@ -149,7 +149,7 @@ impl ExpTerm {
             {
                 return (*factors[1]).clone();
             }
-            if let AstKind::Number(n) = &factors[1].kind
+            if let ExprKind::Number(n) = &factors[1].kind
                 && {
                     // Exact check for constant -1.0
                     #[allow(clippy::float_cmp, reason = "Comparing against exact constant -1.0")]
@@ -203,16 +203,16 @@ pub fn match_sinh_pattern_sub(u: &Expr, v: &Expr) -> Option<Arc<Expr>> {
 /// If expr is -x (i.e., Product([-1, x])), return x (as Arc)
 /// Otherwise return expr as-is (as Arc)
 pub fn get_positive_form(expr: &Expr) -> Arc<Expr> {
-    if let AstKind::Product(factors) = &expr.kind
+    if let ExprKind::Product(factors) = &expr.kind
         && factors.len() == 2
     {
         #[allow(clippy::float_cmp, reason = "Comparing against exact constant -1.0")]
-        let is_neg_one0 = matches!(&factors[0].kind, AstKind::Number(n) if *n == -1.0);
+        let is_neg_one0 = matches!(&factors[0].kind, ExprKind::Number(n) if *n == -1.0);
         if is_neg_one0 {
             return Arc::clone(&factors[1]);
         }
         #[allow(clippy::float_cmp, reason = "Comparing against exact constant -1.0")]
-        let is_neg_one1 = matches!(&factors[1].kind, AstKind::Number(n) if *n == -1.0);
+        let is_neg_one1 = matches!(&factors[1].kind, ExprKind::Number(n) if *n == -1.0);
         if is_neg_one1 {
             return Arc::clone(&factors[0]);
         }
@@ -249,14 +249,14 @@ pub fn match_alt_cosh_pattern(numerator: &Expr, denominator: &Expr) -> Option<Ar
     let x = match_two_times_exp(denominator)?;
 
     // Numerator must be e^(2x) + 1
-    if let AstKind::Sum(terms) = &numerator.kind
+    if let ExprKind::Sum(terms) = &numerator.kind
         && terms.len() == 2
     {
         // Check for e^(2x) + 1 or 1 + e^(2x)
         #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
-        let is_one1 = matches!(&terms[1].kind, AstKind::Number(n) if *n == 1.0_f64);
+        let is_one1 = matches!(&terms[1].kind, ExprKind::Number(n) if *n == 1.0_f64);
         #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
-        let is_one0 = matches!(&terms[0].kind, AstKind::Number(n) if *n == 1.0_f64);
+        let is_one0 = matches!(&terms[0].kind, ExprKind::Number(n) if *n == 1.0_f64);
 
         let exp_term = if is_one1 {
             &terms[0]
@@ -283,14 +283,14 @@ pub fn match_alt_sinh_pattern(numerator: &Expr, denominator: &Expr) -> Option<Ar
     let x = match_two_times_exp(denominator)?;
 
     // Numerator must be e^(2x) + (-1) (n-ary representation of subtraction)
-    if let AstKind::Sum(terms) = &numerator.kind
+    if let ExprKind::Sum(terms) = &numerator.kind
         && terms.len() == 2
     {
         // Check for e^(2x) + (-1)
         if {
             // Exact check for constant -1.0
             #[allow(clippy::float_cmp, reason = "Comparing against exact constant -1.0")]
-            let is_neg_one = matches!(&terms[1].kind, AstKind::Number(n) if *n == -1.0);
+            let is_neg_one = matches!(&terms[1].kind, ExprKind::Number(n) if *n == -1.0);
             is_neg_one
         } && let Some(exp_arg) = ExpTerm::get_direct_exp_arg(&terms[0])
             && is_double_of(&exp_arg, &x)
@@ -304,23 +304,23 @@ pub fn match_alt_sinh_pattern(numerator: &Expr, denominator: &Expr) -> Option<Ar
 /// Match pattern: 2 * e^x or Product([2, e^x])
 /// Returns the argument x if pattern matches (as Arc)
 pub fn match_two_times_exp(expr: &Expr) -> Option<Arc<Expr>> {
-    if let AstKind::Product(factors) = &expr.kind
+    if let ExprKind::Product(factors) = &expr.kind
         && factors.len() == 2
     {
         // 2 * e^x
         #[allow(clippy::float_cmp, reason = "Comparing against exact constant 2.0")]
-        let is_two0 = matches!(&factors[0].kind, AstKind::Number(n) if *n == 2.0_f64);
+        let is_two0 = matches!(&factors[0].kind, ExprKind::Number(n) if *n == 2.0_f64);
         if is_two0 {
             return ExpTerm::get_direct_exp_arg(&factors[1]);
         }
         #[allow(clippy::float_cmp, reason = "Comparing against exact constant 2.0")]
-        let is_two1 = matches!(&factors[1].kind, AstKind::Number(n) if *n == 2.0_f64);
+        let is_two1 = matches!(&factors[1].kind, ExprKind::Number(n) if *n == 2.0_f64);
         if is_two1 {
             return ExpTerm::get_direct_exp_arg(&factors[0]);
         }
     }
     // Check Poly(2*e^x) -> gets e^x, then extracts arg
-    if let AstKind::Poly(p) = &expr.kind
+    if let ExprKind::Poly(p) = &expr.kind
         && p.terms().len() == 1
         && p.terms()[0] == (1, 2.0)
     {
@@ -333,22 +333,22 @@ pub fn match_two_times_exp(expr: &Expr) -> Option<Arc<Expr>> {
 /// Check if expr = 2 * other (i.e., expr is double of other)
 pub fn is_double_of(expr: &Expr, other: &Expr) -> bool {
     // Check Product([2, other]) or Product([other, 2])
-    if let AstKind::Product(factors) = &expr.kind
+    if let ExprKind::Product(factors) = &expr.kind
         && factors.len() == 2
     {
-        if matches!(&factors[0].kind, AstKind::Number(n) if (n - 2.0).abs() < EPSILON)
+        if matches!(&factors[0].kind, ExprKind::Number(n) if (n - 2.0).abs() < EPSILON)
             && *factors[1] == *other
         {
             return true;
         }
-        if matches!(&factors[1].kind, AstKind::Number(n) if (n - 2.0).abs() < EPSILON)
+        if matches!(&factors[1].kind, ExprKind::Number(n) if (n - 2.0).abs() < EPSILON)
             && *factors[0] == *other
         {
             return true;
         }
     }
     // Check Poly(2*other)
-    if let AstKind::Poly(p) = &expr.kind
+    if let ExprKind::Poly(p) = &expr.kind
         && p.terms().len() == 1
         && p.terms()[0] == (1, 2.0)
         && **p.base() == *other
@@ -366,14 +366,14 @@ pub fn match_alt_sech_pattern(numerator: &Expr, denominator: &Expr) -> Option<Ar
     let x = match_two_times_exp(numerator)?;
 
     // Denominator must be e^(2x) + 1
-    if let AstKind::Sum(terms) = &denominator.kind
+    if let ExprKind::Sum(terms) = &denominator.kind
         && terms.len() == 2
     {
         // Check for e^(2x) + 1 or 1 + e^(2x)
         #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
-        let is_one1 = matches!(&terms[1].kind, AstKind::Number(n) if *n == 1.0);
+        let is_one1 = matches!(&terms[1].kind, ExprKind::Number(n) if *n == 1.0);
         #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
-        let is_one0 = matches!(&terms[0].kind, AstKind::Number(n) if *n == 1.0);
+        let is_one0 = matches!(&terms[0].kind, ExprKind::Number(n) if *n == 1.0);
 
         let exp_term = if is_one1 {
             &terms[0]
@@ -397,7 +397,7 @@ pub fn match_alt_sech_pattern(numerator: &Expr, denominator: &Expr) -> Option<Ar
 /// Returns Some(x) if pattern matches (as Arc)
 pub fn match_e2x_minus_1_factored(expr: &Expr) -> Option<Arc<Expr>> {
     // Pattern: (e^x - 1/e^x) * e^x or Product([..., e^x])
-    if let AstKind::Product(factors) = &expr.kind {
+    if let ExprKind::Product(factors) = &expr.kind {
         // Check pairwise for factored form
         for (i, f1) in factors.iter().enumerate() {
             for (j, f2) in factors.iter().enumerate() {
@@ -418,15 +418,15 @@ fn try_match_factored_sinh_times_exp(factor: &Expr, exp_part: &Expr) -> Option<A
     let x = ExpTerm::get_direct_exp_arg(exp_part)?;
 
     // factor should be Sum([e^x, Product([-1, 1/e^x])]) representing (e^x - 1/e^x)
-    if let AstKind::Sum(terms) = &factor.kind
+    if let ExprKind::Sum(terms) = &factor.kind
         && terms.len() == 2
     {
         // Try e^x at terms[0]
         if let Some(arg_u) = ExpTerm::get_direct_exp_arg(&terms[0])
             && arg_u == x
             && let Some(negated) = extract_negated_term(&terms[1])
-            && let AstKind::Div(num, den) = &negated.kind
-            && matches!(&num.kind, AstKind::Number(n) if (n - 1.0).abs() < EPSILON)
+            && let ExprKind::Div(num, den) = &negated.kind
+            && matches!(&num.kind, ExprKind::Number(n) if (n - 1.0).abs() < EPSILON)
             && let Some(arg_v) = ExpTerm::get_direct_exp_arg(den)
             && arg_v == x
         {
@@ -437,8 +437,8 @@ fn try_match_factored_sinh_times_exp(factor: &Expr, exp_part: &Expr) -> Option<A
         if let Some(arg_u) = ExpTerm::get_direct_exp_arg(&terms[1])
             && arg_u == x
             && let Some(negated) = extract_negated_term(&terms[0])
-            && let AstKind::Div(num, den) = &negated.kind
-            && matches!(&num.kind, AstKind::Number(n) if (n - 1.0).abs() < EPSILON)
+            && let ExprKind::Div(num, den) = &negated.kind
+            && matches!(&num.kind, ExprKind::Number(n) if (n - 1.0).abs() < EPSILON)
             && let Some(arg_v) = ExpTerm::get_direct_exp_arg(den)
             && arg_v == x
         {
@@ -451,14 +451,14 @@ fn try_match_factored_sinh_times_exp(factor: &Expr, exp_part: &Expr) -> Option<A
 /// Match pattern: e^(2x) + 1 directly
 /// Returns Some(x) if pattern matches (as Arc)
 pub fn match_e2x_plus_1(expr: &Expr) -> Option<Arc<Expr>> {
-    if let AstKind::Sum(terms) = &expr.kind
+    if let ExprKind::Sum(terms) = &expr.kind
         && terms.len() == 2
     {
         // Check for e^(2x) + 1 or 1 + e^(2x)
         #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
-        let is_one1 = matches!(&terms[1].kind, AstKind::Number(n) if *n == 1.0);
+        let is_one1 = matches!(&terms[1].kind, ExprKind::Number(n) if *n == 1.0);
         #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
-        let is_one0 = matches!(&terms[0].kind, AstKind::Number(n) if *n == 1.0);
+        let is_one0 = matches!(&terms[0].kind, ExprKind::Number(n) if *n == 1.0);
 
         let exp_term = if is_one1 {
             &terms[0]
@@ -471,22 +471,22 @@ pub fn match_e2x_plus_1(expr: &Expr) -> Option<Arc<Expr>> {
         // Check exp_term = e^(2x)
         if let Some(exp_arg) = ExpTerm::get_direct_exp_arg(exp_term) {
             // exp_arg should be 2*x
-            if let AstKind::Product(factors) = &exp_arg.kind
+            if let ExprKind::Product(factors) = &exp_arg.kind
                 && factors.len() == 2
             {
                 #[allow(clippy::float_cmp, reason = "Comparing against exact constant 2.0")]
-                let is_two0 = matches!(&factors[0].kind, AstKind::Number(n) if *n == 2.0);
+                let is_two0 = matches!(&factors[0].kind, ExprKind::Number(n) if *n == 2.0);
                 if is_two0 {
                     return Some(Arc::clone(&factors[1]));
                 }
                 #[allow(clippy::float_cmp, reason = "Comparing against exact constant 2.0")]
-                let is_two1 = matches!(&factors[1].kind, AstKind::Number(n) if *n == 2.0);
+                let is_two1 = matches!(&factors[1].kind, ExprKind::Number(n) if *n == 2.0);
                 if is_two1 {
                     return Some(Arc::clone(&factors[0]));
                 }
             }
             // Check Poly(2*x)
-            if let AstKind::Poly(p) = &exp_arg.kind
+            if let ExprKind::Poly(p) = &exp_arg.kind
                 && p.terms().len() == 1
                 && p.terms()[0] == (1, 2.0)
             {
@@ -500,14 +500,14 @@ pub fn match_e2x_plus_1(expr: &Expr) -> Option<Arc<Expr>> {
 /// Match pattern: e^(2x) - 1 directly (not factored form)
 /// Returns Some(x) if pattern matches (as Arc)
 pub fn match_e2x_minus_1_direct(expr: &Expr) -> Option<Arc<Expr>> {
-    if let AstKind::Sum(terms) = &expr.kind
+    if let ExprKind::Sum(terms) = &expr.kind
         && terms.len() == 2
     {
         // Try to find -1
-        let (neg_one, exp_term) = if matches!(&terms[1].kind, AstKind::Number(n) if (n - -1.0).abs() < EPSILON)
+        let (neg_one, exp_term) = if matches!(&terms[1].kind, ExprKind::Number(n) if (n - -1.0).abs() < EPSILON)
         {
             (true, &terms[0])
-        } else if matches!(&terms[0].kind, AstKind::Number(n) if (n - -1.0).abs() < EPSILON) {
+        } else if matches!(&terms[0].kind, ExprKind::Number(n) if (n - -1.0).abs() < EPSILON) {
             (true, &terms[1])
         } else {
             (false, &terms[0])
@@ -518,22 +518,22 @@ pub fn match_e2x_minus_1_direct(expr: &Expr) -> Option<Arc<Expr>> {
             if let Some(exp_arg) = ExpTerm::get_direct_exp_arg(exp_term) {
                 // exp_arg should be 2*x
                 // Check Product([2, x])
-                if let AstKind::Product(factors) = &exp_arg.kind
+                if let ExprKind::Product(factors) = &exp_arg.kind
                     && factors.len() == 2
                 {
                     #[allow(clippy::float_cmp, reason = "Comparing against exact constant 2.0")]
-                    let is_two0 = matches!(&factors[0].kind, AstKind::Number(n) if *n == 2.0);
+                    let is_two0 = matches!(&factors[0].kind, ExprKind::Number(n) if *n == 2.0);
                     if is_two0 {
                         return Some(Arc::clone(&factors[1]));
                     }
                     #[allow(clippy::float_cmp, reason = "Comparing against exact constant 2.0")]
-                    let is_two1 = matches!(&factors[1].kind, AstKind::Number(n) if *n == 2.0);
+                    let is_two1 = matches!(&factors[1].kind, ExprKind::Number(n) if *n == 2.0);
                     if is_two1 {
                         return Some(Arc::clone(&factors[0]));
                     }
                 }
                 // Check Poly(2*x)
-                if let AstKind::Poly(p) = &exp_arg.kind
+                if let ExprKind::Poly(p) = &exp_arg.kind
                     && p.terms().len() == 1
                     && p.terms()[0] == (1, 2.0)
                 {
@@ -548,16 +548,16 @@ pub fn match_e2x_minus_1_direct(expr: &Expr) -> Option<Arc<Expr>> {
 /// Try to extract the inner expression from Product([-1, expr])
 /// Returns Option<Arc<Expr>>
 pub fn extract_negated_term(expr: &Expr) -> Option<Arc<Expr>> {
-    if let AstKind::Product(factors) = &expr.kind
+    if let ExprKind::Product(factors) = &expr.kind
         && factors.len() == 2
     {
         #[allow(clippy::float_cmp, reason = "Comparing against exact constant -1.0")]
-        let is_neg_one0 = matches!(&factors[0].kind, AstKind::Number(n) if *n == -1.0);
+        let is_neg_one0 = matches!(&factors[0].kind, ExprKind::Number(n) if *n == -1.0);
         if is_neg_one0 {
             return Some(Arc::clone(&factors[1]));
         }
         #[allow(clippy::float_cmp, reason = "Comparing against exact constant -1.0")]
-        let is_neg_one1 = matches!(&factors[1].kind, AstKind::Number(n) if *n == -1.0);
+        let is_neg_one1 = matches!(&factors[1].kind, ExprKind::Number(n) if *n == -1.0);
         if is_neg_one1 {
             return Some(Arc::clone(&factors[0]));
         }

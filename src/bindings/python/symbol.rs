@@ -10,7 +10,7 @@
 
 use super::expr::{PyExpr, extract_to_expr};
 use crate::core::Symbol as RustSymbol;
-use crate::{Expr as RustExpr, remove_symbol, symb, symb_get, symb_new};
+use crate::core::{Expr as RustExpr, remove_symbol, symb, symb_get, symb_new};
 use pyo3::prelude::*;
 
 /// Python wrapper for symbols

@@ -2,7 +2,7 @@
 //!
 //! Provides comparison functions for sorting expressions into canonical form.
 
-use std::cmp::Ordering as CmpOrdering;
+use std::cmp::Ordering;
 use std::ptr::eq;
 
 use super::{EXPR_ONE, Expr, ExprKind};
@@ -10,10 +10,10 @@ use super::{EXPR_ONE, Expr, ExprKind};
 /// Compare expressions for canonical ordering.
 /// Order: Numbers < Symbols (by power) < Sum < `FunctionCall` < Pow < Div
 #[inline]
-pub fn expr_cmp(a: &Expr, b: &Expr) -> CmpOrdering {
+pub fn expr_cmp(a: &Expr, b: &Expr) -> Ordering {
     // Fast identity check (pointer equality)
     if eq(a, b) {
-        return CmpOrdering::Equal;
+        return Ordering::Equal;
     }
 
     // Compare bases first to ensure adjacency of like terms (Phase 10 optimization)
@@ -23,7 +23,7 @@ pub fn expr_cmp(a: &Expr, b: &Expr) -> CmpOrdering {
     // If bases are different, use strict type comparison on bases
     if !eq(base_a, base_b) {
         let base_cmp = expr_cmp_type_strict(base_a, base_b);
-        if base_cmp != CmpOrdering::Equal {
+        if base_cmp != Ordering::Equal {
             return base_cmp;
         }
     }
@@ -35,7 +35,7 @@ pub fn expr_cmp(a: &Expr, b: &Expr) -> CmpOrdering {
 
     if !eq(exp_a, exp_b) {
         let exp_cmp = expr_cmp(exp_a, exp_b);
-        if exp_cmp != CmpOrdering::Equal {
+        if exp_cmp != Ordering::Equal {
             return exp_cmp;
         }
     }
@@ -45,7 +45,7 @@ pub fn expr_cmp(a: &Expr, b: &Expr) -> CmpOrdering {
     let coeff_a = get_coeff(a);
     let coeff_b = get_coeff(b);
 
-    coeff_a.partial_cmp(&coeff_b).unwrap_or(CmpOrdering::Equal)
+    coeff_a.partial_cmp(&coeff_b).unwrap_or(Ordering::Equal)
 }
 
 // Helper to get the sorting "base" of an expression.
@@ -105,19 +105,19 @@ fn get_coeff(e: &Expr) -> f64 {
     clippy::too_many_lines,
     reason = "Large match covers all ExprKind variants; splitting would hurt readability"
 )]
-pub fn expr_cmp_type_strict(a: &Expr, b: &Expr) -> CmpOrdering {
+pub fn expr_cmp_type_strict(a: &Expr, b: &Expr) -> Ordering {
     use ExprKind::{Derivative, Div, FunctionCall, Number, Pow, Product, Sum, Symbol};
     match (&a.kind, &b.kind) {
         // 0. Symbols and Numbers come first (most common atomic types)
         // Kept unchanged: Number ordering is numeric, Symbol ordering is alphabetical.
         // These must not use hash ordering as tests expect stable human-readable names.
-        (Number(x), Number(y)) => x.partial_cmp(y).unwrap_or(CmpOrdering::Equal),
-        (Number(_), _) => CmpOrdering::Less,
-        (_, Number(_)) => CmpOrdering::Greater,
+        (Number(x), Number(y)) => x.partial_cmp(y).unwrap_or(Ordering::Equal),
+        (Number(_), _) => Ordering::Less,
+        (_, Number(_)) => Ordering::Greater,
 
         (Symbol(x), Symbol(y)) => x.cmp(y),
-        (Symbol(_), _) => CmpOrdering::Less,
-        (_, Symbol(_)) => CmpOrdering::Greater,
+        (Symbol(_), _) => Ordering::Less,
+        (_, Symbol(_)) => Ordering::Greater,
 
         // Fast path: different hashes → O(1) consistent total order for all composite types.
         // Numbers and Symbols (above) keep their algebraic ordering; everything else uses hash.
@@ -130,52 +130,52 @@ pub fn expr_cmp_type_strict(a: &Expr, b: &Expr) -> CmpOrdering {
         (Sum(t1), Sum(t2)) => t1.len().cmp(&t2.len()).then_with(|| {
             for (x, y) in t1.iter().zip(t2.iter()) {
                 match expr_cmp(x, y) {
-                    CmpOrdering::Equal => {}
+                    Ordering::Equal => {}
                     other => return other,
                 }
             }
-            CmpOrdering::Equal
+            Ordering::Equal
         }),
-        (Sum(_), _) => CmpOrdering::Less,
-        (_, Sum(_)) => CmpOrdering::Greater,
+        (Sum(_), _) => Ordering::Less,
+        (_, Sum(_)) => Ordering::Greater,
 
         // 3. Function calls (exp, sin, cos, etc.)
         (FunctionCall { name: n1, args: a1 }, FunctionCall { name: n2, args: a2 }) => {
             n1.cmp(n2).then_with(|| {
                 for (x, y) in a1.iter().zip(a2.iter()) {
                     match expr_cmp(x, y) {
-                        CmpOrdering::Equal => {}
+                        Ordering::Equal => {}
                         other => return other,
                     }
                 }
                 a1.len().cmp(&a2.len())
             })
         }
-        (FunctionCall { .. }, _) => CmpOrdering::Less,
-        (_, FunctionCall { .. }) => CmpOrdering::Greater,
+        (FunctionCall { .. }, _) => Ordering::Less,
+        (_, FunctionCall { .. }) => Ordering::Greater,
 
         // 4. Powers (complex expressions)
         (Pow(b1, e1), Pow(b2, e2)) => expr_cmp(b1, b2).then_with(|| expr_cmp(e1, e2)),
-        (Pow(_, _), _) => CmpOrdering::Less,
-        (_, Pow(_, _)) => CmpOrdering::Greater,
+        (Pow(_, _), _) => Ordering::Less,
+        (_, Pow(_, _)) => Ordering::Greater,
 
         // 5. Divisions come last (most complex)
         (Div(l1, r1), Div(l2, r2)) => expr_cmp(l1, l2).then_with(|| expr_cmp(r1, r2)),
-        (Div(_, _), _) => CmpOrdering::Less,
-        (_, Div(_, _)) => CmpOrdering::Greater,
+        (Div(_, _), _) => Ordering::Less,
+        (_, Div(_, _)) => Ordering::Greater,
 
         // Products shouldn't appear as factors (they're flattened), but handle gracefully
         (Product(f1), Product(f2)) => f1.len().cmp(&f2.len()).then_with(|| {
             for (x, y) in f1.iter().zip(f2.iter()) {
                 match expr_cmp(x, y) {
-                    CmpOrdering::Equal => {}
+                    Ordering::Equal => {}
                     other => return other,
                 }
             }
-            CmpOrdering::Equal
+            Ordering::Equal
         }),
-        (Product(_), _) => CmpOrdering::Less,
-        (_, Product(_)) => CmpOrdering::Greater,
+        (Product(_), _) => Ordering::Less,
+        (_, Product(_)) => Ordering::Greater,
 
         // Derivatives
         (
@@ -198,19 +198,18 @@ pub fn expr_cmp_type_strict(a: &Expr, b: &Expr) -> CmpOrdering {
             expr_cmp(p1.base(), p2.base()).then_with(|| {
                 p1.terms().len().cmp(&p2.terms().len()).then_with(|| {
                     for (t1, t2) in p1.terms().iter().zip(p2.terms().iter()) {
-                        let c = t1
-                            .0
-                            .cmp(&t2.0)
-                            .then_with(|| t1.1.partial_cmp(&t2.1).unwrap_or(CmpOrdering::Equal));
-                        if c != CmpOrdering::Equal {
+                        let c =
+                            t1.0.cmp(&t2.0)
+                                .then_with(|| t1.1.partial_cmp(&t2.1).unwrap_or(Ordering::Equal));
+                        if c != Ordering::Equal {
                             return c;
                         }
                     }
-                    CmpOrdering::Equal
+                    Ordering::Equal
                 })
             })
         }
-        (ExprKind::Poly(_), _) => CmpOrdering::Less,
-        (_, ExprKind::Poly(_)) => CmpOrdering::Greater,
+        (ExprKind::Poly(_), _) => Ordering::Less,
+        (_, ExprKind::Poly(_)) => Ordering::Greater,
     }
 }

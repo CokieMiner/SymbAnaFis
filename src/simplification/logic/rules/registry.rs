@@ -1,5 +1,5 @@
 use super::algebraic::get_algebraic_rules;
-use super::core::{ALL_EXPR_KINDS, ExprKind, Rule};
+use super::core::{ALL_EXPR_KINDS, Rule, RuleExprKind};
 use super::exponential::get_exponential_rules;
 use super::hyperbolic::get_hyperbolic_rules;
 use super::numeric::get_numeric_rules;
@@ -14,7 +14,7 @@ pub struct RuleRegistry {
     /// All loaded rules in priority order
     pub(crate) rules: Vec<Arc<dyn Rule + Send + Sync>>,
     /// Rules indexed by expression kind for fast lookup
-    rules_by_kind: FxHashMap<ExprKind, Vec<Arc<dyn Rule + Send + Sync>>>,
+    rules_by_kind: FxHashMap<RuleExprKind, Vec<Arc<dyn Rule + Send + Sync>>>,
     /// Rules indexed by function name ID (u64) for O(1) dispatch
     /// Maps function symbol ID -> List of rules that target it SPECIFICALLY
     rules_by_func: FxHashMap<u64, Vec<Arc<dyn Rule + Send + Sync>>>,
@@ -72,7 +72,7 @@ impl RuleRegistry {
                 }
 
                 // Special indexing for Function kind
-                if kind == ExprKind::Function {
+                if kind == RuleExprKind::Function {
                     let targets = rule.target_functions();
                     if targets.is_empty() {
                         self.generic_func_rules.push(Arc::clone(rule));
@@ -94,7 +94,7 @@ impl RuleRegistry {
     /// Get only rules that apply to a specific expression kind
     #[inline]
     #[must_use]
-    pub fn get_rules_for_kind(&self, kind: ExprKind) -> &[Arc<dyn Rule + Send + Sync>] {
+    pub fn get_rules_for_kind(&self, kind: RuleExprKind) -> &[Arc<dyn Rule + Send + Sync>] {
         self.rules_by_kind.get(&kind).map_or(&[], Vec::as_slice)
     }
 

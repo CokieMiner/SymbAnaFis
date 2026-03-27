@@ -6,10 +6,13 @@ use std::borrow::Cow;
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use crate::core::DiffError;
 use crate::core::ExprView;
+use crate::core::symb;
 use crate::core::{symb_get, symb_interned};
+use crate::diff::Diff;
 use crate::evaluator::{CompiledEvaluator, ToParamName};
-use crate::{Diff, DiffError, Simplify, symb};
+use crate::simplification::Simplify;
 
 use super::{Expr, ExprKind};
 

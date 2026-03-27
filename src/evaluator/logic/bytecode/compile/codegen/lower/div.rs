@@ -3,10 +3,9 @@ use super::instruction::FnOp;
 use super::vir::node::{NodeData, const_from_map, recip_expm1_arg};
 use super::vir::{VInstruction, VReg};
 use crate::EPSILON;
-use crate::Expr;
-use crate::core::ExprKind;
 use crate::core::error::DiffError;
 use crate::core::known_symbols::KS;
+use crate::core::{Expr, ExprKind};
 use rustc_hash::FxHashMap;
 
 impl Compiler {

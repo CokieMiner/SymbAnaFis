@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use crate::Expr;
+use crate::core::Expr;
 use crate::core::Symbol;
 
 impl From<Symbol> for Expr {

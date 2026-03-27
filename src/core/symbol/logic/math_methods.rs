@@ -3,7 +3,7 @@
 //! Contains macro definitions and implementations for math functions on Symbol and Expr.
 //! Uses pre-interned symbol IDs from `known_symbols` for O(1) function construction.
 
-use crate::Expr;
+use crate::core::Expr;
 use crate::core::Symbol;
 use crate::core::known_symbols::{KS, get_interned, get_symbol};
 

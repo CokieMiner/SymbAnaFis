@@ -1,5 +1,5 @@
 use super::CovarianceMatrix;
-use crate::{DiffError, Expr};
+use crate::core::{DiffError, Expr};
 
 /// Compute the sum of uncertainty terms using the GUM formula
 /// `σ_f²` = Σᵢ Σⱼ (∂f/∂xᵢ)(∂f/∂xⱼ) Cov(xᵢ, xⱼ)

@@ -63,7 +63,7 @@ pub use super::logic::{
     symbol_names,
 };
 
-use crate::Expr;
+use crate::core::Expr;
 
 // ============================================================================
 // Symbol

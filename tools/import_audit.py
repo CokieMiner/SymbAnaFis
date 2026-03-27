@@ -96,6 +96,26 @@ WHITELISTED_QUALIFIED_PREFIXES = {
     "String::",
     "Vec::",
 }
+WHITELISTED_ALIAS_IMPORTS = {
+    ("FmtResult", "std::fmt::Result"),
+}
+WHITELISTED_CRATE_ROOT_IMPORTS = {
+    "crate::EPSILON",
+    "crate::DEFAULT_MAX_DEPTH",
+    "crate::DEFAULT_MAX_NODES",
+}
+WHITELISTED_ALIAS_IMPORT_PREFIXES = {
+    "src/bindings/python/": {
+        ("RustExpr", "src::core::Expr"),
+        ("RustSymbol", "src::core::Symbol"),
+        ("RustContext", "src::core::Context"),
+        ("RustCompiledEvaluator", "src::evaluator::CompiledEvaluator"),
+        ("parse_expr", "src::parser::parse"),
+        ("rust_eval_f64", "src::evaluator::eval_f64"),
+        ("rust_diff", "src::diff::diff"),
+        ("rust_simplify", "src::simplification::simplify"),
+    },
+}
 
 
 @dataclass
@@ -114,6 +134,16 @@ class ImportEdge:
     path: str
     line: int
     internal: bool
+
+
+@dataclass
+class AliasImport:
+    path: str
+    line: int
+    source_module: str
+    target: str
+    alias: str
+    usage_count: int
 
 
 def is_comment_or_doc(line: str) -> bool:
@@ -197,10 +227,17 @@ def split_alias(path: str) -> str:
     return parts[0].strip()
 
 
-def expand_use_tree(tree: str) -> list[str]:
+def parse_alias(path: str) -> tuple[str, str | None]:
+    parts = re.split(r"\s+as\s+", path, maxsplit=1)
+    target = parts[0].strip()
+    alias = parts[1].strip() if len(parts) == 2 else None
+    return target, alias
+
+
+def expand_use_tree(tree: str) -> list[tuple[str, str | None]]:
     tree = tree.strip()
     if tree.startswith("{") and tree.endswith("}"):
-        paths: list[str] = []
+        paths: list[tuple[str, str | None]] = []
         for item in split_top_level(tree[1:-1]):
             paths.extend(expand_use_tree(item))
         return paths
@@ -222,17 +259,18 @@ def expand_use_tree(tree: str) -> list[str]:
                 suffix = tree[idx + 1 :].strip()
                 if suffix.startswith("::"):
                     suffix = suffix[2:]
-                paths: list[str] = []
+                paths: list[tuple[str, str | None]] = []
                 for item in split_top_level(group):
                     expanded = expand_use_tree(item)
-                    for part in expanded:
+                    for part, alias in expanded:
                         combined = prefix if part == "self" else f"{prefix}::{part}"
                         if suffix:
                             combined = f"{combined}::{suffix}"
-                        paths.append(combined)
+                        paths.append((combined, alias))
                 return paths
 
-    return [split_alias(tree)]
+    target, alias = parse_alias(tree)
+    return [(target, alias)]
 
 
 def resolve_relative_path(source: str, target: str) -> str:
@@ -273,6 +311,16 @@ def is_internal_target(target: str) -> bool:
     return target.startswith("src::")
 
 
+def is_shallow_crate_import(raw_target: str) -> bool:
+    if not raw_target.startswith("crate::"):
+        return False
+    return "::" not in raw_target[7:]
+
+
+def is_whitelisted_crate_root_import(raw_target: str) -> bool:
+    return raw_target in WHITELISTED_CRATE_ROOT_IMPORTS
+
+
 def qualified_path_matches(line: str) -> list[str]:
     matches: list[str] = []
     for match in QUALIFIED_PATH_RE.findall(line):
@@ -300,11 +348,37 @@ def qualified_path_matches(line: str) -> list[str]:
     return matches
 
 
-def collect_findings() -> tuple[list[Finding], list[ImportEdge], set[str]]:
+def count_alias_usage(lines: list[str], alias: str, start_line: int) -> int:
+    pattern = re.compile(rf"\b{re.escape(alias)}\b")
+    count = 0
+    for line in lines[start_line:]:
+        line = re.sub(r"//.*$", "", line)
+        stripped = line.lstrip()
+        if not stripped or USE_RE.match(line):
+            continue
+        count += len(pattern.findall(line))
+    return count
+
+
+def is_whitelisted_alias_import(alias: str, target: str) -> bool:
+    return (alias, target) in WHITELISTED_ALIAS_IMPORTS
+
+
+def is_whitelisted_alias_import_for_path(path: str, alias: str, target: str) -> bool:
+    if is_whitelisted_alias_import(alias, target):
+        return True
+    for prefix, allowed in WHITELISTED_ALIAS_IMPORT_PREFIXES.items():
+        if path.startswith(prefix) and (alias, target) in allowed:
+            return True
+    return False
+
+
+def collect_findings() -> tuple[list[Finding], list[ImportEdge], set[str], list[AliasImport]]:
     boundaries = staircase_boundaries()
     finding_keys: set[tuple[str, str, int, str]] = set()
     findings: list[Finding] = []
     edges: list[ImportEdge] = []
+    alias_imports: list[AliasImport] = []
 
     for path in sorted(SRC.rglob("*.rs")):
         if is_test_path(path):
@@ -314,7 +388,8 @@ def collect_findings() -> tuple[list[Finding], list[ImportEdge], set[str]]:
         nested_modules: list[tuple[str, int]] = []
         brace_depth = 0
         macro_body_depth: int | None = None  # brace_depth at which current macro_rules! opened
-        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        lines = path.read_text(encoding="utf-8").splitlines()
+        for lineno, line in enumerate(lines, start=1):
             inside_macro = macro_body_depth is not None and brace_depth > macro_body_depth
             source_parts = base_parts + [name for name, _depth in nested_modules]
             source_mod = "::".join(source_parts)
@@ -323,7 +398,7 @@ def collect_findings() -> tuple[list[Finding], list[ImportEdge], set[str]]:
             use_match = USE_RE.match(line)
             if use_match and not inside_test_module:
                 raw_use = use_match.group(1)
-                for raw_target in expand_use_tree(raw_use):
+                for raw_target, alias in expand_use_tree(raw_use):
                     normalized = resolve_relative_path(source_mod, raw_target)
                     edges.append(
                         ImportEdge(
@@ -335,6 +410,30 @@ def collect_findings() -> tuple[list[Finding], list[ImportEdge], set[str]]:
                             internal=is_internal_target(normalized),
                         )
                     )
+                    rel_path = str(path.relative_to(ROOT))
+                    if alias and alias != "_" and not is_whitelisted_alias_import_for_path(
+                        rel_path, alias, normalized
+                    ):
+                        usage_count = count_alias_usage(lines, alias, lineno)
+                        alias_imports.append(
+                            AliasImport(
+                                path=rel_path,
+                                line=lineno,
+                                source_module=source_mod,
+                                target=normalized,
+                                alias=alias,
+                                usage_count=usage_count,
+                            )
+                        )
+                        if usage_count == 0:
+                            finding_keys.add(
+                                (
+                                    "unused_alias_import",
+                                    str(path.relative_to(ROOT)),
+                                    lineno,
+                                    f"{alias} -> {normalized}",
+                                )
+                            )
 
                     if raw_target.startswith("super::super"):
                         finding_keys.add(
@@ -346,18 +445,30 @@ def collect_findings() -> tuple[list[Finding], list[ImportEdge], set[str]]:
                             )
                         )
 
-                    # Check for self-referential crate imports (using crate:: for items in same boundary)
-                    if raw_target.startswith("crate::") and source_boundary is not None:
-                        target_boundary = boundary_for_module(normalized, boundaries)
-                        if target_boundary == source_boundary:
-                            finding_keys.add(
-                                (
-                                    "self_referential_crate_import",
-                                    str(path.relative_to(ROOT)),
-                                    lineno,
-                                    f"{raw_target} (should be relative)",
-                                )
+                    if is_shallow_crate_import(raw_target) and not is_whitelisted_crate_root_import(
+                        raw_target
+                    ):
+                        finding_keys.add(
+                            (
+                                "crate_root_import",
+                                str(path.relative_to(ROOT)),
+                                lineno,
+                                raw_target,
                             )
+                        )
+
+                        # Check for self-referential crate imports (using crate:: for items in same boundary)
+                        if source_boundary is not None:
+                            target_boundary = boundary_for_module(normalized, boundaries)
+                            if target_boundary == source_boundary:
+                                finding_keys.add(
+                                    (
+                                        "self_referential_crate_import",
+                                        str(path.relative_to(ROOT)),
+                                        lineno,
+                                        f"{raw_target} (should be relative)",
+                                    )
+                                )
 
                     if "::logic::" in normalized and normalized.startswith("src::"):
                         logic_boundary = normalized.split("::logic::", 1)[0]
@@ -448,7 +559,8 @@ def collect_findings() -> tuple[list[Finding], list[ImportEdge], set[str]]:
         Finding(kind=kind, path=path, line=line, text=text)
         for kind, path, line, text in sorted(finding_keys)
     ]
-    return findings, edges, boundaries
+    alias_imports.sort(key=lambda item: (item.path, item.line, item.alias, item.target))
+    return findings, edges, boundaries, alias_imports
 
 
 def write_dot(edges: list[ImportEdge], boundaries: set[str], dot_path: Path) -> None:
@@ -548,11 +660,12 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    findings, edges, boundaries = collect_findings()
+    findings, edges, boundaries, alias_imports = collect_findings()
     findings.extend(structure_findings(boundaries))
     findings.sort(key=lambda item: (item.kind, item.path, item.line, item.text))
     write_dot(edges, boundaries, Path(args.dot))
     counts = Counter(finding.kind for finding in findings)
+    unused_alias_count = sum(1 for item in alias_imports if item.usage_count == 0)
 
     if args.json:
         print(
@@ -563,6 +676,9 @@ def main() -> int:
                     "boundary_count": len(boundaries),
                     "boundaries": sorted(boundaries),
                     "counts": dict(counts),
+                    "alias_import_count": len(alias_imports),
+                    "unused_alias_import_count": unused_alias_count,
+                    "alias_imports": [asdict(alias_import) for alias_import in alias_imports],
                     "findings": [asdict(finding) for finding in findings],
                 },
                 indent=2,
@@ -573,10 +689,22 @@ def main() -> int:
     print(f"DOT graph written to: {args.dot}")
     print(f"Boundaries detected: {len(boundaries)}")
     print(f"Findings: {len(findings)}")
+    print(f"Aliased imports: {len(alias_imports)}")
+    print(f"Unused aliased imports: {unused_alias_count}")
     for kind, count in sorted(counts.items()):
         print(f"  {kind}: {count}")
     for finding in findings[: args.limit]:
         print(f"{finding.kind}: {finding.path}:{finding.line}: {finding.text}")
+    if alias_imports:
+        print("Alias imports:")
+        for alias_import in alias_imports[: args.limit]:
+            print(
+                f"alias_import: {alias_import.path}:{alias_import.line}: "
+                f"{alias_import.alias} -> {alias_import.target} "
+                f"(used {alias_import.usage_count}x)"
+            )
+        if len(alias_imports) > args.limit:
+            print(f"... truncated {len(alias_imports) - args.limit} more alias imports")
     if len(findings) > args.limit:
         print(f"... truncated {len(findings) - args.limit} more findings")
     return 0

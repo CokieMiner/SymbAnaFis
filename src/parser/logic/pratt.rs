@@ -4,7 +4,7 @@
 //! infix operators, prefix operators (unary minus), and function calls.
 
 use super::tokens::{Operator, Token};
-use crate::{DiffError, Expr};
+use crate::core::{DiffError, Expr};
 
 use crate::core::Context;
 

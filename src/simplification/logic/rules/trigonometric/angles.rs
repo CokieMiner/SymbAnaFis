@@ -1,8 +1,8 @@
-use super::{ExprKind, Rule, RuleCategory, RuleContext, extract_coeff_arc};
+use super::{Rule, RuleCategory, RuleContext, RuleExprKind, extract_coeff_arc};
 use crate::EPSILON;
 use crate::core::InternedSymbol;
 use crate::core::known_symbols::{KS, get_symbol};
-use crate::core::{Expr, ExprKind as AstKind};
+use crate::core::{Expr, ExprKind};
 use std::sync::Arc;
 
 rule_with_helpers_arc!(
@@ -10,13 +10,13 @@ rule_with_helpers_arc!(
     "cos_double_angle_difference",
     85,
     Trigonometric,
-    &[ExprKind::Sum],
+    &[RuleExprKind::Sum],
     helpers: {
         // Helper to extract negated term
         fn extract_negated_arc(term: &Expr) -> Option<Arc<Expr>> {
-            if let AstKind::Product(factors) = &term.kind
+            if let ExprKind::Product(factors) = &term.kind
                 && factors.len() == 2
-                && let AstKind::Number(n) = &factors[0].kind
+                && let ExprKind::Number(n) = &factors[0].kind
                 && (n + 1.0).abs() < EPSILON
             {
                 return Some(Arc::clone(&factors[1]));
@@ -25,13 +25,13 @@ rule_with_helpers_arc!(
         }
 
         fn get_fn_pow_symbol_arc(expr: &Expr, power: f64) -> Option<(InternedSymbol, Arc<Expr>)> {
-            if let AstKind::Pow(base, exp) = &expr.kind
-                && let AstKind::FunctionCall { name, args } = &base.kind
+            if let ExprKind::Pow(base, exp) = &expr.kind
+                && let ExprKind::FunctionCall { name, args } = &base.kind
                 && args.len() == 1
             {
                 // Exact check for expected power exponent
                 #[allow(clippy::float_cmp, reason = "Comparing against exact constant (power)")]
-                let matches_power = matches!(exp.kind, AstKind::Number(n) if n == power);
+                let matches_power = matches!(exp.kind, ExprKind::Number(n) if n == power);
                 if matches_power {
                     return Some((name.clone(), Arc::clone(&args[0])));
                 }
@@ -40,7 +40,7 @@ rule_with_helpers_arc!(
         }
     },
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Sum(terms) = &expr.kind
+        if let ExprKind::Sum(terms) = &expr.kind
             && terms.len() == 2
         {
             // Look for patterns like cos^2(x) - sin^2(x) or sin^2(x) - cos^2(x)
@@ -98,16 +98,16 @@ rule_with_helpers_arc!(
     "trig_sum_difference",
     70,
     Trigonometric,
-    &[ExprKind::Sum],
+    &[RuleExprKind::Sum],
     helpers: {
         fn get_fn_pow_symbol_arc(expr: &Expr, power: f64) -> Option<(InternedSymbol, Arc<Expr>)> {
-            if let AstKind::Pow(base, exp) = &expr.kind
-                && let AstKind::FunctionCall { name, args } = &base.kind
+            if let ExprKind::Pow(base, exp) = &expr.kind
+                && let ExprKind::FunctionCall { name, args } = &base.kind
                 && args.len() == 1
             {
                 // Exact check for expected power exponent
                 #[allow(clippy::float_cmp, reason = "Comparing against exact constant (power)")]
-                let matches_power = matches!(exp.kind, AstKind::Number(n) if n == power);
+                let matches_power = matches!(exp.kind, ExprKind::Number(n) if n == power);
                 if matches_power {
                     return Some((name.clone(), Arc::clone(&args[0])));
                 }
@@ -118,7 +118,7 @@ rule_with_helpers_arc!(
     |expr: &Expr, _context: &RuleContext| {
         // k*sin(x)cos(y) + k*cos(x)sin(y) = k*sin(x+y)
         // k*sin(x)cos(y) - k*cos(x)sin(y) = k*sin(x-y)
-        if let AstKind::Sum(terms) = &expr.kind
+        if let ExprKind::Sum(terms) = &expr.kind
             && terms.len() == 2
         {
             let u = &terms[0];
@@ -132,7 +132,7 @@ rule_with_helpers_arc!(
             let parse_sin_cos = |e: &Expr| -> Option<(Arc<Expr>, Arc<Expr>)> {
                 // Helper to get name/arg from FunctionCall OR Pow(FunctionCall, 1)
                 let get_op = |t: &Expr| -> Option<(InternedSymbol, Arc<Expr>)> {
-                    if let AstKind::FunctionCall { name, args } = &t.kind
+                    if let ExprKind::FunctionCall { name, args } = &t.kind
                         && args.len() == 1
                     {
                         return Some((name.clone(), Arc::clone(&args[0])));
@@ -140,7 +140,7 @@ rule_with_helpers_arc!(
                     get_fn_pow_symbol_arc(t, 1.0)
                 };
 
-                if let AstKind::Product(factors) = &e.kind
+                if let ExprKind::Product(factors) = &e.kind
                     && factors.len() == 2
                 {
                     let f1 = &factors[0];
@@ -197,7 +197,7 @@ rule_with_helpers_arc!(
 fn is_cos_minus_sin(expr: &Expr) -> bool {
     // In n-ary, cos(x) - sin(x) = Sum([cos(x), Product([-1, sin(x)])])
     // Or with new ordering: Sum([Product([-1, sin(x)]), cos(x)])
-    if let AstKind::Sum(terms) = &expr.kind
+    if let ExprKind::Sum(terms) = &expr.kind
         && terms.len() == 2
     {
         let a = &terms[0];
@@ -205,9 +205,9 @@ fn is_cos_minus_sin(expr: &Expr) -> bool {
 
         // Check pattern: cos(x) first, -sin(x) second
         if is_cos(a)
-            && let AstKind::Product(factors) = &b.kind
+            && let ExprKind::Product(factors) = &b.kind
             && factors.len() == 2
-            && let AstKind::Number(n) = &factors[0].kind
+            && let ExprKind::Number(n) = &factors[0].kind
             && (n + 1.0).abs() < EPSILON
         {
             return is_sin(&factors[1]);
@@ -215,9 +215,9 @@ fn is_cos_minus_sin(expr: &Expr) -> bool {
 
         // Check pattern: -sin(x) first, cos(x) second
         if is_cos(b)
-            && let AstKind::Product(factors) = &a.kind
+            && let ExprKind::Product(factors) = &a.kind
             && factors.len() == 2
-            && let AstKind::Number(n) = &factors[0].kind
+            && let ExprKind::Number(n) = &factors[0].kind
             && (n + 1.0).abs() < EPSILON
         {
             return is_sin(&factors[1]);
@@ -229,7 +229,7 @@ fn is_cos_minus_sin(expr: &Expr) -> bool {
 /// Checks if the expression is cos(x) + sin(x).
 fn is_cos_plus_sin(expr: &Expr) -> bool {
     // cos(x) + sin(x) can appear as either [cos, sin] or [sin, cos]
-    if let AstKind::Sum(terms) = &expr.kind {
+    if let ExprKind::Sum(terms) = &expr.kind {
         if terms.len() == 2 {
             (is_cos(&terms[0]) && is_sin(&terms[1])) || (is_sin(&terms[0]) && is_cos(&terms[1]))
         } else {
@@ -242,19 +242,19 @@ fn is_cos_plus_sin(expr: &Expr) -> bool {
 
 /// Checks if the expression is cos(x).
 fn is_cos(expr: &Expr) -> bool {
-    matches!(&expr.kind, AstKind::FunctionCall { name, args } if name.id() == KS.cos && args.len() == 1)
+    matches!(&expr.kind, ExprKind::FunctionCall { name, args } if name.id() == KS.cos && args.len() == 1)
 }
 
 /// Checks if the expression is sin(x).
 fn is_sin(expr: &Expr) -> bool {
-    matches!(&expr.kind, AstKind::FunctionCall { name, args } if name.id() == KS.sin && args.len() == 1)
+    matches!(&expr.kind, ExprKind::FunctionCall { name, args } if name.id() == KS.sin && args.len() == 1)
 }
 
 /// Gets the argument of a cos function as Arc<Expr>.
 fn get_cos_arg_arc(expr: &Expr) -> Option<Arc<Expr>> {
-    if let AstKind::FunctionCall { name, args } = &expr.kind {
+    if let ExprKind::FunctionCall { name, args } = &expr.kind {
         (name.id() == KS.cos && args.len() == 1).then(|| Arc::clone(&args[0]))
-    } else if let AstKind::Sum(terms) = &expr.kind {
+    } else if let ExprKind::Sum(terms) = &expr.kind {
         // Search all terms for a cos function
         for term in terms {
             if let Some(arg) = get_cos_arg_arc(term) {
@@ -269,9 +269,9 @@ fn get_cos_arg_arc(expr: &Expr) -> Option<Arc<Expr>> {
 
 /// Gets the argument of a sin function as Arc<Expr>.
 fn get_sin_arg_arc(expr: &Expr) -> Option<Arc<Expr>> {
-    if let AstKind::FunctionCall { name, args } = &expr.kind {
+    if let ExprKind::FunctionCall { name, args } = &expr.kind {
         (name.id() == KS.sin && args.len() == 1).then(|| Arc::clone(&args[0]))
-    } else if let AstKind::Sum(terms) = &expr.kind {
+    } else if let ExprKind::Sum(terms) = &expr.kind {
         // Search all terms for a sin function (including negated: -sin(x) = Product([-1, sin(x)]))
         for term in terms {
             // Direct sin function
@@ -279,9 +279,9 @@ fn get_sin_arg_arc(expr: &Expr) -> Option<Arc<Expr>> {
                 return Some(arg);
             }
             // Negated sin: Product([-1, sin(x)])
-            if let AstKind::Product(factors) = &term.kind
+            if let ExprKind::Product(factors) = &term.kind
                 && factors.len() == 2
-                && let AstKind::Number(n) = &factors[0].kind
+                && let ExprKind::Number(n) = &factors[0].kind
                 && (n + 1.0).abs() < EPSILON
                 && let Some(arg) = get_sin_arg_arc(&factors[1])
             {
@@ -299,9 +299,9 @@ rule_arc!(
     "trig_product_to_double_angle",
     90,
     Trigonometric,
-    &[ExprKind::Product],
+    &[RuleExprKind::Product],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Product(factors) = &expr.kind
+        if let ExprKind::Product(factors) = &expr.kind
             && factors.len() == 2
         {
             let a = &factors[0];
@@ -342,9 +342,9 @@ rule_arc!(
     "sin_product_to_double_angle",
     90,
     Trigonometric,
-    &[ExprKind::Product],
+    &[RuleExprKind::Product],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Product(factors) = &expr.kind {
+        if let ExprKind::Product(factors) = &expr.kind {
             // Look for patterns: k * sin(x) * cos(x) in any order
             // The identity: sin(x)*cos(x) = sin(2x)/2
             // So: k * sin(x) * cos(x) = (k/2) * sin(2x)
@@ -356,10 +356,10 @@ rule_arc!(
 
             for f in factors {
                 match &f.kind {
-                    AstKind::Number(n) => {
+                    ExprKind::Number(n) => {
                         coeff *= n;
                     }
-                    AstKind::FunctionCall { name, args }
+                    ExprKind::FunctionCall { name, args }
                         if name.id() == KS.sin && args.len() == 1 =>
                     {
                         if sin_arg.is_some() {
@@ -369,7 +369,7 @@ rule_arc!(
                             sin_arg = Some(Arc::clone(&args[0]));
                         }
                     }
-                    AstKind::FunctionCall { name, args }
+                    ExprKind::FunctionCall { name, args }
                         if name.id() == KS.cos && args.len() == 1 =>
                     {
                         if cos_arg.is_some() {

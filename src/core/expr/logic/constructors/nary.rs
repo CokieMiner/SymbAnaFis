@@ -1,6 +1,6 @@
 //! N-ary expression constructors (Sum, Product) with flattening and sorting.
 
-use std::cmp::Ordering as CmpOrdering;
+use std::cmp::Ordering;
 use std::sync::Arc;
 
 use super::{EPSILON, EXPR_ONE, Expr, ExprKind, Polynomial, expr_cmp};
@@ -193,11 +193,11 @@ impl Expr {
             let mut bi = 0;
             while ai < a_factors.len() && bi < b_factors.len() {
                 let ord = if Arc::ptr_eq(&a_factors[ai], &b_factors[bi]) {
-                    CmpOrdering::Equal
+                    Ordering::Equal
                 } else {
                     expr_cmp(&a_factors[ai], &b_factors[bi])
                 };
-                if ord == CmpOrdering::Greater {
+                if ord == Ordering::Greater {
                     merged.push(Arc::clone(&b_factors[bi]));
                     bi += 1;
                 } else {
@@ -215,12 +215,13 @@ impl Expr {
             .any(|f| matches!(f.kind, ExprKind::Product(_) | ExprKind::Number(_)))
         {
             let mut flat = factors;
-            if flat.windows(2).any(|w| {
-                !Arc::ptr_eq(&w[0], &w[1]) && expr_cmp(&w[0], &w[1]) == CmpOrdering::Greater
-            }) {
+            if flat
+                .windows(2)
+                .any(|w| !Arc::ptr_eq(&w[0], &w[1]) && expr_cmp(&w[0], &w[1]) == Ordering::Greater)
+            {
                 flat.sort_unstable_by(|a, b| {
                     if Arc::ptr_eq(a, b) {
-                        CmpOrdering::Equal
+                        Ordering::Equal
                     } else {
                         expr_cmp(a, b)
                     }
@@ -270,11 +271,11 @@ impl Expr {
 
         if flat
             .windows(2)
-            .any(|w| !Arc::ptr_eq(&w[0], &w[1]) && expr_cmp(&w[0], &w[1]) == CmpOrdering::Greater)
+            .any(|w| !Arc::ptr_eq(&w[0], &w[1]) && expr_cmp(&w[0], &w[1]) == Ordering::Greater)
         {
             flat.sort_unstable_by(|a, b| {
                 if Arc::ptr_eq(a, b) {
-                    CmpOrdering::Equal
+                    Ordering::Equal
                 } else {
                     expr_cmp(a, b)
                 }
@@ -294,7 +295,7 @@ fn finalize_sum(mut flat: Vec<Arc<Expr>>) -> Expr {
     let len = flat.len();
     if len == 2 {
         let cmp = expr_cmp(&flat[0], &flat[1]);
-        if cmp == CmpOrdering::Greater {
+        if cmp == Ordering::Greater {
             flat.swap(0, 1);
         }
 
@@ -319,11 +320,11 @@ fn finalize_sum(mut flat: Vec<Arc<Expr>>) -> Expr {
 
     if flat
         .windows(2)
-        .any(|w| !Arc::ptr_eq(&w[0], &w[1]) && expr_cmp(&w[0], &w[1]) == CmpOrdering::Greater)
+        .any(|w| !Arc::ptr_eq(&w[0], &w[1]) && expr_cmp(&w[0], &w[1]) == Ordering::Greater)
     {
         flat.sort_unstable_by(|a, b| {
             if Arc::ptr_eq(a, b) {
-                CmpOrdering::Equal
+                Ordering::Equal
             } else {
                 expr_cmp(a, b)
             }

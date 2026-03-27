@@ -1,7 +1,7 @@
-use super::{ExprKind, Rule, RuleCategory, RuleContext};
+use super::{Rule, RuleCategory, RuleContext, RuleExprKind};
 use crate::EPSILON;
-use crate::Expr;
-use crate::core::ExprKind as AstKind;
+use crate::core::Expr;
+use crate::core::ExprKind;
 use crate::core::known_symbols::KS;
 use crate::functions::Registry;
 use std::sync::Arc;
@@ -13,13 +13,13 @@ rule!(
     "sum_identity",
     100,
     Numeric,
-    &[ExprKind::Sum],
+    &[RuleExprKind::Sum],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Sum(terms) = &expr.kind {
+        if let ExprKind::Sum(terms) = &expr.kind {
             // Filter out zeros
             let non_zero: Vec<Arc<Expr>> = terms
                 .iter()
-                .filter(|t| !matches!(&t.kind, AstKind::Number(n) if *n == 0.0))
+                .filter(|t| !matches!(&t.kind, ExprKind::Number(n) if *n == 0.0))
                 .cloned()
                 .collect();
 
@@ -51,13 +51,13 @@ rule!(
     "product_zero",
     100,
     Numeric,
-    &[ExprKind::Product],
+    &[RuleExprKind::Product],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Product(factors) = &expr.kind {
+        if let ExprKind::Product(factors) = &expr.kind {
             // If any factor is zero, the product is zero
             if factors
                 .iter()
-                .any(|f| matches!(&f.kind, AstKind::Number(n) if *n == 0.0))
+                .any(|f| matches!(&f.kind, ExprKind::Number(n) if *n == 0.0))
             {
                 return Some(Expr::number(0.0));
             }
@@ -71,9 +71,9 @@ rule!(
     "product_identity",
     100,
     Numeric,
-    &[ExprKind::Product],
+    &[RuleExprKind::Product],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Product(factors) = &expr.kind {
+        if let ExprKind::Product(factors) = &expr.kind {
             // Filter out ones
             let non_one: Vec<Arc<Expr>> = factors
                 .iter()
@@ -84,7 +84,7 @@ rule!(
                         reason = "Comparing against exact constant 1.0 to filter identity element"
                     )]
                     // Comparing against exact constant 1.0 to filter identity element
-                    !matches!(&f.kind, AstKind::Number(n) if *n == 1.0)
+                    !matches!(&f.kind, ExprKind::Number(n) if *n == 1.0)
                 })
                 .cloned()
                 .collect();
@@ -117,12 +117,12 @@ rule!(
     "div_one",
     100,
     Numeric,
-    &[ExprKind::Div],
+    &[RuleExprKind::Div],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Div(u, v) = &expr.kind {
+        if let ExprKind::Div(u, v) = &expr.kind {
             // Exact check for 1.0 to simplify division
             #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
-            if matches!(&v.kind, AstKind::Number(n) if *n == 1.0) {
+            if matches!(&v.kind, ExprKind::Number(n) if *n == 1.0) {
                 return Some((**u).clone());
             }
         }
@@ -135,10 +135,10 @@ rule!(
     "zero_div",
     100,
     Numeric,
-    &[ExprKind::Div],
+    &[RuleExprKind::Div],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Div(u, _v) = &expr.kind
-            && matches!(&u.kind, AstKind::Number(n) if *n == 0.0)
+        if let ExprKind::Div(u, _v) = &expr.kind
+            && matches!(&u.kind, ExprKind::Number(n) if *n == 0.0)
         {
             return Some(Expr::number(0.0));
         }
@@ -153,10 +153,10 @@ rule!(
     "pow_zero",
     100,
     Numeric,
-    &[ExprKind::Pow],
+    &[RuleExprKind::Pow],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Pow(_u, v) = &expr.kind
-            && matches!(&v.kind, AstKind::Number(n) if *n == 0.0)
+        if let ExprKind::Pow(_u, v) = &expr.kind
+            && matches!(&v.kind, ExprKind::Number(n) if *n == 0.0)
         {
             return Some(Expr::number(1.0));
         }
@@ -169,12 +169,12 @@ rule!(
     "pow_one",
     100,
     Numeric,
-    &[ExprKind::Pow],
+    &[RuleExprKind::Pow],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Pow(u, v) = &expr.kind {
+        if let ExprKind::Pow(u, v) = &expr.kind {
             // Exact check for 1.0 exponent
             #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
-            if matches!(&v.kind, AstKind::Number(n) if *n == 1.0) {
+            if matches!(&v.kind, ExprKind::Number(n) if *n == 1.0) {
                 return Some((**u).clone());
             }
         }
@@ -187,11 +187,11 @@ rule!(
     "zero_pow",
     100,
     Numeric,
-    &[ExprKind::Pow],
+    &[RuleExprKind::Pow],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Pow(u, v) = &expr.kind
-            && matches!(&u.kind, AstKind::Number(n) if *n == 0.0)
-            && let AstKind::Number(exp) = &v.kind
+        if let ExprKind::Pow(u, v) = &expr.kind
+            && matches!(&u.kind, ExprKind::Number(n) if *n == 0.0)
+            && let ExprKind::Number(exp) = &v.kind
             && *exp > 0.0
         {
             return Some(Expr::number(0.0));
@@ -205,12 +205,12 @@ rule!(
     "one_pow",
     100,
     Numeric,
-    &[ExprKind::Pow],
+    &[RuleExprKind::Pow],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Pow(u, _v) = &expr.kind {
+        if let ExprKind::Pow(u, _v) = &expr.kind {
             // Exact check for 1.0 base
             #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
-            if matches!(&u.kind, AstKind::Number(n) if *n == 1.0) {
+            if matches!(&u.kind, ExprKind::Number(n) if *n == 1.0) {
                 return Some(Expr::number(1.0));
             }
         }
@@ -225,11 +225,11 @@ rule!(
     "normalize_sign_div",
     95,
     Numeric,
-    &[ExprKind::Div],
+    &[RuleExprKind::Div],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Div(num, den) = &expr.kind {
+        if let ExprKind::Div(num, den) = &expr.kind {
             // Check if denominator is negative number
-            if let AstKind::Number(d) = &den.kind
+            if let ExprKind::Number(d) = &den.kind
                 && *d < 0.0
             {
                 // x / -y -> -x / y (negate numerator)
@@ -240,12 +240,12 @@ rule!(
             }
 
             // Check if denominator is a Product with -1 as first factor
-            if let AstKind::Product(factors) = &den.kind
+            if let ExprKind::Product(factors) = &den.kind
                 && let Some(first) = factors.first()
             {
                 // Exact check for -1.0 coefficient
                 #[allow(clippy::float_cmp, reason = "Comparing against exact constant -1.0")]
-                if matches!(&first.kind, AstKind::Number(n) if *n == -1.0) {
+                if matches!(&first.kind, ExprKind::Number(n) if *n == -1.0) {
                     // x / (-1 * y) -> -x / y
                     let rest: Vec<Arc<Expr>> = factors.iter().skip(1).cloned().collect();
                     let new_den = Expr::product_from_arcs(rest);
@@ -267,16 +267,16 @@ rule!(
     "constant_fold_sum",
     90,
     Numeric,
-    &[ExprKind::Sum],
+    &[RuleExprKind::Sum],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Sum(terms) = &expr.kind {
+        if let ExprKind::Sum(terms) = &expr.kind {
             // Collect numeric and non-numeric terms
             let mut num_sum = 0.0;
             let mut non_numeric: Vec<Arc<Expr>> = Vec::new();
             let mut has_numeric = false;
 
             for term in terms {
-                if let AstKind::Number(n) = &term.kind {
+                if let ExprKind::Number(n) = &term.kind {
                     num_sum += n;
                     has_numeric = true;
                 } else {
@@ -323,16 +323,16 @@ rule!(
     "constant_fold_product",
     90,
     Numeric,
-    &[ExprKind::Product],
+    &[RuleExprKind::Product],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Product(factors) = &expr.kind {
+        if let ExprKind::Product(factors) = &expr.kind {
             // Collect numeric and non-numeric factors
             let mut num_product = 1.0;
             let mut non_numeric: Vec<Arc<Expr>> = Vec::new();
             let mut num_count = 0;
 
             for factor in factors {
-                if let AstKind::Number(n) = &factor.kind {
+                if let ExprKind::Number(n) = &factor.kind {
                     num_product *= n;
                     num_count += 1;
                 } else {
@@ -384,10 +384,10 @@ rule!(
     "constant_fold_div",
     90,
     Numeric,
-    &[ExprKind::Div],
+    &[RuleExprKind::Div],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Div(u, v) = &expr.kind
-            && let (AstKind::Number(a), AstKind::Number(b)) = (&u.kind, &v.kind)
+        if let ExprKind::Div(u, v) = &expr.kind
+            && let (ExprKind::Number(a), ExprKind::Number(b)) = (&u.kind, &v.kind)
             && *b != 0.0
         {
             let result = a / b;
@@ -404,10 +404,10 @@ rule!(
     "constant_fold_pow",
     90,
     Numeric,
-    &[ExprKind::Pow],
+    &[RuleExprKind::Pow],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Pow(u, v) = &expr.kind
-            && let (AstKind::Number(a), AstKind::Number(b)) = (&u.kind, &v.kind)
+        if let ExprKind::Pow(u, v) = &expr.kind
+            && let (ExprKind::Number(a), ExprKind::Number(b)) = (&u.kind, &v.kind)
         {
             let result = a.powf(*b);
             if !result.is_nan() && !result.is_infinite() {
@@ -418,7 +418,7 @@ rule!(
     }
 );
 
-rule_with_helpers!(FractionSimplifyRule, "fraction_simplify", 80, Numeric, &[ExprKind::Div],
+rule_with_helpers!(FractionSimplifyRule, "fraction_simplify", 80, Numeric, &[RuleExprKind::Div],
     helpers: {
         const fn gcd(mut a: i64, mut b: i64) -> i64 {
             while b != 0 {
@@ -437,8 +437,8 @@ rule_with_helpers!(FractionSimplifyRule, "fraction_simplify", 80, Numeric, &[Exp
         #[allow(clippy::cast_precision_loss, reason = "i64::MIN→f64 for boundary checking")]
         const MIN_SAFE: f64 = i64::MIN as f64;
 
-        if let AstKind::Div(u, v) = &expr.kind
-            && let (AstKind::Number(a), AstKind::Number(b)) = (&u.kind, &v.kind)
+        if let ExprKind::Div(u, v) = &expr.kind
+            && let (ExprKind::Number(a), ExprKind::Number(b)) = (&u.kind, &v.kind)
             && *b != 0.0
         {
             let is_int_a = a.fract() == 0.0;
@@ -481,12 +481,12 @@ rule!(
     "perfect_square",
     95,
     Numeric,
-    &[ExprKind::Function],
+    &[RuleExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::FunctionCall { name, args } = &expr.kind
+        if let ExprKind::FunctionCall { name, args } = &expr.kind
             && name.id() == KS.sqrt
             && args.len() == 1
-            && let AstKind::Number(n) = &args[0].kind
+            && let ExprKind::Number(n) = &args[0].kind
         {
             let s = n.sqrt();
             if (s - s.round()).abs() < EPSILON {
@@ -502,12 +502,12 @@ rule!(
     "perfect_cube",
     95,
     Numeric,
-    &[ExprKind::Function],
+    &[RuleExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::FunctionCall { name, args } = &expr.kind
+        if let ExprKind::FunctionCall { name, args } = &expr.kind
             && name.id() == KS.cbrt
             && args.len() == 1
-            && let AstKind::Number(n) = &args[0].kind
+            && let ExprKind::Number(n) = &args[0].kind
         {
             let c = n.cbrt();
             if (c - c.round()).abs() < EPSILON {
@@ -523,17 +523,17 @@ rule!(
     "product_half",
     80,
     Numeric,
-    &[ExprKind::Product],
+    &[RuleExprKind::Product],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Product(factors) = &expr.kind
+        if let ExprKind::Product(factors) = &expr.kind
             && factors.len() == 2
         {
-            if let AstKind::Number(n) = &factors[0].kind
+            if let ExprKind::Number(n) = &factors[0].kind
                 && (n - 0.5).abs() < EPSILON
             {
                 return Some(Expr::div_expr((*factors[1]).clone(), Expr::number(2.0)));
             }
-            if let AstKind::Number(n) = &factors[1].kind
+            if let ExprKind::Number(n) = &factors[1].kind
                 && (n - 0.5).abs() < EPSILON
             {
                 return Some(Expr::div_expr((*factors[0]).clone(), Expr::number(2.0)));
@@ -548,13 +548,13 @@ rule!(
     "eval_numeric_func",
     95,
     Numeric,
-    &[ExprKind::Function],
+    &[RuleExprKind::Function],
     |expr: &Expr, context: &RuleContext| {
-        if let AstKind::FunctionCall { name, args } = &expr.kind {
+        if let ExprKind::FunctionCall { name, args } = &expr.kind {
             // Check if all arguments are numbers
             let mut numeric_args = Vec::with_capacity(args.len());
             for arg in args {
-                if let AstKind::Number(n) = &arg.kind {
+                if let ExprKind::Number(n) = &arg.kind {
                     numeric_args.push(*n);
                 } else {
                     // Not all numeric - check if we have a body to expand symbolically

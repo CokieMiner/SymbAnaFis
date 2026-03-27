@@ -5,7 +5,7 @@ use rustc_hash::FxHashMap;
 
 use super::Compiler;
 use super::vir::VReg;
-use crate::Expr;
+use crate::core::Expr;
 
 #[derive(Clone, Copy, Debug)]
 pub struct CseKey(pub *const Expr);

@@ -18,9 +18,8 @@
 //!    - Users can disambiguate by using explicit operators or declaring `fixed_vars`
 //
 use super::tokens::{Operator, Token};
-use crate::DiffError;
-use crate::Span;
 use crate::core::known_symbols::is_known_constant;
+use crate::core::{DiffError, Span};
 use std::borrow::Cow;
 use std::cmp::{Ordering, Reverse};
 use std::collections::HashSet;

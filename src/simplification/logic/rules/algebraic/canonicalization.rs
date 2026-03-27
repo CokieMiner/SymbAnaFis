@@ -1,6 +1,6 @@
-use super::{ExprKind, Rule, RuleCategory, RuleContext, compare_expr, compare_mul_factors};
+use super::{Rule, RuleCategory, RuleContext, RuleExprKind, compare_expr, compare_mul_factors};
 use crate::EPSILON;
-use crate::{Expr, core::ExprKind as AstKind};
+use crate::core::{Expr, ExprKind};
 use std::cmp::Ordering;
 use std::sync::Arc;
 
@@ -13,9 +13,9 @@ rule!(
     "canonicalize_product",
     15,
     Algebraic,
-    &[ExprKind::Product],
+    &[RuleExprKind::Product],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Product(factors) = &expr.kind {
+        if let ExprKind::Product(factors) = &expr.kind {
             if factors.len() <= 1 {
                 return None;
             }
@@ -44,9 +44,9 @@ rule!(
     "canonicalize_sum",
     15,
     Algebraic,
-    &[ExprKind::Sum],
+    &[RuleExprKind::Sum],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Sum(terms) = &expr.kind {
+        if let ExprKind::Sum(terms) = &expr.kind {
             if terms.len() <= 1 {
                 return None;
             }
@@ -75,13 +75,13 @@ rule!(
     "simplify_negative_product",
     80,
     Algebraic,
-    &[ExprKind::Product],
+    &[RuleExprKind::Product],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Product(factors) = &expr.kind {
+        if let ExprKind::Product(factors) = &expr.kind {
             // Look for multiple (-1) factors and simplify
             let minus_one_count = factors
                 .iter()
-                .filter(|f| matches!(&f.kind, AstKind::Number(n) if (n + 1.0).abs() < EPSILON))
+                .filter(|f| matches!(&f.kind, ExprKind::Number(n) if (n + 1.0).abs() < EPSILON))
                 .count();
 
             if minus_one_count >= 2 {
@@ -89,7 +89,9 @@ rule!(
                 let remaining_minus_ones = minus_one_count % 2;
                 let other_factors: Vec<Arc<Expr>> = factors
                     .iter()
-                    .filter(|f| !matches!(&f.kind, AstKind::Number(n) if (n + 1.0).abs() < EPSILON))
+                    .filter(
+                        |f| !matches!(&f.kind, ExprKind::Number(n) if (n + 1.0).abs() < EPSILON),
+                    )
                     .cloned()
                     .collect();
 

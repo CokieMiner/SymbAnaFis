@@ -1,6 +1,6 @@
-use super::{ExprKind, Rule, RuleCategory, RuleContext};
+use super::{Rule, RuleCategory, RuleContext, RuleExprKind};
 use crate::core::known_symbols::{KS, get_symbol};
-use crate::{Expr, core::ExprKind as AstKind};
+use crate::core::{Expr, ExprKind};
 use std::sync::Arc;
 
 rule_arc!(
@@ -8,12 +8,12 @@ rule_arc!(
     "abs_numeric",
     95,
     Algebraic,
-    &[ExprKind::Function],
+    &[RuleExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::FunctionCall { name, args } = &expr.kind
+        if let ExprKind::FunctionCall { name, args } = &expr.kind
             && name.id() == KS.abs
             && args.len() == 1
-            && let AstKind::Number(n) = &args[0].kind
+            && let ExprKind::Number(n) = &args[0].kind
         {
             return Some(Arc::new(Expr::number(n.abs())));
         }
@@ -26,12 +26,12 @@ rule_arc!(
     "abs_abs",
     90,
     Algebraic,
-    &[ExprKind::Function],
+    &[RuleExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::FunctionCall { name, args } = &expr.kind
+        if let ExprKind::FunctionCall { name, args } = &expr.kind
             && name.id() == KS.abs
             && args.len() == 1
-            && let AstKind::FunctionCall {
+            && let ExprKind::FunctionCall {
                 name: inner_name,
                 args: inner_args,
             } = &args[0].kind
@@ -49,17 +49,17 @@ rule_arc!(
     "abs_neg",
     90,
     Algebraic,
-    &[ExprKind::Function],
+    &[RuleExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::FunctionCall { name, args } = &expr.kind
+        if let ExprKind::FunctionCall { name, args } = &expr.kind
             && name.id() == KS.abs
             && args.len() == 1
         {
             // Check for -x (represented as Product([-1, x]))
-            if let AstKind::Product(factors) = &args[0].kind
+            if let ExprKind::Product(factors) = &args[0].kind
                 && factors.len() >= 2
                 && let Some(first) = factors.first()
-                && let AstKind::Number(n) = &first.kind
+                && let ExprKind::Number(n) = &first.kind
                 // Exact check for -1.0 to identify negative argument
                 && {
                     #[allow(clippy::float_cmp, reason = "Comparing against exact constant -1.0")]
@@ -82,15 +82,15 @@ rule_arc!(
     "abs_square",
     85,
     Algebraic,
-    &[ExprKind::Function],
+    &[RuleExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::FunctionCall { name, args } = &expr.kind
+        if let ExprKind::FunctionCall { name, args } = &expr.kind
             && name.id() == KS.abs
             && args.len() == 1
         {
             // Check for x^(even number)
-            if let AstKind::Pow(_, exp) = &args[0].kind
-                && let AstKind::Number(n) = &exp.kind
+            if let ExprKind::Pow(_, exp) = &args[0].kind
+                && let ExprKind::Number(n) = &exp.kind
             {
                 // Check if exponent is a positive even integer
                 if *n > 0.0 && n.fract() == 0.0 {
@@ -116,14 +116,14 @@ rule_arc!(
     "abs_pow_even",
     85,
     Algebraic,
-    &[ExprKind::Pow],
+    &[RuleExprKind::Pow],
     |expr: &Expr, _context: &RuleContext| {
         // abs(x)^n where n is positive even integer -> x^n
-        if let AstKind::Pow(base, exp) = &expr.kind
-            && let AstKind::FunctionCall { name, args } = &base.kind
+        if let ExprKind::Pow(base, exp) = &expr.kind
+            && let ExprKind::FunctionCall { name, args } = &base.kind
             && name.id() == KS.abs
             && args.len() == 1
-            && let AstKind::Number(n) = &exp.kind
+            && let ExprKind::Number(n) = &exp.kind
         {
             // Check if exponent is a positive even integer
             if *n > 0.0 && n.fract() == 0.0 {
@@ -149,12 +149,12 @@ rule_arc!(
     "sign_numeric",
     95,
     Algebraic,
-    &[ExprKind::Function],
+    &[RuleExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::FunctionCall { name, args } = &expr.kind
+        if let ExprKind::FunctionCall { name, args } = &expr.kind
             && (name.id() == KS.sign || name.id() == KS.sgn)
             && args.len() == 1
-            && let AstKind::Number(n) = &args[0].kind
+            && let ExprKind::Number(n) = &args[0].kind
         {
             if *n > 0.0 {
                 return Some(Arc::new(Expr::number(1.0)));
@@ -172,12 +172,12 @@ rule_arc!(
     "sign_sign",
     90,
     Algebraic,
-    &[ExprKind::Function],
+    &[RuleExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::FunctionCall { name, args } = &expr.kind
+        if let ExprKind::FunctionCall { name, args } = &expr.kind
             && (name.id() == KS.sign || name.id() == KS.sgn)
             && args.len() == 1
-            && let AstKind::FunctionCall {
+            && let ExprKind::FunctionCall {
                 name: inner_name, ..
             } = &args[0].kind
             && (inner_name.id() == KS.sign || inner_name.id() == KS.sgn)
@@ -193,12 +193,12 @@ rule_arc!(
     "sign_abs",
     85,
     Algebraic,
-    &[ExprKind::Function],
+    &[RuleExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::FunctionCall { name, args } = &expr.kind
+        if let ExprKind::FunctionCall { name, args } = &expr.kind
             && (name.id() == KS.sign || name.id() == KS.sgn)
             && args.len() == 1
-            && let AstKind::FunctionCall {
+            && let ExprKind::FunctionCall {
                 name: inner_name, ..
             } = &args[0].kind
             && inner_name.id() == KS.abs
@@ -215,9 +215,9 @@ rule_arc!(
     "abs_sign_mul",
     85,
     Algebraic,
-    &[ExprKind::Product],
+    &[RuleExprKind::Product],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Product(factors) = &expr.kind {
+        if let ExprKind::Product(factors) = &expr.kind {
             // Check for abs(x) * sign(x) pattern within factors
             for (i, f1) in factors.iter().enumerate() {
                 for (j, f2) in factors.iter().enumerate() {
@@ -226,11 +226,11 @@ rule_arc!(
                     }
                     // Check if f1 is abs and f2 is sign (or vice versa)
                     if let (
-                        AstKind::FunctionCall {
+                        ExprKind::FunctionCall {
                             name: name1,
                             args: args1,
                         },
-                        AstKind::FunctionCall {
+                        ExprKind::FunctionCall {
                             name: name2,
                             args: args2,
                         },

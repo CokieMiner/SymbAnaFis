@@ -6,12 +6,12 @@
 use super::context::PyContext;
 use super::expr::{PyExpr, extract_to_expr};
 use super::symbol::PySymbol;
-use crate::Diff;
-use crate::Expr as RustExpr;
-use crate::Simplify;
 use crate::core::BodyFn;
+use crate::core::Expr as RustExpr;
 use crate::core::UserFunction;
-use crate::symb;
+use crate::core::symb;
+use crate::diff::Diff;
+use crate::simplification::Simplify;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use std::sync::Arc;

@@ -1,5 +1,5 @@
 use super::FunctionDefinition;
-use crate::Expr;
+use crate::core::Expr;
 use crate::core::known_symbols::{KS, get_symbol};
 use crate::math::{
     bessel_i, bessel_j, bessel_k, bessel_y, eval_assoc_legendre, eval_beta, eval_digamma,
@@ -10,7 +10,7 @@ use crate::math::{
 use std::sync::Arc;
 
 #[allow(clippy::too_many_lines, reason = "Static function definition list")]
-pub fn get_definitions() -> Vec<FunctionDefinition> {
+pub fn get_special_definitions() -> Vec<FunctionDefinition> {
     vec![
         // Special Functions
         FunctionDefinition {

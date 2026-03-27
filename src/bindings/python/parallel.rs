@@ -180,8 +180,8 @@ pub mod parallel_impl {
         var_names: Vec<Vec<String>>,
         data: Vec<Vec<Bound<'py, PyAny>>>,
     ) -> PyResult<Py<PyAny>> {
-        use crate::Expr as RustExpr;
         use crate::bindings::python::evaluator::{DataInput, extract_data_input};
+        use crate::core::Expr as RustExpr;
         use crate::evaluator::eval_f64 as rust_eval_f64;
         use numpy::{PyArray1, PyArray2, PyArrayMethods};
 

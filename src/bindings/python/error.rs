@@ -1,6 +1,6 @@
 //! Error conversion and domain validation for Python bindings
 
-use crate::{DiffError, SymbolError};
+use crate::core::{DiffError, SymbolError};
 use pyo3::PyErr;
 
 // =============================================================================

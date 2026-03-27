@@ -1,11 +1,11 @@
 // Algebraic combination operations on validated expressions
 
 use super::{
-    ExprKind, Rule, RuleCategory, RuleContext, compare_expr, extract_coeff, extract_coeff_arc,
+    Rule, RuleCategory, RuleContext, RuleExprKind, compare_expr, extract_coeff, extract_coeff_arc,
 };
 use crate::EPSILON;
 use crate::core::arc_number;
-use crate::{Expr, core::ExprKind as AstKind};
+use crate::core::{Expr, ExprKind};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::sync::Arc;
 
@@ -14,12 +14,12 @@ rule_arc!(
     "product_div_combination",
     85,
     Algebraic,
-    &[ExprKind::Product],
+    &[RuleExprKind::Product],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Product(factors) = &expr.kind {
+        if let ExprKind::Product(factors) = &expr.kind {
             // Look for Div among the factors: a * (b / c) * d -> (a * b * d) / c
             for (i, factor) in factors.iter().enumerate() {
-                if let AstKind::Div(num, den) = &factor.kind {
+                if let ExprKind::Div(num, den) = &factor.kind {
                     // Collect all other factors into numerator
                     let mut new_numerator_factors: Vec<Arc<Expr>> = factors
                         .iter()
@@ -48,10 +48,10 @@ rule_arc!(
     "combine_terms",
     50,
     Algebraic,
-    &[ExprKind::Sum],
+    &[RuleExprKind::Sum],
     |expr: &Expr, _context: &RuleContext| {
         // Optimized combine_terms using Arcs and HashMap<Arc<Expr>, f64>
-        if let AstKind::Sum(terms) = &expr.kind {
+        if let ExprKind::Sum(terms) = &expr.kind {
             if terms.len() < 2 {
                 return None;
             }
@@ -78,7 +78,7 @@ rule_arc!(
                 } else if (coeff - 1.0).abs() < EPSILON {
                     // 1*base = base
                     result.push(base);
-                } else if let AstKind::Number(n) = &base.kind {
+                } else if let ExprKind::Number(n) = &base.kind {
                     if (n - 1.0).abs() < EPSILON {
                         result.push(Arc::new(Expr::number(coeff)));
                     } else {
@@ -123,9 +123,9 @@ rule_arc!(
     "combine_factors",
     58,
     Algebraic,
-    &[ExprKind::Product],
+    &[RuleExprKind::Product],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Product(factors) = &expr.kind {
+        if let ExprKind::Product(factors) = &expr.kind {
             if factors.len() < 2 {
                 return None;
             }
@@ -138,7 +138,7 @@ rule_arc!(
 
             for factor in factors {
                 match &factor.kind {
-                    AstKind::Pow(base, exp) => {
+                    ExprKind::Pow(base, exp) => {
                         factor_groups
                             .entry(Arc::clone(base))
                             .or_default()
@@ -157,7 +157,7 @@ rule_arc!(
             let mut combined_factors = Vec::new();
             for (base, exponents) in factor_groups {
                 if exponents.len() == 1 {
-                    if let AstKind::Number(n) = &exponents[0].kind
+                    if let ExprKind::Number(n) = &exponents[0].kind
                         && (n - 1.0).abs() < EPSILON
                     {
                         combined_factors.push(base);
@@ -196,10 +196,10 @@ rule_arc!(
 // Helper: Extract factor and addends from Product containing Sum
 /// Extracts a factor and addends from a product containing a sum.
 fn extract_product_with_sum(expr: &Expr) -> Option<(Expr, Vec<Expr>)> {
-    if let AstKind::Product(factors) = &expr.kind {
+    if let ExprKind::Product(factors) = &expr.kind {
         // Look for a Sum among the factors
         for (i, factor) in factors.iter().enumerate() {
-            if let AstKind::Sum(addends) = &factor.kind {
+            if let ExprKind::Sum(addends) = &factor.kind {
                 // Collect all other factors
                 let other_factors: Vec<Expr> = factors
                     .iter()
@@ -231,14 +231,14 @@ fn extract_product_with_sum(expr: &Expr) -> Option<(Expr, Vec<Expr>)> {
 /// Checks if the expression contains any variables (not just numbers).
 fn contains_variable(expr: &Expr) -> bool {
     match &expr.kind {
-        AstKind::Symbol(_) => true,
-        AstKind::Number(_) => false,
-        AstKind::Sum(terms) => terms.iter().any(|t| contains_variable(t)),
-        AstKind::Product(factors) => factors.iter().any(|f| contains_variable(f)),
-        AstKind::Div(a, b) | AstKind::Pow(a, b) => contains_variable(a) || contains_variable(b),
-        AstKind::FunctionCall { args, .. } => args.iter().any(|a| contains_variable(a)),
-        AstKind::Derivative { inner, .. } => contains_variable(inner),
-        AstKind::Poly(poly) => {
+        ExprKind::Symbol(_) => true,
+        ExprKind::Number(_) => false,
+        ExprKind::Sum(terms) => terms.iter().any(|t| contains_variable(t)),
+        ExprKind::Product(factors) => factors.iter().any(|f| contains_variable(f)),
+        ExprKind::Div(a, b) | ExprKind::Pow(a, b) => contains_variable(a) || contains_variable(b),
+        ExprKind::FunctionCall { args, .. } => args.iter().any(|a| contains_variable(a)),
+        ExprKind::Derivative { inner, .. } => contains_variable(inner),
+        ExprKind::Poly(poly) => {
             // Check if base contains variables (non-constant polynomial)
             contains_variable(poly.base())
         }
@@ -250,9 +250,9 @@ fn contains_variable(expr: &Expr) -> bool {
 /// Extracts the base and numeric exponent from an expression.
 fn extract_base_and_exp(expr: &Expr) -> Option<(Expr, f64)> {
     match &expr.kind {
-        AstKind::Symbol(_) => Some((expr.clone(), 1.0)),
-        AstKind::Pow(base, exp) => {
-            if let AstKind::Number(n) = &exp.kind {
+        ExprKind::Symbol(_) => Some((expr.clone(), 1.0)),
+        ExprKind::Pow(base, exp) => {
+            if let ExprKind::Number(n) = &exp.kind {
                 Some((base.as_ref().clone(), *n))
             } else {
                 None // Non-numeric exponent, can't combine
@@ -299,9 +299,9 @@ fn distribute_factor(factor: &Expr, addends: &[Expr]) -> Vec<Expr> {
             let combined_var = {
                 // Exact check for 1.0 to avoid redundant multiplication
                 #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
-                let factor_var_is_one = matches!(factor_var.kind, AstKind::Number(n) if n == 1.0);
+                let factor_var_is_one = matches!(factor_var.kind, ExprKind::Number(n) if n == 1.0);
                 #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
-                let addend_var_is_one = matches!(addend_var.kind, AstKind::Number(n) if n == 1.0);
+                let addend_var_is_one = matches!(addend_var.kind, ExprKind::Number(n) if n == 1.0);
 
                 if factor_var_is_one {
                     addend_var
@@ -327,9 +327,9 @@ rule_arc!(
     "combine_like_terms_in_sum",
     52,
     Algebraic,
-    &[ExprKind::Sum],
+    &[RuleExprKind::Sum],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Sum(terms) = &expr.kind {
+        if let ExprKind::Sum(terms) = &expr.kind {
             if terms.len() < 2 {
                 return None;
             }
@@ -420,7 +420,7 @@ rule_arc!(
 
                         if (total_coeff - 1.0).abs() < EPSILON {
                             combined_terms.push(base_term);
-                        } else if let AstKind::Number(n) = &base_term.kind {
+                        } else if let ExprKind::Number(n) = &base_term.kind {
                             if (n - 1.0).abs() < EPSILON {
                                 combined_terms.push(Arc::new(Expr::number(total_coeff)));
                             } else {

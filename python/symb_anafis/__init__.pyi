@@ -299,22 +299,10 @@ def clear_symbols() -> None:
     ...
 
 # =============================================================================
-# Visitor Utilities
-# =============================================================================
-
-def count_nodes(expr: Expr) -> int:
-    """Count the number of nodes in an expression tree."""
-    ...
-
-def collect_variables(expr: Expr) -> set[str]:
-    """Collect all unique variable names in an expression."""
-    ...
-
-# =============================================================================
 # PyExprView Class
 # =============================================================================
 
-class PyExprView:
+class ExprView:
     """
     A view into an expression's structure for pattern matching and inspection.
 

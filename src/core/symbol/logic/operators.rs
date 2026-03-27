@@ -5,7 +5,7 @@
 
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
-use crate::Expr;
+use crate::core::Expr;
 use crate::core::Symbol;
 
 // ============================================================================

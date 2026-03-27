@@ -1,7 +1,7 @@
-use super::{ExprKind, Rule, RuleCategory, RuleContext};
+use super::{Rule, RuleCategory, RuleContext, RuleExprKind};
 use crate::EPSILON;
 use crate::core::known_symbols::{KS, get_symbol};
-use crate::core::{Expr, ExprKind as AstKind};
+use crate::core::{Expr, ExprKind};
 use std::sync::Arc;
 
 rule!(
@@ -9,15 +9,15 @@ rule!(
     "sqrt_power",
     85,
     Root,
-    &[ExprKind::Function],
+    &[RuleExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::FunctionCall { name, args } = &expr.kind
+        if let ExprKind::FunctionCall { name, args } = &expr.kind
             && name.id() == KS.sqrt
             && args.len() == 1
-            && let AstKind::Pow(base, exp) = &args[0].kind
+            && let ExprKind::Pow(base, exp) = &args[0].kind
         {
             // Special case: sqrt(x^2) should always return abs(x)
-            if let AstKind::Number(n) = &exp.kind {
+            if let ExprKind::Number(n) = &exp.kind {
                 // Exact check for power 2.0 (square)
                 #[allow(clippy::float_cmp, reason = "Comparing against exact constant 2.0")]
                 let is_square = *n == 2.0;
@@ -32,8 +32,8 @@ rule!(
 
             // Simplify the division immediately
             let simplified_exp = match &new_exp.kind {
-                AstKind::Div(u, v) => {
-                    if let (AstKind::Number(a), AstKind::Number(b)) = (&u.kind, &v.kind) {
+                ExprKind::Div(u, v) => {
+                    if let (ExprKind::Number(a), ExprKind::Number(b)) = (&u.kind, &v.kind) {
                         if *b == 0.0 {
                             new_exp
                         } else {
@@ -53,7 +53,7 @@ rule!(
 
             // If exponent simplified to 1, return base directly
             #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
-            let is_match = matches!(&simplified_exp.kind, AstKind::Number(n) if *n == 1.0);
+            let is_match = matches!(&simplified_exp.kind, ExprKind::Number(n) if *n == 1.0);
             if is_match {
                 return Some(base.as_ref().clone());
             }
@@ -71,20 +71,20 @@ rule!(
     "cbrt_power",
     85,
     Root,
-    &[ExprKind::Function],
+    &[RuleExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::FunctionCall { name, args } = &expr.kind
+        if let ExprKind::FunctionCall { name, args } = &expr.kind
             && name.id() == KS.cbrt
             && args.len() == 1
-            && let AstKind::Pow(base, exp) = &args[0].kind
+            && let ExprKind::Pow(base, exp) = &args[0].kind
         {
             // Create new exponent: exp / 3
             let new_exp = Expr::div_expr(exp.as_ref().clone(), Expr::number(3.0));
 
             // Simplify the division immediately
             let simplified_exp = match &new_exp.kind {
-                AstKind::Div(u, v) => {
-                    if let (AstKind::Number(a), AstKind::Number(b)) = (&u.kind, &v.kind) {
+                ExprKind::Div(u, v) => {
+                    if let (ExprKind::Number(a), ExprKind::Number(b)) = (&u.kind, &v.kind) {
                         if *b == 0.0 {
                             new_exp
                         } else {
@@ -104,7 +104,7 @@ rule!(
 
             // If exponent simplified to 1, return base directly
             #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
-            let is_one = matches!(&simplified_exp.kind, AstKind::Number(n) if *n == 1.0);
+            let is_one = matches!(&simplified_exp.kind, ExprKind::Number(n) if *n == 1.0);
             if is_one {
                 return Some(base.as_ref().clone());
             }
@@ -115,8 +115,8 @@ rule!(
     }
 );
 
-rule!(SqrtProductRule, "sqrt_product", 56, Root, &[ExprKind::Product], alters_domain: true, |expr: &Expr, _context: &RuleContext| {
-    if let AstKind::Product(factors) = &expr.kind {
+rule!(SqrtProductRule, "sqrt_product", 56, Root, &[RuleExprKind::Product], alters_domain: true, |expr: &Expr, _context: &RuleContext| {
+    if let ExprKind::Product(factors) = &expr.kind {
         // Check for sqrt(a) * sqrt(b) among factors
         for (i, f1) in factors.iter().enumerate() {
             for (j, f2) in factors.iter().enumerate() {
@@ -125,8 +125,8 @@ rule!(SqrtProductRule, "sqrt_product", 56, Root, &[ExprKind::Product], alters_do
                 }
 
                 if let (
-                    AstKind::FunctionCall { name: n1, args: args1 },
-                    AstKind::FunctionCall { name: n2, args: args2 },
+                    ExprKind::FunctionCall { name: n1, args: args1 },
+                    ExprKind::FunctionCall { name: n2, args: args2 },
                 ) = (&f1.kind, &f2.kind)
                     && n1.id() == KS.sqrt && n2.id() == KS.sqrt && args1.len() == 1 && args2.len() == 1 {
                         // sqrt(a) * sqrt(b) = sqrt(a*b)
@@ -154,15 +154,15 @@ rule!(SqrtProductRule, "sqrt_product", 56, Root, &[ExprKind::Product], alters_do
     None
 });
 
-rule!(SqrtDivRule, "sqrt_div", 56, Root, &[ExprKind::Div], alters_domain: true, |expr: &Expr, _context: &RuleContext| {
-    if let AstKind::Div(u, v) = &expr.kind {
+rule!(SqrtDivRule, "sqrt_div", 56, Root, &[RuleExprKind::Div], alters_domain: true, |expr: &Expr, _context: &RuleContext| {
+    if let ExprKind::Div(u, v) = &expr.kind {
         // Check for sqrt(a) / sqrt(b)
         if let (
-            AstKind::FunctionCall {
+            ExprKind::FunctionCall {
                 name: u_name,
                 args: u_args,
             },
-            AstKind::FunctionCall {
+            ExprKind::FunctionCall {
                 name: v_name,
                 args: v_args,
             },
@@ -189,9 +189,9 @@ rule!(
     "normalize_roots",
     50,
     Root,
-    &[ExprKind::Function],
+    &[RuleExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::FunctionCall { name, args } = &expr.kind
+        if let ExprKind::FunctionCall { name, args } = &expr.kind
             && args.len() == 1
         {
             if name.id() == KS.sqrt {
@@ -215,18 +215,18 @@ rule!(
     "sqrt_extract_square",
     84,
     Root,
-    &[ExprKind::Function],
+    &[RuleExprKind::Function],
     |expr: &Expr, _context: &RuleContext| {
         // sqrt(a * x^2) → |x| * sqrt(a)
-        if let AstKind::FunctionCall { name, args } = &expr.kind
+        if let ExprKind::FunctionCall { name, args } = &expr.kind
             && name.id() == KS.sqrt
             && args.len() == 1
-            && let AstKind::Product(factors) = &args[0].kind
+            && let ExprKind::Product(factors) = &args[0].kind
         {
             // Look for a square factor x^2
             for (i, factor) in factors.iter().enumerate() {
-                if let AstKind::Pow(base, exp) = &factor.kind
-                    && let AstKind::Number(n) = &exp.kind
+                if let ExprKind::Pow(base, exp) = &factor.kind
+                    && let ExprKind::Number(n) = &exp.kind
                 {
                     // Exact check for power 2.0 (square)
                     #[allow(clippy::float_cmp, reason = "Comparing against exact constant 2.0")]
@@ -244,7 +244,7 @@ rule!(
                             .collect();
 
                         let inner = Expr::product_from_arcs(remaining);
-                        let sqrt_remaining = if matches!(inner.kind, AstKind::Number(val) if (val - 1.0).abs() < EPSILON)
+                        let sqrt_remaining = if matches!(inner.kind, ExprKind::Number(val) if (val - 1.0).abs() < EPSILON)
                         {
                             Expr::number(1.0)
                         } else {

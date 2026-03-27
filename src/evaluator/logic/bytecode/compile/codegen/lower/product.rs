@@ -2,8 +2,7 @@ use super::Compiler;
 use super::vir::node::{NodeData, const_from_map};
 use super::vir::{VInstruction, VReg};
 use crate::EPSILON;
-use crate::Expr;
-use crate::core::DiffError;
+use crate::core::{DiffError, Expr};
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
 

@@ -1,10 +1,10 @@
 use super::FunctionDefinition;
-use crate::Expr;
+use crate::core::Expr;
 use crate::core::known_symbols::{KS, get_symbol};
 use std::sync::Arc;
 
 #[allow(clippy::too_many_lines, reason = "Static function definition list")]
-pub fn get_definitions() -> Vec<FunctionDefinition> {
+pub fn get_exponential_definitions() -> Vec<FunctionDefinition> {
     vec![
         // Roots / Exp / Log
         FunctionDefinition {

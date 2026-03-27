@@ -1,10 +1,10 @@
-use super::{ExprKind, Rule, RuleCategory, RuleContext};
+use super::{Rule, RuleCategory, RuleContext, RuleExprKind};
 use crate::EPSILON;
-use crate::{Expr, core::ExprKind as AstKind};
+use crate::core::{Expr, ExprKind};
 use std::sync::Arc;
 
-rule_arc!(DivSelfRule, "div_self", 78, Algebraic, &[ExprKind::Div], alters_domain: true, |expr: &Expr, _context: &RuleContext| {
-    if let AstKind::Div(u, v) = &expr.kind
+rule_arc!(DivSelfRule, "div_self", 78, Algebraic, &[RuleExprKind::Div], alters_domain: true, |expr: &Expr, _context: &RuleContext| {
+    if let ExprKind::Div(u, v) = &expr.kind
         && u == v
     {
         return Some(Arc::new(Expr::number(1.0)));
@@ -17,18 +17,18 @@ rule_arc!(
     "div_div_flatten",
     92,
     Algebraic,
-    &[ExprKind::Div],
+    &[RuleExprKind::Div],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Div(num, den) = &expr.kind {
+        if let ExprKind::Div(num, den) = &expr.kind {
             // Case 1: (a/b)/(c/d) -> (a*d)/(b*c)
-            if let (AstKind::Div(a, b), AstKind::Div(c, d)) = (&num.kind, &den.kind) {
+            if let (ExprKind::Div(a, b), ExprKind::Div(c, d)) = (&num.kind, &den.kind) {
                 return Some(Arc::new(Expr::div_from_arcs(
                     Arc::new(Expr::product_from_arcs(vec![Arc::clone(a), Arc::clone(d)])),
                     Arc::new(Expr::product_from_arcs(vec![Arc::clone(b), Arc::clone(c)])),
                 )));
             }
             // Case 2: x/(c/d) -> (x*d)/c
-            if let AstKind::Div(c, d) = &den.kind {
+            if let ExprKind::Div(c, d) = &den.kind {
                 return Some(Arc::new(Expr::div_from_arcs(
                     Arc::new(Expr::product_from_arcs(vec![
                         Arc::clone(num),
@@ -38,7 +38,7 @@ rule_arc!(
                 )));
             }
             // Case 3: (a/b)/y -> a/(b*y)
-            if let AstKind::Div(a, b) = &num.kind {
+            if let ExprKind::Div(a, b) = &num.kind {
                 return Some(Arc::new(Expr::div_from_arcs(
                     Arc::clone(a),
                     Arc::new(Expr::product_from_arcs(vec![
@@ -57,17 +57,17 @@ rule_arc!(
     "combine_nested_fraction",
     91,
     Algebraic,
-    &[ExprKind::Div],
+    &[RuleExprKind::Div],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Div(num, outer_den) = &expr.kind {
+        if let ExprKind::Div(num, outer_den) = &expr.kind {
             // Check if num is a Sum containing a Div
-            if let AstKind::Sum(terms) = &num.kind
+            if let ExprKind::Sum(terms) = &num.kind
                 && terms.len() == 2
             {
                 // Look for pattern: Sum([a, Div(b, c)]) / d -> Sum([a*c, b]) / (c*d)
                 // Note: terms contains Arcs.
                 for (i, term) in terms.iter().enumerate() {
-                    if let AstKind::Div(b, c) = &term.kind {
+                    if let ExprKind::Div(b, c) = &term.kind {
                         let other_term = if i == 0 { &terms[1] } else { &terms[0] };
                         // (a*c + b) / (c*d)
                         let new_num = Arc::new(Expr::sum_from_arcs(vec![
@@ -95,16 +95,16 @@ rule_arc!(
     "add_fraction",
     45,
     Algebraic,
-    &[ExprKind::Sum],
+    &[RuleExprKind::Sum],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Sum(terms) = &expr.kind
+        if let ExprKind::Sum(terms) = &expr.kind
             && terms.len() == 2
         {
             let u = &terms[0];
             let v = &terms[1];
 
             // Case 1: a/b + c/d
-            if let (AstKind::Div(n1, d1), AstKind::Div(n2, d2)) = (&u.kind, &v.kind) {
+            if let (ExprKind::Div(n1, d1), ExprKind::Div(n2, d2)) = (&u.kind, &v.kind) {
                 // Check for common denominator
                 if d1 == d2 {
                     return Some(Arc::new(Expr::div_from_arcs(
@@ -131,8 +131,8 @@ rule_arc!(
             }
 
             // Case 2: a + b/c (v is the fraction)
-            if let AstKind::Div(n, d) = &v.kind {
-                let u_times_d = if matches!(&u.kind, AstKind::Number(x) if (*x - 1.0).abs() < EPSILON)
+            if let ExprKind::Div(n, d) = &v.kind {
+                let u_times_d = if matches!(&u.kind, ExprKind::Number(x) if (*x - 1.0).abs() < EPSILON)
                 {
                     Arc::clone(d)
                 } else {
@@ -143,8 +143,8 @@ rule_arc!(
             }
 
             // Case 3: a/b + c (u is the fraction)
-            if let AstKind::Div(n, d) = &u.kind {
-                let v_times_d = if matches!(&v.kind, AstKind::Number(x) if (*x - 1.0).abs() < EPSILON)
+            if let ExprKind::Div(n, d) = &u.kind {
+                let v_times_d = if matches!(&v.kind, ExprKind::Number(x) if (*x - 1.0).abs() < EPSILON)
                 {
                     Arc::clone(d)
                 } else {
@@ -158,13 +158,13 @@ rule_arc!(
     }
 );
 
-rule_with_helpers_arc!(FractionToEndRule, "fraction_to_end", 50, Algebraic, &[ExprKind::Div, ExprKind::Product],
+rule_with_helpers_arc!(FractionToEndRule, "fraction_to_end", 50, Algebraic, &[RuleExprKind::Div, RuleExprKind::Product],
     helpers: {
         // Helper to check if expression contains any Div inside Product
         fn product_contains_div(e: &Expr) -> bool {
             match &e.kind {
-                AstKind::Div(_, _) => true,
-                AstKind::Product(factors) => factors.iter().any(|f| product_contains_div(f)),
+                ExprKind::Div(_, _) => true,
+                ExprKind::Product(factors) => factors.iter().any(|f| product_contains_div(f)),
                 _ => false,
             }
         }
@@ -172,12 +172,12 @@ rule_with_helpers_arc!(FractionToEndRule, "fraction_to_end", 50, Algebraic, &[Ex
         // Helper to extract all factors from a multiplication, separating numerators and denominators
         fn extract_factors(e: &Expr, numerators: &mut Vec<Arc<Expr>>, denominators: &mut Vec<Arc<Expr>>) {
             match &e.kind {
-                AstKind::Product(factors) => {
+                ExprKind::Product(factors) => {
                     for f in factors {
                         extract_factors(f, numerators, denominators);
                     }
                 }
-                AstKind::Div(num, den) => {
+                ExprKind::Div(num, den) => {
                     extract_factors(num, numerators, denominators);
                     denominators.push(Arc::clone(den));
                 }
@@ -189,7 +189,7 @@ rule_with_helpers_arc!(FractionToEndRule, "fraction_to_end", 50, Algebraic, &[Ex
     },
     |expr: &Expr, _context: &RuleContext| {
         // Case 1: Div where numerator is a Product containing Divs
-        if let AstKind::Div(num, den) = &expr.kind
+        if let ExprKind::Div(num, den) = &expr.kind
             && product_contains_div(num) {
                 let mut numerators = Vec::new();
                 let mut denominators = Vec::new();
@@ -201,7 +201,7 @@ rule_with_helpers_arc!(FractionToEndRule, "fraction_to_end", 50, Algebraic, &[Ex
                 // Filter out 1s from numerators
                 let filtered_nums: Vec<Arc<Expr>> = numerators
                     .into_iter()
-                    .filter(|e| !matches!(e.kind, AstKind::Number(n) if (n - 1.0).abs() < EPSILON))
+                    .filter(|e| !matches!(e.kind, ExprKind::Number(n) if (n - 1.0).abs() < EPSILON))
                     .collect();
 
                 let num_expr = if filtered_nums.is_empty() {
@@ -226,7 +226,7 @@ rule_with_helpers_arc!(FractionToEndRule, "fraction_to_end", 50, Algebraic, &[Ex
             }
 
         // Case 2: Product containing at least one Div
-        if let AstKind::Product(_) = &expr.kind {
+        if let ExprKind::Product(_) = &expr.kind {
             if !product_contains_div(expr) {
                 return None;
             }
@@ -242,7 +242,7 @@ rule_with_helpers_arc!(FractionToEndRule, "fraction_to_end", 50, Algebraic, &[Ex
             // Filter out 1s from numerators
             let filtered_nums: Vec<Arc<Expr>> = numerators
                 .into_iter()
-                .filter(|e| !matches!(e.kind, AstKind::Number(n) if (n - 1.0).abs() < EPSILON))
+                .filter(|e| !matches!(e.kind, ExprKind::Number(n) if (n - 1.0).abs() < EPSILON))
                 .collect();
 
             let num_expr = if filtered_nums.is_empty() {

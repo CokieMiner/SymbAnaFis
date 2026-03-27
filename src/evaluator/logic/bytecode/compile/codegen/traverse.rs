@@ -2,7 +2,7 @@ use super::Compiler;
 use super::analysis::CseKey;
 use super::vir::VReg;
 use super::vir::node::{NodeData, compute_const_from_children, compute_expensive_from_children};
-use crate::Expr;
+use crate::core::Expr;
 use crate::core::error::DiffError;
 use rustc_hash::FxHashMap;
 

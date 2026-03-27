@@ -17,8 +17,8 @@
 
 use crate::core::known_symbols::{KS, get_symbol};
 use crate::core::{Context, InternedSymbol, symb_interned};
+use crate::core::{Expr, ExprKind};
 use crate::functions::Registry;
-use crate::{Expr, core::ExprKind};
 use std::sync::{Arc, OnceLock};
 
 impl Expr {

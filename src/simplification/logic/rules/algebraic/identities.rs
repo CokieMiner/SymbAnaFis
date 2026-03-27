@@ -1,13 +1,13 @@
-use super::{ExprKind, Rule, RuleCategory, RuleContext};
+use super::{Rule, RuleCategory, RuleContext, RuleExprKind};
 use crate::core::known_symbols::KS;
-use crate::{Expr, core::ExprKind as AstKind};
+use crate::core::{Expr, ExprKind};
 use std::sync::Arc;
 
-rule_arc!(ExpLnRule, "exp_ln", 80, Algebraic, &[ExprKind::Function], alters_domain: true, |expr: &Expr, _context: &RuleContext| {
-    if let AstKind::FunctionCall { name, args } = &expr.kind
+rule_arc!(ExpLnRule, "exp_ln", 80, Algebraic, &[RuleExprKind::Function], alters_domain: true, |expr: &Expr, _context: &RuleContext| {
+    if let ExprKind::FunctionCall { name, args } = &expr.kind
         && name.id() == KS.exp
         && args.len() == 1
-        && let AstKind::FunctionCall {
+        && let ExprKind::FunctionCall {
             name: inner_name,
             args: inner_args,
         } = &args[0].kind
@@ -19,11 +19,11 @@ rule_arc!(ExpLnRule, "exp_ln", 80, Algebraic, &[ExprKind::Function], alters_doma
     None
 });
 
-rule_arc!(LnExpRule, "ln_exp", 80, Algebraic, &[ExprKind::Function], alters_domain: true, |expr: &Expr, _context: &RuleContext| {
-    if let AstKind::FunctionCall { name, args } = &expr.kind
+rule_arc!(LnExpRule, "ln_exp", 80, Algebraic, &[RuleExprKind::Function], alters_domain: true, |expr: &Expr, _context: &RuleContext| {
+    if let ExprKind::FunctionCall { name, args } = &expr.kind
         && name.id() == KS.ln
         && args.len() == 1
-        && let AstKind::FunctionCall {
+        && let ExprKind::FunctionCall {
             name: inner_name,
             args: inner_args,
         } = &args[0].kind
@@ -35,16 +35,16 @@ rule_arc!(LnExpRule, "ln_exp", 80, Algebraic, &[ExprKind::Function], alters_doma
     None
 });
 
-rule_arc!(ExpMulLnRule, "exp_mul_ln", 80, Algebraic, &[ExprKind::Function], alters_domain: true, |expr: &Expr, _context: &RuleContext| {
-    if let AstKind::FunctionCall { name, args } = &expr.kind
+rule_arc!(ExpMulLnRule, "exp_mul_ln", 80, Algebraic, &[RuleExprKind::Function], alters_domain: true, |expr: &Expr, _context: &RuleContext| {
+    if let ExprKind::FunctionCall { name, args } = &expr.kind
         && name.id() == KS.exp
         && args.len() == 1
     {
         // Check if arg is a Product containing ln(x)
-        if let AstKind::Product(factors) = &args[0].kind {
+        if let ExprKind::Product(factors) = &args[0].kind {
             // Look for ln(x) among the factors
             for (i, factor) in factors.iter().enumerate() {
-                if let AstKind::FunctionCall {
+                if let ExprKind::FunctionCall {
                     name: inner_name,
                     args: inner_args,
                 } = &factor.kind
@@ -73,11 +73,11 @@ rule_arc!(ExpMulLnRule, "exp_mul_ln", 80, Algebraic, &[ExprKind::Function], alte
     None
 });
 
-rule_arc!(EPowLnRule, "e_pow_ln", 85, Algebraic, &[ExprKind::Pow], alters_domain: true, |expr: &Expr, _context: &RuleContext| {
-    if let AstKind::Pow(base, exp) = &expr.kind
-        && let AstKind::Symbol(s) = &base.kind
+rule_arc!(EPowLnRule, "e_pow_ln", 85, Algebraic, &[RuleExprKind::Pow], alters_domain: true, |expr: &Expr, _context: &RuleContext| {
+    if let ExprKind::Pow(base, exp) = &expr.kind
+        && let ExprKind::Symbol(s) = &base.kind
         && s.id() == KS.e
-        && let AstKind::FunctionCall { name, args } = &exp.kind
+        && let ExprKind::FunctionCall { name, args } = &exp.kind
         && name.id() == KS.ln
         && args.len() == 1
     {
@@ -86,15 +86,15 @@ rule_arc!(EPowLnRule, "e_pow_ln", 85, Algebraic, &[ExprKind::Pow], alters_domain
     None
 });
 
-rule_arc!(EPowMulLnRule, "e_pow_mul_ln", 85, Algebraic, &[ExprKind::Pow], alters_domain: true, |expr: &Expr, _context: &RuleContext| {
-    if let AstKind::Pow(base, exp) = &expr.kind
-        && let AstKind::Symbol(s) = &base.kind
+rule_arc!(EPowMulLnRule, "e_pow_mul_ln", 85, Algebraic, &[RuleExprKind::Pow], alters_domain: true, |expr: &Expr, _context: &RuleContext| {
+    if let ExprKind::Pow(base, exp) = &expr.kind
+        && let ExprKind::Symbol(s) = &base.kind
         && s.id() == KS.e
     {
         // Check if exponent is a Product containing ln(x)
-        if let AstKind::Product(factors) = &exp.kind {
+        if let ExprKind::Product(factors) = &exp.kind {
             for (i, factor) in factors.iter().enumerate() {
-                if let AstKind::FunctionCall {
+                if let ExprKind::FunctionCall {
                     name: inner_name,
                     args: inner_args,
                 } = &factor.kind

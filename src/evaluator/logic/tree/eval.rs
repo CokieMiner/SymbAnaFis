@@ -11,8 +11,8 @@ use std::collections::HashMap;
 use std::hash::BuildHasher;
 use std::sync::Arc;
 
-use crate::Expr;
 use crate::core::CustomEvalMap;
+use crate::core::Expr;
 use crate::core::known_symbols::get_constant_value;
 use crate::core::{ExprKind, InternedSymbol};
 use crate::functions::Registry;

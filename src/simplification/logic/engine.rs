@@ -2,9 +2,9 @@
 //! Implements bottom-up tree traversal, rule application with memoization,
 //! cycle detection, and configurable limits (iterations, depth).
 
-use super::rules::{ExprKind, RuleContext, RuleRegistry};
+use super::rules::{RuleContext, RuleExprKind, RuleRegistry};
 use crate::core::BodyFn;
-use crate::{Expr, core::ExprKind as AstKind};
+use crate::core::{Expr, ExprKind};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::HashMap;
 use std::env::var;
@@ -331,7 +331,7 @@ impl Simplifier {
 
         match &expr.kind {
             // N-ary Sum - simplify all terms
-            AstKind::Sum(terms) => {
+            ExprKind::Sum(terms) => {
                 if let Some(v) = map_lazy(terms, self) {
                     let new_expr = Arc::new(Expr::sum_from_arcs(v));
                     self.apply_rules_to_node(new_expr, depth)
@@ -341,7 +341,7 @@ impl Simplifier {
             }
 
             // N-ary Product - simplify all factors
-            AstKind::Product(factors) => {
+            ExprKind::Product(factors) => {
                 if let Some(v) = map_lazy(factors, self) {
                     let new_expr = Arc::new(Expr::product_from_arcs(v));
                     self.apply_rules_to_node(new_expr, depth)
@@ -350,7 +350,7 @@ impl Simplifier {
                 }
             }
 
-            AstKind::Div(u, v) => {
+            ExprKind::Div(u, v) => {
                 let u_simplified = self.apply_rules_bottom_up(Arc::clone(u), depth + 1);
                 let v_simplified = self.apply_rules_bottom_up(Arc::clone(v), depth + 1);
 
@@ -361,7 +361,7 @@ impl Simplifier {
                     self.apply_rules_to_node(new_expr, depth)
                 }
             }
-            AstKind::Pow(u, v) => {
+            ExprKind::Pow(u, v) => {
                 let u_simplified = self.apply_rules_bottom_up(Arc::clone(u), depth + 1);
                 let v_simplified = self.apply_rules_bottom_up(Arc::clone(v), depth + 1);
 
@@ -372,7 +372,7 @@ impl Simplifier {
                     self.apply_rules_to_node(new_expr, depth)
                 }
             }
-            AstKind::FunctionCall { name, args } => {
+            ExprKind::FunctionCall { name, args } => {
                 if let Some(v) = map_lazy(args, self) {
                     let new_expr = Arc::new(Expr::func_multi_from_arcs(name, v));
                     self.apply_rules_to_node(new_expr, depth)
@@ -390,7 +390,7 @@ impl Simplifier {
         self.context.set_depth(depth);
 
         // Get the expression kind once and only check rules that apply to it
-        let kind = ExprKind::of(current.as_ref());
+        let kind = RuleExprKind::of(current.as_ref());
 
         // Helper macro to apply a rule and update current if successful
         macro_rules! try_apply {
@@ -437,8 +437,8 @@ impl Simplifier {
             };
         }
 
-        if kind == ExprKind::Function {
-            if let AstKind::FunctionCall { name, .. } = &current.kind {
+        if kind == RuleExprKind::Function {
+            if let ExprKind::FunctionCall { name, .. } = &current.kind {
                 let registry = global_registry();
                 let specific = registry.get_specific_func_rules(name.id());
                 let generic = registry.get_generic_func_rules();

@@ -1,11 +1,11 @@
 use super::FunctionDefinition;
-use crate::Expr;
+use crate::core::Expr;
 use crate::core::known_symbols::{KS, get_symbol};
 use std::f64::consts::PI;
 use std::sync::Arc;
 
 #[allow(clippy::too_many_lines, reason = "Static function definition list")]
-pub fn get_definitions() -> Vec<FunctionDefinition> {
+pub fn get_inverse_trig_definitions() -> Vec<FunctionDefinition> {
     vec![
         // Inverse Trigonometric
         FunctionDefinition {

@@ -1,7 +1,7 @@
-use super::{ExprKind, Rule, RuleCategory, RuleContext};
+use super::{Rule, RuleCategory, RuleContext, RuleExprKind};
 use crate::EPSILON;
 use crate::core::known_symbols::KS;
-use crate::{Expr, core::ExprKind as AstKind};
+use crate::core::{Expr, ExprKind};
 use std::sync::Arc;
 
 rule!(
@@ -9,21 +9,21 @@ rule!(
     "expand_power_for_cancellation",
     92,
     Algebraic,
-    &[ExprKind::Div],
+    &[RuleExprKind::Div],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Div(num, den) = &expr.kind {
+        if let ExprKind::Div(num, den) = &expr.kind {
             // Helper to check if a factor is present in an expression
             let contains_factor = |e: &Expr, factor: &Expr| -> bool {
                 match &e.kind {
-                    AstKind::Product(factors) => factors.iter().any(|f| **f == *factor),
+                    ExprKind::Product(factors) => factors.iter().any(|f| **f == *factor),
                     _ => e == factor,
                 }
             };
 
             // Helper to check if expansion is useful
             let check_and_expand = |target: &Expr, other: &Expr| -> Option<Expr> {
-                if let AstKind::Pow(base, exp) = &target.kind
-                    && let AstKind::Product(base_factors) = &base.kind
+                if let ExprKind::Pow(base, exp) = &target.kind
+                    && let ExprKind::Product(base_factors) = &base.kind
                 {
                     // Check if any base factor is present in 'other'
                     let mut useful = false;
@@ -64,12 +64,12 @@ rule!(
     "power_expansion",
     86,
     Algebraic,
-    &[ExprKind::Pow],
+    &[RuleExprKind::Pow],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Pow(base, exp) = &expr.kind {
+        if let ExprKind::Pow(base, exp) = &expr.kind {
             // Expand (a*b)^n -> a^n * b^n ONLY if expansion enables simplification
-            if let AstKind::Product(base_factors) = &base.kind
-                && let AstKind::Number(n) = &exp.kind
+            if let ExprKind::Product(base_factors) = &base.kind
+                && let ExprKind::Number(n) = &exp.kind
                 && *n > 1.0
                 && n.fract() == 0.0
                 && {
@@ -83,11 +83,12 @@ rule!(
             {
                 // Check if expansion would enable simplification
                 let has_simplifiable = base_factors.iter().any(|f| match &f.kind {
-                    AstKind::Pow(_, inner_exp) => {
-                        if let AstKind::Number(inner_n) = &inner_exp.kind {
+                    ExprKind::Pow(_, inner_exp) => {
+                        if let ExprKind::Number(inner_n) = &inner_exp.kind {
                             (inner_n * n).fract().abs() < EPSILON
-                        } else if let AstKind::Div(num, den) = &inner_exp.kind {
-                            if let (AstKind::Number(a), AstKind::Number(b)) = (&num.kind, &den.kind)
+                        } else if let ExprKind::Div(num, den) = &inner_exp.kind {
+                            if let (ExprKind::Number(a), ExprKind::Number(b)) =
+                                (&num.kind, &den.kind)
                             {
                                 ((a * n) / b).fract().abs() < EPSILON
                             } else {
@@ -97,10 +98,10 @@ rule!(
                             false
                         }
                     }
-                    AstKind::FunctionCall { name, .. } => {
+                    ExprKind::FunctionCall { name, .. } => {
                         (name.id() == KS.sqrt || name.id() == KS.cbrt) && *n >= 2.0
                     }
-                    AstKind::Number(_) => true,
+                    ExprKind::Number(_) => true,
                     _ => false,
                 });
 
@@ -114,8 +115,8 @@ rule!(
             }
 
             // Expand (a/b)^n -> a^n / b^n ONLY if expansion enables simplification
-            if let AstKind::Div(a, b) = &base.kind
-                && let AstKind::Number(n) = &exp.kind
+            if let ExprKind::Div(a, b) = &base.kind
+                && let ExprKind::Number(n) = &exp.kind
                 && *n > 1.0
                 && n.fract() == 0.0
                 && {
@@ -130,11 +131,11 @@ rule!(
                 // Helper to check if a term would simplify when raised to power n
                 let would_simplify = |term: &Expr| -> bool {
                     match &term.kind {
-                        AstKind::Pow(_, inner_exp) => {
-                            if let AstKind::Number(inner_n) = &inner_exp.kind {
+                        ExprKind::Pow(_, inner_exp) => {
+                            if let ExprKind::Number(inner_n) = &inner_exp.kind {
                                 (inner_n * n).fract().abs() < EPSILON
-                            } else if let AstKind::Div(num, den) = &inner_exp.kind {
-                                if let (AstKind::Number(a_val), AstKind::Number(b_val)) =
+                            } else if let ExprKind::Div(num, den) = &inner_exp.kind {
+                                if let (ExprKind::Number(a_val), ExprKind::Number(b_val)) =
                                     (&num.kind, &den.kind)
                                 {
                                     ((a_val * n) / b_val).fract().abs() < EPSILON
@@ -145,17 +146,17 @@ rule!(
                                 false
                             }
                         }
-                        AstKind::FunctionCall { name, .. } => {
+                        ExprKind::FunctionCall { name, .. } => {
                             (name.id() == KS.sqrt || name.id() == KS.cbrt) && *n >= 2.0
                         }
-                        AstKind::Number(_) => true,
-                        AstKind::Product(factors) => factors.iter().any(|f| match &f.kind {
-                            AstKind::Number(_) => true,
-                            AstKind::FunctionCall { name, .. } => {
+                        ExprKind::Number(_) => true,
+                        ExprKind::Product(factors) => factors.iter().any(|f| match &f.kind {
+                            ExprKind::Number(_) => true,
+                            ExprKind::FunctionCall { name, .. } => {
                                 name.id() == KS.sqrt || name.id() == KS.cbrt
                             }
-                            AstKind::Pow(_, inner_exp) => {
-                                if let AstKind::Number(inner_n) = &inner_exp.kind {
+                            ExprKind::Pow(_, inner_exp) => {
+                                if let ExprKind::Number(inner_n) = &inner_exp.kind {
                                     (inner_n * n).fract().abs() < EPSILON
                                 } else {
                                     false

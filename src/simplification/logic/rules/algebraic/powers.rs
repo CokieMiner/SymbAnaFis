@@ -1,10 +1,11 @@
 use super::{
-    ExprKind, Rule, RuleCategory, RuleContext, is_fractional_root_exponent, is_known_non_negative,
+    Rule, RuleCategory, RuleContext, RuleExprKind, is_fractional_root_exponent,
+    is_known_non_negative,
 };
 use crate::EPSILON;
 use crate::core::arc_number;
 use crate::core::known_symbols::{KS, get_symbol};
-use crate::{Expr, core::ExprKind as AstKind};
+use crate::core::{Expr, ExprKind};
 use std::sync::Arc;
 
 rule!(
@@ -12,10 +13,10 @@ rule!(
     "power_zero",
     80,
     Algebraic,
-    &[ExprKind::Pow],
+    &[RuleExprKind::Pow],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Pow(_u, v) = &expr.kind
-            && matches!(v.kind, AstKind::Number(n) if n == 0.0)
+        if let ExprKind::Pow(_u, v) = &expr.kind
+            && matches!(v.kind, ExprKind::Number(n) if n == 0.0)
         {
             return Some(Expr::number(1.0));
         }
@@ -28,12 +29,12 @@ rule_arc!(
     "power_one",
     80,
     Algebraic,
-    &[ExprKind::Pow],
+    &[RuleExprKind::Pow],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Pow(u, v) = &expr.kind {
+        if let ExprKind::Pow(u, v) = &expr.kind {
             // Exact check for exponent == 1.0
             #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
-            let is_one = matches!(v.kind, AstKind::Number(n) if n == 1.0);
+            let is_one = matches!(v.kind, ExprKind::Number(n) if n == 1.0);
             if is_one {
                 return Some(Arc::clone(u));
             }
@@ -47,13 +48,13 @@ rule!(
     "power_power",
     75,
     Algebraic,
-    &[ExprKind::Pow],
+    &[RuleExprKind::Pow],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Pow(u, v) = &expr.kind
-            && let AstKind::Pow(base, exp_inner) = &u.kind
+        if let ExprKind::Pow(u, v) = &expr.kind
+            && let ExprKind::Pow(base, exp_inner) = &u.kind
         {
             // Check for special case: (x^even)^(1/even) where result would be x^1
-            if let AstKind::Number(inner_n) = &exp_inner.kind {
+            if let ExprKind::Number(inner_n) = &exp_inner.kind {
                 // Exact comparison for integer check, cast for modulo
                 #[allow(
                     clippy::float_cmp,
@@ -65,8 +66,8 @@ rule!(
                     *inner_n > 0.0 && inner_n.fract() == 0.0 && (*inner_n as i64) % 2 == 0;
 
                 if inner_is_even {
-                    if let AstKind::Div(num, den) = &v.kind
-                        && let (AstKind::Number(num_val), AstKind::Number(den_val)) =
+                    if let ExprKind::Div(num, den) = &v.kind
+                        && let (ExprKind::Number(num_val), ExprKind::Number(den_val)) =
                             (&num.kind, &den.kind)
                         && {
                             // Exact check for 1.0 numerator in exponent fraction
@@ -84,7 +85,7 @@ rule!(
                             vec![Arc::clone(base)],
                         ));
                     }
-                    if let AstKind::Number(outer_n) = &v.kind {
+                    if let ExprKind::Number(outer_n) = &v.kind {
                         let product = inner_n * outer_n;
                         if (product - 1.0).abs() < EPSILON {
                             return Some(Expr::func_multi_from_arcs_symbol(
@@ -110,9 +111,9 @@ rule_arc!(
     "power_product",
     75,
     Algebraic,
-    &[ExprKind::Product],
+    &[RuleExprKind::Product],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Product(factors) = &expr.kind {
+        if let ExprKind::Product(factors) = &expr.kind {
             // Look for pairs of powers with the same base
             for (i, f1) in factors.iter().enumerate() {
                 for (j, f2) in factors.iter().enumerate() {
@@ -142,7 +143,7 @@ rule_arc!(
                     };
 
                     // Both are powers with the same base
-                    if let (AstKind::Pow(base_1, exp_1), AstKind::Pow(base_2, exp_2)) =
+                    if let (ExprKind::Pow(base_1, exp_1), ExprKind::Pow(base_2, exp_2)) =
                         (&f1.kind, &f2.kind)
                         && base_1 == base_2
                     {
@@ -154,7 +155,7 @@ rule_arc!(
                     }
 
                     // One is a power and the other is the same base
-                    if let AstKind::Pow(base_1, exp_1) = &f1.kind
+                    if let ExprKind::Pow(base_1, exp_1) = &f1.kind
                         && **base_1 == **f2
                     {
                         let new_exp = Expr::sum_from_arcs(vec![Arc::clone(exp_1), arc_number(1.0)]);
@@ -162,7 +163,7 @@ rule_arc!(
                         return build_result(combined);
                     }
 
-                    if let AstKind::Pow(base_2, exp_2) = &f2.kind
+                    if let ExprKind::Pow(base_2, exp_2) = &f2.kind
                         && **base_2 == **f1
                     {
                         let new_exp = Expr::sum_from_arcs(vec![arc_number(1.0), Arc::clone(exp_2)]);
@@ -181,11 +182,11 @@ rule!(
     "power_div",
     75,
     Algebraic,
-    &[ExprKind::Div],
+    &[RuleExprKind::Div],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Div(u, v) = &expr.kind {
+        if let ExprKind::Div(u, v) = &expr.kind {
             // Check if both numerator and denominator are powers with the same base
-            if let (AstKind::Pow(base_u, exp_u), AstKind::Pow(base_v, exp_v)) = (&u.kind, &v.kind)
+            if let (ExprKind::Pow(base_u, exp_u), ExprKind::Pow(base_v, exp_v)) = (&u.kind, &v.kind)
                 && base_u == base_v
             {
                 // x^a / x^b = x^(a-b) = x^(a + (-1)*b)
@@ -194,14 +195,14 @@ rule!(
                 return Some(Expr::pow_from_arcs(Arc::clone(base_u), Arc::new(new_exp)));
             }
             // Check if numerator is a power and denominator is the same base
-            if let AstKind::Pow(base_u, exp_u) = &u.kind
+            if let ExprKind::Pow(base_u, exp_u) = &u.kind
                 && base_u == v
             {
                 let new_exp = Expr::sum_from_arcs(vec![Arc::clone(exp_u), arc_number(-1.0)]);
                 return Some(Expr::pow_from_arcs(Arc::clone(base_u), Arc::new(new_exp)));
             }
             // Check if denominator is a power and numerator is the same base
-            if let AstKind::Pow(base_v, exp_v) = &v.kind
+            if let ExprKind::Pow(base_v, exp_v) = &v.kind
                 && base_v == u
             {
                 let neg_exp = Expr::product_from_arcs(vec![arc_number(-1.0), Arc::clone(exp_v)]);
@@ -221,15 +222,15 @@ rule_arc!(
     "power_collection",
     60,
     Algebraic,
-    &[ExprKind::Product],
+    &[RuleExprKind::Product],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Product(factors) = &expr.kind {
+        if let ExprKind::Product(factors) = &expr.kind {
             // Group by base
             use rustc_hash::FxHashMap;
             let mut base_to_exponents: FxHashMap<Arc<Expr>, Vec<Arc<Expr>>> = FxHashMap::default();
 
             for factor in factors {
-                if let AstKind::Pow(base, exp) = &factor.kind {
+                if let ExprKind::Pow(base, exp) = &factor.kind {
                     base_to_exponents
                         .entry(Arc::clone(base))
                         .or_default()
@@ -255,7 +256,7 @@ rule_arc!(
                 if exponents.len() == 1 {
                     // Exact check for exponent == 1.0
                     #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
-                    let is_one_exp = matches!(exponents[0].kind, AstKind::Number(n) if n == 1.0);
+                    let is_one_exp = matches!(exponents[0].kind, ExprKind::Number(n) if n == 1.0);
                     if is_one_exp {
                         result_factors.push(base);
                     } else {
@@ -293,10 +294,10 @@ rule!(
     "common_exponent_div",
     55,
     Algebraic,
-    &[ExprKind::Div],
+    &[RuleExprKind::Div],
     |expr: &Expr, context: &RuleContext| {
-        if let AstKind::Div(num, den) = &expr.kind
-            && let (AstKind::Pow(base_num, exp_num), AstKind::Pow(base_den, exp_den)) =
+        if let ExprKind::Div(num, den) = &expr.kind
+            && let (ExprKind::Pow(base_num, exp_num), ExprKind::Pow(base_den, exp_den)) =
                 (&num.kind, &den.kind)
             && exp_num == exp_den
         {
@@ -320,9 +321,9 @@ rule_arc!(
     "common_exponent_product",
     55,
     Algebraic,
-    &[ExprKind::Product],
+    &[RuleExprKind::Product],
     |expr: &Expr, context: &RuleContext| {
-        if let AstKind::Product(factors) = &expr.kind {
+        if let ExprKind::Product(factors) = &expr.kind {
             // Look for pairs with same exponent
             for (i, f1) in factors.iter().enumerate() {
                 for (j, f2) in factors.iter().enumerate() {
@@ -330,14 +331,14 @@ rule_arc!(
                         continue;
                     }
 
-                    if let (AstKind::Pow(base_1, exp_1), AstKind::Pow(base_2, exp_2)) =
+                    if let (ExprKind::Pow(base_1, exp_1), ExprKind::Pow(base_2, exp_2)) =
                         (&f1.kind, &f2.kind)
                         && exp_1 == exp_2
                     {
                         // Skip if either base^exp would result in an integer - we prefer expanded numeric coefficients
                         // (e.g., 9*y^2 not (3y)^2, but allow sqrt(2)*sqrt(pi) → sqrt(2pi))
                         let would_simplify_to_int = |base: &Expr, exp: &Expr| -> bool {
-                            if let (AstKind::Number(base_val), AstKind::Number(exp_val)) =
+                            if let (ExprKind::Number(base_val), ExprKind::Number(exp_val)) =
                                 (&base.kind, &exp.kind)
                             {
                                 let result = base_val.powf(*exp_val);
@@ -397,11 +398,11 @@ rule!(
     "negative_exponent_to_fraction",
     90,
     Algebraic,
-    &[ExprKind::Pow],
+    &[RuleExprKind::Pow],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Pow(base, exp) = &expr.kind {
+        if let ExprKind::Pow(base, exp) = &expr.kind {
             // Handle negative number exponent: x^-n -> 1/x^n
-            if let AstKind::Number(n) = exp.kind
+            if let ExprKind::Number(n) = exp.kind
                 && n < 0.0
             {
                 let positive_exp = Arc::new(Expr::number(-n));
@@ -409,8 +410,8 @@ rule!(
                 return Some(Expr::div_expr(Expr::number(1.0), denominator));
             }
             // Handle negative fraction exponent: x^(-a/b) -> 1/x^(a/b)
-            if let AstKind::Div(num, den) = &exp.kind
-                && let AstKind::Number(n) = num.kind
+            if let ExprKind::Div(num, den) = &exp.kind
+                && let ExprKind::Number(n) = num.kind
                 && n < 0.0
             {
                 let positive_num = Expr::number(-n);
@@ -420,9 +421,9 @@ rule!(
             }
             // Handle Product with leading -1: x^(-1 * a * b * ...) -> 1/x^(a*b*...)
             // This handles products with any number of factors, not just 2
-            if let AstKind::Product(factors) = &exp.kind
+            if let ExprKind::Product(factors) = &exp.kind
                 && !factors.is_empty()
-                && let AstKind::Number(n) = &factors[0].kind
+                && let ExprKind::Number(n) = &factors[0].kind
             {
                 // Exact check for -1.0 coefficient
                 #[allow(clippy::float_cmp, reason = "Comparing against exact constant -1.0")]
@@ -449,33 +450,33 @@ rule!(
     "power_of_quotient",
     88,
     Algebraic,
-    &[ExprKind::Pow],
+    &[RuleExprKind::Pow],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Pow(base, exp) = &expr.kind
-            && let AstKind::Div(num, den) = &base.kind
+        if let ExprKind::Pow(base, exp) = &expr.kind
+            && let ExprKind::Div(num, den) = &base.kind
         {
             let is_root_exponent = match &exp.kind {
-                AstKind::Div(n, d) => {
+                ExprKind::Div(n, d) => {
                     // Exact check for 1/n root exponent
                     #[allow(
                         clippy::float_cmp,
                         reason = "Comparing against exact constants for root exponent"
                     )]
                     // Comparing against exact constants for root exponent
-                    let res = matches!((&n.kind, &d.kind), (AstKind::Number(num_val), AstKind::Number(den_val))
+                    let res = matches!((&n.kind, &d.kind), (ExprKind::Number(num_val), ExprKind::Number(den_val))
                         if *num_val == 1.0 && *den_val >= 2.0);
                     res
                 }
-                AstKind::Number(n) => *n > 0.0 && *n < 1.0,
+                ExprKind::Number(n) => *n > 0.0 && *n < 1.0,
                 _ => false,
             };
 
             let den_would_simplify = match &den.kind {
-                AstKind::Pow(_, inner_exp) => {
-                    if let (AstKind::Number(m), AstKind::Div(one, n_rc)) =
+                ExprKind::Pow(_, inner_exp) => {
+                    if let (ExprKind::Number(m), ExprKind::Div(one, n_rc)) =
                         (&inner_exp.kind, &exp.kind)
                     {
-                        if let (AstKind::Number(one_val), AstKind::Number(n_val)) =
+                        if let (ExprKind::Number(one_val), ExprKind::Number(n_val)) =
                             (&one.kind, &n_rc.kind)
                         {
                             // Exact check for 1/n exponent form
@@ -489,7 +490,7 @@ rule!(
                         } else {
                             false
                         }
-                    } else if let (AstKind::Number(m), AstKind::Number(exp_val)) =
+                    } else if let (ExprKind::Number(m), ExprKind::Number(exp_val)) =
                         (&inner_exp.kind, &exp.kind)
                     {
                         (m * exp_val).fract().abs() < EPSILON
@@ -497,7 +498,7 @@ rule!(
                         false
                     }
                 }
-                AstKind::Symbol(_) | AstKind::Number(_) => is_root_exponent,
+                ExprKind::Symbol(_) | ExprKind::Number(_) => is_root_exponent,
                 _ => false,
             };
 

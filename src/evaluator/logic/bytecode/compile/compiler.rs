@@ -6,7 +6,7 @@
 use super::emit::RegAllocator;
 use super::instruction::Instruction;
 use super::vir::{VInstruction, VReg};
-use crate::Expr;
+use crate::core::Expr;
 use crate::core::error::DiffError;
 use rustc_hash::FxHashMap;
 use std::collections::hash_map::Entry;

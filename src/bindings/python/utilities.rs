@@ -2,7 +2,7 @@
 //!
 //! This module provides utility functions for symbol management and introspection.
 
-use crate::{clear_symbols, symbol_count, symbol_exists, symbol_names};
+use crate::core::{clear_symbols, symbol_count, symbol_exists, symbol_names};
 use pyo3::prelude::*;
 
 /// Clear all registered symbols

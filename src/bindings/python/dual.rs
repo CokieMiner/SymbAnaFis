@@ -9,7 +9,7 @@
     reason = "PyO3 from_py_object macro generates lifetimes"
 )]
 
-use crate::Dual;
+use crate::math::Dual;
 use num_traits::Float;
 use pyo3::prelude::*;
 

@@ -4,8 +4,8 @@
 
 use super::expr::PyExpr;
 use super::symbol::PySymbol;
-use crate::Expr as RustExpr;
 use crate::core::Context as RustContext;
+use crate::core::Expr as RustExpr;
 use crate::core::{BodyFn, UserFunction};
 use pyo3::prelude::*;
 use std::collections::HashSet;

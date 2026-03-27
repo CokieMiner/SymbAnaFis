@@ -1,6 +1,7 @@
 use super::logic::compute_uncertainty_terms;
 use crate::core::known_symbols::{KS, get_symbol};
-use crate::{Context, Diff, DiffError, Expr};
+use crate::core::{Context, DiffError, Expr};
+use crate::diff::Diff;
 
 #[cfg(feature = "parallel")]
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};

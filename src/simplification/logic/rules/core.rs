@@ -1,6 +1,6 @@
-use crate::Expr;
 use crate::core::BodyFn;
-use crate::core::ExprKind as AstKind;
+use crate::core::Expr;
+use crate::core::ExprKind;
 use rustc_hash::FxHashMap;
 use std::fmt::{Debug, Formatter, Result as FmtResult};
 use std::sync::Arc;
@@ -8,10 +8,10 @@ use std::sync::Arc;
 /// Macro to define a simplification rule with minimal boilerplate
 ///
 /// Supports 4 forms:
-/// - Basic: `rule!(Name, "name", priority, Category, &[ExprKind::...], |expr, ctx| { ... })`
-/// - With targets: `rule!(Name, "name", priority, Category, &[ExprKind::...], targets: &["fn"], |expr, ctx| { ... })`
-/// - With `alters_domain`: `rule!(Name, "name", priority, Category, &[ExprKind::...], alters_domain: true, |expr, ctx| { ... })`
-/// - Both: `rule!(Name, "name", priority, Category, &[ExprKind::...], alters_domain: true, targets: &["fn"], |expr, ctx| { ... })`
+/// - Basic: `rule!(Name, "name", priority, Category, &[RuleExprKind::...], |expr, ctx| { ... })`
+/// - With targets: `rule!(Name, "name", priority, Category, &[RuleExprKind::...], targets: &["fn"], |expr, ctx| { ... })`
+/// - With `alters_domain`: `rule!(Name, "name", priority, Category, &[RuleExprKind::...], alters_domain: true, |expr, ctx| { ... })`
+/// - Both: `rule!(Name, "name", priority, Category, &[RuleExprKind::...], alters_domain: true, targets: &["fn"], |expr, ctx| { ... })`
 macro_rules! rule {
     // Basic form
     ($name:ident, $rule_name:expr, $priority:expr, $category:ident, $applies_to:expr, $logic:expr) => {
@@ -26,7 +26,7 @@ macro_rules! rule {
             fn category(&self) -> RuleCategory {
                 RuleCategory::$category
             }
-            fn applies_to(&self) -> &'static [ExprKind] {
+            fn applies_to(&self) -> &'static [RuleExprKind] {
                 $applies_to
             }
             fn apply(&self, expr: &Arc<Expr>, context: &RuleContext) -> Option<Arc<Expr>> {
@@ -48,7 +48,7 @@ macro_rules! rule {
             fn category(&self) -> RuleCategory {
                 RuleCategory::$category
             }
-            fn applies_to(&self) -> &'static [ExprKind] {
+            fn applies_to(&self) -> &'static [RuleExprKind] {
                 $applies_to
             }
             fn target_functions(&self) -> Vec<u64> {
@@ -76,7 +76,7 @@ macro_rules! rule {
             fn alters_domain(&self) -> bool {
                 $alters
             }
-            fn applies_to(&self) -> &'static [ExprKind] {
+            fn applies_to(&self) -> &'static [RuleExprKind] {
                 $applies_to
             }
             fn apply(&self, expr: &Arc<Expr>, context: &RuleContext) -> Option<Arc<Expr>> {
@@ -101,7 +101,7 @@ macro_rules! rule {
             fn alters_domain(&self) -> bool {
                 $alters
             }
-            fn applies_to(&self) -> &'static [ExprKind] {
+            fn applies_to(&self) -> &'static [RuleExprKind] {
                 $applies_to
             }
             fn target_functions(&self) -> Vec<u64> {
@@ -131,7 +131,7 @@ macro_rules! rule_arc {
             fn category(&self) -> RuleCategory {
                 RuleCategory::$category
             }
-            fn applies_to(&self) -> &'static [ExprKind] {
+            fn applies_to(&self) -> &'static [RuleExprKind] {
                 $applies_to
             }
             fn apply(&self, expr: &Arc<Expr>, context: &RuleContext) -> Option<Arc<Expr>> {
@@ -153,7 +153,7 @@ macro_rules! rule_arc {
             fn category(&self) -> RuleCategory {
                 RuleCategory::$category
             }
-            fn applies_to(&self) -> &'static [ExprKind] {
+            fn applies_to(&self) -> &'static [RuleExprKind] {
                 $applies_to
             }
             fn target_functions(&self) -> Vec<u64> {
@@ -181,7 +181,7 @@ macro_rules! rule_arc {
             fn alters_domain(&self) -> bool {
                 $alters
             }
-            fn applies_to(&self) -> &'static [ExprKind] {
+            fn applies_to(&self) -> &'static [RuleExprKind] {
                 $applies_to
             }
             fn apply(&self, expr: &Arc<Expr>, context: &RuleContext) -> Option<Arc<Expr>> {
@@ -206,7 +206,7 @@ macro_rules! rule_arc {
             fn alters_domain(&self) -> bool {
                 $alters
             }
-            fn applies_to(&self) -> &'static [ExprKind] {
+            fn applies_to(&self) -> &'static [RuleExprKind] {
                 $applies_to
             }
             fn target_functions(&self) -> Vec<u64> {
@@ -230,7 +230,7 @@ macro_rules! rule_with_helpers_arc {
             fn name(&self) -> &'static str { $rule_name }
             fn priority(&self) -> i32 { $priority }
             fn category(&self) -> RuleCategory { RuleCategory::$category }
-            fn applies_to(&self) -> &'static [ExprKind] { $applies_to }
+            fn applies_to(&self) -> &'static [RuleExprKind] { $applies_to }
             fn apply(&self, expr: &Arc<Expr>, context: &RuleContext) -> Option<Arc<Expr>> {
                 $($helper)*
                 let _ = context;
@@ -246,7 +246,7 @@ macro_rules! rule_with_helpers_arc {
             fn priority(&self) -> i32 { $priority }
             fn category(&self) -> RuleCategory { RuleCategory::$category }
             fn alters_domain(&self) -> bool { $alters }
-            fn applies_to(&self) -> &'static [ExprKind] { $applies_to }
+            fn applies_to(&self) -> &'static [RuleExprKind] { $applies_to }
             fn apply(&self, expr: &Arc<Expr>, context: &RuleContext) -> Option<Arc<Expr>> {
                 $($helper)*
                 let _ = context;
@@ -265,7 +265,7 @@ macro_rules! rule_with_helpers {
             fn name(&self) -> &'static str { $rule_name }
             fn priority(&self) -> i32 { $priority }
             fn category(&self) -> RuleCategory { RuleCategory::$category }
-            fn applies_to(&self) -> &'static [ExprKind] { $applies_to }
+            fn applies_to(&self) -> &'static [RuleExprKind] { $applies_to }
             fn apply(&self, expr: &Arc<Expr>, context: &RuleContext) -> Option<Arc<Expr>> {
                 let _ = context;
                 $($helper)*
@@ -281,7 +281,7 @@ macro_rules! rule_with_helpers {
             fn priority(&self) -> i32 { $priority }
             fn category(&self) -> RuleCategory { RuleCategory::$category }
             fn alters_domain(&self) -> bool { $alters }
-            fn applies_to(&self) -> &'static [ExprKind] { $applies_to }
+            fn applies_to(&self) -> &'static [RuleExprKind] { $applies_to }
             fn apply(&self, expr: &Arc<Expr>, context: &RuleContext) -> Option<Arc<Expr>> {
                 let _ = context;
                 $($helper)*
@@ -294,7 +294,7 @@ macro_rules! rule_with_helpers {
 /// Expression kind for fast rule filtering
 /// Rules declare which expression kinds they can apply to
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub enum ExprKind {
+pub enum RuleExprKind {
     /// Numeric literal
     Number,
     /// Symbolic variable
@@ -315,20 +315,20 @@ pub enum ExprKind {
     Poly,
 }
 
-impl ExprKind {
+impl RuleExprKind {
     /// Get the kind of an expression (cheap O(1) operation)
     #[inline]
     pub const fn of(expr: &Expr) -> Self {
         match &expr.kind {
-            AstKind::Number(_) => Self::Number,
-            AstKind::Symbol(_) => Self::Symbol,
-            AstKind::Sum(_) => Self::Sum,
-            AstKind::Product(_) => Self::Product,
-            AstKind::Div(_, _) => Self::Div,
-            AstKind::Pow(_, _) => Self::Pow,
-            AstKind::FunctionCall { .. } => Self::Function,
-            AstKind::Derivative { .. } => Self::Derivative,
-            AstKind::Poly(_) => Self::Poly, // Poly has its own rules, don't trigger Sum rules
+            ExprKind::Number(_) => Self::Number,
+            ExprKind::Symbol(_) => Self::Symbol,
+            ExprKind::Sum(_) => Self::Sum,
+            ExprKind::Product(_) => Self::Product,
+            ExprKind::Div(_, _) => Self::Div,
+            ExprKind::Pow(_, _) => Self::Pow,
+            ExprKind::FunctionCall { .. } => Self::Function,
+            ExprKind::Derivative { .. } => Self::Derivative,
+            ExprKind::Poly(_) => Self::Poly, // Poly has its own rules, don't trigger Sum rules
         }
     }
 }
@@ -354,7 +354,7 @@ pub trait Rule {
     /// Which expression kinds this rule can apply to.
     /// Rules will ONLY be checked against expressions matching these kinds.
     /// Default: all kinds (for backwards compatibility during migration)
-    fn applies_to(&self) -> &'static [ExprKind] {
+    fn applies_to(&self) -> &'static [RuleExprKind] {
         ALL_EXPR_KINDS
     }
 
@@ -401,16 +401,16 @@ pub enum RuleCategory {
 }
 
 /// All expression kinds - used as default for rules
-pub const ALL_EXPR_KINDS: &[ExprKind] = &[
-    ExprKind::Number,
-    ExprKind::Symbol,
-    ExprKind::Sum,
-    ExprKind::Product,
-    ExprKind::Div,
-    ExprKind::Pow,
-    ExprKind::Function,
-    ExprKind::Derivative,
-    ExprKind::Poly,
+pub const ALL_EXPR_KINDS: &[RuleExprKind] = &[
+    RuleExprKind::Number,
+    RuleExprKind::Symbol,
+    RuleExprKind::Sum,
+    RuleExprKind::Product,
+    RuleExprKind::Div,
+    RuleExprKind::Pow,
+    RuleExprKind::Function,
+    RuleExprKind::Derivative,
+    RuleExprKind::Poly,
 ];
 
 /// Context passed to rules during application

@@ -1,7 +1,8 @@
 use crate::core::{BodyFn, Context, UserFunction};
+use crate::core::{DiffError, Expr};
 use crate::evaluator::ToParamName;
 use crate::parser::parse;
-use crate::{DEFAULT_MAX_DEPTH, DEFAULT_MAX_NODES, DiffError, Expr};
+use crate::{DEFAULT_MAX_DEPTH, DEFAULT_MAX_NODES};
 use rustc_hash::FxHashMap;
 use std::collections::{HashMap, HashSet};
 use std::string::ToString;

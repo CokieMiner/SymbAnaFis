@@ -1,7 +1,7 @@
-use super::{ExprKind, Rule, RuleCategory, RuleContext};
+use super::{Rule, RuleCategory, RuleContext, RuleExprKind};
 use crate::EPSILON;
 use crate::core::known_symbols::{KS, get_symbol};
-use crate::core::{Expr, ExprKind as AstKind};
+use crate::core::{Expr, ExprKind};
 use std::sync::Arc;
 
 rule!(
@@ -9,14 +9,14 @@ rule!(
     "sinh_cosh_to_tanh",
     85,
     Hyperbolic,
-    &[ExprKind::Div],
+    &[RuleExprKind::Div],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Div(num, den) = &expr.kind
-            && let AstKind::FunctionCall {
+        if let ExprKind::Div(num, den) = &expr.kind
+            && let ExprKind::FunctionCall {
                 name: num_name,
                 args: num_args,
             } = &num.kind
-            && let AstKind::FunctionCall {
+            && let ExprKind::FunctionCall {
                 name: den_name,
                 args: den_args,
             } = &den.kind
@@ -40,14 +40,14 @@ rule!(
     "cosh_sinh_to_coth",
     85,
     Hyperbolic,
-    &[ExprKind::Div],
+    &[RuleExprKind::Div],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Div(num, den) = &expr.kind
-            && let AstKind::FunctionCall {
+        if let ExprKind::Div(num, den) = &expr.kind
+            && let ExprKind::FunctionCall {
                 name: num_name,
                 args: num_args,
             } = &num.kind
-            && let AstKind::FunctionCall {
+            && let ExprKind::FunctionCall {
                 name: den_name,
                 args: den_args,
             } = &den.kind
@@ -71,16 +71,16 @@ rule!(
     "one_cosh_to_sech",
     85,
     Hyperbolic,
-    &[ExprKind::Div],
+    &[RuleExprKind::Div],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Div(num, den) = &expr.kind
-            && let AstKind::Number(n) = &num.kind
+        if let ExprKind::Div(num, den) = &expr.kind
+            && let ExprKind::Number(n) = &num.kind
             && (n - 1.0).abs() < EPSILON
-            && let AstKind::FunctionCall { name, args } = &den.kind
+            && let ExprKind::FunctionCall { name, args } = &den.kind
             && name.id() == KS.cosh
             && args.len() == 1
         {
-            return Some(Expr::new(AstKind::FunctionCall {
+            return Some(Expr::new(ExprKind::FunctionCall {
                 name: get_symbol(KS.sech),
                 args: args.clone(),
             }));
@@ -94,16 +94,16 @@ rule!(
     "one_sinh_to_csch",
     85,
     Hyperbolic,
-    &[ExprKind::Div],
+    &[RuleExprKind::Div],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Div(num, den) = &expr.kind
-            && let AstKind::Number(n) = &num.kind
+        if let ExprKind::Div(num, den) = &expr.kind
+            && let ExprKind::Number(n) = &num.kind
             && (n - 1.0).abs() < EPSILON
-            && let AstKind::FunctionCall { name, args } = &den.kind
+            && let ExprKind::FunctionCall { name, args } = &den.kind
             && name.id() == KS.sinh
             && args.len() == 1
         {
-            return Some(Expr::new(AstKind::FunctionCall {
+            return Some(Expr::new(ExprKind::FunctionCall {
                 name: get_symbol(KS.csch),
                 args: args.clone(),
             }));
@@ -117,16 +117,16 @@ rule!(
     "one_tanh_to_coth",
     85,
     Hyperbolic,
-    &[ExprKind::Div],
+    &[RuleExprKind::Div],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Div(num, den) = &expr.kind
-            && let AstKind::Number(n) = &num.kind
+        if let ExprKind::Div(num, den) = &expr.kind
+            && let ExprKind::Number(n) = &num.kind
             && (n - 1.0).abs() < EPSILON
-            && let AstKind::FunctionCall { name, args } = &den.kind
+            && let ExprKind::FunctionCall { name, args } = &den.kind
             && name.id() == KS.tanh
             && args.len() == 1
         {
-            return Some(Expr::new(AstKind::FunctionCall {
+            return Some(Expr::new(ExprKind::FunctionCall {
                 name: get_symbol(KS.coth),
                 args: args.clone(),
             }));

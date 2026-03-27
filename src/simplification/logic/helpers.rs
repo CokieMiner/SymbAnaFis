@@ -6,7 +6,7 @@
 use crate::EPSILON;
 use crate::core::arc_number;
 use crate::core::known_symbols::{KS, get_symbol};
-use crate::{Expr, core::ExprKind};
+use crate::core::{Expr, ExprKind};
 use std::cmp::Ordering;
 use std::f64::consts::PI;
 use std::sync::Arc;

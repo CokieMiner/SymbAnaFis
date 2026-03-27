@@ -1,8 +1,7 @@
-use super::rule_helpers::{approx_eq, get_numeric_value, is_pi};
-use super::{ExprKind, Rule, RuleCategory, RuleContext};
+use super::{Rule, RuleCategory, RuleContext, RuleExprKind, approx_eq, get_numeric_value, is_pi};
 use crate::EPSILON;
 use crate::core::known_symbols::{KS, get_symbol};
-use crate::core::{Expr, ExprKind as AstKind};
+use crate::core::{Expr, ExprKind};
 use std::f64::consts::PI;
 use std::sync::Arc;
 
@@ -11,16 +10,16 @@ rule_arc!(
     "sin_zero",
     95,
     Trigonometric,
-    &[ExprKind::Function],
+    &[RuleExprKind::Function],
     targets: &[KS.sin],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::FunctionCall { name, args } = &expr.kind
+        if let ExprKind::FunctionCall { name, args } = &expr.kind
             && name.id() == KS.sin
             && args.len() == 1
             && {
                 // Exact check for sin(0.0)
                 #[allow(clippy::float_cmp, reason = "Comparing against exact constant 0.0")]
-                let is_zero = matches!(&args[0].kind, AstKind::Number(n) if *n == 0.0);
+                let is_zero = matches!(&args[0].kind, ExprKind::Number(n) if *n == 0.0);
                 is_zero
             }
         {
@@ -35,13 +34,13 @@ rule_arc!(
     "cos_zero",
     95,
     Trigonometric,
-    &[ExprKind::Function],
+    &[RuleExprKind::Function],
     targets: &[KS.cos],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::FunctionCall { name, args } = &expr.kind
+        if let ExprKind::FunctionCall { name, args } = &expr.kind
             && name.id() == KS.cos
             && args.len() == 1
-            && matches!(&args[0].kind, AstKind::Number(n) if *n == 0.0)
+            && matches!(&args[0].kind, ExprKind::Number(n) if *n == 0.0)
         {
             return Some(Arc::new(Expr::number(1.0)));
         }
@@ -54,13 +53,13 @@ rule_arc!(
     "tan_zero",
     95,
     Trigonometric,
-    &[ExprKind::Function],
+    &[RuleExprKind::Function],
     targets: &[KS.tan],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::FunctionCall { name, args } = &expr.kind
+        if let ExprKind::FunctionCall { name, args } = &expr.kind
             && name.id() == KS.tan
             && args.len() == 1
-            && matches!(&args[0].kind, AstKind::Number(n) if *n == 0.0)
+            && matches!(&args[0].kind, ExprKind::Number(n) if *n == 0.0)
         {
             return Some(Arc::new(Expr::number(0.0)));
         }
@@ -73,10 +72,10 @@ rule_arc!(
     "sin_pi",
     95,
     Trigonometric,
-    &[ExprKind::Function],
+    &[RuleExprKind::Function],
     targets: &[KS.sin],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::FunctionCall { name, args } = &expr.kind
+        if let ExprKind::FunctionCall { name, args } = &expr.kind
             && name.id() == KS.sin
             && args.len() == 1
             && is_pi(&args[0])
@@ -92,10 +91,10 @@ rule_arc!(
     "cos_pi",
     95,
     Trigonometric,
-    &[ExprKind::Function],
+    &[RuleExprKind::Function],
     targets: &[KS.cos],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::FunctionCall { name, args } = &expr.kind
+        if let ExprKind::FunctionCall { name, args } = &expr.kind
             && name.id() == KS.cos
             && args.len() == 1
             && is_pi(&args[0])
@@ -111,18 +110,18 @@ rule_arc!(
     "sin_pi_over_two",
     95,
     Trigonometric,
-    &[ExprKind::Function],
+    &[RuleExprKind::Function],
     targets: &[KS.sin],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::FunctionCall { name, args } = &expr.kind
+        if let ExprKind::FunctionCall { name, args } = &expr.kind
             && name.id() == KS.sin
             && args.len() == 1
-            && let AstKind::Div(num, den) = &args[0].kind
+            && let ExprKind::Div(num, den) = &args[0].kind
             && is_pi(num)
         {
             // Exact check for pi/2 denominator
             #[allow(clippy::float_cmp, reason = "Comparing against exact constant 2.0")]
-            let is_two = matches!(&den.kind, AstKind::Number(n) if *n == 2.0);
+            let is_two = matches!(&den.kind, ExprKind::Number(n) if *n == 2.0);
             if is_two {
                 return Some(Arc::new(Expr::number(1.0)));
             }
@@ -136,18 +135,18 @@ rule_arc!(
     "cos_pi_over_two",
     95,
     Trigonometric,
-    &[ExprKind::Function],
+    &[RuleExprKind::Function],
     targets: &[KS.cos],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::FunctionCall { name, args } = &expr.kind
+        if let ExprKind::FunctionCall { name, args } = &expr.kind
             && name.id() == KS.cos
             && args.len() == 1
-            && let AstKind::Div(num, den) = &args[0].kind
+            && let ExprKind::Div(num, den) = &args[0].kind
             && is_pi(num)
         {
             // Exact check for pi/2 denominator
             #[allow(clippy::float_cmp, reason = "Comparing against exact constant 2.0")]
-            let is_two = matches!(&den.kind, AstKind::Number(n) if *n == 2.0);
+            let is_two = matches!(&den.kind, ExprKind::Number(n) if *n == 2.0);
             if is_two {
                 return Some(Arc::new(Expr::number(0.0)));
             }
@@ -161,22 +160,22 @@ rule_arc!(
     "trig_exact_values",
     95,
     Trigonometric,
-    &[ExprKind::Function],
+    &[RuleExprKind::Function],
     targets: &[KS.sin, KS.cos, KS.tan],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::FunctionCall { name, args } = &expr.kind
+        if let ExprKind::FunctionCall { name, args } = &expr.kind
             && args.len() == 1
         {
             let arg = &args[0];
             let arg_val = get_numeric_value(arg).unwrap_or(f64::NAN);
-            let is_numeric_input = matches!(arg.kind, AstKind::Number(_));
+            let is_numeric_input = matches!(arg.kind, ExprKind::Number(_));
 
             match name {
                 n if n.id() == KS.sin => {
                     let matches_pi_six = {
                         // Exact check for denominator 6.0 (PI/6)
                         #[allow(clippy::float_cmp, reason = "Comparing against exact constant 6.0")]
-                        let is_six = matches!(&arg.kind, AstKind::Div(num, den) if is_pi(num) && matches!(&den.kind, AstKind::Number(val) if *val == 6.0));
+                        let is_six = matches!(&arg.kind, ExprKind::Div(num, den) if is_pi(num) && matches!(&den.kind, ExprKind::Number(val) if *val == 6.0));
                         is_six
                     };
                     if approx_eq(arg_val, PI / 6.0) || matches_pi_six
@@ -190,7 +189,7 @@ rule_arc!(
                     let matches_pi_four = {
                         // Exact check for denominator 4.0 (PI/4)
                         #[allow(clippy::float_cmp, reason = "Comparing against exact constant 4.0")]
-                        let is_four = matches!(&arg.kind, AstKind::Div(num, den) if is_pi(num) && matches!(&den.kind, AstKind::Number(val) if *val == 4.0));
+                        let is_four = matches!(&arg.kind, ExprKind::Div(num, den) if is_pi(num) && matches!(&den.kind, ExprKind::Number(val) if *val == 4.0));
                         is_four
                     };
                     if approx_eq(arg_val, PI / 4.0) || matches_pi_four
@@ -209,7 +208,7 @@ rule_arc!(
                     let matches_pi_three = {
                         // Exact check for denominator 3.0 (PI/3)
                         #[allow(clippy::float_cmp, reason = "Comparing against exact constant 3.0")]
-                        let is_three = matches!(&arg.kind, AstKind::Div(num, den) if is_pi(num) && matches!(&den.kind, AstKind::Number(val) if *val == 3.0));
+                        let is_three = matches!(&arg.kind, ExprKind::Div(num, den) if is_pi(num) && matches!(&den.kind, ExprKind::Number(val) if *val == 3.0));
                         is_three
                     };
                     if approx_eq(arg_val, PI / 3.0) || matches_pi_three
@@ -223,7 +222,7 @@ rule_arc!(
                     let matches_pi_four = {
                         // Exact check for denominator 4.0 (PI/4)
                         #[allow(clippy::float_cmp, reason = "Comparing against exact constant 4.0")]
-                        let is_four = matches!(&arg.kind, AstKind::Div(num, den) if is_pi(num) && matches!(&den.kind, AstKind::Number(val) if *val == 4.0));
+                        let is_four = matches!(&arg.kind, ExprKind::Div(num, den) if is_pi(num) && matches!(&den.kind, ExprKind::Number(val) if *val == 4.0));
                         is_four
                     };
                     if approx_eq(arg_val, PI / 4.0) || matches_pi_four
@@ -242,7 +241,7 @@ rule_arc!(
                     let matches_pi_four = {
                         // Exact check for denominator 4.0 (PI/4)
                         #[allow(clippy::float_cmp, reason = "Comparing against exact constant 4.0")]
-                        let is_four = matches!(&arg.kind, AstKind::Div(num, den) if is_pi(num) && matches!(&den.kind, AstKind::Number(val) if *val == 4.0));
+                        let is_four = matches!(&arg.kind, ExprKind::Div(num, den) if is_pi(num) && matches!(&den.kind, ExprKind::Number(val) if *val == 4.0));
                         is_four
                     };
                     if approx_eq(arg_val, PI / 4.0) || matches_pi_four
@@ -252,7 +251,7 @@ rule_arc!(
                     let matches_pi_three = {
                         // Exact check for denominator 3.0 (PI/3)
                         #[allow(clippy::float_cmp, reason = "Comparing against exact constant 3.0")]
-                        let is_three = matches!(&arg.kind, AstKind::Div(num, den) if is_pi(num) && matches!(&den.kind, AstKind::Number(val) if *val == 3.0));
+                        let is_three = matches!(&arg.kind, ExprKind::Div(num, den) if is_pi(num) && matches!(&den.kind, ExprKind::Number(val) if *val == 3.0));
                         is_three
                     };
                     if approx_eq(arg_val, PI / 3.0) || matches_pi_three
@@ -266,7 +265,7 @@ rule_arc!(
                     let matches_pi_six = {
                         // Exact check for denominator 6.0 (PI/6)
                         #[allow(clippy::float_cmp, reason = "Comparing against exact constant 6.0")]
-                        let is_six = matches!(&arg.kind, AstKind::Div(num, den) if is_pi(num) && matches!(&den.kind, AstKind::Number(val) if *val == 6.0));
+                        let is_six = matches!(&arg.kind, ExprKind::Div(num, den) if is_pi(num) && matches!(&den.kind, ExprKind::Number(val) if *val == 6.0));
                         is_six
                     };
                     if approx_eq(arg_val, PI / 6.0) || matches_pi_six
@@ -294,14 +293,14 @@ rule_arc!(
     "one_cos_to_sec",
     85,
     Trigonometric,
-    &[ExprKind::Div],
+    &[RuleExprKind::Div],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Div(num, den) = &expr.kind
-            && let AstKind::Number(n) = &num.kind
+        if let ExprKind::Div(num, den) = &expr.kind
+            && let ExprKind::Number(n) = &num.kind
             && (n - 1.0).abs() < EPSILON
         {
             // 1/cos(x) → sec(x)
-            if let AstKind::FunctionCall { name, args } = &den.kind
+            if let ExprKind::FunctionCall { name, args } = &den.kind
                 && name.id() == KS.cos
                 && args.len() == 1
             {
@@ -312,8 +311,8 @@ rule_arc!(
                 )));
             }
             // 1/cos(x)^n → sec(x)^n
-            if let AstKind::Pow(base, exp) = &den.kind
-                && let AstKind::FunctionCall { name, args } = &base.kind
+            if let ExprKind::Pow(base, exp) = &den.kind
+                && let ExprKind::FunctionCall { name, args } = &base.kind
                 && name.id() == KS.cos
                 && args.len() == 1
             {
@@ -336,14 +335,14 @@ rule_arc!(
     "one_sin_to_csc",
     85,
     Trigonometric,
-    &[ExprKind::Div],
+    &[RuleExprKind::Div],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Div(num, den) = &expr.kind
-            && let AstKind::Number(n) = &num.kind
+        if let ExprKind::Div(num, den) = &expr.kind
+            && let ExprKind::Number(n) = &num.kind
             && (n - 1.0).abs() < EPSILON
         {
             // 1/sin(x) → csc(x)
-            if let AstKind::FunctionCall { name, args } = &den.kind
+            if let ExprKind::FunctionCall { name, args } = &den.kind
                 && name.id() == KS.sin
                 && args.len() == 1
             {
@@ -353,8 +352,8 @@ rule_arc!(
                 )));
             }
             // 1/sin(x)^n → csc(x)^n
-            if let AstKind::Pow(base, exp) = &den.kind
-                && let AstKind::FunctionCall { name, args } = &base.kind
+            if let ExprKind::Pow(base, exp) = &den.kind
+                && let ExprKind::FunctionCall { name, args } = &base.kind
                 && name.id() == KS.sin
                 && args.len() == 1
             {
@@ -377,14 +376,14 @@ rule_arc!(
     "sin_cos_to_tan",
     85,
     Trigonometric,
-    &[ExprKind::Div],
+    &[RuleExprKind::Div],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Div(num, den) = &expr.kind
-            && let AstKind::FunctionCall {
+        if let ExprKind::Div(num, den) = &expr.kind
+            && let ExprKind::FunctionCall {
                 name: num_name,
                 args: num_args,
             } = &num.kind
-            && let AstKind::FunctionCall {
+            && let ExprKind::FunctionCall {
                 name: den_name,
                 args: den_args,
             } = &den.kind
@@ -408,14 +407,14 @@ rule_arc!(
     "cos_sin_to_cot",
     85,
     Trigonometric,
-    &[ExprKind::Div],
+    &[RuleExprKind::Div],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Div(num, den) = &expr.kind
-            && let AstKind::FunctionCall {
+        if let ExprKind::Div(num, den) = &expr.kind
+            && let ExprKind::FunctionCall {
                 name: num_name,
                 args: num_args,
             } = &num.kind
-            && let AstKind::FunctionCall {
+            && let ExprKind::FunctionCall {
                 name: den_name,
                 args: den_args,
             } = &den.kind

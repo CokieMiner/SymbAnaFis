@@ -20,7 +20,7 @@
 //! }
 //! ```
 
-use crate::Expr;
+use crate::core::Expr;
 use std::borrow::Cow;
 use std::sync::Arc;
 // =============================================================================

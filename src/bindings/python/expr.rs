@@ -12,9 +12,11 @@
 use super::symbol::PySymbol;
 use super::view::PyExprView;
 use crate::EPSILON;
-use crate::Expr as RustExpr;
+use crate::core::Expr as RustExpr;
 use crate::core::ExprKind;
-use crate::{Diff, Simplify, symb};
+use crate::core::symb;
+use crate::diff::Diff;
+use crate::simplification::Simplify;
 use pyo3::prelude::*;
 use std::collections::HashMap;
 use std::f64::consts::E;

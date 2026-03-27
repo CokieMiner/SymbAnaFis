@@ -5,7 +5,6 @@ mod core;
 mod registry;
 
 // Re-exports
-pub(super) use super::helpers;
 pub(super) use super::helpers::{
     compare_expr, compare_mul_factors, exprs_equivalent, extract_coeff, extract_coeff_arc, gcd,
     is_fractional_root_exponent, is_known_non_negative,

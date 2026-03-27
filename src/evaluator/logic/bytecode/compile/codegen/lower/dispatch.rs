@@ -1,9 +1,8 @@
 use super::Compiler;
 use super::vir::VReg;
 use super::vir::node::NodeData;
-use crate::Expr;
-use crate::core::ExprKind;
 use crate::core::error::DiffError;
+use crate::core::{Expr, ExprKind};
 use rustc_hash::FxHashMap;
 
 impl Compiler {

@@ -1,8 +1,8 @@
-use super::{ExprKind, Rule, RuleCategory, RuleContext};
+use super::{Rule, RuleCategory, RuleContext, RuleExprKind};
 use crate::EPSILON;
 use crate::core::InternedSymbol;
 use crate::core::known_symbols::{KS, get_symbol};
-use crate::core::{Expr, ExprKind as AstKind};
+use crate::core::{Expr, ExprKind};
 use std::sync::Arc;
 
 rule!(
@@ -10,16 +10,16 @@ rule!(
     "sinh_zero",
     95,
     Hyperbolic,
-    &[ExprKind::Function],
+    &[RuleExprKind::Function],
     targets: &[KS.sinh],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::FunctionCall { name, args } = &expr.kind
+        if let ExprKind::FunctionCall { name, args } = &expr.kind
             && name.id() == KS.sinh
             && args.len() == 1
             && {
                 // Exact check for constant 0.0
                 #[allow(clippy::float_cmp, reason = "Comparing against exact constant 0.0")]
-                let is_zero = matches!(args[0].kind, AstKind::Number(n) if n == 0.0);
+                let is_zero = matches!(args[0].kind, ExprKind::Number(n) if n == 0.0);
                 is_zero
             }
         {
@@ -34,16 +34,16 @@ rule!(
     "cosh_zero",
     95,
     Hyperbolic,
-    &[ExprKind::Function],
+    &[RuleExprKind::Function],
     targets: &[KS.cosh],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::FunctionCall { name, args } = &expr.kind
+        if let ExprKind::FunctionCall { name, args } = &expr.kind
             && name.id() == KS.cosh
             && args.len() == 1
             && {
                 // Exact check for constant 0.0
                 #[allow(clippy::float_cmp, reason = "Comparing against exact constant 0.0")]
-                let is_zero = matches!(args[0].kind, AstKind::Number(n) if n == 0.0_f64);
+                let is_zero = matches!(args[0].kind, ExprKind::Number(n) if n == 0.0_f64);
                 is_zero
             }
         {
@@ -58,17 +58,17 @@ rule!(
     "sinh_negation",
     90,
     Hyperbolic,
-    &[ExprKind::Function],
+    &[RuleExprKind::Function],
     targets: &[KS.sinh],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::FunctionCall { name, args } = &expr.kind
+        if let ExprKind::FunctionCall { name, args } = &expr.kind
             && name.id() == KS.sinh
             && args.len() == 1
-            && let AstKind::Product(factors) = &args[0].kind
+            && let ExprKind::Product(factors) = &args[0].kind
             && factors.len() == 2
         {
             #[allow(clippy::float_cmp, reason = "Comparing against exact constant -1.0")]
-            let is_neg_one = matches!(&factors[0].kind, AstKind::Number(n) if *n == -1.0);
+            let is_neg_one = matches!(&factors[0].kind, ExprKind::Number(n) if *n == -1.0);
             if is_neg_one
             {
                 return Some(Expr::product(vec![
@@ -77,7 +77,7 @@ rule!(
                 ]));
             }
             #[allow(clippy::float_cmp, reason = "Comparing against exact constant -1.0")]
-            let is_neg_one_alt = matches!(&factors[1].kind, AstKind::Number(n) if *n == -1.0);
+            let is_neg_one_alt = matches!(&factors[1].kind, ExprKind::Number(n) if *n == -1.0);
             if is_neg_one_alt
             {
                 return Some(Expr::product(vec![
@@ -95,23 +95,23 @@ rule!(
     "cosh_negation",
     90,
     Hyperbolic,
-    &[ExprKind::Function],
+    &[RuleExprKind::Function],
     targets: &[KS.cosh],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::FunctionCall { name, args } = &expr.kind
+        if let ExprKind::FunctionCall { name, args } = &expr.kind
             && name.id() == KS.cosh
             && args.len() == 1
-            && let AstKind::Product(factors) = &args[0].kind
+            && let ExprKind::Product(factors) = &args[0].kind
             && factors.len() == 2
         {
             #[allow(clippy::float_cmp, reason = "Comparing against exact constant -1.0")]
-            let is_neg_one = matches!(&factors[0].kind, AstKind::Number(n) if *n == -1.0);
+            let is_neg_one = matches!(&factors[0].kind, ExprKind::Number(n) if *n == -1.0);
             if is_neg_one
             {
                 return Some(Expr::func_symbol(get_symbol(KS.cosh), (*factors[1]).clone()));
             }
             #[allow(clippy::float_cmp, reason = "Comparing against exact constant -1.0")]
-            let is_neg_one_alt = matches!(&factors[1].kind, AstKind::Number(n) if *n == -1.0);
+            let is_neg_one_alt = matches!(&factors[1].kind, ExprKind::Number(n) if *n == -1.0);
             if is_neg_one_alt
             {
                 return Some(Expr::func_symbol(get_symbol(KS.cosh), (*factors[0]).clone()));
@@ -126,17 +126,17 @@ rule!(
     "tanh_negation",
     90,
     Hyperbolic,
-    &[ExprKind::Function],
+    &[RuleExprKind::Function],
     targets: &[KS.tanh],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::FunctionCall { name, args } = &expr.kind
+        if let ExprKind::FunctionCall { name, args } = &expr.kind
             && name.id() == KS.tanh
             && args.len() == 1
-            && let AstKind::Product(factors) = &args[0].kind
+            && let ExprKind::Product(factors) = &args[0].kind
             && factors.len() == 2
         {
             #[allow(clippy::float_cmp, reason = "Comparing against exact constant -1.0")]
-            let is_neg_one = matches!(&factors[0].kind, AstKind::Number(n) if *n == -1.0);
+            let is_neg_one = matches!(&factors[0].kind, ExprKind::Number(n) if *n == -1.0);
             if is_neg_one
             {
                 return Some(Expr::product(vec![
@@ -145,7 +145,7 @@ rule!(
                 ]));
             }
             #[allow(clippy::float_cmp, reason = "Comparing against exact constant -1.0")]
-            let is_neg_one_alt = matches!(&factors[1].kind, AstKind::Number(n) if *n == -1.0);
+            let is_neg_one_alt = matches!(&factors[1].kind, ExprKind::Number(n) if *n == -1.0);
             if is_neg_one_alt
             {
                 return Some(Expr::product(vec![
@@ -163,13 +163,13 @@ rule!(
     "sinh_asinh_identity",
     95,
     Hyperbolic,
-    &[ExprKind::Function],
+    &[RuleExprKind::Function],
     targets: &[KS.sinh],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::FunctionCall { name, args } = &expr.kind
+        if let ExprKind::FunctionCall { name, args } = &expr.kind
             && name.id() == KS.sinh
             && args.len() == 1
-            && let AstKind::FunctionCall {
+            && let ExprKind::FunctionCall {
                 name: inner_name,
                 args: inner_args,
             } = &args[0].kind
@@ -187,13 +187,13 @@ rule!(
     "cosh_acosh_identity",
     95,
     Hyperbolic,
-    &[ExprKind::Function],
+    &[RuleExprKind::Function],
     targets: &[KS.cosh],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::FunctionCall { name, args } = &expr.kind
+        if let ExprKind::FunctionCall { name, args } = &expr.kind
             && name.id() == KS.cosh
             && args.len() == 1
-            && let AstKind::FunctionCall {
+            && let ExprKind::FunctionCall {
                 name: inner_name,
                 args: inner_args,
             } = &args[0].kind
@@ -211,13 +211,13 @@ rule!(
     "tanh_atanh_identity",
     95,
     Hyperbolic,
-    &[ExprKind::Function],
+    &[RuleExprKind::Function],
     targets: &[KS.tanh],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::FunctionCall { name, args } = &expr.kind
+        if let ExprKind::FunctionCall { name, args } = &expr.kind
             && name.id() == KS.tanh
             && args.len() == 1
-            && let AstKind::FunctionCall {
+            && let ExprKind::FunctionCall {
                 name: inner_name,
                 args: inner_args,
             } = &args[0].kind
@@ -236,17 +236,17 @@ rule!(
     "hyperbolic_identity",
     95,
     Hyperbolic,
-    &[ExprKind::Sum, ExprKind::Product],
+    &[RuleExprKind::Sum, RuleExprKind::Product],
     |expr: &Expr, _context: &RuleContext| {
         // cosh^2(x) - sinh^2(x) = 1 (as Sum([cosh^2(x), Product([-1, sinh^2(x)])]))
-        if let AstKind::Sum(terms) = &expr.kind
+        if let ExprKind::Sum(terms) = &expr.kind
             && terms.len() == 2
         {
             // Helper to extract negated term
             fn extract_negated(term: &Expr) -> Option<Expr> {
-                if let AstKind::Product(factors) = &term.kind
+                if let ExprKind::Product(factors) = &term.kind
                     && factors.len() == 2
-                    && let AstKind::Number(n) = &factors[0].kind
+                    && let ExprKind::Number(n) = &factors[0].kind
                     && (n + 1.0).abs() < EPSILON
                 {
                     return Some((*factors[1]).clone());
@@ -278,7 +278,7 @@ rule!(
             if {
                 // Exact check for constant 1.0
                 #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
-                let is_one = matches!(&u.kind, AstKind::Number(n) if *n == 1.0);
+                let is_one = matches!(&u.kind, ExprKind::Number(n) if *n == 1.0);
                 is_one
             } && let Some(negated) = extract_negated(v)
                 && let Some((name, arg)) = get_hyperbolic_power(&negated, 2.0)
@@ -291,7 +291,7 @@ rule!(
             }
 
             // coth^2(x) - 1 = csch^2(x)
-            if let (Some((n1, a1)), AstKind::Number(num)) = (get_hyperbolic_power(u, 2.0), &v.kind)
+            if let (Some((n1, a1)), ExprKind::Number(num)) = (get_hyperbolic_power(u, 2.0), &v.kind)
                 && n1.id() == KS.coth
                 && (*num + 1.0).abs() < EPSILON
             {
@@ -300,7 +300,7 @@ rule!(
                     Expr::number(2.0),
                 ));
             }
-            if let (AstKind::Number(num), Some((n2, a2))) = (&u.kind, get_hyperbolic_power(v, 2.0))
+            if let (ExprKind::Number(num), Some((n2, a2))) = (&u.kind, get_hyperbolic_power(v, 2.0))
                 && n2.id() == KS.coth
                 && (*num + 1.0).abs() < EPSILON
             {
@@ -312,7 +312,7 @@ rule!(
         }
 
         // (cosh(x) - sinh(x)) * (cosh(x) + sinh(x)) = 1
-        if let AstKind::Product(factors) = &expr.kind
+        if let ExprKind::Product(factors) = &expr.kind
             && factors.len() == 2
         {
             let u = &factors[0];
@@ -338,15 +338,15 @@ rule!(
 
 /// Gets the hyperbolic function and its argument if the expression is a power of a hyperbolic function.
 fn get_hyperbolic_power(expr: &Expr, power: f64) -> Option<(InternedSymbol, Expr)> {
-    if let AstKind::Pow(base, exp) = &expr.kind
-        && let AstKind::Number(p) = &exp.kind
+    if let ExprKind::Pow(base, exp) = &expr.kind
+        && let ExprKind::Number(p) = &exp.kind
         && {
             // Exact check for power (e.g. 2.0)
             #[allow(clippy::float_cmp, reason = "Comparing against exact constant power")]
             let is_match = *p == power;
             is_match
         }
-        && let AstKind::FunctionCall { name, args } = &base.kind
+        && let ExprKind::FunctionCall { name, args } = &base.kind
         && args.len() == 1
         && (name.id() == KS.sinh
             || name.id() == KS.cosh
@@ -361,19 +361,19 @@ fn get_hyperbolic_power(expr: &Expr, power: f64) -> Option<(InternedSymbol, Expr
 /// Checks if the expression is cosh(x) - sinh(x), in any term order.
 fn is_cosh_minus_sinh_term(expr: &Expr) -> Option<Expr> {
     // Sum([cosh(x), Product([-1, sinh(x)])]) -- order-agnostic
-    if let AstKind::Sum(terms) = &expr.kind
+    if let ExprKind::Sum(terms) = &expr.kind
         && terms.len() == 2
     {
         // Extract the argument if a term is `-1 * sinh(arg)`, in either factor order.
         fn as_neg_sinh(t: &Expr) -> Option<&Expr> {
-            if let AstKind::Product(factors) = &t.kind
+            if let ExprKind::Product(factors) = &t.kind
                 && factors.len() == 2
             {
                 for (ci, si) in [(0_usize, 1_usize), (1, 0)] {
                     #[allow(clippy::float_cmp, reason = "exact -1.0 constant")]
-                    let is_neg = matches!(&factors[ci].kind, AstKind::Number(n) if *n == -1.0);
+                    let is_neg = matches!(&factors[ci].kind, ExprKind::Number(n) if *n == -1.0);
                     if is_neg
-                        && let AstKind::FunctionCall { name, args } = &factors[si].kind
+                        && let ExprKind::FunctionCall { name, args } = &factors[si].kind
                         && name.id() == KS.sinh
                         && args.len() == 1
                     {
@@ -386,7 +386,7 @@ fn is_cosh_minus_sinh_term(expr: &Expr) -> Option<Expr> {
 
         for i in 0..2 {
             let j = 1 - i;
-            if let AstKind::FunctionCall { name: n1, args: a1 } = &terms[i].kind
+            if let ExprKind::FunctionCall { name: n1, args: a1 } = &terms[i].kind
                 && n1.id() == KS.cosh
                 && a1.len() == 1
                 && let Some(sinh_arg) = as_neg_sinh(&terms[j])
@@ -402,13 +402,13 @@ fn is_cosh_minus_sinh_term(expr: &Expr) -> Option<Expr> {
 /// Checks if the expression is cosh(x) + sinh(x), in any term order.
 fn is_cosh_plus_sinh_term(expr: &Expr) -> Option<Expr> {
     // Sum([cosh(x), sinh(x)]) -- order-agnostic
-    if let AstKind::Sum(terms) = &expr.kind
+    if let ExprKind::Sum(terms) = &expr.kind
         && terms.len() == 2
     {
         let mut cosh_arg: Option<&Expr> = None;
         let mut sinh_arg: Option<&Expr> = None;
         for t in terms {
-            if let AstKind::FunctionCall { name, args } = &t.kind
+            if let ExprKind::FunctionCall { name, args } = &t.kind
                 && args.len() == 1
             {
                 if name.id() == KS.cosh {
@@ -432,17 +432,17 @@ rule!(
     "hyperbolic_triple_angle",
     70,
     Hyperbolic,
-    &[ExprKind::Sum, ExprKind::Poly],
+    &[RuleExprKind::Sum, RuleExprKind::Poly],
     |expr: &Expr, _context: &RuleContext| {
         let eps = EPSILON; // Use reasonable floating point tolerance for triple angle identities
 
         // Handle Poly form: Poly(sinh(x), [(1, 3.0), (3, 4.0)]) -> sinh(3x)
-        if let AstKind::Poly(poly) = &expr.kind {
+        if let ExprKind::Poly(poly) = &expr.kind {
             let base = poly.base();
             let terms = poly.terms();
 
             // Check if base is sinh(x) or cosh(x)
-            if let AstKind::FunctionCall { name, args } = &base.kind {
+            if let ExprKind::FunctionCall { name, args } = &base.kind {
                 if args.len() != 1 {
                     return None;
                 }
@@ -495,7 +495,7 @@ rule!(
         }
 
         // Original Sum handling
-        if let AstKind::Sum(terms) = &expr.kind
+        if let ExprKind::Sum(terms) = &expr.kind
             && terms.len() == 2
         {
             let u = &terms[0];
@@ -558,7 +558,7 @@ rule!(
 /// Parses a function term to extract coefficient, argument, and power.
 fn parse_fn_term(expr: &Expr, func_name: &InternedSymbol) -> Option<(f64, Expr, f64)> {
     // Direct function call: func(x) -> (1.0, x, 1.0)
-    if let AstKind::FunctionCall { name, args } = &expr.kind
+    if let ExprKind::FunctionCall { name, args } = &expr.kind
         && name.id() == func_name.id()
         && args.len() == 1
     {
@@ -566,9 +566,9 @@ fn parse_fn_term(expr: &Expr, func_name: &InternedSymbol) -> Option<(f64, Expr, 
     }
 
     // Power: func(x)^p -> (1.0, x, p)
-    if let AstKind::Pow(base, exp) = &expr.kind
-        && let AstKind::Number(p) = &exp.kind
-        && let AstKind::FunctionCall { name, args } = &base.kind
+    if let ExprKind::Pow(base, exp) = &expr.kind
+        && let ExprKind::Number(p) = &exp.kind
+        && let ExprKind::FunctionCall { name, args } = &base.kind
         && name.id() == func_name.id()
         && args.len() == 1
     {
@@ -576,21 +576,21 @@ fn parse_fn_term(expr: &Expr, func_name: &InternedSymbol) -> Option<(f64, Expr, 
     }
 
     // Product with coefficient: c * func(x) or c * func(x)^p
-    if let AstKind::Product(factors) = &expr.kind
+    if let ExprKind::Product(factors) = &expr.kind
         && factors.len() == 2
-        && let AstKind::Number(c) = &factors[0].kind
+        && let ExprKind::Number(c) = &factors[0].kind
     {
         // c * func(x)
-        if let AstKind::FunctionCall { name, args } = &factors[1].kind
+        if let ExprKind::FunctionCall { name, args } = &factors[1].kind
             && name.id() == func_name.id()
             && args.len() == 1
         {
             return Some((*c, (*args[0]).clone(), 1.0));
         }
         // c * func(x)^p
-        if let AstKind::Pow(base, exp) = &factors[1].kind
-            && let AstKind::Number(p) = &exp.kind
-            && let AstKind::FunctionCall { name, args } = &base.kind
+        if let ExprKind::Pow(base, exp) = &factors[1].kind
+            && let ExprKind::Number(p) = &exp.kind
+            && let ExprKind::FunctionCall { name, args } = &base.kind
             && name.id() == func_name.id()
             && args.len() == 1
         {

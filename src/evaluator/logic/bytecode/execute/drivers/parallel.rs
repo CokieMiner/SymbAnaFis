@@ -31,8 +31,8 @@
 
 use super::CompiledEvaluator;
 use super::batch::run_chunked_evaluator;
+use crate::core::{DiffError, Expr, Symbol, symb};
 use crate::parser::parse;
-use crate::{DiffError, Expr, Symbol, symb};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use std::collections::HashMap;

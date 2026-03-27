@@ -3,10 +3,9 @@ use super::instruction::FnOp;
 use super::vir::node::{NodeData, exp_sqr_arg};
 use super::vir::registry::FN_MAP;
 use super::vir::{VInstruction, VReg};
-use crate::Expr;
-use crate::core::DiffError;
 use crate::core::InternedSymbol;
 use crate::core::known_symbols::KS;
+use crate::core::{DiffError, Expr};
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
 

@@ -1,5 +1,5 @@
 use super::definitions::all_definitions;
-use crate::Expr;
+use crate::core::Expr;
 use rustc_hash::FxHashMap;
 use std::ops::RangeInclusive;
 use std::sync::{Arc, OnceLock};

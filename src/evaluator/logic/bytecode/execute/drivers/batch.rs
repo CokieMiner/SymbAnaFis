@@ -1,8 +1,7 @@
 //! Internal batch helpers for compiled evaluator execution.
 
 use super::{CompiledEvaluator, ToParamName};
-use crate::DiffError;
-use crate::Expr;
+use crate::core::{DiffError, Expr};
 use rayon::prelude::*;
 use wide::f64x4;
 

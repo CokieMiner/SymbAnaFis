@@ -10,7 +10,7 @@ use super::types::VReg;
 use crate::EPSILON;
 use crate::core::known_symbols::KS;
 use crate::core::known_symbols::get_constant_value_by_id;
-use crate::{Expr, core::ExprKind};
+use crate::core::{Expr, ExprKind};
 use rustc_hash::FxHashMap;
 use std::cmp::Ordering;
 use std::ptr::from_ref;

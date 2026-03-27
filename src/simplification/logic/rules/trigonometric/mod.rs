@@ -16,5 +16,7 @@ pub mod triple_angle;
 pub mod rules;
 pub use rules::get_trigonometric_rules;
 
-pub(super) use super::helpers as rule_helpers;
-pub(super) use super::{ExprKind, Rule, RuleCategory, RuleContext, extract_coeff_arc};
+pub(super) use super::{Rule, RuleCategory, RuleContext, RuleExprKind, extract_coeff_arc};
+pub(super) use crate::simplification::logic::helpers::{
+    approx_eq, get_numeric_value, is_multiple_of_two_pi, is_pi, is_three_pi_over_two,
+};

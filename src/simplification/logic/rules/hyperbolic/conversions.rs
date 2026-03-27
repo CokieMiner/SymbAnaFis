@@ -3,9 +3,9 @@ use super::helpers::{
     match_alt_sinh_pattern, match_cosh_pattern, match_e2x_minus_1_direct,
     match_e2x_minus_1_factored, match_e2x_plus_1, match_sinh_pattern_sub,
 };
-use super::{ExprKind, Rule, RuleCategory, RuleContext};
+use super::{Rule, RuleCategory, RuleContext, RuleExprKind};
 use crate::core::known_symbols::{KS, get_symbol};
-use crate::core::{Expr, ExprKind as AstKind};
+use crate::core::{Expr, ExprKind};
 use std::sync::Arc;
 
 rule!(
@@ -13,14 +13,14 @@ rule!(
     "sinh_from_exp",
     80,
     Hyperbolic,
-    &[ExprKind::Div],
+    &[RuleExprKind::Div],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Div(numerator, denominator) = &expr.kind {
+        if let ExprKind::Div(numerator, denominator) = &expr.kind {
             #[allow(clippy::float_cmp, reason = "Comparing against exact constant 2.0")]
-            let is_two = matches!(&denominator.kind, AstKind::Number(d) if *d == 2.0);
+            let is_two = matches!(&denominator.kind, ExprKind::Number(d) if *d == 2.0);
 
             if is_two
-                && let AstKind::Sum(terms) = &numerator.kind
+                && let ExprKind::Sum(terms) = &numerator.kind
                 && terms.len() == 2
             {
                 let u = &terms[0];
@@ -52,14 +52,14 @@ rule!(
     "cosh_from_exp",
     80,
     Hyperbolic,
-    &[ExprKind::Div],
+    &[RuleExprKind::Div],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Div(numerator, denominator) = &expr.kind {
+        if let ExprKind::Div(numerator, denominator) = &expr.kind {
             #[allow(clippy::float_cmp, reason = "Comparing against exact constant 2.0")]
-            let is_two = matches!(&denominator.kind, AstKind::Number(d) if *d == 2.0);
+            let is_two = matches!(&denominator.kind, ExprKind::Number(d) if *d == 2.0);
 
             if is_two
-                && let AstKind::Sum(terms) = &numerator.kind
+                && let ExprKind::Sum(terms) = &numerator.kind
                 && terms.len() == 2
                 && let Some(x) = match_cosh_pattern(&terms[0], &terms[1])
             {
@@ -79,11 +79,11 @@ rule!(
     "tanh_from_exp",
     80,
     Hyperbolic,
-    &[ExprKind::Div],
+    &[RuleExprKind::Div],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Div(numerator, denominator) = &expr.kind {
+        if let ExprKind::Div(numerator, denominator) = &expr.kind {
             // Check for (e^x - e^(-x)) / (e^x + e^(-x)) pattern
-            let num_arg = if let AstKind::Sum(terms) = &numerator.kind {
+            let num_arg = if let ExprKind::Sum(terms) = &numerator.kind {
                 if terms.len() == 2 {
                     extract_negated_term(&terms[1])
                         .and_then(|negated| match_sinh_pattern_sub(&terms[0], &negated))
@@ -98,7 +98,7 @@ rule!(
                 None
             };
 
-            let den_arg = if let AstKind::Sum(terms) = &denominator.kind {
+            let den_arg = if let ExprKind::Sum(terms) = &denominator.kind {
                 if terms.len() == 2 {
                     match_cosh_pattern(&terms[0], &terms[1])
                 } else {
@@ -137,14 +137,14 @@ rule!(
     "sech_from_exp",
     80,
     Hyperbolic,
-    &[ExprKind::Div],
+    &[RuleExprKind::Div],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Div(numerator, denominator) = &expr.kind {
+        if let ExprKind::Div(numerator, denominator) = &expr.kind {
             #[allow(clippy::float_cmp, reason = "Comparing against exact constant 2.0")]
-            let is_two = matches!(&numerator.kind, AstKind::Number(n) if *n == 2.0);
+            let is_two = matches!(&numerator.kind, ExprKind::Number(n) if *n == 2.0);
 
             if is_two
-                && let AstKind::Sum(terms) = &denominator.kind
+                && let ExprKind::Sum(terms) = &denominator.kind
                 && terms.len() == 2
                 && let Some(x) = match_cosh_pattern(&terms[0], &terms[1])
             {
@@ -164,15 +164,15 @@ rule!(
     "csch_from_exp",
     80,
     Hyperbolic,
-    &[ExprKind::Div],
+    &[RuleExprKind::Div],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Div(numerator, denominator) = &expr.kind {
+        if let ExprKind::Div(numerator, denominator) = &expr.kind {
             // Exact check for numerator 2.0 (csch definition)
             #[allow(clippy::float_cmp, reason = "Comparing against exact constant 2.0")]
-            let is_two = matches!(&numerator.kind, AstKind::Number(n) if *n == 2.0);
+            let is_two = matches!(&numerator.kind, ExprKind::Number(n) if *n == 2.0);
             if is_two {
                 // Check for Sum([u, Product([-1, v])]) pattern representing subtraction
-                if let AstKind::Sum(terms) = &denominator.kind
+                if let ExprKind::Sum(terms) = &denominator.kind
                     && terms.len() == 2
                 {
                     if let Some(negated) = extract_negated_term(&terms[1])
@@ -188,12 +188,12 @@ rule!(
                 }
             }
 
-            if let AstKind::Product(factors) = &numerator.kind
+            if let ExprKind::Product(factors) = &numerator.kind
                 && factors.len() == 2
             {
-                let (coeff, exp_term) = if let AstKind::Number(n) = &factors[0].kind {
+                let (coeff, exp_term) = if let ExprKind::Number(n) = &factors[0].kind {
                     (*n, &factors[1])
-                } else if let AstKind::Number(n) = &factors[1].kind {
+                } else if let ExprKind::Number(n) = &factors[1].kind {
                     (*n, &factors[0])
                 } else {
                     return None;
@@ -205,10 +205,10 @@ rule!(
 
                 if is_two_coeff
                     && let Some(x) = ExpTerm::get_direct_exp_arg(exp_term)
-                    && let AstKind::Sum(terms) = &denominator.kind
+                    && let ExprKind::Sum(terms) = &denominator.kind
                     && terms.len() == 2
                 {
-                    let (minus_one, exp_term_denom) = if let AstKind::Number(n) = &terms[0].kind {
+                    let (minus_one, exp_term_denom) = if let ExprKind::Number(n) = &terms[0].kind {
                         // Exact check for constant -1.0
                         #[allow(
                             clippy::float_cmp,
@@ -220,7 +220,7 @@ rule!(
                         } else {
                             (None, &terms[0]) // Fallback, though we expect -1
                         }
-                    } else if let AstKind::Number(n) = &terms[1].kind {
+                    } else if let ExprKind::Number(n) = &terms[1].kind {
                         // Exact check for constant -1.0
                         #[allow(
                             clippy::float_cmp,
@@ -254,10 +254,10 @@ rule!(
     "coth_from_exp",
     80,
     Hyperbolic,
-    &[ExprKind::Div],
+    &[RuleExprKind::Div],
     |expr: &Expr, _context: &RuleContext| {
-        if let AstKind::Div(numerator, denominator) = &expr.kind {
-            let num_arg = if let AstKind::Sum(terms) = &numerator.kind {
+        if let ExprKind::Div(numerator, denominator) = &expr.kind {
+            let num_arg = if let ExprKind::Sum(terms) = &numerator.kind {
                 if terms.len() == 2 {
                     match_cosh_pattern(&terms[0], &terms[1])
                 } else {
@@ -267,7 +267,7 @@ rule!(
                 None
             };
 
-            let den_arg = if let AstKind::Sum(terms) = &denominator.kind {
+            let den_arg = if let ExprKind::Sum(terms) = &denominator.kind {
                 if terms.len() == 2 {
                     extract_negated_term(&terms[1])
                         .and_then(|negated| match_sinh_pattern_sub(&terms[0], &negated))
