@@ -1,8 +1,7 @@
 # SymbAnaFis — Module Organization & Encapsulation Guide
 
 > This document is the **single source of truth** for module structure, visibility rules,
-> and re-export discipline in the SymbAnaFis codebase. It supersedes
-> `ARCHITECTURE_BOUNDARIES.md` and `REEXPORT_STAIRCASE.md`.
+> and re-export discipline in the SymbAnaFis codebase.
 
 ---
 
