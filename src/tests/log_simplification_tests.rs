@@ -1,4 +1,4 @@
-use crate::core::expr::Expr;
+use crate::core::Expr;
 use crate::symb;
 
 #[test]

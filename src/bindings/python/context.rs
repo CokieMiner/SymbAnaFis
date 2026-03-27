@@ -2,8 +2,11 @@
 //!
 //! This module provides context management for isolated symbol and function registries.
 
+use super::expr::PyExpr;
+use super::symbol::PySymbol;
 use crate::Expr as RustExpr;
-use crate::core::context::Context as RustContext;
+use crate::core::Context as RustContext;
+use crate::core::{BodyFn, UserFunction};
 use pyo3::prelude::*;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -29,24 +32,24 @@ impl PyContext {
     }
 
     /// Create or get a symbol in this context
-    fn symb(&self, name: &str) -> super::symbol::PySymbol {
-        super::symbol::PySymbol(self.inner.symb(name))
+    fn symb(&self, name: &str) -> PySymbol {
+        PySymbol(self.inner.symb(name))
     }
 
     /// Create a new symbol (fails if name already exists in this context)
-    fn symb_new(&self, name: &str) -> PyResult<super::symbol::PySymbol> {
+    fn symb_new(&self, name: &str) -> PyResult<PySymbol> {
         if self.inner.contains_symbol(name) {
             Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
                 "Symbol '{name}' already exists in this context"
             )))
         } else {
-            Ok(super::symbol::PySymbol(self.inner.symb(name)))
+            Ok(PySymbol(self.inner.symb(name)))
         }
     }
 
     /// Get an existing symbol by name (returns None if not found)
-    fn get_symbol(&self, name: &str) -> Option<super::symbol::PySymbol> {
-        self.inner.get_symbol(name).map(super::symbol::PySymbol)
+    fn get_symbol(&self, name: &str) -> Option<PySymbol> {
+        self.inner.get_symbol(name).map(PySymbol)
     }
 
     /// Check if a symbol exists in this context
@@ -98,19 +101,13 @@ impl PyContext {
         body_callback: Option<Py<PyAny>>,
         partials: Option<Vec<Py<PyAny>>>,
     ) -> PyResult<PyRefMut<'_, Self>> {
-        use crate::core::context::{BodyFn, UserFunction};
-        use std::sync::Arc;
-
         let mut user_fn = UserFunction::new(arity..=arity);
 
         // Handle optional body function
         if let Some(callback) = body_callback {
             let body_fn: BodyFn = Arc::new(move |args: &[Arc<RustExpr>]| -> RustExpr {
                 Python::attach(|py| {
-                    let py_args: Vec<super::expr::PyExpr> = args
-                        .iter()
-                        .map(|a| super::expr::PyExpr((**a).clone()))
-                        .collect();
+                    let py_args: Vec<PyExpr> = args.iter().map(|a| PyExpr((**a).clone())).collect();
                     let Ok(py_list) = py_args.into_pyobject(py) else {
                         return RustExpr::number(0.0);
                     };
@@ -120,7 +117,7 @@ impl PyContext {
                     result.map_or_else(
                         |_| RustExpr::number(0.0),
                         |res| {
-                            res.extract::<super::expr::PyExpr>(py)
+                            res.extract::<PyExpr>(py)
                                 .map_or_else(|_| RustExpr::number(0.0), |py_expr| py_expr.0)
                         },
                     )
@@ -135,10 +132,8 @@ impl PyContext {
                 let partial_fn: PartialDerivativeFn =
                     Arc::new(move |args: &[Arc<RustExpr>]| -> RustExpr {
                         Python::attach(|py| {
-                            let py_args: Vec<super::expr::PyExpr> = args
-                                .iter()
-                                .map(|a| super::expr::PyExpr((**a).clone()))
-                                .collect();
+                            let py_args: Vec<PyExpr> =
+                                args.iter().map(|a| PyExpr((**a).clone())).collect();
                             let Ok(py_list) = py_args.into_pyobject(py) else {
                                 return RustExpr::number(0.0);
                             };
@@ -148,7 +143,7 @@ impl PyContext {
                             result.map_or_else(
                                 |_| RustExpr::number(0.0),
                                 |res| {
-                                    res.extract::<super::expr::PyExpr>(py)
+                                    res.extract::<PyExpr>(py)
                                         .map_or_else(|_| RustExpr::number(0.0), |py_expr| py_expr.0)
                                 },
                             )

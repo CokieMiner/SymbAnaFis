@@ -1,15 +1,17 @@
 //! Implementation details for `Context` and `UserFunction`.
+use super::PartialFn;
+use crate::core::BodyFn;
+use crate::core::{lookup_by_id, symb_get, symb_new_isolated};
 use std::collections::HashSet;
+use std::collections::hash_map::Entry;
+use std::fmt::{Debug, Formatter, Result as FmtResult};
 use std::ops::RangeInclusive;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 
 use rustc_hash::FxHashMap;
 
-use crate::Expr;
-use crate::core::symbol::{InternedSymbol, Symbol, symb_interned};
-
-use super::super::api_crate::{BodyFn, PartialFn};
+use crate::core::{DiffError, Expr, InternedSymbol, Symbol, symb_interned};
 
 // =============================================================================
 // UserFunction
@@ -90,13 +92,13 @@ impl UserFunction {
     ///
     /// # Errors
     /// Returns `DiffError::InvalidPartialIndex` if `arg_idx` exceeds the maximum arity.
-    pub fn partial<F>(mut self, arg_idx: usize, f: F) -> Result<Self, crate::DiffError>
+    pub fn partial<F>(mut self, arg_idx: usize, f: F) -> Result<Self, DiffError>
     where
         F: Fn(&[Arc<Expr>]) -> Expr + Send + Sync + 'static,
     {
         let max_arity = *self.arity.end();
         if max_arity != usize::MAX && arg_idx >= max_arity {
-            return Err(crate::DiffError::InvalidPartialIndex {
+            return Err(DiffError::InvalidPartialIndex {
                 index: arg_idx,
                 max_arity,
             });
@@ -109,10 +111,10 @@ impl UserFunction {
     ///
     /// # Errors
     /// Returns `DiffError::InvalidPartialIndex` if `arg_idx` exceeds the maximum arity.
-    pub fn partial_arc(mut self, arg_idx: usize, f: PartialFn) -> Result<Self, crate::DiffError> {
+    pub fn partial_arc(mut self, arg_idx: usize, f: PartialFn) -> Result<Self, DiffError> {
         let max_arity = *self.arity.end();
         if max_arity != usize::MAX && arg_idx >= max_arity {
-            return Err(crate::DiffError::InvalidPartialIndex {
+            return Err(DiffError::InvalidPartialIndex {
                 index: arg_idx,
                 max_arity,
             });
@@ -143,8 +145,8 @@ impl UserFunction {
     }
 }
 
-impl std::fmt::Debug for UserFunction {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Debug for UserFunction {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         f.debug_struct("UserFunction")
             .field("arity", &self.arity)
             .field("has_body", &self.body.is_some())
@@ -241,10 +243,8 @@ impl Context {
         if let Some(existing) = inner.symbols.get(name) {
             return Symbol::from_id(existing.id());
         }
-        let symbol = crate::core::symbol::symb_get(name)
-            .unwrap_or_else(|_| crate::core::symbol::symb_new_isolated(name));
-        let interned = crate::core::symbol::lookup_by_id(symbol.id())
-            .expect("Symbol just created should exist");
+        let symbol = symb_get(name).unwrap_or_else(|_| symb_new_isolated(name));
+        let interned = lookup_by_id(symbol.id()).expect("Symbol just created should exist");
         inner.symbols.insert(name.to_owned(), interned);
         symbol
     }
@@ -339,7 +339,7 @@ impl Context {
         let id = symb_interned(name).id();
         {
             let mut inner = self.inner.write().expect("Context lock poisoned");
-            if let std::collections::hash_map::Entry::Vacant(e) = inner.user_functions.entry(id) {
+            if let Entry::Vacant(e) = inner.user_functions.entry(id) {
                 e.insert(UserFunction::new(0..=usize::MAX));
                 inner.fn_name_to_id.insert(name.to_owned(), id);
             }
@@ -583,8 +583,8 @@ impl Context {
     }
 }
 
-impl std::fmt::Debug for Context {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Debug for Context {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         let inner = self.inner.read().expect("Context lock poisoned");
         f.debug_struct("Context")
             .field("id", &self.id)

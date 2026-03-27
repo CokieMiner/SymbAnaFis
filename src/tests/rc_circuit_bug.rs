@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod rc_circuit_differentiation_bug {
-    use crate::{Expr, core::context::Context, simplification::simplify_expr};
+    use crate::{Expr, core::Context, simplification::simplify_expr};
     use std::collections::{HashMap, HashSet};
 
     #[test]

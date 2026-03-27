@@ -1,4 +1,5 @@
-use super::super::super::instruction::Instruction;
+use super::instruction::Instruction;
+use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 
 #[allow(
@@ -9,7 +10,7 @@ use rustc_hash::FxHashSet;
 pub(super) fn compact_constants(
     mut out: Vec<Instruction>,
     constants: &mut Vec<f64>,
-    _const_map: &mut rustc_hash::FxHashMap<u64, u32>,
+    _const_map: &mut FxHashMap<u64, u32>,
     arg_pool: &mut [u32],
     param_count: usize,
     old_const_count: usize,
@@ -93,9 +94,9 @@ fn collect_used_constant_indices(
 fn compact_constant_pool(
     constants: &mut Vec<f64>,
     used_indices: &FxHashSet<u32>,
-) -> rustc_hash::FxHashMap<u32, u32> {
+) -> FxHashMap<u32, u32> {
     let mut new_constants = Vec::with_capacity(used_indices.len());
-    let mut index_map = rustc_hash::FxHashMap::default();
+    let mut index_map = FxHashMap::default();
 
     for (old_idx, &value) in constants.iter().enumerate() {
         let old_idx_u32 = u32::try_from(old_idx).expect("Constant pool index too large for u32");
@@ -115,7 +116,7 @@ fn compact_constant_pool(
 fn remap_after_constant_compaction(
     instructions: &mut [Instruction],
     arg_pool: &mut [u32],
-    index_map: &rustc_hash::FxHashMap<u32, u32>,
+    index_map: &FxHashMap<u32, u32>,
     param_count_u32: u32,
     const_limit_u32: u32,
     old_const_count: usize,
@@ -145,7 +146,7 @@ fn remap_after_constant_compaction(
     }
 }
 
-fn remap_instruction_consts(instr: &mut Instruction, index_map: &rustc_hash::FxHashMap<u32, u32>) {
+fn remap_instruction_consts(instr: &mut Instruction, index_map: &FxHashMap<u32, u32>) {
     match instr {
         Instruction::LoadConst { const_idx, .. }
         | Instruction::MulAddConst { const_idx, .. }

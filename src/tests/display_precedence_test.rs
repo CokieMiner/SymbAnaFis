@@ -1,8 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::Expr;
-    use std::collections::HashMap;
-    use std::collections::HashSet;
+    use std::collections::{HashMap, HashSet};
 
     #[test]
     fn test_division_precedence_mul() {

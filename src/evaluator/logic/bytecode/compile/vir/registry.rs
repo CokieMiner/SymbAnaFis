@@ -1,4 +1,4 @@
-use super::super::super::instruction::FnOp;
+use super::instruction::FnOp;
 use crate::core::known_symbols::KS;
 use rustc_hash::FxHashMap;
 use std::sync::LazyLock;

@@ -3,23 +3,24 @@
 //! This module compiles symbolic [`Expr`] expressions into efficient bytecode
 //! ([`Instruction`]s) that can be executed by the [`CompiledEvaluator`].
 
-use super::super::instruction::Instruction;
 use super::emit::RegAllocator;
+use super::instruction::Instruction;
 use super::vir::{VInstruction, VReg};
 use crate::Expr;
 use crate::core::error::DiffError;
 use rustc_hash::FxHashMap;
 use std::collections::hash_map::Entry;
+use std::mem::take;
 
 use super::analysis::CseKey;
 
 pub struct Compiler {
     pub(super) vinstrs: Vec<VInstruction>,
     pub(super) param_ids: Vec<u64>,
-    pub(super) param_index: rustc_hash::FxHashMap<u64, usize>,
-    pub(super) cse_cache: rustc_hash::FxHashMap<CseKey, VReg>,
+    pub(super) param_index: FxHashMap<u64, usize>,
+    pub(super) cse_cache: FxHashMap<CseKey, VReg>,
     pub(super) constants: Vec<f64>,
-    pub(super) const_map: rustc_hash::FxHashMap<u64, u32>,
+    pub(super) const_map: FxHashMap<u64, u32>,
     pub(super) next_vreg: u32,
     pub(super) final_vreg: Option<VReg>,
 }
@@ -79,7 +80,7 @@ impl Compiler {
 
         self.optimize_vir_cse();
 
-        let vinstrs = std::mem::take(&mut self.vinstrs);
+        let vinstrs = take(&mut self.vinstrs);
 
         let allocator = RegAllocator::new(param_count, const_count, num_temps, &vinstrs);
         let (instructions, arg_pool, register_count) = allocator.allocate(vinstrs, self.final_vreg);

@@ -1,5 +1,5 @@
-use super::super::super::instruction::Instruction;
-use super::super::vir::{VInstruction, VReg};
+use super::instruction::Instruction;
+use super::vir::{VInstruction, VReg};
 
 pub struct RegAllocator {
     param_count: u32,

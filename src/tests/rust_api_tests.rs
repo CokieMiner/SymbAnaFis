@@ -1,4 +1,5 @@
 use crate::{Diff, DiffError, Expr, symb};
+use std::sync::Arc;
 
 #[test]
 fn test_builder_configuration() {
@@ -18,12 +19,12 @@ fn test_builder_configuration() {
 
 #[test]
 fn test_custom_derivatives() {
-    use crate::core::context::UserFunction;
+    use crate::core::UserFunction;
 
     // Custom rule: d/dx[my_func(u)] = 3*u^2 * u'
     // Define my_func(u) with ∂my_func/∂u = 3*u^2
     let my_func = UserFunction::new(1..=1)
-        .partial(0, |args: &[std::sync::Arc<Expr>]| {
+        .partial(0, |args: &[Arc<Expr>]| {
             // ∂my_func/∂u = 3*u^2
             Expr::number(3.0) * Expr::from(&args[0]).pow(2.0)
         })
@@ -131,11 +132,11 @@ fn test_api_reusability() {
 
 #[test]
 fn test_error_handling() {
-    use crate::core::context::UserFunction;
+    use crate::core::UserFunction;
 
     // Pass closure directly
     let user_fn = UserFunction::new(1..=1)
-        .partial(0, |_: &[std::sync::Arc<Expr>]| Expr::number(0.0))
+        .partial(0, |_: &[Arc<Expr>]| Expr::number(0.0))
         .expect("valid arg");
     let diff = Diff::new().user_fn("my_func", user_fn);
 

@@ -1,15 +1,14 @@
-use super::super::super::vir::node::{self, NodeData};
-use super::super::super::vir::registry::FN_MAP;
-use super::super::super::vir::{VInstruction, VReg};
+use super::Compiler;
+use super::instruction::FnOp;
+use super::vir::node::{NodeData, exp_sqr_arg};
+use super::vir::registry::FN_MAP;
+use super::vir::{VInstruction, VReg};
 use crate::Expr;
 use crate::core::DiffError;
+use crate::core::InternedSymbol;
 use crate::core::known_symbols::KS;
-use crate::core::symbol::InternedSymbol;
-use crate::evaluator::logic::bytecode::instruction::FnOp;
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
-
-use super::super::super::Compiler;
 
 impl Compiler {
     pub(super) fn compile_function_node(
@@ -23,7 +22,7 @@ impl Compiler {
         let dest = self.alloc_vreg();
 
         if id == ks.exp && args.len() == 1 {
-            if let Some((src, neg)) = node::exp_sqr_arg(args[0].as_ref(), node_map) {
+            if let Some((src, neg)) = exp_sqr_arg(args[0].as_ref(), node_map) {
                 if neg {
                     self.emit(VInstruction::ExpSqrNeg { dest, src });
                 } else {

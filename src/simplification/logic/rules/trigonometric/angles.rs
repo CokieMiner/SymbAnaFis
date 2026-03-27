@@ -1,9 +1,8 @@
-use super::super::super::super::helpers::extract_coeff_arc;
-use super::super::core::{ExprKind, Rule, RuleCategory, RuleContext};
+use super::{ExprKind, Rule, RuleCategory, RuleContext, extract_coeff_arc};
 use crate::EPSILON;
-use crate::core::expr::{Expr, ExprKind as AstKind};
+use crate::core::InternedSymbol;
 use crate::core::known_symbols::{KS, get_symbol};
-use crate::core::symbol::InternedSymbol;
+use crate::core::{Expr, ExprKind as AstKind};
 use std::sync::Arc;
 
 rule_with_helpers_arc!(
@@ -18,7 +17,7 @@ rule_with_helpers_arc!(
             if let AstKind::Product(factors) = &term.kind
                 && factors.len() == 2
                 && let AstKind::Number(n) = &factors[0].kind
-                && (*n + 1.0).abs() < EPSILON
+                && (n + 1.0).abs() < EPSILON
             {
                 return Some(Arc::clone(&factors[1]));
             }
@@ -209,7 +208,7 @@ fn is_cos_minus_sin(expr: &Expr) -> bool {
             && let AstKind::Product(factors) = &b.kind
             && factors.len() == 2
             && let AstKind::Number(n) = &factors[0].kind
-            && (*n + 1.0).abs() < EPSILON
+            && (n + 1.0).abs() < EPSILON
         {
             return is_sin(&factors[1]);
         }
@@ -219,7 +218,7 @@ fn is_cos_minus_sin(expr: &Expr) -> bool {
             && let AstKind::Product(factors) = &a.kind
             && factors.len() == 2
             && let AstKind::Number(n) = &factors[0].kind
-            && (*n + 1.0).abs() < EPSILON
+            && (n + 1.0).abs() < EPSILON
         {
             return is_sin(&factors[1]);
         }
@@ -283,7 +282,7 @@ fn get_sin_arg_arc(expr: &Expr) -> Option<Arc<Expr>> {
             if let AstKind::Product(factors) = &term.kind
                 && factors.len() == 2
                 && let AstKind::Number(n) = &factors[0].kind
-                && (*n + 1.0).abs() < EPSILON
+                && (n + 1.0).abs() < EPSILON
                 && let Some(arg) = get_sin_arg_arc(&factors[1])
             {
                 return Some(arg);

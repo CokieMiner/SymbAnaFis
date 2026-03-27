@@ -2,7 +2,7 @@
 mod tests {
     use crate::parser::parse;
     use crate::simplify;
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
 
     #[test]
     fn debug_numerator_simplification() {
@@ -31,7 +31,7 @@ mod tests {
     #[test]
     fn debug_cubic_expansion() {
         use crate::simplification::simplify_expr;
-        use std::collections::HashSet;
+        use HashSet;
 
         // Test (x+1)^3 expansion: x^3 + 3*x^2 + 3*x + 1
         let expr_str = "x^3 + 3*x^2 + 3*x + 1";

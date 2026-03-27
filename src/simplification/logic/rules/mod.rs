@@ -1,12 +1,17 @@
 //! Rule infrastructure for the simplification engine
 
 #[macro_use]
-pub mod core;
-pub mod registry;
+mod core;
+mod registry;
 
 // Re-exports
-pub use core::*;
-pub use registry::*;
+pub(super) use super::helpers;
+pub(super) use super::helpers::{
+    compare_expr, compare_mul_factors, exprs_equivalent, extract_coeff, extract_coeff_arc, gcd,
+    is_fractional_root_exponent, is_known_non_negative,
+};
+pub(super) use core::*;
+pub(super) use registry::*;
 
 /// Numeric simplification rules
 pub mod numeric;

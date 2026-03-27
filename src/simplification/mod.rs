@@ -6,7 +6,4 @@
 mod api;
 mod logic;
 
-pub use api::{CustomBodyMap, simplify_expr};
-pub use api::{Simplify, simplify};
-
-pub(in crate::simplification) use logic::helpers;
+pub use api::*;

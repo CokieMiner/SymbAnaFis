@@ -1,4 +1,4 @@
-use super::super::super::instruction::Instruction;
+use super::instruction::Instruction;
 use rustc_hash::FxHashMap;
 
 /// Optimization pass that rewires independent power instructions sharing the same base into chains.

@@ -2,9 +2,12 @@
 
 pub mod analysis;
 pub mod codegen;
-mod compiler;
+pub mod compiler;
 pub mod emit;
-mod optimize;
+pub mod optimize;
 pub mod vir;
 
+pub use codegen::expand_user_functions;
 pub use compiler::Compiler;
+
+pub use super::{CompiledEvaluator, instruction};

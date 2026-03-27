@@ -1,4 +1,4 @@
-use crate::core::context::Context;
+use crate::core::Context;
 use crate::{Expr, core::ExprKind};
 use rustc_hash::FxHashSet;
 use std::sync::Arc;

@@ -1,13 +1,13 @@
-use super::super::super::vir::node::{self, NodeData};
-use super::super::super::vir::{VInstruction, VReg};
+use super::Compiler;
+use super::vir::node::{NodeData, const_from_map, negated_product_two_vregs, product_two_vregs};
+use super::vir::{VInstruction, VReg};
 use crate::EPSILON;
 use crate::Expr;
+use crate::core::ExprKind;
 use crate::core::error::DiffError;
-use crate::core::expr::ExprKind;
 use rustc_hash::FxHashMap;
+use std::ptr::from_ref;
 use std::sync::Arc;
-
-use super::super::super::Compiler;
 
 impl Compiler {
     pub(super) fn vreg_from_map(
@@ -15,7 +15,7 @@ impl Compiler {
         expr: &Expr,
     ) -> Result<VReg, DiffError> {
         node_map
-            .get(&std::ptr::from_ref(expr))
+            .get(&from_ref(expr))
             .map(|data| data.vreg())
             .ok_or_else(|| {
                 DiffError::UnsupportedExpression(
@@ -31,8 +31,7 @@ impl Compiler {
     ) -> Option<VReg> {
         if let ExprKind::Product(factors) = &term.kind {
             let neg_idx = factors.iter().position(|f| {
-                node::const_from_map(node_map, f.as_ref())
-                    .is_some_and(|n| (n + 1.0).abs() < EPSILON)
+                const_from_map(node_map, (*f).as_ref()).is_some_and(|n| (n + 1.0).abs() < EPSILON)
             })?;
             let num_inner = factors.len().saturating_sub(1);
             match num_inner {
@@ -98,8 +97,8 @@ impl Compiler {
             let t0 = terms[0].as_ref();
             let t1 = terms[1].as_ref();
 
-            let c0 = node::const_from_map(node_map, t0);
-            let c1 = node::const_from_map(node_map, t1);
+            let c0 = const_from_map(node_map, t0);
+            let c1 = const_from_map(node_map, t1);
             match (c0, c1) {
                 (Some(v0), Some(v1)) => {
                     let val = v0 + v1;
@@ -117,39 +116,39 @@ impl Compiler {
                 _ => {}
             }
 
-            if let Some((a, b)) = node::product_two_vregs(t0, node_map)
+            if let Some((a, b)) = product_two_vregs(t0, node_map)
                 && let Some(c) = self.negated_inner_vreg(t1, node_map)
             {
                 let dest = self.alloc_vreg();
                 self.emit(VInstruction::MulSub { dest, a, b, c });
                 return Ok(dest);
             }
-            if let Some((a, b)) = node::product_two_vregs(t1, node_map)
+            if let Some((a, b)) = product_two_vregs(t1, node_map)
                 && let Some(c) = self.negated_inner_vreg(t0, node_map)
             {
                 let dest = self.alloc_vreg();
                 self.emit(VInstruction::MulSub { dest, a, b, c });
                 return Ok(dest);
             }
-            if let Some((a, b)) = node::negated_product_two_vregs(t0, node_map) {
+            if let Some((a, b)) = negated_product_two_vregs(t0, node_map) {
                 let c = Self::vreg_from_map(node_map, t1)?;
                 let dest = self.alloc_vreg();
                 self.emit(VInstruction::NegMulAdd { dest, a, b, c });
                 return Ok(dest);
             }
-            if let Some((a, b)) = node::negated_product_two_vregs(t1, node_map) {
+            if let Some((a, b)) = negated_product_two_vregs(t1, node_map) {
                 let c = Self::vreg_from_map(node_map, t0)?;
                 let dest = self.alloc_vreg();
                 self.emit(VInstruction::NegMulAdd { dest, a, b, c });
                 return Ok(dest);
             }
-            if let Some((a, b)) = node::product_two_vregs(t0, node_map) {
+            if let Some((a, b)) = product_two_vregs(t0, node_map) {
                 let c = Self::vreg_from_map(node_map, t1)?;
                 let dest = self.alloc_vreg();
                 self.emit(VInstruction::MulAdd { dest, a, b, c });
                 return Ok(dest);
             }
-            if let Some((a, b)) = node::product_two_vregs(t1, node_map) {
+            if let Some((a, b)) = product_two_vregs(t1, node_map) {
                 let c = Self::vreg_from_map(node_map, t0)?;
                 let dest = self.alloc_vreg();
                 self.emit(VInstruction::MulAdd { dest, a, b, c });
@@ -182,7 +181,7 @@ impl Compiler {
         let mut has_const = false;
 
         for term in terms {
-            if let Some(c) = node::const_from_map(node_map, term.as_ref()) {
+            if let Some(c) = const_from_map(node_map, term.as_ref()) {
                 constant_acc += c;
                 has_const = true;
             } else if let Some(inner) = self.negated_inner_vreg(term.as_ref(), node_map) {

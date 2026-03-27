@@ -6,16 +6,22 @@
 //! - [`ToParamName`] — trait for types usable as parameter names
 //! - [`eval_f64`] — parallel batch evaluation over multiple expressions (requires `parallel` feature)
 
-pub use super::logic::VarLookup;
-use super::logic::bytecode::Instruction;
-use super::logic::{Compiler, expand_user_functions};
+use std::fmt::{Debug, Formatter, Result as FmtResult};
 
+pub use super::logic::VarLookup;
+pub use super::logic::{Compiler, Instruction, expand_user_functions};
 #[cfg(feature = "parallel")]
 pub use super::logic::{EvalResult, ExprInput, SKIP, Value, VarInput, evaluate_parallel};
 
+#[cfg(feature = "parallel")]
+use super::logic::eval_single_expr_chunked;
+#[cfg(feature = "parallel")]
+pub use super::logic::evaluate_parallel_with_hint;
+
 use crate::{
-    Expr,
-    core::{context::Context, error::DiffError},
+    Expr, Symbol,
+    core::{Context, error::DiffError, known_symbols::is_known_constant_by_id, symb_interned},
+    symb,
 };
 #[cfg(feature = "parallel")]
 use std::sync::OnceLock;
@@ -194,8 +200,8 @@ impl CompiledEvaluator {
     }
 }
 
-impl std::fmt::Debug for CompiledEvaluator {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Debug for CompiledEvaluator {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         let mut s = f.debug_struct("CompiledEvaluator");
         s.field("param_names", &self.param_names)
             .field("param_count", &self.param_count)
@@ -251,12 +257,12 @@ pub trait ToParamName {
 impl<T: AsRef<str>> ToParamName for T {
     fn to_param_id_and_name(&self) -> (u64, String) {
         let s = self.as_ref();
-        let sym = crate::symb(s);
+        let sym = symb(s);
         (sym.id(), s.to_owned())
     }
 }
 
-impl ToParamName for crate::Symbol {
+impl ToParamName for Symbol {
     fn to_param_id_and_name(&self) -> (u64, String) {
         (
             self.id(),
@@ -265,7 +271,7 @@ impl ToParamName for crate::Symbol {
     }
 }
 
-impl ToParamName for &crate::Symbol {
+impl ToParamName for &Symbol {
     fn to_param_id_and_name(&self) -> (u64, String) {
         (
             self.id(),
@@ -301,7 +307,7 @@ pub fn eval_f64<V: ToParamName + Sync>(
     (0..exprs.len())
         .into_par_iter()
         .map(|expr_idx| {
-            super::logic::eval_single_expr_chunked(
+            eval_single_expr_chunked(
                 exprs[expr_idx],
                 var_names[expr_idx],
                 data[expr_idx],
@@ -372,15 +378,15 @@ impl CompiledEvaluator {
         }
 
         Ok(Self {
-            instructions: optimized_instructions.into_boxed_slice(),
-            constants: constants.into_boxed_slice(),
-            arg_pool: arg_pool.into_boxed_slice(),
-            param_names: param_names.into_boxed_slice(),
+            instructions: Box::from(optimized_instructions),
+            constants: Box::from(constants),
+            arg_pool: Box::from(arg_pool),
+            param_names: Box::from(param_names),
             workspace_size: max_stack,
             param_count,
             #[cfg(feature = "parallel")]
             simd_constants_cache: OnceLock::new(),
-            registers_template: registers_template.into_boxed_slice(),
+            registers_template: Box::from(registers_template),
         })
     }
 
@@ -396,8 +402,8 @@ impl CompiledEvaluator {
         let mut param_order: Vec<String> = vars
             .into_iter()
             .filter(|v| {
-                let id = crate::core::symbol::symb_interned(v.as_str()).id();
-                !crate::core::known_symbols::is_known_constant_by_id(id)
+                let id = symb_interned(v.as_str()).id();
+                !is_known_constant_by_id(id)
             })
             .collect();
 

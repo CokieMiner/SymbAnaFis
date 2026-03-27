@@ -266,7 +266,7 @@ fn test_evaluate_with_all_variables() {
     let result = expr.evaluate(&vars, &HashMap::new());
 
     if let ExprKind::Number(n) = &result.kind {
-        assert!((*n - 3.0).abs() < 1e-10);
+        assert!((n - 3.0).abs() < 1e-10);
     } else {
         panic!("Expected number");
     }
@@ -281,7 +281,7 @@ fn test_evaluate_extra_variables_ok() {
     let result = expr.evaluate(&vars, &HashMap::new());
 
     if let ExprKind::Number(n) = &result.kind {
-        assert!((*n - 5.0).abs() < 1e-10);
+        assert!((n - 5.0).abs() < 1e-10);
     } else {
         panic!("Expected number");
     }

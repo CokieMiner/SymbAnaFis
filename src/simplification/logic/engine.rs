@@ -1,12 +1,14 @@
-//! Core simplification engine with rule-based architecture
 //!
 //! Implements bottom-up tree traversal, rule application with memoization,
 //! cycle detection, and configurable limits (iterations, depth).
 
 use super::rules::{ExprKind, RuleContext, RuleRegistry};
+use crate::core::BodyFn;
 use crate::{Expr, core::ExprKind as AstKind};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::HashMap;
+use std::env::var;
+use std::mem::take;
 use std::sync::{Arc, OnceLock};
 
 // =============================================================================
@@ -120,7 +122,7 @@ impl HashKeyedCache {
     /// so that expressions seen in the previous simplification pass can still benefit
     /// from the cache. Only entries two or more generations old are dropped.
     fn evict_old_generation(&mut self) {
-        self.previous = std::mem::take(&mut self.current);
+        self.previous = take(&mut self.current);
         self.previous_len = self.current_len;
         self.current_len = 0;
     }
@@ -148,7 +150,7 @@ const DEFAULT_CACHE_CAPACITY: usize = 100_000;
 fn trace_enabled() -> bool {
     static TRACE: OnceLock<bool> = OnceLock::new();
     *TRACE.get_or_init(|| {
-        std::env::var("SYMB_TRACE")
+        var("SYMB_TRACE")
             .map(|v| v == "1" || v.to_lowercase() == "true")
             .unwrap_or(false)
     })
@@ -225,10 +227,7 @@ impl Simplifier {
     }
 
     /// Sets custom function bodies.
-    pub fn with_custom_bodies(
-        mut self,
-        custom_bodies: HashMap<u64, crate::core::context::BodyFn>,
-    ) -> Self {
+    pub fn with_custom_bodies(mut self, custom_bodies: HashMap<u64, BodyFn>) -> Self {
         let fx_map: FxHashMap<u64, _> = custom_bodies.into_iter().collect();
         self.context = self.context.with_custom_bodies(fx_map);
         self

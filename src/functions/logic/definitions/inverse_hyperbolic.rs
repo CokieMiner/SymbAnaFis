@@ -1,6 +1,6 @@
-use super::super::registry::FunctionDefinition;
+use super::FunctionDefinition;
 use crate::Expr;
-use crate::core::known_symbols as ks;
+use crate::core::known_symbols::{KS, get_symbol};
 use std::sync::Arc;
 
 #[allow(clippy::too_many_lines, reason = "Static function definition list")]
@@ -107,7 +107,7 @@ pub fn get_definitions() -> Vec<FunctionDefinition> {
                         Expr::mul_from_arcs(vec![
                             Arc::clone(&u),
                             Arc::new(Expr::func_symbol(
-                                ks::get_symbol(ks::KS.sqrt),
+                                get_symbol(KS.sqrt),
                                 Expr::sub_expr(
                                     Expr::number(1.0),
                                     Expr::pow_from_arcs(u, Arc::new(Expr::number(2.0))),
@@ -138,11 +138,11 @@ pub fn get_definitions() -> Vec<FunctionDefinition> {
                         Expr::number(1.0),
                         Expr::mul_from_arcs(vec![
                             Arc::new(Expr::func_multi_from_arcs_symbol(
-                                ks::get_symbol(ks::KS.abs),
+                                get_symbol(KS.abs),
                                 vec![Arc::clone(&u)],
                             )),
                             Arc::new(Expr::func_symbol(
-                                ks::get_symbol(ks::KS.sqrt),
+                                get_symbol(KS.sqrt),
                                 Expr::sub_expr(
                                     Expr::number(1.0),
                                     Expr::pow_from_arcs(u, Arc::new(Expr::number(2.0))),

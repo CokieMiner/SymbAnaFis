@@ -2,8 +2,7 @@
 mod tests {
     use crate::simplification::simplify_expr;
     use crate::{Expr, core::ExprKind};
-    use std::collections::HashMap;
-    use std::collections::HashSet;
+    use std::collections::{HashMap, HashSet};
 
     #[test]
     fn test_power_of_power() {
@@ -67,7 +66,7 @@ mod tests {
             if let ExprKind::Product(factors) = &exp.kind {
                 let has_a = factors.iter().any(|f| **f == Expr::symbol("a"));
                 let has_b = factors.iter().any(|f| **f == Expr::symbol("b"));
-                assert!(has_a && has_b, "Expected a*b in exponent");
+                assert!(has_a && has_b, "Expected ab in exponent");
             } else {
                 panic!("Expected Product in exponent");
             }

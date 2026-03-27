@@ -1,4 +1,5 @@
 use crate::{Diff, Expr, Simplify, symb};
+use std::collections::HashSet;
 
 /// Helper macro to ensure String API and Object API produce identical results.
 /// This enforces that every feature available via parsing is also available via method chaining.
@@ -6,13 +7,8 @@ macro_rules! assert_api_parity {
     ($name:ident, $string_expr:expr, $object_expr:expr) => {
         #[test]
         fn $name() {
-            let s_api = crate::parse(
-                $string_expr,
-                &std::collections::HashSet::new(),
-                &std::collections::HashSet::new(),
-                None,
-            )
-            .expect("String Parse Failed");
+            let s_api = crate::parse($string_expr, &HashSet::new(), &HashSet::new(), None)
+                .expect("String Parse Failed");
             let o_api = $object_expr;
 
             assert_eq!(
@@ -81,11 +77,11 @@ fn parity_custom_functions() {
     let x = symb("x");
 
     // String API: parse "f(x)" with known function "f"
-    let mut funcs = std::collections::HashSet::new();
+    let mut funcs = HashSet::new();
     funcs.insert("f".to_string());
-    let mut funcs = std::collections::HashSet::new();
+    let mut funcs = HashSet::new();
     funcs.insert("f".to_string());
-    let str_expr = crate::parse("f(x)", &std::collections::HashSet::new(), &funcs, None).unwrap();
+    let str_expr = crate::parse("f(x)", &HashSet::new(), &funcs, None).unwrap();
 
     // Object API: Expr::func("f", x)
     let obj_expr = Expr::func("f", x.to_expr());
@@ -120,15 +116,7 @@ fn ensure_string_and_typesafe_apis_match() {
     let x = symb("x");
     let y = symb("y");
 
-    let p = |s: &str| {
-        parse(
-            s,
-            &std::collections::HashSet::new(),
-            &std::collections::HashSet::new(),
-            None,
-        )
-        .unwrap()
-    };
+    let p = |s: &str| parse(s, &HashSet::new(), &HashSet::new(), None).unwrap();
 
     macro_rules! check_unary {
         ($($method:ident),*) => {

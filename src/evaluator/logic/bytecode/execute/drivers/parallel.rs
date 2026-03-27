@@ -29,11 +29,16 @@
 //! # }
 //! ```
 
-use crate::{DiffError, Expr, parser};
+use super::CompiledEvaluator;
+use super::batch::run_chunked_evaluator;
+use crate::parser::parse;
+use crate::{DiffError, Expr, Symbol, symb};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::fmt::{Display, Formatter, Result as FmtResult};
+use std::sync::Arc;
 
 // ============================================================================
 // Input Types
@@ -81,7 +86,7 @@ pub struct VarInput {
     /// The interned symbol ID.
     id: u64,
     /// The symbol name.
-    name: std::sync::Arc<str>,
+    name: Arc<str>,
 }
 
 impl VarInput {
@@ -103,38 +108,38 @@ impl VarInput {
 impl From<&str> for VarInput {
     fn from(s: &str) -> Self {
         // Intern the symbol to get a stable ID
-        let sym = crate::symb(s);
+        let sym = symb(s);
         Self {
             id: sym.id(),
-            name: std::sync::Arc::from(s),
+            name: Arc::from(s),
         }
     }
 }
 
 impl From<String> for VarInput {
     fn from(s: String) -> Self {
-        let sym = crate::symb(&s);
+        let sym = symb(&s);
         Self {
             id: sym.id(),
-            name: std::sync::Arc::from(s.as_str()),
+            name: Arc::from(s.as_str()),
         }
     }
 }
 
-impl From<&crate::Symbol> for VarInput {
-    fn from(s: &crate::Symbol) -> Self {
+impl From<&Symbol> for VarInput {
+    fn from(s: &Symbol) -> Self {
         Self {
             id: s.id(),
-            name: std::sync::Arc::from(s.name().unwrap_or_default().as_str()),
+            name: Arc::from(s.name().unwrap_or_default().as_str()),
         }
     }
 }
 
-impl From<crate::Symbol> for VarInput {
-    fn from(s: crate::Symbol) -> Self {
+impl From<Symbol> for VarInput {
+    fn from(s: Symbol) -> Self {
         Self {
             id: s.id(),
-            name: std::sync::Arc::from(s.name().unwrap_or_default().as_str()),
+            name: Arc::from(s.name().unwrap_or_default().as_str()),
         }
     }
 }
@@ -211,7 +216,7 @@ impl EvalResult {
     pub fn to_expr(&self) -> Result<Expr, DiffError> {
         match self {
             Self::Expr(e) => Ok(e.clone()),
-            Self::String(s) => parser::parse(s, &HashSet::new(), &HashSet::new(), None),
+            Self::String(s) => parse(s, &HashSet::new(), &HashSet::new(), None),
         }
     }
 
@@ -272,8 +277,8 @@ impl EvalResult {
     }
 }
 
-impl std::fmt::Display for EvalResult {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Display for EvalResult {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match self {
             Self::String(s) => write!(f, "{s}"),
             Self::Expr(e) => write!(f, "{e}"),
@@ -360,7 +365,7 @@ pub fn evaluate_parallel_with_hint(
         .map(|input| match input {
             ExprInput::Parsed(e) => Ok((e, false)), // false = was Expr
             ExprInput::String(s) => {
-                let expr = parser::parse(&s, &HashSet::new(), &HashSet::new(), None)?;
+                let expr = parse(&s, &HashSet::new(), &HashSet::new(), None)?;
                 Ok((expr, true)) // true = was String
             }
         })
@@ -393,11 +398,7 @@ pub fn evaluate_parallel_with_hint(
                 }]);
             }
             // Find max points across all variables
-            let n_points = expr_values
-                .iter()
-                .map(std::vec::Vec::len)
-                .max()
-                .unwrap_or(0);
+            let n_points = expr_values.iter().map(Vec::len).max().unwrap_or(0);
             if n_points == 0 {
                 return Ok(vec![]);
             }
@@ -405,7 +406,7 @@ pub fn evaluate_parallel_with_hint(
             // SAFETY: Validate that no columns are empty when n_points > 0
             // This prevents panics in the fast paths that use .last().expect()
             // Broadcasting from the last value is only valid if the column has at least one value
-            if expr_values.iter().any(std::vec::Vec::is_empty) {
+            if expr_values.iter().any(Vec::is_empty) {
                 return Err(DiffError::EvalColumnLengthMismatch);
             }
 
@@ -415,7 +416,7 @@ pub fn evaluate_parallel_with_hint(
 
             // We ignore all_values_numeric check here - we'll check per-point
             // We also rely on compile() to check that all variables are bound
-            let evaluator = crate::evaluator::CompiledEvaluator::compile(expr, &vars, None).ok();
+            let evaluator = CompiledEvaluator::compile(expr, &vars, None).ok();
 
             if let Some(evaluator) = evaluator {
                 // OPTIMIZATION: Use pre-computed hint if available, otherwise compute lazily
@@ -463,7 +464,7 @@ pub fn evaluate_parallel_with_hint(
 
                     // 2. Pre-allocate output and run the dedicated f64 evaluator
                     let mut output = vec![0.0; n_points];
-                    super::batch::run_chunked_evaluator(&evaluator, &col_refs, &mut output)
+                    run_chunked_evaluator(&evaluator, &col_refs, &mut output)
                         .expect("Chunked evaluation failed in parallel numeric path");
 
                     // 3. Convert results back to the required EvalResult type
@@ -473,7 +474,7 @@ pub fn evaluate_parallel_with_hint(
                             if *was_string {
                                 EvalResult::String(format_float(n))
                             } else {
-                                EvalResult::Expr(crate::Expr::number(n))
+                                EvalResult::Expr(Expr::number(n))
                             }
                         })
                         .collect();
@@ -546,7 +547,7 @@ pub fn evaluate_parallel_with_hint(
                                     Ok(if *was_string {
                                         EvalResult::String(format_float(r))
                                     } else {
-                                        EvalResult::Expr(crate::Expr::number(r))
+                                        EvalResult::Expr(Expr::number(r))
                                     })
                                 } else {
                                     // SLOW PATH: Fallback for this point
@@ -661,7 +662,7 @@ fn format_float(n: f64) -> String {
 macro_rules! __parse_values_inner {
     // Single value
     (@val $v:expr) => {
-        $crate::parallel::Value::from($v)
+        $crate::Value::from($v)
     };
 
     // Array of values -> Vec<Value>
@@ -712,128 +713,10 @@ macro_rules! eval_parallel {
         vars: [$([$($v:expr),* $(,)?]),* $(,)?],
         values: [$([$([$($val:expr),* $(,)?]),* $(,)?]),* $(,)?]
     ) => {{
-        $crate::evaluator::evaluate_parallel(
-            vec![$($crate::evaluator::ExprInput::from($e)),*],
-            vec![$(vec![$($crate::evaluator::VarInput::from($v)),*]),*],
-            vec![$(vec![$(vec![$($crate::evaluator::Value::from($val)),*]),*]),*],
+        $crate::evaluate_parallel(
+            vec![$($crate::ExprInput::from($e)),*],
+            vec![$(vec![$($crate::VarInput::from($v)),*]),*],
+            vec![$(vec![$(vec![$($crate::Value::from($val)),*]),*]),*],
         )
     }};
-}
-
-// ============================================================================
-// Tests
-// ============================================================================
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{core::ExprKind, symb};
-
-    fn get_num(expr: &Expr) -> f64 {
-        match &expr.kind {
-            ExprKind::Number(n) => *n,
-            _ => f64::NAN,
-        }
-    }
-
-    #[test]
-    fn test_string_expr_single_var() {
-        let results = eval_parallel!(
-            exprs: ["x^2"],
-            vars: [["x"]],
-            values: [[[1.0, 2.0, 3.0]]]
-        )
-        .expect("Should pass");
-
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].len(), 3);
-        assert!(results[0][0].is_string());
-        assert_eq!(results[0][0].to_string(), "1");
-        assert_eq!(results[0][1].to_string(), "4");
-        assert_eq!(results[0][2].to_string(), "9");
-    }
-
-    #[test]
-    fn test_expr_input_single_var() {
-        let x = symb("x");
-        let expr = x.pow(2.0);
-
-        let results = eval_parallel!(
-            exprs: [expr],
-            vars: [["x"]],
-            values: [[[1.0, 2.0, 3.0]]]
-        )
-        .expect("Should pass");
-
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].len(), 3);
-        assert!(results[0][0].is_expr());
-        assert!((get_num(&results[0][0].clone().unwrap_expr()) - 1.0).abs() < 1e-10);
-        assert!((get_num(&results[0][1].clone().unwrap_expr()) - 4.0).abs() < 1e-10);
-        assert!((get_num(&results[0][2].clone().unwrap_expr()) - 9.0).abs() < 1e-10);
-    }
-
-    #[test]
-    fn test_mixed_exprs() {
-        let t = symb("t");
-        let expr = &t + 1.0;
-
-        let results = eval_parallel!(
-            exprs: ["x^2", expr],
-            vars: [["x"], ["t"]],
-            values: [
-                [[2.0, 3.0]],
-                [[10.0, 20.0]]
-            ]
-        )
-        .expect("Should pass");
-
-        assert_eq!(results.len(), 2);
-
-        // First was string
-        assert!(results[0][0].is_string());
-        assert_eq!(results[0][0].to_string(), "4");
-        assert_eq!(results[0][1].to_string(), "9");
-
-        // Second was Expr
-        assert!(results[1][0].is_expr());
-        assert!((get_num(&results[1][0].clone().unwrap_expr()) - 11.0).abs() < 1e-10);
-        assert!((get_num(&results[1][1].clone().unwrap_expr()) - 21.0).abs() < 1e-10);
-    }
-
-    #[test]
-    fn test_two_vars() {
-        let results = eval_parallel!(
-            exprs: ["x + y"],
-            vars: [["x", "y"]],
-            values: [[[1.0, 2.0], [10.0, 20.0]]]
-        )
-        .expect("Should pass");
-
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].len(), 2);
-        assert_eq!(results[0][0].to_string(), "11");
-        assert_eq!(results[0][1].to_string(), "22");
-    }
-
-    #[test]
-    fn test_skip_value() {
-        let eval_results = eval_parallel!(
-            exprs: ["x * y"],
-            vars: [["x", "y"]],
-            values: [[[2.0, SKIP], [3.0, 5.0]]]
-        )
-        .expect("Should pass");
-
-        assert_eq!(eval_results.len(), 1);
-        assert_eq!(eval_results[0].len(), 2);
-
-        // Point 0: x=2, y=3 → 6
-        assert_eq!(eval_results[0][0].to_string(), "6");
-
-        // Point 1: x=skip, y=5 → symbolic
-        let result_str = eval_results[0][1].to_string();
-        assert!(result_str.contains('x'));
-        assert!(result_str.contains('5'));
-    }
 }

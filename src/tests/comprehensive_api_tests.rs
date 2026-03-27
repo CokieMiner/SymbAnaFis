@@ -5,6 +5,7 @@
 use crate::parser::parse as parser_parse;
 use crate::{Diff, Expr, Simplify, core::ExprKind, diff, simplify, symb};
 use std::collections::{HashMap, HashSet};
+use std::f64::consts::PI;
 
 const EPSILON: f64 = 1e-9;
 const LOOSE_EPSILON: f64 = 1e-4; // For approximation algorithms
@@ -355,15 +356,12 @@ mod api_tests {
         // d/dx(x^2 * y + sin(x)) = 2xy + cos(x)
 
         // Now evaluate with specific values
-        let vars: HashMap<&str, f64> = [("x", std::f64::consts::PI), ("y", 3.0)]
-            .iter()
-            .cloned()
-            .collect();
+        let vars: HashMap<&str, f64> = [("x", PI), ("y", 3.0)].iter().cloned().collect();
         let result = derivative.evaluate(&vars, &HashMap::new());
 
         // At x=π, y=3: 2*π*3 + cos(π) = 6π - 1 ≈ 17.85
         if let ExprKind::Number(n) = result.kind {
-            let expected = 2.0 * std::f64::consts::PI * 3.0 + std::f64::consts::PI.cos();
+            let expected = 2.0 * PI * 3.0 + PI.cos();
             assert!(
                 approx_eq(n, expected, LOOSE_EPSILON),
                 "Expected ~{}, got {}",
@@ -1149,7 +1147,7 @@ mod edge_case_tests {
 // ============================================================
 
 mod custom_fn_differentiation_tests {
-    use crate::core::context::UserFunction;
+    use crate::core::UserFunction;
     use crate::{Diff, Expr, symb};
 
     /// Test basic UserFunction registration and differentiation

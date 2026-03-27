@@ -4,8 +4,10 @@
 //! coefficient extraction, root prettification, and like-term grouping.
 
 use crate::EPSILON;
-use crate::core::known_symbols as ks;
+use crate::core::arc_number;
+use crate::core::known_symbols::{KS, get_symbol};
 use crate::{Expr, core::ExprKind};
+use std::cmp::Ordering;
 use std::f64::consts::PI;
 use std::sync::Arc;
 
@@ -50,7 +52,7 @@ pub fn is_multiple_of_two_pi(expr: &Expr) -> bool {
         for f in factors {
             match &f.kind {
                 ExprKind::Number(n) => num_coeff = Some(num_coeff.unwrap_or(1.0) * n),
-                ExprKind::Symbol(s) if s.id() == ks::KS.pi => has_pi = true,
+                ExprKind::Symbol(s) if s.id() == KS.pi => has_pi = true,
                 _ => return false,
             }
         }
@@ -71,7 +73,7 @@ pub fn is_pi(expr: &Expr) -> bool {
     }
     // Check symbolic pi
     if let ExprKind::Symbol(s) = &expr.kind {
-        return s.id() == ks::KS.pi;
+        return s.id() == KS.pi;
     }
     false
 }
@@ -94,12 +96,12 @@ pub fn is_three_pi_over_two(expr: &Expr) -> bool {
             let mut has_pi = false;
             for f in factors {
                 if let ExprKind::Number(n) = &f.kind
-                    && (*n - 3.0).abs() < EPSILON
+                    && (n - 3.0).abs() < EPSILON
                 {
                     has_three = true;
                 }
                 if let ExprKind::Symbol(s) = &f.kind
-                    && s.id() == ks::KS.pi
+                    && s.id() == KS.pi
                 {
                     has_pi = true;
                 }
@@ -126,11 +128,11 @@ pub fn is_three_pi_over_two(expr: &Expr) -> bool {
 ///
 /// Used to establish a consistent term order in sums and products
 /// for algebraic simplification rules.
-pub fn compare_expr(a: &Expr, b: &Expr) -> std::cmp::Ordering {
+pub fn compare_expr(a: &Expr, b: &Expr) -> Ordering {
     use crate::core::ExprKind::{
         Derivative, Div, FunctionCall, Number, Poly, Pow, Product, Sum, Symbol,
     };
-    use std::cmp::Ordering;
+    use Ordering;
 
     /// Extract (`base_name`, degree) for polynomial-style ordering.
     /// Returns (`type_priority`, `base_symbol_id`, degree) - uses u64 ID to avoid String alloc
@@ -199,11 +201,11 @@ pub fn compare_expr(a: &Expr, b: &Expr) -> std::cmp::Ordering {
 /// Numbers (coefficients) come first, then symbols, then complex expressions
 /// Compare multiplication factors for canonical ordering.
 /// Used for organizing terms in products during simplification.
-pub fn compare_mul_factors(a: &Expr, b: &Expr) -> std::cmp::Ordering {
+pub fn compare_mul_factors(a: &Expr, b: &Expr) -> Ordering {
     use crate::core::ExprKind::{
         Derivative, Div, FunctionCall, Number, Poly, Pow, Product, Sum, Symbol,
     };
-    use std::cmp::Ordering;
+    use Ordering;
 
     fn factor_priority(e: &Expr) -> i32 {
         match &e.kind {
@@ -289,7 +291,7 @@ pub fn extract_coeff(expr: &Expr) -> (f64, Expr) {
 #[inline]
 pub fn extract_coeff_arc(expr: &Arc<Expr>) -> (f64, Arc<Expr>) {
     match &expr.kind {
-        ExprKind::Number(n) => (*n, crate::core::expr::arc_number(1.0)),
+        ExprKind::Number(n) => (*n, arc_number(1.0)),
         ExprKind::Product(factors) => {
             // Fast path: if no numeric factors, coeff is 1.0 and base is the original
             let has_numeric = factors
@@ -311,7 +313,7 @@ pub fn extract_coeff_arc(expr: &Arc<Expr>) -> (f64, Arc<Expr>) {
             }
 
             let base = if non_num_arcs.is_empty() {
-                crate::core::expr::arc_number(1.0)
+                arc_number(1.0)
             } else if non_num_arcs.len() == 1 {
                 Arc::clone(&non_num_arcs[0])
             } else {
@@ -411,7 +413,7 @@ pub fn prettify_roots(root: Expr) -> Expr {
                                 && matches!(den.kind, ExprKind::Number(v) if v == 2.0)
                             {
                                 let b = results.drain(start..).next().expect("base");
-                                results.push(Expr::func_symbol(ks::get_symbol(ks::KS.sqrt), b));
+                                results.push(Expr::func_symbol(get_symbol(KS.sqrt), b));
                                 continue;
                             }
                             #[allow(
@@ -422,7 +424,7 @@ pub fn prettify_roots(root: Expr) -> Expr {
                                 && matches!(den.kind, ExprKind::Number(v) if v == 3.0)
                             {
                                 let b = results.drain(start..).next().expect("base");
-                                results.push(Expr::func_symbol(ks::get_symbol(ks::KS.cbrt), b));
+                                results.push(Expr::func_symbol(get_symbol(KS.cbrt), b));
                                 continue;
                             }
                         }
@@ -431,7 +433,7 @@ pub fn prettify_roots(root: Expr) -> Expr {
                             && (val - 0.5).abs() < EPSILON
                         {
                             let b = results.drain(start..).next().expect("base");
-                            results.push(Expr::func_symbol(ks::get_symbol(ks::KS.sqrt), b));
+                            results.push(Expr::func_symbol(get_symbol(KS.sqrt), b));
                             continue;
                         }
 
@@ -558,10 +560,10 @@ pub fn is_known_non_negative(expr: &Expr) -> bool {
 
             // abs(x), exp(x), cosh(x) are always non-negative
             ExprKind::FunctionCall { name, args } if args.len() == 1 => {
-                if name.id() == ks::KS.abs || name.id() == ks::KS.exp || name.id() == ks::KS.cosh {
+                if name.id() == KS.abs || name.id() == KS.exp || name.id() == KS.cosh {
                     continue; // always non-negative
                 }
-                if name.id() == ks::KS.sqrt {
+                if name.id() == KS.sqrt {
                     stack.push(&args[0]); // non-negative if arg is non-negative
                     continue;
                 }
@@ -613,8 +615,8 @@ pub fn is_fractional_root_exponent(expr: &Expr) -> bool {
             } else {
                 // Check if it's k/2^n for some integers
                 // Simple check: 0.5 = 1/2, 0.25 = 1/4, 0.75 = 3/4, etc.
-                let doubled = *n * 2.0;
-                doubled.fract() == 0.0 // If 2*n is integer, then n = k/2
+                let doubled = n * 2.0;
+                doubled.fract() == 0.0 // If 2n is integer, then n = k/2
             }
         }
         _ => false,
@@ -793,7 +795,6 @@ pub fn normalize_for_comparison(root: &Expr) -> Expr {
 }
 
 /// Check if two expressions are semantically equivalent (same after normalization)
-/// Check if two expressions are structurally equivalent.
 /// Used for testing and validation in simplification rules.
 pub fn exprs_equivalent(a: &Expr, b: &Expr) -> bool {
     normalize_for_comparison(a) == normalize_for_comparison(b)

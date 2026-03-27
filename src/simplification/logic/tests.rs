@@ -6,12 +6,13 @@
 mod rule_registry_tests {
     use super::super::engine::global_registry;
     use super::super::rules::{ExprKind, RuleCategory};
+    use std::collections::{HashMap, HashSet};
 
     #[test]
     fn test_rule_registry_loads_all_categories() {
         let registry = global_registry();
 
-        let mut category_counts = std::collections::HashMap::new();
+        let mut category_counts = HashMap::new();
         for rule in &registry.rules {
             *category_counts.entry(rule.category()).or_insert(0) += 1;
         }
@@ -51,7 +52,7 @@ mod rule_registry_tests {
     #[test]
     fn test_rule_names_are_unique() {
         let registry = global_registry();
-        let mut seen_names = std::collections::HashSet::new();
+        let mut seen_names = HashSet::new();
 
         for rule in &registry.rules {
             let name = rule.name();
@@ -146,7 +147,7 @@ mod debug_factoring_logic_tests {
             match &term.kind {
                 ExprKind::Pow(base, exp) => {
                     if let ExprKind::Number(n) = &exp.kind
-                        && (*n - 2.0).abs() < 1e-10
+                        && (n - 2.0).abs() < 1e-10
                     {
                         square_terms.push((1.0, base.as_ref().clone()));
                         continue;
@@ -154,7 +155,7 @@ mod debug_factoring_logic_tests {
                     linear_terms.push((1.0, term.clone(), Expr::number(1.0)));
                 }
                 ExprKind::Number(n) => {
-                    constants.push(*n);
+                    constants.push(n);
                 }
                 ExprKind::Product(_) => {
                     let (coeff, non_numeric) = extract_coeff_and_factors_debug(term);
@@ -162,7 +163,7 @@ mod debug_factoring_logic_tests {
                     if non_numeric.len() == 1 {
                         if let ExprKind::Pow(base, exp) = &non_numeric[0].kind
                             && let ExprKind::Number(n) = &exp.kind
-                            && (*n - 2.0).abs() < 1e-10
+                            && (n - 2.0).abs() < 1e-10
                         {
                             square_terms.push((coeff, base.as_ref().clone()));
                             continue;

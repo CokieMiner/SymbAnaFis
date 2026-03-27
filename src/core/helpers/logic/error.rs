@@ -4,7 +4,8 @@
 //! - `DiffError` - The main error enum for all parsing/differentiation failures
 //! - `Span` - Source location tracking for precise error messages
 
-use std::fmt;
+use std::error::Error;
+use std::fmt::{Display, Formatter, Result as FmtResult};
 
 /// Source location span for error reporting
 /// Represents a range of characters in the input string
@@ -243,13 +244,13 @@ impl DiffError {
     }
 }
 
-impl fmt::Display for DiffError {
+impl Display for DiffError {
     // Complex error display logic with many variants
     #[allow(
         clippy::too_many_lines,
         reason = "Complex error display logic with many variants"
     )]
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match self {
             Self::EmptyFormula => write!(f, "Formula cannot be empty"),
             Self::InvalidSyntax { msg, span } => {
@@ -378,4 +379,4 @@ impl fmt::Display for DiffError {
     }
 }
 
-impl std::error::Error for DiffError {}
+impl Error for DiffError {}

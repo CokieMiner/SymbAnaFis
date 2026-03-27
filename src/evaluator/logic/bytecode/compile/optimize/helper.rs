@@ -1,4 +1,4 @@
-use super::super::super::instruction::Instruction;
+use super::instruction::Instruction;
 use crate::core::error::DiffError;
 use rustc_hash::FxHashMap;
 

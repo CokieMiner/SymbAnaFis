@@ -9,9 +9,15 @@
     reason = "PyO3 from_py_object macro generates lifetimes"
 )]
 
+use super::symbol::PySymbol;
+use super::view::PyExprView;
 use crate::EPSILON;
 use crate::Expr as RustExpr;
+use crate::core::ExprKind;
+use crate::{Diff, Simplify, symb};
 use pyo3::prelude::*;
+use std::collections::HashMap;
+use std::f64::consts::E;
 
 /// Python wrapper for symbolic expressions
 #[pyclass(unsendable, name = "Expr", from_py_object)]
@@ -41,7 +47,7 @@ impl PyExpr {
         if let Ok(other_expr) = other.extract::<Self>() {
             return self.0 == other_expr.0;
         }
-        if let Ok(other_sym) = other.extract::<super::symbol::PySymbol>() {
+        if let Ok(other_sym) = other.extract::<PySymbol>() {
             return self.0 == other_sym.0.to_expr();
         }
         false
@@ -74,7 +80,7 @@ impl PyExpr {
 
     /// Convert to float if the expression is a numeric constant
     fn __float__(&self) -> PyResult<f64> {
-        if let crate::core::ExprKind::Number(n) = &self.0.kind {
+        if let ExprKind::Number(n) = &self.0.kind {
             Ok(*n)
         } else {
             Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(format!(
@@ -755,12 +761,12 @@ impl PyExpr {
 
     /// Check if expression is a raw symbol
     const fn is_symbol(&self) -> bool {
-        matches!(self.0.kind, crate::core::ExprKind::Symbol(_))
+        matches!(self.0.kind, ExprKind::Symbol(_))
     }
 
     /// Check if expression is a constant number
     const fn is_number(&self) -> bool {
-        matches!(self.0.kind, crate::core::ExprKind::Number(_))
+        matches!(self.0.kind, ExprKind::Number(_))
     }
 
     /// Check if expression is effectively zero
@@ -775,8 +781,8 @@ impl PyExpr {
 
     /// Differentiate this expression
     fn diff(&self, var: &str) -> PyResult<Self> {
-        let sym = crate::symb(var);
-        crate::Diff::new()
+        let sym = symb(var);
+        Diff::new()
             .differentiate(&self.0, &sym)
             .map(PyExpr)
             .map_err(Into::into)
@@ -801,15 +807,17 @@ impl PyExpr {
         clippy::needless_pass_by_value,
         reason = "PyO3 requires owned types for Python dict arguments"
     )]
-    fn evaluate(&self, vars: std::collections::HashMap<String, f64>) -> Self {
-        let var_map: std::collections::HashMap<&str, f64> =
-            vars.iter().map(|(k, v)| (k.as_str(), *v)).collect();
-        Self(self.0.evaluate(&var_map, &std::collections::HashMap::new()))
+    fn evaluate(&self, vars: HashMap<String, f64>) -> Self {
+        let var_map: HashMap<&str, f64> = vars
+            .iter()
+            .map(|(k, v): (&String, &f64)| (k.as_str(), *v))
+            .collect();
+        Self(self.0.evaluate(&var_map, &HashMap::new()))
     }
 
     /// Simplify this expression
     fn simplify(&self) -> PyResult<Self> {
-        crate::Simplify::new()
+        Simplify::new()
             .simplify(&self.0)
             .map(PyExpr)
             .map_err(Into::into)
@@ -839,8 +847,8 @@ impl PyExpr {
     ///     3
     ///     >>> view.children[0]
     ///     Expr(1)
-    fn view(&self) -> super::visitor::PyExprView {
-        super::visitor::PyExprView::from_view(self.0.view())
+    fn view(&self) -> PyExprView {
+        PyExprView::from_view(self.0.view())
     }
 }
 
@@ -859,7 +867,7 @@ fn is_zeta_pole(s: f64) -> bool {
 
 /// Check if value is outside the domain of Lambert W function
 fn is_lambert_w_domain_error(x: f64) -> bool {
-    x < -1.0 / std::f64::consts::E - EPSILON
+    x < -1.0 / E - EPSILON
 }
 
 /// Check if value is outside the domain of Bessel Y and K functions
@@ -914,7 +922,7 @@ fn is_log_value_domain_error(x: f64) -> bool {
 
 /// Extracts the numeric value from an expression if it is a number.
 const fn get_numeric_value(expr: &RustExpr) -> Option<f64> {
-    if let crate::core::ExprKind::Number(n) = &expr.kind {
+    if let ExprKind::Number(n) = &expr.kind {
         Some(*n)
     } else {
         None
@@ -932,7 +940,7 @@ pub fn extract_to_expr(value: &Bound<'_, PyAny>) -> PyResult<RustExpr> {
     if let Ok(expr) = value.extract::<PyExpr>() {
         return Ok(expr.0);
     }
-    if let Ok(sym) = value.extract::<super::symbol::PySymbol>() {
+    if let Ok(sym) = value.extract::<PySymbol>() {
         return Ok(sym.0.to_expr());
     }
     // Numbers
@@ -950,7 +958,7 @@ pub fn extract_to_expr(value: &Bound<'_, PyAny>) -> PyResult<RustExpr> {
     // Strings are strictly treated as symbols in this constructor path.
     // If the user wants to parse a formula, they should use the global parse() function.
     if let Ok(s) = value.extract::<String>() {
-        return Ok(crate::symb(&s).into());
+        return Ok(symb(&s).into());
     }
     Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
         "Argument must be Expr, Symbol, int, float, or string",

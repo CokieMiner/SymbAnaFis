@@ -1,6 +1,6 @@
 #[test]
 fn debug_rc_derivative() {
-    use crate::{Expr, core::context::Context, simplification::simplify_expr};
+    use crate::{Expr, core::Context, simplification::simplify_expr};
     use std::collections::{HashMap, HashSet};
 
     // Simplified RC test using n-ary Product

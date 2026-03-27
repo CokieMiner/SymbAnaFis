@@ -12,6 +12,7 @@ use crate::math::{
 };
 use num_traits::Float;
 use rand::{RngExt, SeedableRng, rngs::StdRng};
+use std::f64::consts::PI;
 
 fn random_std_rng() -> StdRng {
     StdRng::seed_from_u64(rand::random())
@@ -193,8 +194,8 @@ fn fuzz_polynomial_recurrence_and_domain_checks() {
     for _ in 0..200 {
         let l: i32 = rng.random_range(0..=6);
         let m: i32 = rng.random_range(-l..=l);
-        let theta: f64 = rng.random_range(0.0..std::f64::consts::PI);
-        let phi: f64 = rng.random_range(-std::f64::consts::PI..std::f64::consts::PI);
+        let theta: f64 = rng.random_range(0.0..PI);
+        let phi: f64 = rng.random_range(-PI..PI);
 
         let ylm = eval_spherical_harmonic(l, m, theta, phi);
         assert!(

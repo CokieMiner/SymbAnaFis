@@ -1,9 +1,13 @@
-use super::super::super::super::helpers;
-use super::super::core::{ExprKind, Rule, RuleCategory, RuleContext};
 use super::helpers::get_trig_function;
+use super::rule_helpers::{
+    approx_eq, get_numeric_value, is_multiple_of_two_pi, is_pi, is_three_pi_over_two,
+};
+use super::{ExprKind, Rule, RuleCategory, RuleContext};
 use crate::EPSILON;
-use crate::core::expr::{Expr, ExprKind as AstKind};
 use crate::core::known_symbols::{KS, get_symbol};
+use crate::core::{Expr, ExprKind as AstKind};
+use std::f64::consts::PI;
+use std::sync::Arc;
 
 rule!(
     CofunctionIdentityRule,
@@ -17,7 +21,7 @@ rule!(
             if let AstKind::Product(factors) = &term.kind
                 && factors.len() == 2
                 && let AstKind::Number(n) = &factors[0].kind
-                && (*n + 1.0).abs() < EPSILON
+                && (n + 1.0).abs() < EPSILON
             {
                 return Some((*factors[1]).clone());
             }
@@ -40,11 +44,9 @@ rule!(
                         // Exact check for denominator 2.0 (PI/2)
                         #[allow(clippy::float_cmp, reason = "Comparing against exact constant 2.0")]
                         let is_two = matches!(&den.kind, AstKind::Number(n) if *n == 2.0);
-                        helpers::is_pi(num) && is_two
+                        is_pi(num) && is_two
                     } else {
-                        helpers::get_numeric_value(e).is_some_and(|value| {
-                            helpers::approx_eq(value, std::f64::consts::PI / 2.0)
-                        })
+                        get_numeric_value(e).is_some_and(|value| approx_eq(value, PI / 2.0))
                     }
                 };
 
@@ -124,10 +126,10 @@ rule!(
             let rhs = &terms[1];
 
             // x + 2πk = x (for trig functions)
-            if helpers::is_multiple_of_two_pi(rhs) {
+            if is_multiple_of_two_pi(rhs) {
                 return Some(Expr::func(name.clone(), (**lhs).clone()));
             }
-            if helpers::is_multiple_of_two_pi(lhs) {
+            if is_multiple_of_two_pi(lhs) {
                 return Some(Expr::func(name.clone(), (**rhs).clone()));
             }
         }
@@ -147,7 +149,7 @@ rule!(
             if let AstKind::Product(factors) = &term.kind
                 && factors.len() == 2
                 && let AstKind::Number(n) = &factors[0].kind
-                && (*n + 1.0).abs() < EPSILON
+                && (n + 1.0).abs() < EPSILON
             {
                 return Some((*factors[1]).clone());
             }
@@ -164,7 +166,7 @@ rule!(
             let v = &terms[1];
 
             // Check π + (-x) pattern: sin(π - x) = sin(x), cos(π - x) = -cos(x)
-            if helpers::is_pi(u)
+            if is_pi(u)
                 && let Some(x) = extract_negated(v)
             {
                 match name {
@@ -180,7 +182,7 @@ rule!(
             }
 
             // Check π + x pattern: sin(π + x) = -sin(x), cos(π + x) = -cos(x)
-            if helpers::is_pi(u) {
+            if is_pi(u) {
                 match name {
                     n if n.id() == KS.sin || n.id() == KS.cos => {
                         return Some(Expr::product(vec![
@@ -192,7 +194,7 @@ rule!(
                 }
             }
 
-            if helpers::is_pi(v) {
+            if is_pi(v) {
                 match name {
                     n if n.id() == KS.sin || n.id() == KS.cos => {
                         return Some(Expr::product(vec![
@@ -220,7 +222,7 @@ rule!(
             if let AstKind::Product(factors) = &term.kind
                 && factors.len() == 2
                 && let AstKind::Number(n) = &factors[0].kind
-                && (*n + 1.0).abs() < EPSILON
+                && (n + 1.0).abs() < EPSILON
             {
                 return Some((*factors[1]).clone());
             }
@@ -237,7 +239,7 @@ rule!(
             let v = &terms[1];
 
             // Check 3π/2 + (-x) pattern
-            if helpers::is_three_pi_over_two(u)
+            if is_three_pi_over_two(u)
                 && let Some(x) = extract_negated(v)
             {
                 match name {
@@ -257,7 +259,7 @@ rule!(
                 }
             }
 
-            if helpers::is_three_pi_over_two(v)
+            if is_three_pi_over_two(v)
                 && let Some(x) = extract_negated(u)
             {
                 match name {
@@ -301,15 +303,16 @@ rule!(
                 }
             {
                 let inner = (*factors[1]).clone();
-                match &name {
-                    func if func.id() == KS.sin || func.id() == KS.tan => {
+                let func_id = name.id();
+                match func_id {
+                    id if id == KS.sin || id == KS.tan => {
                         return Some(Expr::product(vec![
                             Expr::number(-1.0),
-                            Expr::func_symbol(name.clone(), inner),
+                            Expr::func_symbol(name, inner),
                         ]));
                     }
-                    func if func.id() == KS.cos || func.id() == KS.sec => {
-                        return Some(Expr::func_symbol(name.clone(), inner));
+                    id if id == KS.cos || id == KS.sec => {
+                        return Some(Expr::func_symbol(name, inner));
                     }
                     _ => {}
                 }

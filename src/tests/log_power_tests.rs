@@ -3,8 +3,7 @@ mod tests {
     use crate::core::known_symbols::KS;
     use crate::simplification::simplify_expr;
     use crate::{Expr, core::ExprKind};
-    use std::collections::HashMap;
-    use std::collections::HashSet;
+    use std::collections::{HashMap, HashSet};
 
     #[test]
     fn test_ln_power() {

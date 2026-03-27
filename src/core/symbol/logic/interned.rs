@@ -2,6 +2,9 @@
 //!
 //! Contains the `InternedSymbol` type that is stored in the global registry.
 
+use std::cmp::Ordering;
+use std::fmt::{Display, Formatter, Result as FmtResult};
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use slotmap::{DefaultKey, Key};
@@ -75,15 +78,15 @@ impl PartialEq for InternedSymbol {
 impl Eq for InternedSymbol {}
 
 // Hash by key for O(1) HashMap operations
-impl std::hash::Hash for InternedSymbol {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+impl Hash for InternedSymbol {
+    fn hash<H: Hasher>(&self, state: &mut H) {
         self.key.hash(state);
     }
 }
 
 // Allow display for debugging and error messages
-impl std::fmt::Display for InternedSymbol {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Display for InternedSymbol {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match &self.name {
             Some(n) => write!(f, "{n}"),
             None => write!(f, "${}", self.id()),
@@ -103,18 +106,18 @@ impl AsRef<str> for InternedSymbol {
 
 // Support ordering for canonical forms
 impl PartialOrd for InternedSymbol {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
 impl Ord for InternedSymbol {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    fn cmp(&self, other: &Self) -> Ordering {
         // Compare by name first, then by ID for anonymous symbols
         match (&self.name, &other.name) {
             (Some(a), Some(b)) => a.cmp(b),
-            (Some(_), None) => std::cmp::Ordering::Less,
-            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (Some(_), None) => Ordering::Less,
+            (None, Some(_)) => Ordering::Greater,
             (None, None) => self.id().cmp(&other.id()),
         }
     }

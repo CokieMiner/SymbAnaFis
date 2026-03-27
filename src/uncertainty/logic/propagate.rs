@@ -1,4 +1,4 @@
-use super::super::api::CovarianceMatrix;
+use super::CovarianceMatrix;
 use crate::{DiffError, Expr};
 
 /// Compute the sum of uncertainty terms using the GUM formula

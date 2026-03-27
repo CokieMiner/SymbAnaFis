@@ -1,40 +1,46 @@
-//! Public API for end-users of the `expr` module.
+//! Unified API for the `expr` module.
 //!
-//! Defines the core public types:
-//! - [`Expr`] — the symbolic expression type
-//! - [`ExprKind`] — the AST node variants
-//! - [`CustomEvalMap`] — type alias for custom evaluation functions
+//! Handled at the top `core` level for user-vs-crate visibility.
 
-use rustc_hash::FxHasher;
-use std::hash::Hasher;
+use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
+use std::mem::{discriminant, replace, take};
 use std::ops::Deref;
 use std::sync::Arc;
+use std::sync::LazyLock;
+use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::core::symbol::InternedSymbol;
+use rustc_hash::FxHasher;
 
-pub use super::logic::math_methods::ArcExprExt;
-
-use super::api_crate::DUMMY_ARC;
+pub use super::logic::ArcExprExt;
+pub use super::logic::Polynomial;
+pub use super::logic::{compute_expr_hash, compute_term_hash};
+pub use crate::EPSILON;
+use crate::core::InternedSymbol;
 
 // ============================================================================
 // Type aliases
 // ============================================================================
 
 /// Map of custom evaluation functions (name → closure).
-pub type CustomEvalMap =
-    std::collections::HashMap<String, Arc<dyn Fn(&[f64]) -> Option<f64> + Send + Sync>>;
+pub type CustomEvalMap = HashMap<String, Arc<dyn Fn(&[f64]) -> Option<f64> + Send + Sync>>;
+
+// ============================================================================
+// Expression ID counter
+// ============================================================================
+
+static EXPR_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Generate the next unique expression ID.
+pub fn next_id() -> u64 {
+    EXPR_ID_COUNTER.fetch_add(1, Ordering::Relaxed)
+}
 
 // ============================================================================
 // Expr
 // ============================================================================
 
 /// A symbolic mathematical expression.
-///
-/// ```
-/// use symb_anafis::{symb, Expr};
-/// let x = symb("x");
-/// let expr = x.pow(2.0) + x.sin();  // x² + sin(x)
-/// ```
 #[derive(Debug, Clone)]
 pub struct Expr {
     pub(crate) id: u64,
@@ -64,9 +70,9 @@ impl PartialEq for Expr {
 
 impl Eq for Expr {}
 
-impl std::hash::Hash for Expr {
+impl Hash for Expr {
     #[inline]
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+    fn hash<H: Hasher>(&self, state: &mut H) {
         self.hash.hash(state);
     }
 }
@@ -111,7 +117,7 @@ pub enum ExprKind {
         order: u32,
     },
     /// Sparse polynomial (efficient for differentiation)
-    Poly(crate::core::poly::Polynomial),
+    Poly(Polynomial),
 }
 
 // ============================================================================
@@ -122,21 +128,21 @@ impl Drop for Expr {
     fn drop(&mut self) {
         fn drain_children(kind: &mut ExprKind, queue: &mut Vec<Arc<Expr>>) {
             match kind {
-                ExprKind::FunctionCall { args, .. } => queue.extend(std::mem::take(args)),
-                ExprKind::Sum(terms) => queue.extend(std::mem::take(terms)),
-                ExprKind::Product(factors) => queue.extend(std::mem::take(factors)),
+                ExprKind::FunctionCall { args, .. } => queue.extend(take(args)),
+                ExprKind::Sum(terms) => queue.extend(take(terms)),
+                ExprKind::Product(factors) => queue.extend(take(factors)),
                 ExprKind::Div(left, right) => {
                     let d = Arc::clone(&DUMMY_ARC);
-                    queue.push(std::mem::replace(left, Arc::clone(&d)));
-                    queue.push(std::mem::replace(right, d));
+                    queue.push(replace(left, Arc::clone(&d)));
+                    queue.push(replace(right, d));
                 }
                 ExprKind::Pow(base, exp) => {
                     let d = Arc::clone(&DUMMY_ARC);
-                    queue.push(std::mem::replace(base, Arc::clone(&d)));
-                    queue.push(std::mem::replace(exp, d));
+                    queue.push(replace(base, Arc::clone(&d)));
+                    queue.push(replace(exp, d));
                 }
                 ExprKind::Derivative { inner, .. } => {
-                    queue.push(std::mem::replace(inner, DUMMY_ARC.clone()));
+                    queue.push(replace(inner, DUMMY_ARC.clone()));
                 }
                 ExprKind::Poly(poly) => queue.push(poly.take_base()),
                 ExprKind::Number(_) | ExprKind::Symbol(_) => {}
@@ -157,9 +163,9 @@ impl Drop for Expr {
 // Hash for ExprKind
 // ============================================================================
 
-impl std::hash::Hash for ExprKind {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        std::mem::discriminant(self).hash(state);
+impl Hash for ExprKind {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        discriminant(self).hash(state);
         match self {
             Self::Number(n) => {
                 let normalized = if *n == 0.0 { 0.0 } else { *n };
@@ -206,4 +212,92 @@ impl std::hash::Hash for ExprKind {
             }
         }
     }
+}
+
+// ============================================================================
+// Cached constants (from api_crate.rs)
+// ============================================================================
+
+pub(super) static EXPR_ONE: LazyLock<Expr> = LazyLock::new(|| {
+    let kind = ExprKind::Number(1.0);
+    Expr {
+        id: 0,
+        hash: compute_expr_hash(&kind),
+        term_hash: compute_term_hash(&kind),
+        kind,
+    }
+});
+
+pub(super) static CACHED_ZERO: LazyLock<Expr> = LazyLock::new(|| {
+    let kind = ExprKind::Number(0.0);
+    Expr {
+        id: 0,
+        hash: compute_expr_hash(&kind),
+        term_hash: compute_term_hash(&kind),
+        kind,
+    }
+});
+
+pub(super) static CACHED_NEG_ONE: LazyLock<Expr> = LazyLock::new(|| {
+    let kind = ExprKind::Number(-1.0);
+    Expr {
+        id: 0,
+        hash: compute_expr_hash(&kind),
+        term_hash: compute_term_hash(&kind),
+        kind,
+    }
+});
+
+pub(super) static CACHED_TWO: LazyLock<Expr> = LazyLock::new(|| {
+    let kind = ExprKind::Number(2.0);
+    Expr {
+        id: 0,
+        hash: compute_expr_hash(&kind),
+        term_hash: compute_term_hash(&kind),
+        kind,
+    }
+});
+
+/// Dummy Arc used during iterative Drop.
+pub(super) static DUMMY_ARC: LazyLock<Arc<Expr>> = LazyLock::new(|| {
+    let kind = ExprKind::Number(0.0);
+    Arc::new(Expr {
+        id: 0,
+        hash: compute_expr_hash(&kind),
+        term_hash: compute_term_hash(&kind),
+        kind,
+    })
+});
+
+fn make_arc_number(n: f64) -> Arc<Expr> {
+    let kind = ExprKind::Number(n);
+    Arc::new(Expr {
+        id: 0,
+        hash: compute_expr_hash(&kind),
+        term_hash: compute_term_hash(&kind),
+        kind,
+    })
+}
+
+static ARC_ZERO: LazyLock<Arc<Expr>> = LazyLock::new(|| make_arc_number(0.0));
+static ARC_ONE: LazyLock<Arc<Expr>> = LazyLock::new(|| make_arc_number(1.0));
+static ARC_NEG_ONE: LazyLock<Arc<Expr>> = LazyLock::new(|| make_arc_number(-1.0));
+static ARC_TWO: LazyLock<Arc<Expr>> = LazyLock::new(|| make_arc_number(2.0));
+
+/// Return a cached `Arc<Expr>` for common constants (0, 1, -1, 2).
+#[inline]
+pub fn arc_number(n: f64) -> Arc<Expr> {
+    if n.to_bits() == 1.0_f64.to_bits() {
+        return Arc::clone(&*ARC_ONE);
+    }
+    if n.to_bits() == (-1.0_f64).to_bits() {
+        return Arc::clone(&*ARC_NEG_ONE);
+    }
+    if n.to_bits() == 2.0_f64.to_bits() {
+        return Arc::clone(&*ARC_TWO);
+    }
+    if n == 0.0 {
+        return Arc::clone(&*ARC_ZERO);
+    }
+    Arc::new(Expr::number(n))
 }

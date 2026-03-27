@@ -1,7 +1,9 @@
 //! User-facing parser API.
 
-use crate::{DiffError, Expr};
+use super::logic::{balance_parentheses, insert_implicit_multiplication, lex, parse_expression};
+use crate::core::{Context, DiffError, Expr};
 use std::collections::HashSet;
+use std::hash::BuildHasher;
 
 /// Parse a formula string into an expression AST
 ///
@@ -27,7 +29,7 @@ use std::collections::HashSet;
 /// # Example
 /// ```
 /// use symb_anafis::parse;
-/// use std::collections::HashSet;
+/// use HashSet;
 ///
 /// let known_symbols = HashSet::new();
 /// let custom_fns = HashSet::new();
@@ -45,11 +47,11 @@ use std::collections::HashSet;
 /// - The input is empty
 /// - The input contains invalid syntax
 /// - Parentheses are unbalanced
-pub fn parse<S: std::hash::BuildHasher + Clone>(
+pub fn parse<S: BuildHasher + Clone>(
     input: &str,
     known_symbols: &HashSet<String, S>,
     custom_functions: &HashSet<String, S>,
-    context: Option<&crate::core::context::Context>,
+    context: Option<&Context>,
 ) -> Result<Expr, DiffError> {
     let symbols_buf = context.map_or_else(
         || None,
@@ -75,10 +77,9 @@ pub fn parse<S: std::hash::BuildHasher + Clone>(
         return Err(DiffError::EmptyFormula);
     }
 
-    let balanced = super::logic::lexer::balance_parentheses(input);
-    let tokens = super::logic::lexer::lex(&balanced, symbols_ref, functions_ref)?;
-    let tokens_with_mul =
-        super::logic::implicit_mul::insert_implicit_multiplication(tokens, functions_ref);
+    let balanced = balance_parentheses(input);
+    let tokens = lex(&balanced, symbols_ref, functions_ref)?;
+    let tokens_with_mul = insert_implicit_multiplication(tokens, functions_ref);
 
-    super::logic::pratt::parse_expression(&tokens_with_mul, context)
+    parse_expression(&tokens_with_mul, context)
 }

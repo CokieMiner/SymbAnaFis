@@ -1,6 +1,6 @@
 use crate::EPSILON;
-use crate::core::expr::{Expr, ExprKind as AstKind};
 use crate::core::known_symbols::KS;
+use crate::core::{Expr, ExprKind as AstKind};
 use std::sync::Arc;
 
 // ============================================================================
@@ -336,12 +336,12 @@ pub fn is_double_of(expr: &Expr, other: &Expr) -> bool {
     if let AstKind::Product(factors) = &expr.kind
         && factors.len() == 2
     {
-        if matches!(&factors[0].kind, AstKind::Number(n) if (*n - 2.0).abs() < EPSILON)
+        if matches!(&factors[0].kind, AstKind::Number(n) if (n - 2.0).abs() < EPSILON)
             && *factors[1] == *other
         {
             return true;
         }
-        if matches!(&factors[1].kind, AstKind::Number(n) if (*n - 2.0).abs() < EPSILON)
+        if matches!(&factors[1].kind, AstKind::Number(n) if (n - 2.0).abs() < EPSILON)
             && *factors[0] == *other
         {
             return true;
@@ -426,7 +426,7 @@ fn try_match_factored_sinh_times_exp(factor: &Expr, exp_part: &Expr) -> Option<A
             && arg_u == x
             && let Some(negated) = extract_negated_term(&terms[1])
             && let AstKind::Div(num, den) = &negated.kind
-            && matches!(&num.kind, AstKind::Number(n) if (*n - 1.0).abs() < EPSILON)
+            && matches!(&num.kind, AstKind::Number(n) if (n - 1.0).abs() < EPSILON)
             && let Some(arg_v) = ExpTerm::get_direct_exp_arg(den)
             && arg_v == x
         {
@@ -438,7 +438,7 @@ fn try_match_factored_sinh_times_exp(factor: &Expr, exp_part: &Expr) -> Option<A
             && arg_u == x
             && let Some(negated) = extract_negated_term(&terms[0])
             && let AstKind::Div(num, den) = &negated.kind
-            && matches!(&num.kind, AstKind::Number(n) if (*n - 1.0).abs() < EPSILON)
+            && matches!(&num.kind, AstKind::Number(n) if (n - 1.0).abs() < EPSILON)
             && let Some(arg_v) = ExpTerm::get_direct_exp_arg(den)
             && arg_v == x
         {
@@ -504,10 +504,10 @@ pub fn match_e2x_minus_1_direct(expr: &Expr) -> Option<Arc<Expr>> {
         && terms.len() == 2
     {
         // Try to find -1
-        let (neg_one, exp_term) = if matches!(&terms[1].kind, AstKind::Number(n) if (*n - -1.0).abs() < EPSILON)
+        let (neg_one, exp_term) = if matches!(&terms[1].kind, AstKind::Number(n) if (n - -1.0).abs() < EPSILON)
         {
             (true, &terms[0])
-        } else if matches!(&terms[0].kind, AstKind::Number(n) if (*n - -1.0).abs() < EPSILON) {
+        } else if matches!(&terms[0].kind, AstKind::Number(n) if (n - -1.0).abs() < EPSILON) {
             (true, &terms[1])
         } else {
             (false, &terms[0])

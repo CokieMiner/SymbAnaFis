@@ -3,7 +3,7 @@
 //! Provides fast structural hash computation for O(1) equality rejection and
 //! coefficient-insensitive term hashing used for like-term grouping.
 
-use super::super::ExprKind;
+use super::ExprKind;
 use rustc_hash::FxHasher;
 use std::hash::{Hash, Hasher};
 

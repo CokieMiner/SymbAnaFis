@@ -8,9 +8,18 @@
 //! This module provides the `evaluate` method for single-point evaluation.
 //! It uses a register-based virtual machine to execute bytecode instructions.
 
-use crate::evaluator::CompiledEvaluator;
-use crate::evaluator::logic::bytecode::instruction::{FnOp, Instruction};
+use super::CompiledEvaluator;
+use super::helpers::{eval_sinc, round_to_i32};
+use super::instruction::{FnOp, Instruction};
+use crate::math::{
+    bessel_i, bessel_j, bessel_k, bessel_y, eval_assoc_legendre, eval_beta, eval_digamma,
+    eval_elliptic_e, eval_elliptic_k, eval_erf, eval_erfc, eval_exp_polar, eval_gamma,
+    eval_hermite, eval_lambert_w, eval_lgamma, eval_polygamma, eval_spherical_harmonic,
+    eval_tetragamma, eval_trigamma, eval_zeta, eval_zeta_deriv,
+};
 use std::cell::RefCell;
+use std::f64::consts::FRAC_PI_2;
+use std::slice::from_raw_parts_mut;
 
 const INLINE_REGISTER_SIZE_SMALL: usize = 64;
 const INLINE_REGISTER_SIZE_MEDIUM: usize = 256;
@@ -69,7 +78,7 @@ impl CompiledEvaluator {
         // SAFETY: `setup_registers` initializes all registers from template and params.
         let registers = unsafe {
             let ptr = raw.as_mut_ptr().cast::<f64>();
-            let slice = std::slice::from_raw_parts_mut(ptr, self.workspace_size);
+            let slice = from_raw_parts_mut(ptr, self.workspace_size);
             self.setup_registers(params, slice);
             slice
         };
@@ -280,7 +289,7 @@ impl CompiledEvaluator {
                         FnOp::Asin => x.asin(),
                         FnOp::Acos => x.acos(),
                         FnOp::Atan => x.atan(),
-                        FnOp::Acot => std::f64::consts::FRAC_PI_2 - x.atan(),
+                        FnOp::Acot => FRAC_PI_2 - x.atan(),
                         FnOp::Asec => (1.0 / x).acos(),
                         FnOp::Acsc => (1.0 / x).asin(),
                         FnOp::Sinh => x.sinh(),
@@ -307,19 +316,19 @@ impl CompiledEvaluator {
                         FnOp::Floor => x.floor(),
                         FnOp::Ceil => x.ceil(),
                         FnOp::Round => x.round(),
-                        FnOp::Erf => crate::math::eval_erf(x),
-                        FnOp::Erfc => crate::math::eval_erfc(x),
-                        FnOp::Gamma => crate::math::eval_gamma(x),
-                        FnOp::Lgamma => crate::math::eval_lgamma(x),
-                        FnOp::Digamma => crate::math::eval_digamma(x),
-                        FnOp::Trigamma => crate::math::eval_trigamma(x),
-                        FnOp::Tetragamma => crate::math::eval_tetragamma(x),
-                        FnOp::Sinc => super::helpers::eval_sinc(x),
-                        FnOp::LambertW => crate::math::eval_lambert_w(x),
-                        FnOp::EllipticK => crate::math::eval_elliptic_k(x),
-                        FnOp::EllipticE => crate::math::eval_elliptic_e(x),
-                        FnOp::Zeta => crate::math::eval_zeta(x),
-                        FnOp::ExpPolar => crate::math::eval_exp_polar(x),
+                        FnOp::Erf => eval_erf(x),
+                        FnOp::Erfc => eval_erfc(x),
+                        FnOp::Gamma => eval_gamma(x),
+                        FnOp::Lgamma => eval_lgamma(x),
+                        FnOp::Digamma => eval_digamma(x),
+                        FnOp::Trigamma => eval_trigamma(x),
+                        FnOp::Tetragamma => eval_tetragamma(x),
+                        FnOp::Sinc => eval_sinc(x),
+                        FnOp::LambertW => eval_lambert_w(x),
+                        FnOp::EllipticK => eval_elliptic_k(x),
+                        FnOp::EllipticE => eval_elliptic_e(x),
+                        FnOp::Zeta => eval_zeta(x),
+                        FnOp::ExpPolar => eval_exp_polar(x),
                         _ => unreachable_builtin(1, op),
                     };
                     *registers.get_unchecked_mut(dest as usize) = res;
@@ -346,21 +355,18 @@ impl CompiledEvaluator {
                                 x2.log(x1)
                             }
                         }
-                        FnOp::BesselJ => super::helpers::round_to_i32(x1)
-                            .map_or(f64::NAN, |n| crate::math::bessel_j(n, x2)),
-                        FnOp::BesselY => super::helpers::round_to_i32(x1)
-                            .map_or(f64::NAN, |n| crate::math::bessel_y(n, x2)),
-                        FnOp::BesselI => super::helpers::round_to_i32(x1)
-                            .map_or(f64::NAN, |n| crate::math::bessel_i(n, x2)),
-                        FnOp::BesselK => super::helpers::round_to_i32(x1)
-                            .map_or(f64::NAN, |n| crate::math::bessel_k(n, x2)),
-                        FnOp::Polygamma => super::helpers::round_to_i32(x1)
-                            .map_or(f64::NAN, |n| crate::math::eval_polygamma(n, x2)),
-                        FnOp::Beta => crate::math::eval_beta(x1, x2),
-                        FnOp::ZetaDeriv => super::helpers::round_to_i32(x1)
-                            .map_or(f64::NAN, |n| crate::math::eval_zeta_deriv(n, x2)),
-                        FnOp::Hermite => super::helpers::round_to_i32(x1)
-                            .map_or(f64::NAN, |n| crate::math::eval_hermite(n, x2)),
+                        FnOp::BesselJ => round_to_i32(x1).map_or(f64::NAN, |n| bessel_j(n, x2)),
+                        FnOp::BesselY => round_to_i32(x1).map_or(f64::NAN, |n| bessel_y(n, x2)),
+                        FnOp::BesselI => round_to_i32(x1).map_or(f64::NAN, |n| bessel_i(n, x2)),
+                        FnOp::BesselK => round_to_i32(x1).map_or(f64::NAN, |n| bessel_k(n, x2)),
+                        FnOp::Polygamma => {
+                            round_to_i32(x1).map_or(f64::NAN, |n| eval_polygamma(n, x2))
+                        }
+                        FnOp::Beta => eval_beta(x1, x2),
+                        FnOp::ZetaDeriv => {
+                            round_to_i32(x1).map_or(f64::NAN, |n| eval_zeta_deriv(n, x2))
+                        }
+                        FnOp::Hermite => round_to_i32(x1).map_or(f64::NAN, |n| eval_hermite(n, x2)),
                         _ => unreachable_builtin(2, op),
                     };
                     *registers.get_unchecked_mut(dest as usize) = res;
@@ -381,15 +387,10 @@ impl CompiledEvaluator {
                         reason = "Match is used for architectural consistency with Builtin1/2 and ease of future expansion"
                     )]
                     let res = match op {
-                        FnOp::AssocLegendre => {
-                            match (
-                                super::helpers::round_to_i32(x1),
-                                super::helpers::round_to_i32(x2),
-                            ) {
-                                (Some(l), Some(m)) => crate::math::eval_assoc_legendre(l, m, x3),
-                                _ => f64::NAN,
-                            }
-                        }
+                        FnOp::AssocLegendre => match (round_to_i32(x1), round_to_i32(x2)) {
+                            (Some(l), Some(m)) => eval_assoc_legendre(l, m, x3),
+                            _ => f64::NAN,
+                        },
                         _ => unreachable_builtin(3, op),
                     };
                     *registers.get_unchecked_mut(dest as usize) = res;
@@ -412,17 +413,10 @@ impl CompiledEvaluator {
                         reason = "Match is used for architectural consistency with Builtin1/2 and ease of future expansion"
                     )]
                     let res = match op {
-                        FnOp::SphericalHarmonic => {
-                            match (
-                                super::helpers::round_to_i32(x1),
-                                super::helpers::round_to_i32(x2),
-                            ) {
-                                (Some(l), Some(m)) => {
-                                    crate::math::eval_spherical_harmonic(l, m, x3, x4)
-                                }
-                                _ => f64::NAN,
-                            }
-                        }
+                        FnOp::SphericalHarmonic => match (round_to_i32(x1), round_to_i32(x2)) {
+                            (Some(l), Some(m)) => eval_spherical_harmonic(l, m, x3, x4),
+                            _ => f64::NAN,
+                        },
                         _ => unreachable_builtin(4, op),
                     };
                     *registers.get_unchecked_mut(dest as usize) = res;

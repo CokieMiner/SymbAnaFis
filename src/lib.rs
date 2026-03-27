@@ -247,7 +247,7 @@ mod convenience;
 pub use core::{DiffError, Expr, Span, Symbol, SymbolError};
 
 /// Mathematical scalar trait for high-performance computation.
-pub use core::traits::MathScalar;
+pub use core::MathScalar;
 
 /// Dual number type for automatic differentiation.
 pub use math::Dual;
@@ -269,7 +269,7 @@ pub use core::{
 // === 2. Ingestion & Rules ===
 
 /// Context system for custom functions and parsing.
-pub use core::context::{Context, UserFunction};
+pub use core::{Context, UserFunction};
 
 /// String → AST parsing with context support.
 pub use parser::parse;
@@ -292,9 +292,7 @@ pub use uncertainty::{
     CovEntry, CovarianceMatrix, Uncertainty, relative_uncertainty, uncertainty_propagation,
 };
 
-/// Advanced APIs for extending functionality (Visitor pattern, view modeling).
-pub use core::visitor;
-
+pub use core::ExprView;
 // === 5. High-Performance Evaluation ===
 
 /// High-performance compiled evaluator for repeated numeric computations.

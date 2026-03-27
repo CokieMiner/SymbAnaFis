@@ -1,30 +1,26 @@
-//! Public API for end-users of the library.
+//! Unified API for the `symbol` module.
 //!
-//! These items are part of the stable external interface:
-//! - [`Symbol`] — the ergonomic, `Copy` symbol handle
-//! - [`SymbolError`] — error type for registry operations
-//! - Registry functions visible to crate consumers
+//! This file provides both public API (for library users) and crate-internal API
+//! (for other modules within the crate). The visibility is controlled per-item.
 
+use std::error::Error;
+use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::sync::Arc;
 
 use slotmap::{DefaultKey, Key};
 
-use super::logic::interned::InternedSymbol;
-use super::logic::registry::{lookup_by_id, symb_anon};
-use crate::Expr;
-
 // ============================================================================
-// Public re-exports
+// Crate-internal API (pub - for other modules in the crate)
 // ============================================================================
 
-pub use super::logic::registry::{
-    clear_symbols, remove_symbol, symb, symb_get, symb_new, symbol_count, symbol_exists,
-    symbol_names,
-};
-pub use crate::core::expr::ArcExprExt;
+/// Internal interned symbol type for crate-wide use.
+pub use super::logic::InternedSymbol;
+
+/// Internal registry functions for crate-wide use.
+pub use super::logic::{key_from_id, lookup_by_id, symb_interned, symb_new_isolated};
 
 // ============================================================================
-// SymbolError
+// Public API (re-exported to crate surface and library users)
 // ============================================================================
 
 /// Errors that can occur during symbol operations.
@@ -36,8 +32,8 @@ pub enum SymbolError {
     NotFound(String),
 }
 
-impl std::fmt::Display for SymbolError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Display for SymbolError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match self {
             Self::DuplicateName(name) => {
                 write!(
@@ -55,7 +51,19 @@ impl std::fmt::Display for SymbolError {
     }
 }
 
-impl std::error::Error for SymbolError {}
+impl Error for SymbolError {}
+
+// ============================================================================
+// Public re-exports
+// ============================================================================
+
+/// Public registry functions for library users.
+pub use super::logic::{
+    clear_symbols, remove_symbol, symb, symb_anon, symb_get, symb_new, symbol_count, symbol_exists,
+    symbol_names,
+};
+
+use crate::Expr;
 
 // ============================================================================
 // Symbol
@@ -86,7 +94,7 @@ impl Symbol {
     #[inline]
     #[must_use]
     pub fn from_id(id: u64) -> Self {
-        Self(super::logic::registry::key_from_id(id))
+        Self(key_from_id(id))
     }
 
     /// The symbol's unique integer ID.

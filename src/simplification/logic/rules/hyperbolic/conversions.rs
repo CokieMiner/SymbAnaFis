@@ -1,11 +1,12 @@
-use super::super::core::{ExprKind, Rule, RuleCategory, RuleContext};
 use super::helpers::{
     ExpTerm, extract_negated_term, is_double_of, match_alt_cosh_pattern, match_alt_sech_pattern,
     match_alt_sinh_pattern, match_cosh_pattern, match_e2x_minus_1_direct,
     match_e2x_minus_1_factored, match_e2x_plus_1, match_sinh_pattern_sub,
 };
-use crate::core::expr::{Expr, ExprKind as AstKind};
-use crate::core::known_symbols as ks;
+use super::{ExprKind, Rule, RuleCategory, RuleContext};
+use crate::core::known_symbols::{KS, get_symbol};
+use crate::core::{Expr, ExprKind as AstKind};
+use std::sync::Arc;
 
 rule!(
     SinhFromExpRule,
@@ -29,17 +30,17 @@ rule!(
                 if let Some(neg_inner) = extract_negated_term(v)
                     && let Some(x) = match_sinh_pattern_sub(u, &neg_inner)
                 {
-                    return Some(Expr::func_symbol_arc(ks::get_symbol(ks::KS.sinh), x));
+                    return Some(Expr::func_symbol_arc(get_symbol(KS.sinh), x));
                 }
                 if let Some(neg_inner) = extract_negated_term(u)
                     && let Some(x) = match_sinh_pattern_sub(v, &neg_inner)
                 {
-                    return Some(Expr::func_symbol_arc(ks::get_symbol(ks::KS.sinh), x));
+                    return Some(Expr::func_symbol_arc(get_symbol(KS.sinh), x));
                 }
             }
 
             if let Some(x) = match_alt_sinh_pattern(numerator, denominator) {
-                return Some(Expr::func_symbol_arc(ks::get_symbol(ks::KS.sinh), x));
+                return Some(Expr::func_symbol_arc(get_symbol(KS.sinh), x));
             }
         }
         None
@@ -62,11 +63,11 @@ rule!(
                 && terms.len() == 2
                 && let Some(x) = match_cosh_pattern(&terms[0], &terms[1])
             {
-                return Some(Expr::func_symbol_arc(ks::get_symbol(ks::KS.cosh), x));
+                return Some(Expr::func_symbol_arc(get_symbol(KS.cosh), x));
             }
 
             if let Some(x) = match_alt_cosh_pattern(numerator, denominator) {
-                return Some(Expr::func_symbol_arc(ks::get_symbol(ks::KS.cosh), x));
+                return Some(Expr::func_symbol_arc(get_symbol(KS.cosh), x));
             }
         }
         None
@@ -110,21 +111,21 @@ rule!(
             if let (Some(n_arg), Some(d_arg)) = (num_arg, den_arg)
                 && n_arg == d_arg
             {
-                return Some(Expr::func_symbol_arc(ks::get_symbol(ks::KS.tanh), n_arg));
+                return Some(Expr::func_symbol_arc(get_symbol(KS.tanh), n_arg));
             }
 
             if let Some(x_num) = match_e2x_minus_1_factored(numerator)
                 && let Some(x_den) = match_e2x_plus_1(denominator)
                 && x_num == x_den
             {
-                return Some(Expr::func_symbol_arc(ks::get_symbol(ks::KS.tanh), x_num));
+                return Some(Expr::func_symbol_arc(get_symbol(KS.tanh), x_num));
             }
 
             if let Some(x_num) = match_e2x_minus_1_direct(numerator)
                 && let Some(x_den) = match_e2x_plus_1(denominator)
                 && x_num == x_den
             {
-                return Some(Expr::func_symbol_arc(ks::get_symbol(ks::KS.tanh), x_num));
+                return Some(Expr::func_symbol_arc(get_symbol(KS.tanh), x_num));
             }
         }
         None
@@ -147,11 +148,11 @@ rule!(
                 && terms.len() == 2
                 && let Some(x) = match_cosh_pattern(&terms[0], &terms[1])
             {
-                return Some(Expr::func_symbol_arc(ks::get_symbol(ks::KS.sech), x));
+                return Some(Expr::func_symbol_arc(get_symbol(KS.sech), x));
             }
 
             if let Some(x) = match_alt_sech_pattern(numerator, denominator) {
-                return Some(Expr::func_symbol_arc(ks::get_symbol(ks::KS.sech), x));
+                return Some(Expr::func_symbol_arc(get_symbol(KS.sech), x));
             }
         }
         None
@@ -177,12 +178,12 @@ rule!(
                     if let Some(negated) = extract_negated_term(&terms[1])
                         && let Some(x) = match_sinh_pattern_sub(&terms[0], &negated)
                     {
-                        return Some(Expr::func_symbol_arc(ks::get_symbol(ks::KS.csch), x));
+                        return Some(Expr::func_symbol_arc(get_symbol(KS.csch), x));
                     }
                     if let Some(negated) = extract_negated_term(&terms[0])
                         && let Some(x) = match_sinh_pattern_sub(&terms[1], &negated)
                     {
-                        return Some(Expr::func_symbol_arc(ks::get_symbol(ks::KS.csch), x));
+                        return Some(Expr::func_symbol_arc(get_symbol(KS.csch), x));
                     }
                 }
             }
@@ -239,7 +240,7 @@ rule!(
                         && let Some(denom_arg) = ExpTerm::get_direct_exp_arg(exp_term_denom)
                         && is_double_of(&denom_arg, &x)
                     {
-                        return Some(Expr::func_symbol_arc(ks::get_symbol(ks::KS.csch), x));
+                        return Some(Expr::func_symbol_arc(get_symbol(KS.csch), x));
                     }
                 }
             }
@@ -284,21 +285,21 @@ rule!(
             if let (Some(n_arg), Some(d_arg)) = (num_arg, den_arg)
                 && n_arg == d_arg
             {
-                return Some(Expr::func_symbol_arc(ks::get_symbol(ks::KS.coth), n_arg));
+                return Some(Expr::func_symbol_arc(get_symbol(KS.coth), n_arg));
             }
 
             if let Some(x_num) = match_e2x_plus_1(numerator)
                 && let Some(x_den) = match_e2x_minus_1_factored(denominator)
                 && x_num == x_den
             {
-                return Some(Expr::func_symbol_arc(ks::get_symbol(ks::KS.coth), x_num));
+                return Some(Expr::func_symbol_arc(get_symbol(KS.coth), x_num));
             }
 
             if let Some(x_num) = match_e2x_plus_1(numerator)
                 && let Some(x_den) = match_e2x_minus_1_direct(denominator)
                 && x_num == x_den
             {
-                return Some(Expr::func_symbol_arc(ks::get_symbol(ks::KS.coth), x_num));
+                return Some(Expr::func_symbol_arc(get_symbol(KS.coth), x_num));
             }
         }
         None

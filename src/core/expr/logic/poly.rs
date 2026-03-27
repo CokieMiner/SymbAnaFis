@@ -3,9 +3,12 @@
 //! Provides efficient polynomial operations with any expression as base.
 //! The base is stored once; terms are just (power, coefficient) pairs.
 
-use crate::EPSILON;
-use crate::{Expr, core::ExprKind};
+use std::fmt::{Display, Formatter, Result as FmtResult};
+use std::mem::replace;
 use std::sync::Arc;
+
+use super::{Expr, ExprKind};
+use crate::EPSILON;
 
 // =============================================================================
 // POLYNOMIAL
@@ -43,8 +46,8 @@ fn format_coeff(n: f64) -> String {
     }
 }
 
-impl std::fmt::Display for Polynomial {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Display for Polynomial {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         if self.terms.is_empty() {
             return write!(f, "0");
         }
@@ -73,12 +76,7 @@ impl std::fmt::Display for Polynomial {
 
 impl Polynomial {
     /// Write a single term (coefficient * base^power)
-    fn write_term(
-        &self,
-        f: &mut std::fmt::Formatter<'_>,
-        pow: u32,
-        coeff: f64,
-    ) -> std::fmt::Result {
+    fn write_term(&self, f: &mut Formatter<'_>, pow: u32, coeff: f64) -> FmtResult {
         // Determine if base needs parentheses when raised to a power
         let needs_parens_pow = matches!(
             self.base.kind,
@@ -119,7 +117,7 @@ impl Polynomial {
     // =========================================================================
 
     /// Create a zero polynomial with given base
-    pub const fn zero(base: Arc<Expr>) -> Self {
+    pub(super) const fn zero(base: Arc<Expr>) -> Self {
         Self {
             base,
             terms: Vec::new(),
@@ -127,7 +125,7 @@ impl Polynomial {
     }
 
     /// Create a constant polynomial
-    pub fn constant(c: f64) -> Self {
+    pub(super) fn constant(c: f64) -> Self {
         if c.abs() < EPSILON {
             // Zero polynomial - use dummy base
             Self {
@@ -143,22 +141,10 @@ impl Polynomial {
     }
 
     /// Create polynomial for a simple expression: base^1
-    pub fn from_base(base: Expr) -> Self {
+    pub(super) fn from_base(base: Expr) -> Self {
         Self {
             base: Arc::new(base),
             terms: vec![(1, 1.0)],
-        }
-    }
-
-    /// Create polynomial: coeff * base^pow
-    pub fn term(base: Arc<Expr>, pow: u32, coeff: f64) -> Self {
-        if coeff.abs() < EPSILON {
-            Self::zero(base)
-        } else {
-            Self {
-                base,
-                terms: vec![(pow, coeff)],
-            }
         }
     }
 
@@ -168,19 +154,20 @@ impl Polynomial {
 
     /// Get the base expression
     #[inline]
-    pub const fn base(&self) -> &Arc<Expr> {
+    #[must_use]
+    pub(crate) const fn base(&self) -> &Arc<Expr> {
         &self.base
     }
 
     /// Get a clone of the base expression Arc
     #[inline]
-    pub fn base_arc(&self) -> Arc<Expr> {
+    pub(crate) fn base_arc(&self) -> Arc<Expr> {
         Arc::clone(&self.base)
     }
 
     /// Create a new polynomial with a different base
     #[inline]
-    pub fn with_base(&self, base: Arc<Expr>) -> Self {
+    pub(crate) fn with_base(&self, base: Arc<Expr>) -> Self {
         Self {
             base,
             terms: self.terms.clone(),
@@ -194,23 +181,24 @@ impl Polynomial {
 
     /// Get terms as (power, coefficient) pairs
     #[inline]
-    pub fn terms(&self) -> &[(u32, f64)] {
+    pub(crate) fn terms(&self) -> &[(u32, f64)] {
         &self.terms
     }
 
     /// Check if polynomial is zero
     #[inline]
-    pub const fn is_zero(&self) -> bool {
+    #[must_use]
+    pub(crate) const fn is_zero(&self) -> bool {
         self.terms.is_empty()
     }
 
     /// Check if polynomial is a constant
-    pub fn is_constant(&self) -> bool {
+    pub(crate) fn is_constant(&self) -> bool {
         self.terms.is_empty() || (self.terms.len() == 1 && self.terms[0].0 == 0)
     }
 
     /// Get constant value if polynomial is constant
-    pub fn as_constant(&self) -> Option<f64> {
+    pub(super) fn as_constant(&self) -> Option<f64> {
         if self.terms.is_empty() {
             Some(0.0)
         } else if self.terms.len() == 1 && self.terms[0].0 == 0 {
@@ -222,31 +210,23 @@ impl Polynomial {
 
     /// Get the degree (highest power)
     #[inline]
-    pub fn degree(&self) -> u32 {
+    pub(super) fn degree(&self) -> u32 {
         self.terms.last().map_or(0, |(p, _)| *p)
     }
 
     /// Number of terms
-    pub const fn term_count(&self) -> usize {
+    pub(super) const fn term_count(&self) -> usize {
         self.terms.len()
     }
 
     /// Take the base expression, replacing it with a dummy
     pub(crate) fn take_base(&mut self) -> Arc<Expr> {
         let dummy = Arc::new(Expr::number(0.0));
-        std::mem::replace(&mut self.base, dummy)
-    }
-
-    /// Get coefficient for a given power (0 if not present)
-    pub fn coeff(&self, pow: u32) -> f64 {
-        self.terms
-            .binary_search_by_key(&pow, |(p, _)| *p)
-            .map(|i| self.terms[i].1)
-            .unwrap_or(0.0)
+        replace(&mut self.base, dummy)
     }
 
     /// Get leading coefficient (highest power term)
-    pub fn leading_coeff(&self) -> f64 {
+    pub(super) fn leading_coeff(&self) -> f64 {
         self.terms.last().map_or(0.0, |(_, c)| *c)
     }
 
@@ -304,32 +284,8 @@ impl Polynomial {
         false
     }
 
-    /// Add two polynomials (must have same base)
-    pub fn add(&self, other: &Self) -> Self {
-        debug_assert!(
-            Arc::ptr_eq(&self.base, &other.base) || self.base == other.base,
-            "Cannot add polynomials with different bases"
-        );
-
-        // Pre-allocate with combined capacity
-        let mut result = Self {
-            base: Arc::clone(&self.base),
-            terms: Vec::with_capacity(self.terms.len() + other.terms.len()),
-        };
-        result.terms.clone_from(&self.terms);
-        for &(pow, coeff) in &other.terms {
-            result.add_term(pow, coeff);
-        }
-        result
-    }
-
-    /// Subtract polynomials
-    pub fn sub(&self, other: &Self) -> Self {
-        self.add(&other.negate())
-    }
-
     /// Negate polynomial
-    pub fn negate(&self) -> Self {
+    pub(super) fn negate(&self) -> Self {
         Self {
             base: Arc::clone(&self.base),
             terms: self.terms.iter().map(|&(p, c)| (p, -c)).collect(),
@@ -337,7 +293,7 @@ impl Polynomial {
     }
 
     /// Multiply two polynomials (convolution)
-    pub fn mul(&self, other: &Self) -> Self {
+    pub(super) fn mul(&self, other: &Self) -> Self {
         debug_assert!(
             Arc::ptr_eq(&self.base, &other.base) || self.base == other.base,
             "Cannot multiply polynomials with different bases"
@@ -387,7 +343,7 @@ impl Polynomial {
     }
 
     /// Multiply by a scalar
-    pub fn scale(&self, scalar: f64) -> Self {
+    pub(super) fn scale(&self, scalar: f64) -> Self {
         if scalar.abs() < EPSILON {
             return Self::zero(Arc::clone(&self.base));
         }
@@ -399,7 +355,7 @@ impl Polynomial {
 
     /// Differentiate polynomial: d/d(base)
     /// Each term c*base^n becomes n*c*base^(n-1)
-    pub fn derivative(&self) -> Self {
+    pub(super) fn derivative(&self) -> Self {
         let mut result = Self::zero(Arc::clone(&self.base));
         for &(pow, coeff) in &self.terms {
             if pow > 0 {
@@ -410,7 +366,7 @@ impl Polynomial {
     }
 
     /// Make polynomial monic (leading coefficient = 1)
-    pub fn make_monic(&self) -> Self {
+    pub(super) fn make_monic(&self) -> Self {
         let lc = self.leading_coeff();
         if lc.abs() < EPSILON || (lc - 1.0).abs() < EPSILON {
             return self.clone();
@@ -423,7 +379,7 @@ impl Polynomial {
     // =========================================================================
 
     /// Polynomial division: self / other = (quotient, remainder)
-    pub fn div_rem(&self, other: &Self) -> Option<(Self, Self)> {
+    pub(crate) fn div_rem(&self, other: &Self) -> Option<(Self, Self)> {
         // Division only makes sense for polynomials with same base
         if !Arc::ptr_eq(&self.base, &other.base) && self.base != other.base {
             return None;
@@ -465,7 +421,7 @@ impl Polynomial {
 
     /// GCD using Euclidean algorithm
     /// Returns None if polynomials have different bases (cannot compute GCD)
-    pub fn gcd(&self, other: &Self) -> Option<Self> {
+    pub(crate) fn gcd(&self, other: &Self) -> Option<Self> {
         // GCD only makes sense for polynomials with same base
         if !Arc::ptr_eq(&self.base, &other.base) && self.base != other.base {
             return None;
@@ -491,7 +447,7 @@ impl Polynomial {
 
     /// Try to convert an expression to polynomial form
     /// Returns None if expression is not polynomial-like
-    pub fn try_from_expr(expr: &Expr) -> Option<Self> {
+    pub(crate) fn try_from_expr(expr: &Expr) -> Option<Self> {
         match &expr.kind {
             // Constants
             ExprKind::Number(n) => Some(Self::constant(*n)),
@@ -601,8 +557,9 @@ impl Polynomial {
         None
     }
 
-    /// Convert back to expression
-    pub fn to_expr(&self) -> Expr {
+    /// Convert the polynomial back to a standard expression.
+    #[must_use]
+    pub(crate) fn to_expr(&self) -> Expr {
         match self.terms.len() {
             0 => Expr::number(0.0),
             1 => self.term_to_expr(self.terms[0].0, self.terms[0].1),
@@ -643,7 +600,7 @@ impl Polynomial {
     }
 
     /// Differentiate with respect to a variable (chain rule)
-    pub fn derivative_expr(&self, diff_var: &str) -> Expr {
+    pub(crate) fn derivative_expr(&self, diff_var: &str) -> Expr {
         // Get polynomial derivative
         let poly_deriv = self.derivative();
         let poly_expr = poly_deriv.to_expr();
@@ -668,7 +625,7 @@ impl Polynomial {
 
     /// Convert polynomial terms to `Vec<Expr>` (compatibility method)
     /// Returns each term as a separate expression: coeff * base^pow
-    pub fn to_expr_terms(&self) -> Vec<Expr> {
+    pub(crate) fn to_expr_terms(&self) -> Vec<Expr> {
         self.terms
             .iter()
             .map(|&(pow, coeff)| self.term_to_expr(pow, coeff))
@@ -676,22 +633,8 @@ impl Polynomial {
     }
 
     /// Get leading coefficient for the first term (for display sign detection)
-    pub fn first_coeff(&self) -> Option<f64> {
+    pub(super) fn first_coeff(&self) -> Option<f64> {
         self.terms.first().map(|(_, c)| *c)
-    }
-
-    /// Negate a specific term's coefficient (for display purposes)
-    /// Returns a new polynomial with the negated term
-    pub fn with_negated_first(&self) -> Self {
-        if self.terms.is_empty() {
-            return self.clone();
-        }
-        let mut new_terms = self.terms.clone();
-        new_terms[0].1 = -new_terms[0].1;
-        Self {
-            base: Arc::clone(&self.base),
-            terms: new_terms,
-        }
     }
 }
 

@@ -1,10 +1,13 @@
 //! Logic layer for the `core` root module.
 
-pub(super) mod error;
-pub(super) mod known_symbols;
-pub(super) mod poly;
-pub(super) mod traits;
-pub(super) mod visitor;
+pub mod error;
+pub mod known_symbols;
+pub mod traits;
+pub mod view;
+
+// Staircase re-exports: public API items → bare pub use; crate-internal → pub(crate) use
+pub use error::{DiffError, Span};
+pub use view::ExprView;
 
 #[cfg(test)]
 mod tests;

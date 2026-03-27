@@ -21,7 +21,6 @@
 
 use super::*;
 use crate::core::error::DiffError;
-use crate::evaluator::logic::bytecode::instruction::Instruction;
 use crate::{Expr, parser};
 use std::collections::HashSet;
 use std::fmt::Write;
@@ -129,7 +128,7 @@ fn test_trig() {
 fn test_constants() {
     let expr = parse_expr("pi * e");
     let eval = CompiledEvaluator::compile_auto(&expr, None).expect("Should compile");
-    let expected = std::f64::consts::PI * std::f64::consts::E;
+    let expected = PI * std::f64::consts::E;
     assert!((eval.evaluate(&[]) - expected).abs() < 1e-10);
 }
 
@@ -380,7 +379,7 @@ fn test_eval_batch_constant_expr() {
     eval.eval_batch(&columns, &mut output, None)
         .expect("Should pass");
 
-    let expected = std::f64::consts::PI * 2.0;
+    let expected = PI * 2.0;
     assert!((output[0] - expected).abs() < 1e-10);
 }
 
@@ -440,7 +439,7 @@ fn test_eval_batch_missing_columns_default_to_zero_and_extra_ignored() {
 
 #[test]
 fn test_user_function_expansion() {
-    use crate::core::context::{Context, UserFunction};
+    use crate::core::{Context, UserFunction};
 
     // Define f(x) = x^2 + 1
     let ctx = Context::new().with_function(
@@ -556,7 +555,7 @@ fn test_normal_pdf_derivative_uses_expneg_fusion() {
     assert!(eval.instructions.iter().any(|i| matches!(
         i,
         Instruction::Builtin1 {
-            op: crate::evaluator::logic::bytecode::instruction::FnOp::ExpNeg,
+            op: FnOp::ExpNeg,
             ..
         } | Instruction::ExpSqrNeg { .. }
     )));
@@ -672,7 +671,7 @@ fn test_eval_batch_regression_nan_to_besseli() {
 
 #[test]
 fn test_nested_user_function_expansion() {
-    use crate::core::context::{Context, UserFunction};
+    use crate::core::{Context, UserFunction};
 
     // Define g(x) = 2*x
     // Define f(x) = g(x) + 1  (nested call)

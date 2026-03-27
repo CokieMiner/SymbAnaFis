@@ -1,6 +1,6 @@
-use crate::core::expr::{Expr, ExprKind as AstKind};
+use crate::core::InternedSymbol;
 use crate::core::known_symbols::KS;
-use crate::core::symbol::InternedSymbol;
+use crate::core::{Expr, ExprKind as AstKind};
 
 /// Extract the trig function symbol and its single argument.
 pub fn get_trig_function(expr: &Expr) -> Option<(InternedSymbol, Expr)> {

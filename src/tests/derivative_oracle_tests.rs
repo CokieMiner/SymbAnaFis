@@ -6,6 +6,7 @@
 use crate::parser::parse as parser_parse;
 use crate::{Simplify, core::ExprKind, diff};
 use std::collections::{HashMap, HashSet};
+use std::f64::consts::PI;
 
 /// Helper to evaluate expression at x=val
 fn eval_at(expr_str: &str, val: f64) -> f64 {
@@ -116,9 +117,9 @@ fn test_oracle_sin() {
         "x",
         "cos(x)",
         &[
-            (0.0, 1.0),                        // cos(0) = 1
-            (std::f64::consts::PI / 2.0, 0.0), // cos(π/2) = 0
-            (std::f64::consts::PI, -1.0),      // cos(π) = -1
+            (0.0, 1.0),      // cos(0) = 1
+            (PI / 2.0, 0.0), // cos(π/2) = 0
+            (PI, -1.0),      // cos(π) = -1
         ],
     );
 }
@@ -131,8 +132,8 @@ fn test_oracle_cos() {
         "x",
         "-sin(x)",
         &[
-            (0.0, 0.0),                         // -sin(0) = 0
-            (std::f64::consts::PI / 2.0, -1.0), // -sin(π/2) = -1
+            (0.0, 0.0),       // -sin(0) = 0
+            (PI / 2.0, -1.0), // -sin(π/2) = -1
         ],
     );
 }
@@ -160,7 +161,7 @@ fn test_oracle_sin_squared() {
         "",
         &[
             (0.0, 0.0),
-            (std::f64::consts::PI / 4.0, 1.0), // sin(π/2) = 1
+            (PI / 4.0, 1.0), // sin(π/2) = 1
         ],
     );
 }
@@ -269,7 +270,7 @@ fn test_oracle_x_sin_x() {
         "sin(x) + x*cos(x)",
         &[
             (0.0, 0.0),
-            (std::f64::consts::PI / 2.0, 1.0), // sin(π/2) + π/2*cos(π/2) = 1
+            (PI / 2.0, 1.0), // sin(π/2) + π/2*cos(π/2) = 1
         ],
     );
 }
@@ -309,7 +310,7 @@ fn test_oracle_x2_ln() {
 #[test]
 fn test_oracle_sin_over_x() {
     // d/dx[sin(x)/x] = (x*cos(x) - sin(x))/x^2
-    let x = std::f64::consts::PI / 2.0;
+    let x = PI / 2.0;
     let expected = (x * x.cos() - x.sin()) / (x * x);
     test_derivative("sin(x)/x", "x", "(x*cos(x) - sin(x))/x^2", &[(x, expected)]);
 }

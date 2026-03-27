@@ -6,7 +6,12 @@ use std::borrow::Cow;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use super::super::{Expr, ExprKind};
+use crate::core::ExprView;
+use crate::core::{symb_get, symb_interned};
+use crate::evaluator::{CompiledEvaluator, ToParamName};
+use crate::{Diff, DiffError, Simplify, symb};
+
+use super::{Expr, ExprKind};
 
 impl Expr {
     // -------------------------------------------------------------------------
@@ -49,9 +54,7 @@ impl Expr {
     /// This method is zero-cost for most expression types (returns references).
     /// Only polynomial expressions require allocation to expand into sum form.
     #[must_use]
-    pub fn view(&self) -> crate::core::visitor::ExprView<'_> {
-        use crate::core::visitor::ExprView;
-
+    pub fn view(&self) -> ExprView<'_> {
         match &self.kind {
             ExprKind::Number(n) => ExprView::Number(*n),
             ExprKind::Symbol(s) => s.name().map_or_else(
@@ -189,7 +192,7 @@ impl Expr {
     #[must_use]
     pub fn contains_var(&self, var: &str) -> bool {
         // Try to look up the symbol ID first for O(1) comparison
-        crate::core::symbol::symb_get(var).map_or_else(
+        symb_get(var).map_or_else(
             |_| self.contains_var_str(var),
             |sym| self.contains_var_id(sym.id()),
         )
@@ -325,7 +328,7 @@ impl Expr {
             ExprKind::Product(factors) => {
                 let cloned: Vec<Arc<Self>> = factors
                     .iter()
-                    .map(|f| Arc::new(f.as_ref().deep_clone()))
+                    .map(|f| Arc::new((f).as_ref().deep_clone()))
                     .collect();
                 Self::new(ExprKind::Product(cloned))
             }
@@ -352,16 +355,16 @@ impl Expr {
     ///
     /// # Errors
     /// Returns `DiffError` if differentiation fails (e.g., unsupported operation).
-    pub fn diff(&self, var: &str) -> Result<Self, crate::DiffError> {
-        crate::Diff::new().differentiate(self, &crate::symb(var))
+    pub fn diff(&self, var: &str) -> Result<Self, DiffError> {
+        Diff::new().differentiate(self, &symb(var))
     }
 
     /// Simplify this expression
     ///
     /// # Errors
     /// Returns `DiffError` if simplification fails.
-    pub fn simplified(&self) -> Result<Self, crate::DiffError> {
-        crate::Simplify::new().simplify(self)
+    pub fn simplified(&self) -> Result<Self, DiffError> {
+        Simplify::new().simplify(self)
     }
 
     /// Compile this expression for fast numerical evaluation
@@ -384,8 +387,8 @@ impl Expr {
     ///
     /// # Errors
     /// Returns `DiffError` if the expression cannot be compiled.
-    pub fn compile(&self) -> Result<crate::evaluator::CompiledEvaluator, crate::DiffError> {
-        crate::evaluator::CompiledEvaluator::compile_auto(self, None)
+    pub fn compile(&self) -> Result<CompiledEvaluator, DiffError> {
+        CompiledEvaluator::compile_auto(self, None)
     }
 
     /// Compile this expression with explicit parameter ordering
@@ -409,11 +412,11 @@ impl Expr {
     ///
     /// # Errors
     /// Returns `DiffError` if the expression cannot be compiled.
-    pub fn compile_with_params<P: crate::evaluator::ToParamName>(
+    pub fn compile_with_params<P: ToParamName>(
         &self,
         param_order: &[P],
-    ) -> Result<crate::evaluator::CompiledEvaluator, crate::DiffError> {
-        crate::evaluator::CompiledEvaluator::compile(self, param_order, None)
+    ) -> Result<CompiledEvaluator, DiffError> {
+        CompiledEvaluator::compile(self, param_order, None)
     }
 
     /// Fold over the expression tree (pre-order)
@@ -489,7 +492,7 @@ impl Expr {
     /// Substitute a variable with another expression
     #[must_use]
     pub fn substitute(&self, var: &str, replacement: &Self) -> Self {
-        let var_id = crate::core::symbol::symb_interned(var).id();
+        let var_id = symb_interned(var).id();
         self.map(|node| {
             if let ExprKind::Symbol(s) = &node.kind
                 && s.id() == var_id

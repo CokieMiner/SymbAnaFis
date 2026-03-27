@@ -6,7 +6,7 @@
 )]
 mod api_tests {
     use crate::Diff;
-    use crate::core::symbol::symb;
+    use crate::core::symb;
 
     #[test]
     fn test_diff_builder_basic() {
@@ -104,18 +104,18 @@ mod api_tests {
     reason = "Standard test relaxations"
 )]
 mod engine_tests {
-    use crate::core::known_symbols as ks;
+    use crate::core::known_symbols::{KS, get_symbol};
     use crate::{Expr, core::ExprKind};
 
     #[test]
     fn test_derive_sinh() {
-        let expr = Expr::func_symbol(ks::get_symbol(ks::KS.sinh), Expr::symbol("x"));
+        let expr = Expr::func_symbol(get_symbol(KS.sinh), Expr::symbol("x"));
         let result = expr.derive("x", None);
         match &result.kind {
-            ExprKind::FunctionCall { name, .. } => assert_eq!(name.id(), ks::KS.cosh),
+            ExprKind::FunctionCall { name, .. } => assert_eq!(name.id(), KS.cosh),
             ExprKind::Product(factors) => {
                 let has_cosh = factors.iter().any(
-                    |f| matches!(&f.kind, ExprKind::FunctionCall { name, .. } if name.id() == ks::KS.cosh),
+                    |f| matches!(&f.kind, ExprKind::FunctionCall { name, .. } if name.id() == KS.cosh),
                 );
                 assert!(has_cosh, "Expected cosh in Product, got {factors:?}");
             }
@@ -274,7 +274,7 @@ mod engine_tests {
 
     #[test]
     fn test_derive_erfc() {
-        let expr = Expr::func_symbol(ks::get_symbol(ks::KS.erfc), Expr::symbol("x"));
+        let expr = Expr::func_symbol(get_symbol(KS.erfc), Expr::symbol("x"));
         let result = expr.derive("x", None);
         let s = format!("{result}");
         assert!(s.contains("exp"), "Result should contain exp: {s}");
@@ -284,7 +284,7 @@ mod engine_tests {
 
     #[test]
     fn test_empty_product_derivative() {
-        use crate::core::expr::ExprKind as AstKind;
+        use crate::core::ExprKind as AstKind;
         let empty_prod = Expr::new(AstKind::Product(vec![]));
         let result = empty_prod.derive("x", None);
         assert_eq!(result.as_number(), Some(0.0));
@@ -292,7 +292,7 @@ mod engine_tests {
 
     #[test]
     fn test_empty_sum_derivative() {
-        use crate::core::expr::ExprKind as AstKind;
+        use crate::core::ExprKind as AstKind;
         let empty_sum = Expr::new(AstKind::Sum(vec![]));
         let result = empty_sum.derive("x", None);
         assert_eq!(result.as_number(), Some(0.0));

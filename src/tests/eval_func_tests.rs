@@ -4,6 +4,7 @@
 
 use crate::{core::ExprKind, parser::parse};
 use std::collections::{HashMap, HashSet};
+use std::f64::consts::PI;
 
 const EPSILON: f64 = 1e-6;
 
@@ -37,7 +38,7 @@ fn eval_expr(expr_str: &str, vars: &[(&str, f64)]) -> Option<f64> {
 fn test_eval_constants() {
     // Use numeric values directly for now, as pi() syntax may not work in parser
     let pi_val = eval_expr("3.141592653589793", &[]).unwrap();
-    assert!(approx_eq(pi_val, std::f64::consts::PI));
+    assert!(approx_eq(pi_val, PI));
 
     let e_val = eval_expr("2.718281828459045", &[]).unwrap();
     assert!(approx_eq(e_val, std::f64::consts::E));
@@ -97,7 +98,7 @@ fn test_eval_trig_reciprocal_with_inf() {
 // ===== Inverse trigonometric functions =====
 #[test]
 fn test_eval_inverse_trig() {
-    let pi = std::f64::consts::PI;
+    let pi = PI;
 
     // asin(0) = 0, asin(1) = π/2
     assert!(approx_eq(eval_expr("asin(0)", &[]).unwrap(), 0.0));
@@ -217,7 +218,7 @@ fn test_eval_log_two_arg_parsing() {
 #[test]
 fn test_eval_log_two_arg_type_safe_api() {
     use crate::Expr;
-    use std::collections::HashMap;
+    use HashMap;
 
     // Build log(2, 8) using type-safe API
     let log_expr = Expr::func_multi("log", vec![Expr::number(2.0), Expr::number(8.0)]);
@@ -470,7 +471,7 @@ fn test_eval_gamma() {
 
     // Γ(0.5) = √π
     let gamma_half = eval_expr("gamma(0.5)", &[]).unwrap();
-    assert!((gamma_half - std::f64::consts::PI.sqrt()).abs() < 0.001);
+    assert!((gamma_half - PI.sqrt()).abs() < 0.001);
 }
 
 #[test]
@@ -502,7 +503,7 @@ fn test_eval_digamma() {
 fn test_eval_trigamma() {
     // ψ₁(1) = π²/6
     let trigamma1 = eval_expr("trigamma(1)", &[]).unwrap();
-    let expected = std::f64::consts::PI.powi(2) / 6.0;
+    let expected = PI.powi(2) / 6.0;
     assert!((trigamma1 - expected).abs() < 0.01);
 }
 
@@ -591,7 +592,7 @@ fn test_eval_bessel_i() {
 #[test]
 fn test_eval_with_variables() {
     // sin(x) with x = π/2
-    let result = eval_expr("sin(x)", &[("x", std::f64::consts::PI / 2.0)]).unwrap();
+    let result = eval_expr("sin(x)", &[("x", PI / 2.0)]).unwrap();
     assert!(approx_eq(result, 1.0));
 
     // exp(x) + y with x=0, y=2

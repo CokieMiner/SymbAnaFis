@@ -1,10 +1,11 @@
 #[cfg(test)]
 mod tests {
     use crate::Expr;
-    use crate::core::known_symbols as ks;
+    use crate::core::known_symbols::{KS, get_symbol};
     use crate::evaluator::CompiledEvaluator;
     use crate::parser;
     use std::collections::HashSet;
+    use std::f64::consts::PI;
     use std::sync::Arc;
 
     fn parse_expr(s: &str) -> crate::Expr {
@@ -20,7 +21,7 @@ mod tests {
         let eval = CompiledEvaluator::compile_auto(&expr, None).unwrap();
         let result = eval.evaluate(&[]);
 
-        let expected = 0.5 * (1.0 / std::f64::consts::PI).sqrt();
+        let expected = 0.5 * (1.0 / PI).sqrt();
         assert!((result - expected).abs() < 1e-10);
     }
 
@@ -33,7 +34,7 @@ mod tests {
         let eval = CompiledEvaluator::compile_auto(&expr, None).unwrap();
         let result = eval.evaluate(&[]);
 
-        let expected = 0.5 * (1.0 / std::f64::consts::PI).sqrt();
+        let expected = 0.5 * (1.0 / PI).sqrt();
         assert!((result - expected).abs() < 1e-10);
     }
 
@@ -53,7 +54,7 @@ mod tests {
     fn test_atan2() {
         let evaluator = CompiledEvaluator::compile_auto(
             &Expr::func_multi_from_arcs_symbol(
-                ks::get_symbol(ks::KS.atan2),
+                get_symbol(KS.atan2),
                 vec![
                     Arc::new(Expr::number(1.0)), // y
                     Arc::new(Expr::number(0.0)), // x (y/x -> +infinity -> pi/2)
@@ -64,6 +65,6 @@ mod tests {
         .unwrap();
 
         let result = evaluator.evaluate(&[]);
-        assert!((result - std::f64::consts::PI / 2.0).abs() < 1e-10);
+        assert!((result - PI / 2.0).abs() < 1e-10);
     }
 }

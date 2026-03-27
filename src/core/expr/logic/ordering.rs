@@ -3,15 +3,16 @@
 //! Provides comparison functions for sorting expressions into canonical form.
 
 use std::cmp::Ordering as CmpOrdering;
+use std::ptr::eq;
 
-use super::super::{EXPR_ONE, Expr, ExprKind};
+use super::{EXPR_ONE, Expr, ExprKind};
 
 /// Compare expressions for canonical ordering.
 /// Order: Numbers < Symbols (by power) < Sum < `FunctionCall` < Pow < Div
 #[inline]
 pub fn expr_cmp(a: &Expr, b: &Expr) -> CmpOrdering {
     // Fast identity check (pointer equality)
-    if std::ptr::eq(a, b) {
+    if eq(a, b) {
         return CmpOrdering::Equal;
     }
 
@@ -20,7 +21,7 @@ pub fn expr_cmp(a: &Expr, b: &Expr) -> CmpOrdering {
     let base_b = get_base(b);
 
     // If bases are different, use strict type comparison on bases
-    if !std::ptr::eq(base_a, base_b) {
+    if !eq(base_a, base_b) {
         let base_cmp = expr_cmp_type_strict(base_a, base_b);
         if base_cmp != CmpOrdering::Equal {
             return base_cmp;
@@ -32,7 +33,7 @@ pub fn expr_cmp(a: &Expr, b: &Expr) -> CmpOrdering {
     let exp_a = get_exponent(a);
     let exp_b = get_exponent(b);
 
-    if !std::ptr::eq(exp_a, exp_b) {
+    if !eq(exp_a, exp_b) {
         let exp_cmp = expr_cmp(exp_a, exp_b);
         if exp_cmp != CmpOrdering::Equal {
             return exp_cmp;

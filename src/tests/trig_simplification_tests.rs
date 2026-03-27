@@ -1,7 +1,7 @@
 use crate::simplification::simplify_expr;
 use crate::{Expr, core::ExprKind};
 use std::collections::{HashMap, HashSet};
-
+use std::f64::consts::PI;
 #[test]
 fn test_trig_symmetry_extended() {
     // tan(-x) = -tan(x)
@@ -210,7 +210,6 @@ fn test_pythagorean_identities() {
 
 #[test]
 fn test_cofunction_identities() {
-    use std::f64::consts::PI;
     // sin(pi/2 - x) = cos(x) represented as Sum([pi/2, Product([-1, x])])
     let expr = Expr::func(
         "sin",
@@ -262,7 +261,6 @@ fn test_cofunction_identities() {
 
 #[test]
 fn test_trig_periodicity() {
-    use std::f64::consts::PI;
     // sin(x + 2pi) = sin(x)
     let expr = Expr::func(
         "sin",
@@ -308,7 +306,6 @@ fn test_trig_periodicity() {
 
 #[test]
 fn test_trig_periodicity_general() {
-    use std::f64::consts::PI;
     // sin(x + 4pi) = sin(x)
     let expr = Expr::func(
         "sin",
@@ -354,7 +351,6 @@ fn test_trig_periodicity_general() {
 
 #[test]
 fn test_trig_reflection_shifts() {
-    use std::f64::consts::PI;
     // sin(pi - x) = sin(x) represented as Sum([pi, Product([-1, x])])
     let expr = Expr::func(
         "sin",
@@ -436,8 +432,6 @@ fn test_trig_reflection_shifts() {
 
 #[test]
 fn test_trig_exact_values_extended() {
-    use std::f64::consts::PI;
-
     // sin(pi/6) = 0.5
     let expr = Expr::func("sin", Expr::number(PI / 6.0));
     assert_eq!(

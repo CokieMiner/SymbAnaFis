@@ -1,7 +1,10 @@
 // Algebraic combination operations on validated expressions
 
-use super::super::core::{ExprKind, Rule, RuleCategory, RuleContext};
+use super::{
+    ExprKind, Rule, RuleCategory, RuleContext, compare_expr, extract_coeff, extract_coeff_arc,
+};
 use crate::EPSILON;
+use crate::core::arc_number;
 use crate::{Expr, core::ExprKind as AstKind};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::sync::Arc;
@@ -58,7 +61,7 @@ rule_arc!(
             let mut term_groups: FxHashMap<Arc<Expr>, f64> = FxHashMap::default();
 
             for term in terms {
-                let (coeff, base) = crate::simplification::helpers::extract_coeff_arc(term);
+                let (coeff, base) = extract_coeff_arc(term);
                 *term_groups.entry(base).or_insert(0.0) += coeff;
             }
 
@@ -76,7 +79,7 @@ rule_arc!(
                     // 1*base = base
                     result.push(base);
                 } else if let AstKind::Number(n) = &base.kind {
-                    if (*n - 1.0).abs() < EPSILON {
+                    if (n - 1.0).abs() < EPSILON {
                         result.push(Arc::new(Expr::number(coeff)));
                     } else {
                         // number * number -> combined number
@@ -96,7 +99,7 @@ rule_arc!(
 
             // Sort terms for canonical ordering (use unstable sort for performance)
             if result.len() > 1 {
-                result.sort_unstable_by(|a, b| crate::simplification::helpers::compare_expr(a, b));
+                result.sort_unstable_by(|a, b| compare_expr(a, b));
             }
 
             if result.len() == 1 {
@@ -145,7 +148,7 @@ rule_arc!(
                         factor_groups
                             .entry(Arc::clone(factor))
                             .or_default()
-                            .push(crate::core::expr::arc_number(1.0));
+                            .push(arc_number(1.0));
                     }
                 }
             }
@@ -155,7 +158,7 @@ rule_arc!(
             for (base, exponents) in factor_groups {
                 if exponents.len() == 1 {
                     if let AstKind::Number(n) = &exponents[0].kind
-                        && (*n - 1.0).abs() < EPSILON
+                        && (n - 1.0).abs() < EPSILON
                     {
                         combined_factors.push(base);
                     } else {
@@ -287,8 +290,8 @@ fn distribute_factor(factor: &Expr, addends: &[Expr]) -> Vec<Expr> {
         .iter()
         .map(|addend| {
             // Extract coefficients from both factor and addend
-            let (factor_coeff, factor_var) = crate::simplification::helpers::extract_coeff(factor);
-            let (addend_coeff, addend_var) = crate::simplification::helpers::extract_coeff(addend);
+            let (factor_coeff, factor_var) = extract_coeff(factor);
+            let (addend_coeff, addend_var) = extract_coeff(addend);
 
             let total_coeff = factor_coeff * addend_coeff;
 
@@ -338,7 +341,7 @@ rule_arc!(
             let mut existing_hashes: FxHashSet<u64> = FxHashSet::default();
             for term in terms_vec {
                 if extract_product_with_sum(term).is_none() {
-                    let (_, base) = crate::simplification::helpers::extract_coeff_arc(term);
+                    let (_, base) = extract_coeff_arc(term);
                     existing_hashes.insert(base.term_hash);
                 }
             }
@@ -357,7 +360,7 @@ rule_arc!(
 
                         // Check if any distributed term would combine with existing terms
                         let would_combine = distributed.iter().any(|dt| {
-                            let (_, base) = crate::simplification::helpers::extract_coeff(dt);
+                            let (_, base) = extract_coeff(dt);
                             let hash = base.term_hash;
                             existing_hashes.contains(&hash)
                         });
@@ -405,8 +408,7 @@ rule_arc!(
                     // Expr's Hash+PartialEq handles hash collisions via structural equality.
                     let mut sub_groups: FxHashMap<Arc<Expr>, f64> = FxHashMap::default();
                     for term in &group_terms {
-                        let (coeff, var_part) =
-                            crate::simplification::helpers::extract_coeff_arc(term);
+                        let (coeff, var_part) = extract_coeff_arc(term);
                         *sub_groups.entry(var_part).or_insert(0.0) += coeff;
                     }
 
@@ -419,7 +421,7 @@ rule_arc!(
                         if (total_coeff - 1.0).abs() < EPSILON {
                             combined_terms.push(base_term);
                         } else if let AstKind::Number(n) = &base_term.kind {
-                            if (*n - 1.0).abs() < EPSILON {
+                            if (n - 1.0).abs() < EPSILON {
                                 combined_terms.push(Arc::new(Expr::number(total_coeff)));
                             } else {
                                 combined_terms.push(Arc::new(Expr::number(total_coeff * n)));

@@ -8,12 +8,11 @@ use crate::bindings::python::expr::PyExpr;
 use crate::evaluator::{EvalResult, ExprInput, Value, VarInput};
 
 #[cfg(feature = "parallel")]
-use crate::evaluator::logic::evaluate_parallel_with_hint;
+use crate::evaluator::evaluate_parallel_with_hint;
 #[cfg(feature = "parallel")]
 use numpy::PyReadonlyArray1;
 #[cfg(feature = "parallel")]
 use pyo3::prelude::*;
-
 /// Parallel evaluation functionality (only available with "parallel" feature)
 #[cfg(feature = "parallel")]
 pub mod parallel_impl {
@@ -22,6 +21,8 @@ pub mod parallel_impl {
         PyReadonlyArray1, PyResult, Python, Value, VarInput, evaluate_parallel_with_hint,
         pyfunction,
     };
+    use crate::core::ExprKind;
+    use pyo3::types::{PyFloat, PyString};
 
     /// Parallel evaluation of multiple expressions at multiple points.
     #[pyfunction]
@@ -128,25 +129,23 @@ pub mod parallel_impl {
                             Ok(match r {
                                 EvalResult::String(s) => s.parse::<f64>().map_or_else(
                                     |_| {
-                                        let val = pyo3::types::PyString::new(py, &s);
+                                        let val = PyString::new(py, &s);
                                         val.into_any().unbind()
                                     },
                                     |n| {
-                                        let val = pyo3::types::PyFloat::new(py, n);
+                                        let val = PyFloat::new(py, n);
                                         val.into_any().unbind()
                                     },
                                 ),
                                 EvalResult::Expr(e) => {
-                                    if let crate::core::ExprKind::Number(n) = &e.kind {
-                                        let val = pyo3::types::PyFloat::new(py, *n);
+                                    if let ExprKind::Number(n) = &e.kind {
+                                        let val = PyFloat::new(py, *n);
                                         val.into_any().unbind()
                                     } else if input_was_expr {
                                         let val: Bound<'_, PyExpr> = PyExpr(e).into_pyobject(py)?;
                                         val.into_any().unbind()
                                     } else {
-                                        pyo3::types::PyString::new(py, &e.to_string())
-                                            .into_any()
-                                            .unbind()
+                                        PyString::new(py, &e.to_string()).into_any().unbind()
                                     }
                                 }
                             })
@@ -191,9 +190,9 @@ pub mod parallel_impl {
         // Convert var_names to the required format
         let var_refs: Vec<Vec<&str>> = var_names
             .iter()
-            .map(|vs| vs.iter().map(std::string::String::as_str).collect())
+            .map(|vs| vs.iter().map(String::as_str).collect())
             .collect();
-        let var_slice_refs: Vec<&[&str]> = var_refs.iter().map(std::vec::Vec::as_slice).collect();
+        let var_slice_refs: Vec<&[&str]> = var_refs.iter().map(Vec::as_slice).collect();
 
         // Convert data to the required format (Zero-Copy or List)
         let data_inputs: Vec<Vec<DataInput>> = data
@@ -221,8 +220,7 @@ pub mod parallel_impl {
                     .collect::<PyResult<Vec<_>>>()
             })
             .collect::<PyResult<Vec<_>>>()?;
-        let data_slice_refs: Vec<&[&[f64]]> =
-            data_refs.iter().map(std::vec::Vec::as_slice).collect();
+        let data_slice_refs: Vec<&[&[f64]]> = data_refs.iter().map(Vec::as_slice).collect();
 
         let results =
             rust_eval_f64(&expr_refs, &var_slice_refs, &data_slice_refs).map_err(PyErr::from)?;

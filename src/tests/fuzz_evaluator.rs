@@ -14,6 +14,7 @@ use crate::{CompiledEvaluator, Expr, Symbol, symb};
 use rand::prelude::*;
 use rand::rngs::StdRng;
 use std::collections::{HashMap, HashSet};
+use std::env::var;
 
 const NUM_VARS: usize = 5;
 const MAX_DEPTH: usize = 6;
@@ -326,11 +327,11 @@ fn fuzz_simd_instruction_surface_differential() {
 }
 
 fn fuzz_comprehensive_evaluator_impl() {
-    let num_tests = std::env::var("SYMB_FUZZ_NUM_TESTS")
+    let num_tests = var("SYMB_FUZZ_NUM_TESTS")
         .ok()
         .and_then(|v| v.parse::<usize>().ok())
         .unwrap_or(NUM_TESTS_DEFAULT);
-    let batch_size = std::env::var("SYMB_FUZZ_BATCH_SIZE")
+    let batch_size = var("SYMB_FUZZ_BATCH_SIZE")
         .ok()
         .and_then(|v| v.parse::<usize>().ok())
         .unwrap_or(BATCH_SIZE_DEFAULT);

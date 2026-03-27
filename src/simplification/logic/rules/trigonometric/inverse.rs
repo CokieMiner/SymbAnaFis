@@ -1,6 +1,7 @@
-use super::super::core::{ExprKind, Rule, RuleCategory, RuleContext};
-use crate::core::expr::{Expr, ExprKind as AstExprKind};
+use super::{ExprKind, Rule, RuleCategory, RuleContext};
 use crate::core::known_symbols::KS;
+use crate::core::{Expr, ExprKind as AstExprKind};
+use std::sync::Arc;
 
 rule!(InverseTrigIdentityRule, "inverse_trig_identity", 90, Trigonometric, &[ExprKind::Function], alters_domain: true, |expr: &Expr, _context: &RuleContext| {
     if let AstExprKind::FunctionCall { name, args } = &expr.kind

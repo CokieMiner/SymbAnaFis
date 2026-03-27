@@ -1,6 +1,6 @@
 use super::logic::compute_uncertainty_terms;
-use crate::core::known_symbols as ks;
-use crate::{Diff, DiffError, Expr};
+use crate::core::known_symbols::{KS, get_symbol};
+use crate::{Context, Diff, DiffError, Expr};
 
 #[cfg(feature = "parallel")]
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
@@ -10,7 +10,7 @@ use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 /// Follows the GUM formula for uncertainty propagation.
 #[derive(Debug, Clone, Default)]
 pub struct Uncertainty<'ctx> {
-    context: Option<&'ctx crate::core::context::Context>,
+    context: Option<&'ctx Context>,
     covariance: Option<&'ctx CovarianceMatrix>,
 }
 
@@ -24,7 +24,7 @@ impl<'ctx> Uncertainty<'ctx> {
     /// Set the context for custom functions and symbol resolution
     #[inline]
     #[must_use]
-    pub const fn context(mut self, context: &'ctx crate::core::context::Context) -> Self {
+    pub const fn context(mut self, context: &'ctx Context) -> Self {
         self.context = Some(context);
         self
     }
@@ -93,7 +93,7 @@ impl<'ctx> Uncertainty<'ctx> {
 
         let variance = Expr::sum(terms);
         let simplified_variance = variance.simplified()?;
-        let std_dev = Expr::func_symbol(ks::get_symbol(ks::KS.sqrt), simplified_variance);
+        let std_dev = Expr::func_symbol(get_symbol(KS.sqrt), simplified_variance);
 
         std_dev.simplified()
     }
@@ -137,7 +137,7 @@ pub fn relative_uncertainty(
     covariance: Option<&CovarianceMatrix>,
 ) -> Result<Expr, DiffError> {
     let std_dev = uncertainty_propagation(expr, variables, covariance)?;
-    let abs_f = Expr::func_symbol(ks::get_symbol(ks::KS.abs), expr.clone());
+    let abs_f = Expr::func_symbol(get_symbol(KS.abs), expr.clone());
     Ok(Expr::div_expr(std_dev, abs_f))
 }
 

@@ -24,11 +24,13 @@
 //! - `e^x` is always displayed as `exp(x)` for consistency
 //! - Derivatives use ∂ notation
 
+use super::poly::Polynomial;
+use super::{Expr, ExprKind};
 use crate::EPSILON;
-use crate::core::known_symbols as ks;
-use crate::{Expr, core::ExprKind};
+use crate::core::known_symbols::KS;
 use rustc_hash::FxHashMap;
-use std::fmt;
+use std::collections::hash_map::Entry;
+use std::fmt::{Display, Error, Formatter, Result};
 use std::sync::Arc;
 
 // =============================================================================
@@ -56,7 +58,7 @@ fn collect_symbol_names(expr: &Expr, cache: &mut SymbolCache) {
         match &node.kind {
             ExprKind::Symbol(s) => {
                 let id = s.id();
-                if let std::collections::hash_map::Entry::Vacant(e) = cache.entry(id)
+                if let Entry::Vacant(e) = cache.entry(id)
                     && let Some(name) = s.name_arc()
                 {
                     e.insert(name);
@@ -100,7 +102,7 @@ struct NegativeExtraction<'expr> {
     /// If the rest is a list of factors (Product case)
     rest_factors: Option<&'expr [Arc<Expr>]>,
     /// Code duplication in Poly handling
-    poly_negated: Option<crate::core::poly::Polynomial>,
+    poly_negated: Option<Polynomial>,
 }
 
 /// Analyze expression for negative sign without allocating new expressions
@@ -200,11 +202,11 @@ fn needs_parens_as_base(expr: &Expr) -> bool {
 
 /// Consolidated recursive formatter call
 fn format_recursive(
-    f: &mut fmt::Formatter<'_>,
+    f: &mut Formatter<'_>,
     expr: &Expr,
     mode: FormatMode,
     cache: Option<&SymbolCache>,
-) -> fmt::Result {
+) -> Result {
     match mode {
         FormatMode::Standard => write!(f, "{expr}"),
         FormatMode::Latex => write!(f, "{}", LatexFormatter { expr, cache }),
@@ -214,13 +216,13 @@ fn format_recursive(
 
 /// Consolidated symbol formatting
 fn format_symbol_expr(
-    f: &mut fmt::Formatter<'_>,
+    f: &mut Formatter<'_>,
     expr: &Expr,
     mode: FormatMode,
     cache: Option<&SymbolCache>,
-) -> fmt::Result {
+) -> Result {
     let ExprKind::Symbol(s) = &expr.kind else {
-        return Err(fmt::Error);
+        return Err(Error);
     };
 
     let name_str = cache.map_or_else(
@@ -260,12 +262,12 @@ fn format_symbol_expr(
 
 /// Consolidated parenthesis wrapping logic
 fn format_wrapped(
-    f: &mut fmt::Formatter<'_>,
+    f: &mut Formatter<'_>,
     expr: &Expr,
     mode: FormatMode,
     context: ParenContext,
     cache: Option<&SymbolCache>,
-) -> fmt::Result {
+) -> Result {
     let needs = match context {
         ParenContext::SumOrProduct => matches!(expr.kind, ExprKind::Sum(_) | ExprKind::Poly(_)),
         ParenContext::PowerBase => needs_parens_as_base(expr),
@@ -286,11 +288,11 @@ fn format_wrapped(
 
 /// Unified Sum formatting
 fn format_sum_expr(
-    f: &mut fmt::Formatter<'_>,
+    f: &mut Formatter<'_>,
     terms: &[Arc<Expr>],
     mode: FormatMode,
     cache: Option<&SymbolCache>,
-) -> fmt::Result {
+) -> Result {
     if terms.is_empty() {
         return write!(f, "0");
     }
@@ -328,12 +330,12 @@ fn format_sum_expr(
 
 /// Format the negative part of an expression
 fn format_negative_part(
-    f: &mut fmt::Formatter<'_>,
+    f: &mut Formatter<'_>,
     neg: NegativeExtraction<'_>,
     mode: FormatMode,
     context: ParenContext,
     cache: Option<&SymbolCache>,
-) -> fmt::Result {
+) -> Result {
     if let Some(abs_coeff) = neg.abs_coeff {
         // e.g. -2*x -> print "2*x"
         // If there are other factors, print 2 * rest
@@ -388,11 +390,11 @@ fn format_negative_part(
 
 /// Unified Product formatting
 fn format_product_expr(
-    f: &mut fmt::Formatter<'_>,
+    f: &mut Formatter<'_>,
     factors: &[Arc<Expr>],
     mode: FormatMode,
     cache: Option<&SymbolCache>,
-) -> fmt::Result {
+) -> Result {
     if factors.is_empty() {
         return write!(f, "1");
     }
@@ -486,12 +488,12 @@ fn format_product_expr(
 
 /// Unified Division formatting
 fn format_div_expr(
-    f: &mut fmt::Formatter<'_>,
+    f: &mut Formatter<'_>,
     u: &Expr,
     v: &Expr,
     mode: FormatMode,
     cache: Option<&SymbolCache>,
-) -> fmt::Result {
+) -> Result {
     if matches!(mode, FormatMode::Latex) {
         write!(f, r"\frac{{")?;
         format_recursive(f, u, mode, cache)?;
@@ -537,16 +539,16 @@ fn format_div_expr(
 
 /// Unified Power formatting
 fn format_pow_expr(
-    f: &mut fmt::Formatter<'_>,
+    f: &mut Formatter<'_>,
     u: &Expr,
     v: &Expr,
     mode: FormatMode,
     cache: Option<&SymbolCache>,
-) -> fmt::Result {
+) -> Result {
     // Special case: e^x displays as exp(x) (except in LaTeX which uses e^{x})
     if !matches!(mode, FormatMode::Latex)
         && let ExprKind::Symbol(s) = &u.kind
-        && s.id() == ks::KS.e
+        && s.id() == KS.e
     {
         write!(f, "exp(")?;
         format_recursive(f, v, mode, cache)?;
@@ -555,7 +557,7 @@ fn format_pow_expr(
 
     if matches!(mode, FormatMode::Latex) {
         if let ExprKind::Symbol(s) = &u.kind
-            && s.id() == ks::KS.e
+            && s.id() == KS.e
         {
             write!(f, "e^{{")?;
             format_recursive(f, v, mode, cache)?;
@@ -607,12 +609,12 @@ fn format_pow_expr(
     reason = "Function call formatting requires handling many cases"
 )]
 fn format_function_call_expr(
-    f: &mut fmt::Formatter<'_>,
+    f: &mut Formatter<'_>,
     name: &str,
     args: &[Arc<Expr>],
     mode: FormatMode,
     cache: Option<&SymbolCache>,
-) -> fmt::Result {
+) -> Result {
     if matches!(mode, FormatMode::Latex) {
         // Special formatting for specific functions in LaTeX
         match name {
@@ -1053,7 +1055,7 @@ fn greek_to_unicode(name: &str) -> Option<&'static str> {
 }
 
 /// Format a number based on the display mode
-fn format_number_expr(f: &mut fmt::Formatter<'_>, n: f64, mode: FormatMode) -> fmt::Result {
+fn format_number_expr(f: &mut Formatter<'_>, n: f64, mode: FormatMode) -> Result {
     if n.is_nan() {
         return match mode {
             FormatMode::Standard | FormatMode::Unicode => write!(f, "NaN"),
@@ -1100,13 +1102,13 @@ fn format_number_expr(f: &mut fmt::Formatter<'_>, n: f64, mode: FormatMode) -> f
 // DISPLAY IMPLEMENTATION
 // =============================================================================
 
-impl fmt::Display for Expr {
+impl Display for Expr {
     // Large match blocks for different expression kinds
     #[allow(
         clippy::too_many_lines,
         reason = "Large match block for different expression kinds"
     )]
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match &self.kind {
             ExprKind::Number(n) => format_number_expr(f, *n, FormatMode::Standard),
 
@@ -1145,15 +1147,15 @@ impl fmt::Display for Expr {
 // =============================================================================
 
 /// LaTeX formatter for expressions
-pub struct LatexFormatter<'expr> {
+pub(super) struct LatexFormatter<'expr> {
     /// The expression to format
     pub(crate) expr: &'expr Expr,
     /// Optional symbol cache for formatting
     pub(crate) cache: Option<&'expr SymbolCache>,
 }
 
-impl fmt::Display for LatexFormatter<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Display for LatexFormatter<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         format_latex(self.expr, f, self.cache)
     }
 }
@@ -1164,11 +1166,7 @@ impl fmt::Display for LatexFormatter<'_> {
     reason = "Display format naturally lengthy due to many expr kinds"
 )]
 /// Format an expression in LaTeX
-fn format_latex(
-    expr: &Expr,
-    f: &mut fmt::Formatter<'_>,
-    cache: Option<&SymbolCache>,
-) -> fmt::Result {
+fn format_latex(expr: &Expr, f: &mut Formatter<'_>, cache: Option<&SymbolCache>) -> Result {
     match &expr.kind {
         ExprKind::Number(n) => format_number_expr(f, *n, FormatMode::Latex),
 
@@ -1216,15 +1214,15 @@ fn format_latex(
 // =============================================================================
 
 /// Unicode formatter for expressions
-pub struct UnicodeFormatter<'expr> {
+pub(super) struct UnicodeFormatter<'expr> {
     /// The expression to format
     pub(crate) expr: &'expr Expr,
     /// Optional symbol cache for formatting
     pub(crate) cache: Option<&'expr SymbolCache>,
 }
 
-impl fmt::Display for UnicodeFormatter<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Display for UnicodeFormatter<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         format_unicode(self.expr, f, self.cache)
     }
 }
@@ -1274,11 +1272,7 @@ fn num_to_superscript(n: f64) -> String {
     reason = "Display format naturally lengthy due to many expr kinds"
 )]
 /// Format an expression in Unicode
-fn format_unicode(
-    expr: &Expr,
-    f: &mut fmt::Formatter<'_>,
-    cache: Option<&SymbolCache>,
-) -> fmt::Result {
+fn format_unicode(expr: &Expr, f: &mut Formatter<'_>, cache: Option<&SymbolCache>) -> Result {
     match &expr.kind {
         ExprKind::Number(n) => format_number_expr(f, *n, FormatMode::Unicode),
 

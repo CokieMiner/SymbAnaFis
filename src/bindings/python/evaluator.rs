@@ -3,6 +3,8 @@
 //! This module provides the `PyCompiledEvaluator` class for fast numerical
 //! evaluation of symbolic expressions.
 
+use super::context::PyContext;
+use super::expr::PyExpr;
 use crate::evaluator::CompiledEvaluator as RustCompiledEvaluator;
 use numpy::{PyArray1, PyReadonlyArray1};
 use pyo3::prelude::*;
@@ -26,15 +28,15 @@ impl PyCompiledEvaluator {
     #[new]
     #[pyo3(signature = (expr, params=None, context=None))]
     fn new(
-        expr: &super::expr::PyExpr,
+        expr: &PyExpr,
         params: Option<Vec<String>>,
-        context: Option<&super::context::PyContext>,
+        context: Option<&PyContext>,
     ) -> PyResult<Self> {
         let param_refs: Vec<&str>;
         let rust_context = context.map(|c| &c.inner);
 
         let evaluator = if let Some(p) = &params {
-            param_refs = p.iter().map(std::string::String::as_str).collect();
+            param_refs = p.iter().map(String::as_str).collect();
             RustCompiledEvaluator::compile(&expr.0, &param_refs, rust_context)
         } else {
             RustCompiledEvaluator::compile_auto(&expr.0, rust_context)

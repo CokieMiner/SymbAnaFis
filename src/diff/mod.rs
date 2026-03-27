@@ -13,4 +13,4 @@
 mod api;
 mod logic;
 
-pub use api::{Diff, diff};
+pub use api::*;

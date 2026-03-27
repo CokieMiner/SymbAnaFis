@@ -1,14 +1,16 @@
-use super::super::super::vir::VReg;
-use super::super::super::vir::node::NodeData;
+use super::Compiler;
+use super::analysis::CseKey;
+use super::vir::VReg;
+use super::vir::node::NodeData;
 use crate::Expr;
+use crate::core::ExprKind;
+use crate::core::InternedSymbol;
+use crate::core::Polynomial;
 use crate::core::error::DiffError;
-use crate::core::expr::ExprKind;
-use crate::core::poly::Polynomial;
-use crate::core::symbol::InternedSymbol;
+use crate::core::known_symbols::get_constant_value_by_id;
 use rustc_hash::FxHashMap;
+use std::ptr::from_ref;
 use std::sync::Arc;
-
-use super::super::super::Compiler;
 
 impl Compiler {
     pub(super) fn compile_symbol_node(&mut self, sym: &InternedSymbol) -> Result<VReg, DiffError> {
@@ -17,7 +19,7 @@ impl Compiler {
             Ok(VReg::Param(
                 u32::try_from(idx).expect("Param index too large"),
             ))
-        } else if let Some(val) = crate::core::known_symbols::get_constant_value_by_id(sym_id) {
+        } else if let Some(val) = get_constant_value_by_id(sym_id) {
             let idx = self.add_const(val);
             Ok(VReg::Const(idx))
         } else {
@@ -49,13 +51,7 @@ impl Compiler {
         &self,
         expr: &Expr,
     ) -> Option<VReg> {
-        self.cse_cache
-            .get(
-                &crate::evaluator::logic::bytecode::compile::analysis::CseKey(
-                    std::ptr::from_ref::<Expr>(expr),
-                ),
-            )
-            .copied()
+        self.cse_cache.get(&CseKey(from_ref(expr))).copied()
     }
 
     pub(in crate::evaluator::logic::bytecode::compile) fn push_children(

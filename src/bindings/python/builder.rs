@@ -3,9 +3,16 @@
 //! This module provides the `PyDiff` and `PySimplify` classes which wrap
 //! Rust's builder types for fine-grained control over operations.
 
+use super::context::PyContext;
+use super::expr::{PyExpr, extract_to_expr};
+use super::symbol::PySymbol;
 use crate::Diff;
 use crate::Expr as RustExpr;
 use crate::Simplify;
+use crate::core::BodyFn;
+use crate::core::UserFunction;
+use crate::symb;
+use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use std::sync::Arc;
 
@@ -40,10 +47,10 @@ impl PyDiff {
     ) -> PyResult<PyRefMut<'py, Self>> {
         if let Ok(s) = var.extract::<String>() {
             self_.inner = self_.inner.clone().fixed_var(&s);
-        } else if let Ok(sym) = var.extract::<super::symbol::PySymbol>() {
+        } else if let Ok(sym) = var.extract::<PySymbol>() {
             self_.inner = self_.inner.clone().fixed_var(&sym.0);
         } else {
-            return Err(pyo3::exceptions::PyTypeError::new_err(
+            return Err(PyTypeError::new_err(
                 "fixed_var requires a string or Symbol object.",
             ));
         }
@@ -58,10 +65,10 @@ impl PyDiff {
         for var in vars {
             if let Ok(s) = var.extract::<String>() {
                 self_.inner = self_.inner.clone().fixed_var(&s);
-            } else if let Ok(sym) = var.extract::<super::symbol::PySymbol>() {
+            } else if let Ok(sym) = var.extract::<PySymbol>() {
                 self_.inner = self_.inner.clone().fixed_var(&sym.0);
             } else {
-                return Err(pyo3::exceptions::PyTypeError::new_err(
+                return Err(PyTypeError::new_err(
                     "fixed_vars requires a list of strings or Symbol objects.",
                 ));
             }
@@ -84,7 +91,7 @@ impl PyDiff {
     /// Set context for differentiation
     fn context<'py>(
         mut self_: PyRefMut<'py, Self>,
-        context: &'py super::context::PyContext,
+        context: &'py PyContext,
     ) -> PyRefMut<'py, Self> {
         self_.inner = self_.inner.clone().context(&context.inner);
         self_
@@ -99,18 +106,12 @@ impl PyDiff {
         body_callback: Option<Py<PyAny>>,
         partials: Option<Vec<Py<PyAny>>>,
     ) -> PyResult<PyRefMut<'_, Self>> {
-        use crate::core::context::BodyFn;
-        use crate::core::context::UserFunction;
-
         let mut user_fn = UserFunction::new(arity..=arity);
 
         if let Some(callback) = body_callback {
             let body_fn: BodyFn = Arc::new(move |args: &[Arc<RustExpr>]| -> RustExpr {
                 Python::attach(|py| {
-                    let py_args: Vec<super::expr::PyExpr> = args
-                        .iter()
-                        .map(|a| super::expr::PyExpr((**a).clone()))
-                        .collect();
+                    let py_args: Vec<PyExpr> = args.iter().map(|a| PyExpr((**a).clone())).collect();
                     let Ok(py_list) = py_args.into_pyobject(py) else {
                         return RustExpr::number(0.0);
                     };
@@ -120,7 +121,7 @@ impl PyDiff {
                     result.map_or_else(
                         |_| RustExpr::number(0.0),
                         |res| {
-                            res.extract::<super::expr::PyExpr>(py)
+                            res.extract::<PyExpr>(py)
                                 .map_or_else(|_| RustExpr::number(0.0), |py_expr| py_expr.0)
                         },
                     )
@@ -134,10 +135,8 @@ impl PyDiff {
                 let partial_fn: PartialDerivativeFn =
                     Arc::new(move |args: &[Arc<RustExpr>]| -> RustExpr {
                         Python::attach(|py| {
-                            let py_args: Vec<super::expr::PyExpr> = args
-                                .iter()
-                                .map(|a| super::expr::PyExpr((**a).clone()))
-                                .collect();
+                            let py_args: Vec<PyExpr> =
+                                args.iter().map(|a| PyExpr((**a).clone())).collect();
                             let Ok(py_list) = py_args.into_pyobject(py) else {
                                 return RustExpr::number(0.0);
                             };
@@ -147,7 +146,7 @@ impl PyDiff {
                             result.map_or_else(
                                 |_| RustExpr::number(0.0),
                                 |res| {
-                                    res.extract::<super::expr::PyExpr>(py)
+                                    res.extract::<PyExpr>(py)
                                         .map_or_else(|_| RustExpr::number(0.0), |py_expr| py_expr.0)
                                 },
                             )
@@ -170,25 +169,19 @@ impl PyDiff {
     }
 
     /// Differentiate an expression
-    fn differentiate(
-        &self,
-        expr: &Bound<'_, PyAny>,
-        var: &Bound<'_, PyAny>,
-    ) -> PyResult<super::expr::PyExpr> {
-        let rust_expr = super::expr::extract_to_expr(expr)?;
+    fn differentiate(&self, expr: &Bound<'_, PyAny>, var: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+        let rust_expr = extract_to_expr(expr)?;
         let sym = if let Ok(var_str) = var.extract::<String>() {
-            crate::symb(&var_str)
-        } else if let Ok(var_sym) = var.extract::<super::symbol::PySymbol>() {
+            symb(&var_str)
+        } else if let Ok(var_sym) = var.extract::<PySymbol>() {
             var_sym.0
         } else {
-            return Err(pyo3::exceptions::PyTypeError::new_err(
-                "Variable must be a string or Symbol",
-            ));
+            return Err(PyTypeError::new_err("Variable must be a string or Symbol"));
         };
 
         self.inner
             .differentiate(&rust_expr, &sym)
-            .map(super::expr::PyExpr)
+            .map(PyExpr)
             .map_err(Into::into)
     }
 }
@@ -223,10 +216,10 @@ impl PySimplify {
     ) -> PyResult<PyRefMut<'py, Self>> {
         if let Ok(s) = var.extract::<String>() {
             self_.inner = self_.inner.clone().fixed_var(&s);
-        } else if let Ok(sym) = var.extract::<super::symbol::PySymbol>() {
+        } else if let Ok(sym) = var.extract::<PySymbol>() {
             self_.inner = self_.inner.clone().fixed_var(&sym.0);
         } else {
-            return Err(pyo3::exceptions::PyTypeError::new_err(
+            return Err(PyTypeError::new_err(
                 "fixed_var requires a string or Symbol object.",
             ));
         }
@@ -241,10 +234,10 @@ impl PySimplify {
         for var in vars {
             if let Ok(s) = var.extract::<String>() {
                 self_.inner = self_.inner.clone().fixed_var(&s);
-            } else if let Ok(sym) = var.extract::<super::symbol::PySymbol>() {
+            } else if let Ok(sym) = var.extract::<PySymbol>() {
                 self_.inner = self_.inner.clone().fixed_var(&sym.0);
             } else {
-                return Err(pyo3::exceptions::PyTypeError::new_err(
+                return Err(PyTypeError::new_err(
                     "fixed_vars requires a list of strings or Symbol objects.",
                 ));
             }
@@ -267,18 +260,18 @@ impl PySimplify {
     /// Set context for simplification
     fn context<'py>(
         mut self_: PyRefMut<'py, Self>,
-        context: &'py super::context::PyContext,
+        context: &'py PyContext,
     ) -> PyRefMut<'py, Self> {
         self_.inner = self_.inner.clone().context(&context.inner);
         self_
     }
 
     /// Simplify an expression
-    fn simplify(&self, expr: &Bound<'_, PyAny>) -> PyResult<super::expr::PyExpr> {
-        let rust_expr = super::expr::extract_to_expr(expr)?;
+    fn simplify(&self, expr: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+        let rust_expr = extract_to_expr(expr)?;
         self.inner
             .simplify(&rust_expr)
-            .map(super::expr::PyExpr)
+            .map(PyExpr)
             .map_err(Into::into)
     }
 

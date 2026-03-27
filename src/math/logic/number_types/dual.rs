@@ -7,8 +7,16 @@
 //! f(a + ε) = f(a) + f'(a)ε
 
 use crate::core::traits::MathScalar;
-use num_traits::{Bounded, Float, FloatConst, FromPrimitive, Num, NumCast, One, ToPrimitive, Zero};
-use std::fmt;
+use crate::math::{
+    bessel_j, eval_digamma, eval_elliptic_e, eval_elliptic_k, eval_erf, eval_erfc, eval_gamma,
+    eval_lambert_w, eval_lgamma, eval_polygamma, eval_tetragamma, eval_trigamma, eval_zeta,
+    eval_zeta_deriv,
+};
+use num_traits::{
+    Bounded, Float, FloatConst, FromPrimitive, Num, NumCast, One, Signed, ToPrimitive, Zero,
+};
+use std::fmt::{Display, Formatter, Result as FmtResult};
+use std::num::FpCategory;
 use std::ops::{
     Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
 };
@@ -81,8 +89,8 @@ impl<T: MathScalar> Dual<T> {
     }
 }
 
-impl<T: MathScalar> fmt::Display for Dual<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl<T: MathScalar> Display for Dual<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "{} + {}\u{3b5}", self.val, self.eps)
     }
 }
@@ -228,7 +236,7 @@ impl<T: MathScalar> NumCast for Dual<T> {
 }
 
 // Signed trait implementation using the correct abs from Float trait
-impl<T: MathScalar> num_traits::Signed for Dual<T> {
+impl<T: MathScalar> Signed for Dual<T> {
     fn abs(&self) -> Self {
         // Use Float::abs which correctly implements d/dx|x| = sign(x)
         Float::abs(*self)
@@ -351,7 +359,7 @@ impl<T: MathScalar + Float> Float for Dual<T> {
     fn is_normal(self) -> bool {
         self.val.is_normal()
     }
-    fn classify(self) -> std::num::FpCategory {
+    fn classify(self) -> FpCategory {
         self.val.classify()
     }
 
@@ -581,7 +589,7 @@ impl<T: MathScalar> Dual<T> {
     /// Panics if `MathScalar::from(2.0)` returns `None` (violates `MathScalar` invariant).
     #[must_use]
     pub fn erf(self) -> Self {
-        let val = crate::math::eval_erf(self.val);
+        let val = eval_erf(self.val);
         #[allow(
             clippy::unwrap_used,
             clippy::panic,
@@ -600,7 +608,7 @@ impl<T: MathScalar> Dual<T> {
     /// Panics if `MathScalar::from(2.0)` returns `None` (violates `MathScalar` invariant).
     #[must_use]
     pub fn erfc(self) -> Self {
-        let val = crate::math::eval_erfc(self.val);
+        let val = eval_erfc(self.val);
         #[allow(
             clippy::unwrap_used,
             clippy::panic,
@@ -616,8 +624,8 @@ impl<T: MathScalar> Dual<T> {
     /// d/dx Γ(x) = Γ(x) * ψ(x) where ψ is the digamma function
     #[must_use]
     pub fn gamma(self) -> Self {
-        let val = crate::math::eval_gamma(self.val);
-        let digamma_val = crate::math::eval_digamma(self.val);
+        let val = eval_gamma(self.val);
+        let digamma_val = eval_digamma(self.val);
         let deriv = val * digamma_val;
         Self::new(val, self.eps * deriv)
     }
@@ -626,8 +634,8 @@ impl<T: MathScalar> Dual<T> {
     /// d/dx ln(Γ(x)) = ψ(x) where ψ is the digamma function
     #[must_use]
     pub fn lgamma(self) -> Self {
-        let val = crate::math::eval_lgamma(self.val);
-        let deriv = crate::math::eval_digamma(self.val);
+        let val = eval_lgamma(self.val);
+        let deriv = eval_digamma(self.val);
         Self::new(val, self.eps * deriv)
     }
 
@@ -635,8 +643,8 @@ impl<T: MathScalar> Dual<T> {
     /// d/dx ψ(x) = ψ₁(x) (trigamma)
     #[must_use]
     pub fn digamma(self) -> Self {
-        let val = crate::math::eval_digamma(self.val);
-        let deriv = crate::math::eval_trigamma(self.val);
+        let val = eval_digamma(self.val);
+        let deriv = eval_trigamma(self.val);
         Self::new(val, self.eps * deriv)
     }
 
@@ -644,8 +652,8 @@ impl<T: MathScalar> Dual<T> {
     /// d/dx ψ₁(x) = ψ₂(x) (tetragamma)
     #[must_use]
     pub fn trigamma(self) -> Self {
-        let val = crate::math::eval_trigamma(self.val);
-        let deriv = crate::math::eval_tetragamma(self.val);
+        let val = eval_trigamma(self.val);
+        let deriv = eval_tetragamma(self.val);
         Self::new(val, self.eps * deriv)
     }
 
@@ -657,8 +665,8 @@ impl<T: MathScalar> Dual<T> {
             let nan = T::nan();
             return Self::new(nan, nan);
         }
-        let val = crate::math::eval_polygamma(n, self.val);
-        let deriv = crate::math::eval_polygamma(n + 1, self.val);
+        let val = eval_polygamma(n, self.val);
+        let deriv = eval_polygamma(n + 1, self.val);
         Self::new(val, self.eps * deriv)
     }
 
@@ -666,8 +674,8 @@ impl<T: MathScalar> Dual<T> {
     /// d/dx ζ(x) = ζ'(x) (computed via `eval_zeta_deriv`)
     #[must_use]
     pub fn zeta(self) -> Self {
-        let val = crate::math::eval_zeta(self.val);
-        let deriv = crate::math::eval_zeta_deriv(1, self.val);
+        let val = eval_zeta(self.val);
+        let deriv = eval_zeta_deriv(1, self.val);
         Self::new(val, self.eps * deriv)
     }
 
@@ -678,7 +686,7 @@ impl<T: MathScalar> Dual<T> {
     /// Panics only if internal invariants are violated (never in normal use with f64).
     #[must_use]
     pub fn lambert_w(self) -> Self {
-        let w = crate::math::eval_lambert_w(self.val);
+        let w = eval_lambert_w(self.val);
         // d/dx W(x) = W(x) / (x * (1 + W(x))) = 1 / (e^W(x) * (1 + W(x)))
         let one = T::one();
         let deriv = if self.val.abs() < T::from(1e-15).expect("T::from conversion failed") {
@@ -696,9 +704,9 @@ impl<T: MathScalar> Dual<T> {
     /// Panics only if internal invariants are violated (never in normal use with f64).
     #[must_use]
     pub fn bessel_j(self, n: i32) -> Self {
-        let val = crate::math::bessel_j(n, self.val);
-        let jn_minus_1 = crate::math::bessel_j(n - 1, self.val);
-        let jn_plus_1 = crate::math::bessel_j(n + 1, self.val);
+        let val = bessel_j(n, self.val);
+        let jn_minus_1 = bessel_j(n - 1, self.val);
+        let jn_plus_1 = bessel_j(n + 1, self.val);
         let two = T::from(2.0).expect("T::from conversion failed");
         let deriv = (jn_minus_1 - jn_plus_1) / two;
         Self::new(val, self.eps * deriv)
@@ -738,11 +746,11 @@ impl<T: MathScalar> Dual<T> {
     /// Panics only if internal invariants are violated (never in normal use with f64).
     #[must_use]
     pub fn elliptic_k(self) -> Self {
-        let val = crate::math::eval_elliptic_k(self.val);
+        let val = eval_elliptic_k(self.val);
         // Numerical derivative via finite difference
         let h = T::from(1e-8).expect("T::from conversion failed");
-        let val_plus = crate::math::eval_elliptic_k(self.val + h);
-        let val_minus = crate::math::eval_elliptic_k(self.val - h);
+        let val_plus = eval_elliptic_k(self.val + h);
+        let val_minus = eval_elliptic_k(self.val - h);
         let two = T::from(2.0).expect("T::from conversion failed");
         let deriv = (val_plus - val_minus) / (two * h);
         Self::new(val, self.eps * deriv)
@@ -755,11 +763,11 @@ impl<T: MathScalar> Dual<T> {
     /// Panics only if internal invariants are violated (never in normal use with f64).
     #[must_use]
     pub fn elliptic_e(self) -> Self {
-        let val = crate::math::eval_elliptic_e(self.val);
+        let val = eval_elliptic_e(self.val);
         // Numerical derivative via finite difference
         let h = T::from(1e-8).expect("T::from conversion failed");
-        let val_plus = crate::math::eval_elliptic_e(self.val + h);
-        let val_minus = crate::math::eval_elliptic_e(self.val - h);
+        let val_plus = eval_elliptic_e(self.val + h);
+        let val_minus = eval_elliptic_e(self.val - h);
         let two = T::from(2.0).expect("T::from conversion failed");
         let deriv = (val_plus - val_minus) / (two * h);
         Self::new(val, self.eps * deriv)
@@ -769,14 +777,14 @@ impl<T: MathScalar> Dual<T> {
     /// d/da B(a, b) = B(a, b) * (ψ(a) - ψ(a+b))
     #[must_use]
     pub fn beta(self, b: Self) -> Self {
-        let gamma_a = crate::math::eval_gamma(self.val);
-        let gamma_b = crate::math::eval_gamma(b.val);
-        let gamma_sum = crate::math::eval_gamma(self.val + b.val);
+        let gamma_a = eval_gamma(self.val);
+        let gamma_b = eval_gamma(b.val);
+        let gamma_sum = eval_gamma(self.val + b.val);
         let val = gamma_a * gamma_b / gamma_sum;
 
-        let psi_a = crate::math::eval_digamma(self.val);
-        let psi_b = crate::math::eval_digamma(b.val);
-        let psi_sum = crate::math::eval_digamma(self.val + b.val);
+        let psi_a = eval_digamma(self.val);
+        let psi_b = eval_digamma(b.val);
+        let psi_sum = eval_digamma(self.val + b.val);
 
         // d/da B(a,b) = B(a,b) * (ψ(a) - ψ(a+b))
         // d/db B(a,b) = B(a,b) * (ψ(b) - ψ(a+b))

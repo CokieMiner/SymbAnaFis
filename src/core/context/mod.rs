@@ -4,9 +4,7 @@
 //! - [`api_crate`] — crate-internal type aliases: `BodyFn`, `PartialFn`
 //! - `logic/` — Implementation details
 
-mod api_crate;
-mod api_user;
+mod api;
 mod logic;
 
-pub use api_crate::*;
-pub use api_user::*;
+pub use api::*;

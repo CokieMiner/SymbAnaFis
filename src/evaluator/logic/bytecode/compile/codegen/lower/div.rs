@@ -1,14 +1,13 @@
-use super::super::super::vir::node::{self, NodeData};
-use super::super::super::vir::{VInstruction, VReg};
+use super::Compiler;
+use super::instruction::FnOp;
+use super::vir::node::{NodeData, const_from_map, recip_expm1_arg};
+use super::vir::{VInstruction, VReg};
 use crate::EPSILON;
 use crate::Expr;
+use crate::core::ExprKind;
 use crate::core::error::DiffError;
-use crate::core::expr::ExprKind;
 use crate::core::known_symbols::KS;
-use crate::evaluator::logic::bytecode::instruction::FnOp;
 use rustc_hash::FxHashMap;
-
-use super::super::super::Compiler;
 
 impl Compiler {
     pub(super) fn compile_div_node(
@@ -22,9 +21,9 @@ impl Compiler {
             return Ok(VReg::Const(idx));
         }
 
-        if let Some(n) = node::const_from_map(node_map, num)
+        if let Some(n) = const_from_map(node_map, num)
             && (n - 1.0).abs() < EPSILON
-            && let Some(arg) = node::recip_expm1_arg(den, node_map)
+            && let Some(arg) = recip_expm1_arg(den, node_map)
         {
             let src = Self::vreg_from_map(node_map, arg)?;
             let dest = self.alloc_vreg();

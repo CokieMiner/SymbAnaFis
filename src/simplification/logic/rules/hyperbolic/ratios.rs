@@ -1,7 +1,8 @@
-use super::super::core::{ExprKind, Rule, RuleCategory, RuleContext};
+use super::{ExprKind, Rule, RuleCategory, RuleContext};
 use crate::EPSILON;
-use crate::core::expr::{Expr, ExprKind as AstKind};
 use crate::core::known_symbols::{KS, get_symbol};
+use crate::core::{Expr, ExprKind as AstKind};
+use std::sync::Arc;
 
 rule!(
     SinhCoshToTanhRule,
@@ -74,7 +75,7 @@ rule!(
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::Div(num, den) = &expr.kind
             && let AstKind::Number(n) = &num.kind
-            && (*n - 1.0).abs() < EPSILON
+            && (n - 1.0).abs() < EPSILON
             && let AstKind::FunctionCall { name, args } = &den.kind
             && name.id() == KS.cosh
             && args.len() == 1
@@ -97,7 +98,7 @@ rule!(
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::Div(num, den) = &expr.kind
             && let AstKind::Number(n) = &num.kind
-            && (*n - 1.0).abs() < EPSILON
+            && (n - 1.0).abs() < EPSILON
             && let AstKind::FunctionCall { name, args } = &den.kind
             && name.id() == KS.sinh
             && args.len() == 1
@@ -120,7 +121,7 @@ rule!(
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::Div(num, den) = &expr.kind
             && let AstKind::Number(n) = &num.kind
-            && (*n - 1.0).abs() < EPSILON
+            && (n - 1.0).abs() < EPSILON
             && let AstKind::FunctionCall { name, args } = &den.kind
             && name.id() == KS.tanh
             && args.len() == 1

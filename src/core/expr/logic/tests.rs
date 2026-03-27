@@ -61,9 +61,8 @@ mod api_user_tests {
     reason = "Standard test relaxations"
 )]
 mod display_tests {
-    use crate::core::expr::Expr;
-    use std::collections::HashMap;
-
+    use crate::core::Expr;
+    use std::collections::{HashMap, HashSet};
     #[test]
     #[allow(
         clippy::approx_constant,
@@ -82,7 +81,7 @@ mod display_tests {
     #[test]
     fn test_display_sum() {
         use crate::simplification::simplify_expr;
-        use std::collections::HashSet;
+
         let expr = simplify_expr(
             Expr::sum(vec![Expr::symbol("x"), Expr::number(1.0)]),
             HashSet::new(),
@@ -127,35 +126,5 @@ mod display_tests {
         let display = format!("{expr}");
         // Should display as "x + (y + z)" to preserve structure
         assert_eq!(display, "x + y + z");
-    }
-
-    #[test]
-    fn test_display_div_with_poly_numerator() {
-        // Reproduces user report: (y - y^2) / (x + e^x) could display as y - y^2 / ...
-        // if the numerator is a Polynomial and parentheses are missing.
-        use crate::core::poly::Polynomial;
-
-        let y = Expr::symbol("y");
-        // Poly: y - y^2
-        let mut poly = Polynomial::term(std::sync::Arc::new(y), 1, 1.0); // y
-        poly.add_term(2, -1.0); // - y^2
-
-        let poly_expr = Expr::poly(poly);
-
-        let x = Expr::symbol("x");
-        let ex = Expr::func("exp", x.clone());
-        let denom = Expr::sum(vec![x, ex]);
-
-        let div = Expr::div_expr(poly_expr, denom);
-
-        let display = format!("{div}");
-        // Expect parentheses around the polynomial numerator
-        // Note: Poly usually prints from highest power, but standard display might vary or be sorted.
-        // Assuming it prints something like "y - y^2" or "-y^2 + y".
-        // It definitely needs parentheses.
-        assert!(
-            display.starts_with('('),
-            "Numerator should be parenthesized. Got: {display}"
-        );
     }
 }

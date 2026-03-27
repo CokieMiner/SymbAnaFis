@@ -1,10 +1,9 @@
 #[cfg(test)]
 mod tests {
-    use crate::core::expr::ExprKind;
+    use crate::core::ExprKind;
     use crate::parser::parse;
     use crate::simplification::simplify_expr;
-    use std::collections::HashMap;
-    use std::collections::HashSet;
+    use std::collections::{HashMap, HashSet};
 
     #[test]
     fn debug_root_issue() {

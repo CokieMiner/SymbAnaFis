@@ -12,7 +12,7 @@
 //!
 //! Run with: `cargo run --example view_api_demo`
 
-use symb_anafis::visitor::ExprView;
+use symb_anafis::ExprView;
 use symb_anafis::{Expr, Symbol, symb};
 
 /// Recursively print expression structure using View API

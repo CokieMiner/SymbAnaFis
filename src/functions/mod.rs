@@ -1,4 +1,4 @@
 mod api;
-pub mod logic;
+mod logic;
 
 pub use api::*;

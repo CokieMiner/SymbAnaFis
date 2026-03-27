@@ -1,7 +1,8 @@
 use crate::Expr;
+use crate::core::BodyFn;
 use crate::core::ExprKind as AstKind;
-use crate::core::context::BodyFn;
 use rustc_hash::FxHashMap;
+use std::fmt::{Debug, Formatter, Result as FmtResult};
 use std::sync::Arc;
 
 /// Macro to define a simplification rule with minimal boilerplate
@@ -28,13 +29,9 @@ macro_rules! rule {
             fn applies_to(&self) -> &'static [ExprKind] {
                 $applies_to
             }
-            fn apply(
-                &self,
-                expr: &std::sync::Arc<Expr>,
-                context: &RuleContext,
-            ) -> Option<std::sync::Arc<Expr>> {
+            fn apply(&self, expr: &Arc<Expr>, context: &RuleContext) -> Option<Arc<Expr>> {
                 let _ = context;
-                ($logic)(expr.as_ref(), context).map(std::sync::Arc::new)
+                ($logic)(expr.as_ref(), context).map(Arc::new)
             }
         }
     };
@@ -57,13 +54,9 @@ macro_rules! rule {
             fn target_functions(&self) -> Vec<u64> {
                 $targets.to_vec()
             }
-            fn apply(
-                &self,
-                expr: &std::sync::Arc<Expr>,
-                context: &RuleContext,
-            ) -> Option<std::sync::Arc<Expr>> {
+            fn apply(&self, expr: &Arc<Expr>, context: &RuleContext) -> Option<Arc<Expr>> {
                 let _ = context;
-                ($logic)(expr.as_ref(), context).map(std::sync::Arc::new)
+                ($logic)(expr.as_ref(), context).map(Arc::new)
             }
         }
     };
@@ -86,13 +79,9 @@ macro_rules! rule {
             fn applies_to(&self) -> &'static [ExprKind] {
                 $applies_to
             }
-            fn apply(
-                &self,
-                expr: &std::sync::Arc<Expr>,
-                context: &RuleContext,
-            ) -> Option<std::sync::Arc<Expr>> {
+            fn apply(&self, expr: &Arc<Expr>, context: &RuleContext) -> Option<Arc<Expr>> {
                 let _ = context;
-                ($logic)(expr.as_ref(), context).map(std::sync::Arc::new)
+                ($logic)(expr.as_ref(), context).map(Arc::new)
             }
         }
     };
@@ -118,13 +107,9 @@ macro_rules! rule {
             fn target_functions(&self) -> Vec<u64> {
                 $targets.to_vec()
             }
-            fn apply(
-                &self,
-                expr: &std::sync::Arc<Expr>,
-                context: &RuleContext,
-            ) -> Option<std::sync::Arc<Expr>> {
+            fn apply(&self, expr: &Arc<Expr>, context: &RuleContext) -> Option<Arc<Expr>> {
                 let _ = context;
-                ($logic)(expr.as_ref(), context).map(std::sync::Arc::new)
+                ($logic)(expr.as_ref(), context).map(Arc::new)
             }
         }
     };
@@ -149,11 +134,7 @@ macro_rules! rule_arc {
             fn applies_to(&self) -> &'static [ExprKind] {
                 $applies_to
             }
-            fn apply(
-                &self,
-                expr: &std::sync::Arc<Expr>,
-                context: &RuleContext,
-            ) -> Option<std::sync::Arc<Expr>> {
+            fn apply(&self, expr: &Arc<Expr>, context: &RuleContext) -> Option<Arc<Expr>> {
                 let _ = context;
                 ($logic)(expr.as_ref(), context)
             }
@@ -178,11 +159,7 @@ macro_rules! rule_arc {
             fn target_functions(&self) -> Vec<u64> {
                 $targets.to_vec()
             }
-            fn apply(
-                &self,
-                expr: &std::sync::Arc<Expr>,
-                context: &RuleContext,
-            ) -> Option<std::sync::Arc<Expr>> {
+            fn apply(&self, expr: &Arc<Expr>, context: &RuleContext) -> Option<Arc<Expr>> {
                 let _ = context;
                 ($logic)(expr.as_ref(), context)
             }
@@ -207,11 +184,7 @@ macro_rules! rule_arc {
             fn applies_to(&self) -> &'static [ExprKind] {
                 $applies_to
             }
-            fn apply(
-                &self,
-                expr: &std::sync::Arc<Expr>,
-                context: &RuleContext,
-            ) -> Option<std::sync::Arc<Expr>> {
+            fn apply(&self, expr: &Arc<Expr>, context: &RuleContext) -> Option<Arc<Expr>> {
                 let _ = context;
                 ($logic)(expr.as_ref(), context)
             }
@@ -239,11 +212,7 @@ macro_rules! rule_arc {
             fn target_functions(&self) -> Vec<u64> {
                 $targets.to_vec()
             }
-            fn apply(
-                &self,
-                expr: &std::sync::Arc<Expr>,
-                context: &RuleContext,
-            ) -> Option<std::sync::Arc<Expr>> {
+            fn apply(&self, expr: &Arc<Expr>, context: &RuleContext) -> Option<Arc<Expr>> {
                 let _ = context;
                 ($logic)(expr.as_ref(), context)
             }
@@ -262,7 +231,7 @@ macro_rules! rule_with_helpers_arc {
             fn priority(&self) -> i32 { $priority }
             fn category(&self) -> RuleCategory { RuleCategory::$category }
             fn applies_to(&self) -> &'static [ExprKind] { $applies_to }
-            fn apply(&self, expr: &std::sync::Arc<Expr>, context: &RuleContext) -> Option<std::sync::Arc<Expr>> {
+            fn apply(&self, expr: &Arc<Expr>, context: &RuleContext) -> Option<Arc<Expr>> {
                 $($helper)*
                 let _ = context;
                 ($logic)(expr.as_ref(), context)
@@ -278,7 +247,7 @@ macro_rules! rule_with_helpers_arc {
             fn category(&self) -> RuleCategory { RuleCategory::$category }
             fn alters_domain(&self) -> bool { $alters }
             fn applies_to(&self) -> &'static [ExprKind] { $applies_to }
-            fn apply(&self, expr: &std::sync::Arc<Expr>, context: &RuleContext) -> Option<std::sync::Arc<Expr>> {
+            fn apply(&self, expr: &Arc<Expr>, context: &RuleContext) -> Option<Arc<Expr>> {
                 $($helper)*
                 let _ = context;
                 ($logic)(expr.as_ref(), context)
@@ -297,10 +266,10 @@ macro_rules! rule_with_helpers {
             fn priority(&self) -> i32 { $priority }
             fn category(&self) -> RuleCategory { RuleCategory::$category }
             fn applies_to(&self) -> &'static [ExprKind] { $applies_to }
-            fn apply(&self, expr: &std::sync::Arc<Expr>, context: &RuleContext) -> Option<std::sync::Arc<Expr>> {
+            fn apply(&self, expr: &Arc<Expr>, context: &RuleContext) -> Option<Arc<Expr>> {
                 let _ = context;
                 $($helper)*
-                ($logic)(expr.as_ref(), context).map(std::sync::Arc::new)
+                ($logic)(expr.as_ref(), context).map(Arc::new)
             }
         }
     };
@@ -313,10 +282,10 @@ macro_rules! rule_with_helpers {
             fn category(&self) -> RuleCategory { RuleCategory::$category }
             fn alters_domain(&self) -> bool { $alters }
             fn applies_to(&self) -> &'static [ExprKind] { $applies_to }
-            fn apply(&self, expr: &std::sync::Arc<Expr>, context: &RuleContext) -> Option<std::sync::Arc<Expr>> {
+            fn apply(&self, expr: &Arc<Expr>, context: &RuleContext) -> Option<Arc<Expr>> {
                 let _ = context;
                 $($helper)*
-                ($logic)(expr.as_ref(), context).map(std::sync::Arc::new)
+                ($logic)(expr.as_ref(), context).map(Arc::new)
             }
         }
     };
@@ -456,8 +425,8 @@ pub struct RuleContext {
     pub custom_bodies: Arc<FxHashMap<u64, BodyFn>>,
 }
 
-impl std::fmt::Debug for RuleContext {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Debug for RuleContext {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         f.debug_struct("RuleContext")
             .field("depth", &self.depth)
             .field("domain_safe", &self.domain_safe)

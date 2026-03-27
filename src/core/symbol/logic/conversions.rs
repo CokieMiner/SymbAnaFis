@@ -2,8 +2,8 @@
 
 use std::sync::Arc;
 
-use super::super::Symbol;
 use crate::Expr;
+use crate::core::Symbol;
 
 impl From<Symbol> for Expr {
     fn from(s: Symbol) -> Self {

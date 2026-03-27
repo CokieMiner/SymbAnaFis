@@ -1,12 +1,11 @@
-//! Crate-internal API for the `context` module.
+//! Unified API for the `context` module.
 //!
-//! `BodyFn` and `PartialFn` are the core function-pointer types used by the
-//! simplification engine, evaluator, and diff subsystems internally.
-//! They are also exposed publicly so users can construct `UserFunction` closures.
+//! Handled at the top `core` level for user-vs-crate visibility.
 
+use crate::core::Expr;
 use std::sync::Arc;
 
-use crate::Expr;
+pub use super::logic::{Context, UserFunction};
 
 /// Thread-safe symbolic body function.
 /// Takes argument expressions and returns the function body as an `Expr`.

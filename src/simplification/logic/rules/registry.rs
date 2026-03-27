@@ -1,6 +1,12 @@
+use super::algebraic::get_algebraic_rules;
 use super::core::{ALL_EXPR_KINDS, ExprKind, Rule};
-use super::{algebraic, exponential, hyperbolic, numeric, root, trigonometric};
+use super::exponential::get_exponential_rules;
+use super::hyperbolic::get_hyperbolic_rules;
+use super::numeric::get_numeric_rules;
+use super::root::get_root_rules;
+use super::trigonometric::get_trigonometric_rules;
 use rustc_hash::FxHashMap;
+use std::cmp::Reverse;
 use std::sync::Arc;
 
 /// Rule Registry for dynamic loading and dependency management
@@ -31,12 +37,12 @@ impl RuleRegistry {
     /// Loads all available simplification rules into the registry.
     pub fn load_all_rules(&mut self) {
         // Load rules from each category
-        self.rules.extend(numeric::get_numeric_rules());
-        self.rules.extend(algebraic::get_algebraic_rules());
-        self.rules.extend(trigonometric::get_trigonometric_rules());
-        self.rules.extend(exponential::get_exponential_rules());
-        self.rules.extend(root::get_root_rules());
-        self.rules.extend(hyperbolic::get_hyperbolic_rules());
+        self.rules.extend(get_numeric_rules());
+        self.rules.extend(get_algebraic_rules());
+        self.rules.extend(get_trigonometric_rules());
+        self.rules.extend(get_exponential_rules());
+        self.rules.extend(get_root_rules());
+        self.rules.extend(get_hyperbolic_rules());
         // Note: Rules are sorted by priority in order_by_dependencies()
     }
 
@@ -44,7 +50,7 @@ impl RuleRegistry {
     pub fn order_by_dependencies(&mut self) {
         // Sort by priority descending (higher priority runs first)
         // Rules are processed by ExprKind separately, so category order doesn't matter
-        self.rules.sort_by_key(|r| std::cmp::Reverse(r.priority()));
+        self.rules.sort_by_key(|r| Reverse(r.priority()));
 
         self.build_kind_index();
     }
@@ -89,18 +95,14 @@ impl RuleRegistry {
     #[inline]
     #[must_use]
     pub fn get_rules_for_kind(&self, kind: ExprKind) -> &[Arc<dyn Rule + Send + Sync>] {
-        self.rules_by_kind
-            .get(&kind)
-            .map_or(&[], std::vec::Vec::as_slice)
+        self.rules_by_kind.get(&kind).map_or(&[], Vec::as_slice)
     }
 
     #[inline]
     #[must_use]
     /// Gets rules that specifically target the given function ID.
     pub fn get_specific_func_rules(&self, func_id: u64) -> &[Arc<dyn Rule + Send + Sync>] {
-        self.rules_by_func
-            .get(&func_id)
-            .map_or(&[], std::vec::Vec::as_slice)
+        self.rules_by_func.get(&func_id).map_or(&[], Vec::as_slice)
     }
 
     #[inline]

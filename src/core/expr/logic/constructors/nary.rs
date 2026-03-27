@@ -3,8 +3,7 @@
 use std::cmp::Ordering as CmpOrdering;
 use std::sync::Arc;
 
-use super::super::super::{EPSILON, EXPR_ONE, Expr, ExprKind};
-use super::super::ordering::expr_cmp;
+use super::{EPSILON, EXPR_ONE, Expr, ExprKind, Polynomial, expr_cmp};
 
 impl Expr {
     // -------------------------------------------------------------------------
@@ -305,8 +304,8 @@ fn finalize_sum(mut flat: Vec<Arc<Expr>>) -> Expr {
             && h1 == h2
             && h1 != Some(0)
             && let (Some(mut poly), Some(next_poly)) = (
-                crate::core::poly::Polynomial::try_from_expr(&flat[0]),
-                crate::core::poly::Polynomial::try_from_expr(&flat[1]),
+                Polynomial::try_from_expr(&flat[0]),
+                Polynomial::try_from_expr(&flat[1]),
             )
             && poly.try_add_assign(&next_poly)
         {
@@ -343,16 +342,14 @@ fn finalize_sum(mut flat: Vec<Arc<Expr>>) -> Expr {
                 .peek()
                 .is_some_and(|next| get_poly_base_hash(next) == Some(bh))
         {
-            if let Some(mut poly) = crate::core::poly::Polynomial::try_from_expr(&term) {
+            if let Some(mut poly) = Polynomial::try_from_expr(&term) {
                 let mut unmerged: Vec<Arc<Expr>> = Vec::new();
                 while it
                     .peek()
                     .is_some_and(|next| get_poly_base_hash(next) == Some(bh))
                 {
                     let next_term = it.next().expect("Iterator peeked successfully");
-                    if let Some(next_poly) =
-                        crate::core::poly::Polynomial::try_from_expr(&next_term)
-                    {
+                    if let Some(next_poly) = Polynomial::try_from_expr(&next_term) {
                         if !poly.try_add_assign(&next_poly) {
                             unmerged.push(next_term);
                         }

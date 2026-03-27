@@ -15,10 +15,11 @@
 //!
 //! The simplification engine then handles any remaining optimization opportunities.
 
-use crate::core::context::Context;
-use crate::core::known_symbols as ks;
+use crate::core::known_symbols::{KS, get_symbol};
+use crate::core::{Context, InternedSymbol, symb_interned};
+use crate::functions::Registry;
 use crate::{Expr, core::ExprKind};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 impl Expr {
     /// Differentiate this expression with respect to a variable
@@ -49,10 +50,10 @@ impl Expr {
         reason = "Comprehensive differentiation logic handles many expression types"
     )]
     pub fn derive(&self, var: &str, context: Option<&Context>) -> Self {
-        static EMPTY_CONTEXT: std::sync::OnceLock<Context> = std::sync::OnceLock::new();
+        static EMPTY_CONTEXT: OnceLock<Context> = OnceLock::new();
         let ctx = context.unwrap_or_else(|| EMPTY_CONTEXT.get_or_init(Context::new));
 
-        let var_id = crate::core::symbol::symb_interned(var).id();
+        let var_id = symb_interned(var).id();
 
         self.derive_impl(var, var_id, ctx)
     }
@@ -80,15 +81,15 @@ impl Expr {
                     return Self::number(0.0);
                 }
 
-                if name.id() == ks::KS.exp && args.len() == 1 {
+                if name.id() == KS.exp && args.len() == 1 {
                     let inner_deriv = args[0].derive_impl(var, var_id, ctx);
                     return Self::mul_expr(
-                        Self::func_symbol(ks::get_symbol(ks::KS.exp), (*args[0]).clone()),
+                        Self::func_symbol(get_symbol(KS.exp), (*args[0]).clone()),
                         inner_deriv,
                     );
                 }
 
-                if let Some(def) = crate::functions::Registry::get_by_symbol(name)
+                if let Some(def) = Registry::get_by_symbol(name)
                     && def.validate_arity(args.len())
                 {
                     let arg_primes: Vec<Self> = args
@@ -303,7 +304,7 @@ impl Expr {
                         Self::number(0.0)
                     } else {
                         let a_pow_v = Self::pow_from_arcs(Arc::clone(u), Arc::clone(v));
-                        let ln_a = Self::func_symbol(ks::get_symbol(ks::KS.ln), (**u).clone());
+                        let ln_a = Self::func_symbol(get_symbol(KS.ln), (**u).clone());
 
                         if v_prime.is_one_num() {
                             Self::mul_expr(a_pow_v, ln_a)
@@ -315,7 +316,7 @@ impl Expr {
                     let u_prime = u.derive_impl(var, var_id, ctx);
                     let v_prime = v.derive_impl(var, var_id, ctx);
 
-                    let ln_u = Self::func_symbol(ks::get_symbol(ks::KS.ln), (**u).clone());
+                    let ln_u = Self::func_symbol(get_symbol(KS.ln), (**u).clone());
 
                     let term1 = if v_prime.is_zero_num() {
                         Self::number(0.0)
@@ -383,11 +384,7 @@ impl Expr {
 
     /// Create symbolic partial derivative for unknown function
     #[inline]
-    fn symbolic_partial(
-        name: &crate::core::symbol::InternedSymbol,
-        args: &[Arc<Self>],
-        arg_index: usize,
-    ) -> Self {
+    fn symbolic_partial(name: &InternedSymbol, args: &[Arc<Self>], arg_index: usize) -> Self {
         let inner_func = Self::func_multi_from_arcs_symbol(name.clone(), args.to_vec());
         Self::derivative(inner_func, format!("arg{arg_index}"), 1)
     }

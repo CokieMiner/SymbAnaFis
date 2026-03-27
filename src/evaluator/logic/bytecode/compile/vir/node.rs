@@ -9,8 +9,11 @@ use super::registry::CONST_FOLD_MAP;
 use super::types::VReg;
 use crate::EPSILON;
 use crate::core::known_symbols::KS;
+use crate::core::known_symbols::get_constant_value_by_id;
 use crate::{Expr, core::ExprKind};
 use rustc_hash::FxHashMap;
+use std::cmp::Ordering;
+use std::ptr::from_ref;
 use std::sync::Arc;
 
 #[derive(Clone, Copy)]
@@ -67,7 +70,7 @@ impl NodeData {
 #[inline]
 pub fn const_from_map(node_map: &FxHashMap<*const Expr, NodeData>, expr: &Expr) -> Option<f64> {
     node_map
-        .get(&std::ptr::from_ref(expr))
+        .get(&from_ref(expr))
         .and_then(|data| data.const_val())
 }
 
@@ -87,8 +90,8 @@ pub fn compute_expensive_from_children(
             }
         }
         ExprKind::Sum(terms) | ExprKind::Product(terms) => match terms.len().cmp(&2) {
-            std::cmp::Ordering::Greater => true,
-            std::cmp::Ordering::Equal => terms.iter().any(|t| {
+            Ordering::Greater => true,
+            Ordering::Equal => terms.iter().any(|t| {
                 if node_map
                     .get(&Arc::as_ptr(t))
                     .is_some_and(|data| data.is_expensive)
@@ -97,7 +100,7 @@ pub fn compute_expensive_from_children(
                 }
                 !matches!(t.kind, ExprKind::Number(_) | ExprKind::Symbol(_))
             }),
-            std::cmp::Ordering::Less => terms.iter().any(|t| {
+            Ordering::Less => terms.iter().any(|t| {
                 node_map
                     .get(&Arc::as_ptr(t))
                     .is_some_and(|data| data.is_expensive)
@@ -113,7 +116,7 @@ pub fn compute_const_from_children(
 ) -> Option<f64> {
     match &expr.kind {
         ExprKind::Number(n) => Some(*n),
-        ExprKind::Symbol(s) => crate::core::known_symbols::get_constant_value_by_id(s.id()),
+        ExprKind::Symbol(s) => get_constant_value_by_id(s.id()),
         ExprKind::Sum(terms) => {
             let mut sum = 0.0;
             for t in terms {
@@ -124,7 +127,7 @@ pub fn compute_const_from_children(
         ExprKind::Product(factors) => {
             let mut product = 1.0;
             for f in factors {
-                product *= const_from_map(node_map, f.as_ref())?;
+                product *= const_from_map(node_map, (*f).as_ref())?;
             }
             Some(product)
         }
@@ -167,7 +170,7 @@ pub fn product_two_vregs(
         && factors.len() == 2
     {
         if factors.iter().any(|f| {
-            const_from_map(node_map, f.as_ref()).is_some_and(|n| (n + 1.0).abs() < EPSILON)
+            const_from_map(node_map, (*f).as_ref()).is_some_and(|n| (n + 1.0).abs() < EPSILON)
         }) {
             return None;
         }
@@ -195,7 +198,7 @@ pub fn negated_product_two_vregs(
     }
     let mut neg_idx = None;
     for (i, f) in factors.iter().enumerate() {
-        if const_from_map(node_map, f.as_ref()).is_some_and(|n| (n + 1.0).abs() < EPSILON) {
+        if const_from_map(node_map, (*f).as_ref()).is_some_and(|n| (n + 1.0).abs() < EPSILON) {
             if neg_idx.is_some() {
                 return None;
             }
@@ -278,9 +281,7 @@ pub fn exp_sqr_arg(
     node_map: &FxHashMap<*const Expr, NodeData>,
 ) -> Option<(VReg, bool)> {
     if let Some(base) = pow2_base(arg, node_map) {
-        let base_v = node_map
-            .get(&std::ptr::from_ref(base))
-            .map(|data| data.vreg())?;
+        let base_v = node_map.get(&from_ref(base)).map(|data| data.vreg())?;
         return Some((base_v, false));
     }
 
@@ -299,9 +300,7 @@ pub fn exp_sqr_arg(
             return None;
         };
         if let Some(base) = pow2_base(factors[other_idx].as_ref(), node_map) {
-            let base_v = node_map
-                .get(&std::ptr::from_ref(base))
-                .map(|data| data.vreg())?;
+            let base_v = node_map.get(&from_ref(base)).map(|data| data.vreg())?;
             return Some((base_v, true));
         }
     }

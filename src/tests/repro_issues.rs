@@ -2,7 +2,7 @@
 mod tests {
     use crate::Expr;
     use crate::simplify;
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
 
     #[test]
     fn test_fraction_cancellation_product_base() {
@@ -43,7 +43,7 @@ mod tests {
 
         let simplified = crate::simplification::simplify_expr(
             expr,
-            std::collections::HashSet::new(),
+            HashSet::new(),
             HashMap::new(),
             None,
             None,
@@ -80,7 +80,7 @@ mod tests {
 
         let simplified = crate::simplification::simplify_expr(
             expr,
-            std::collections::HashSet::new(),
+            HashSet::new(),
             HashMap::new(),
             None,
             None,

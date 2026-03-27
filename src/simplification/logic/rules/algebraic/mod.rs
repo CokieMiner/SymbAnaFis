@@ -18,3 +18,8 @@ pub mod powers;
 /// Rule list collector
 pub mod rules;
 pub use rules::get_algebraic_rules;
+
+pub(super) use super::{
+    ExprKind, Rule, RuleCategory, RuleContext, compare_expr, compare_mul_factors, exprs_equivalent,
+    extract_coeff, extract_coeff_arc, gcd, is_fractional_root_exponent, is_known_non_negative,
+};

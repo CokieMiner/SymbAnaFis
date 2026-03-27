@@ -385,12 +385,12 @@ fn test_custom_function_diff() {
 
 #[test]
 fn test_custom_function_with_custom_derivative() {
-    use crate::core::context::UserFunction;
+    use crate::core::UserFunction;
 
     // Register a custom derivative: d/dx[f(x)] = 2*x
     // Using the builder pattern correctly
     let f = UserFunction::new(1..=1)
-        .partial(0, |args: &[std::sync::Arc<Expr>]| {
+        .partial(0, |args: &[Arc<Expr>]| {
             // ∂f/∂u = 2*u
             Expr::number(2.0) * Expr::from(&args[0])
         })

@@ -1,9 +1,10 @@
-pub mod exponential;
-pub mod hyperbolic;
-pub mod inverse_hyperbolic;
-pub mod inverse_trig;
-pub mod special;
-pub mod trigonometric;
+mod exponential;
+mod hyperbolic;
+mod inverse_hyperbolic;
+mod inverse_trig;
+mod special;
+mod trigonometric;
 
-pub mod aggregator;
-pub use aggregator::all_definitions;
+mod aggregator;
+pub(super) use super::registry::FunctionDefinition;
+pub(super) use aggregator::all_definitions;

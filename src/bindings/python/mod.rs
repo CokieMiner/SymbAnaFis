@@ -49,7 +49,7 @@ mod functions;
 mod parallel;
 mod symbol;
 mod utilities;
-mod visitor;
+mod view;
 
 // Re-exports
 pub use builder::*;
@@ -62,4 +62,4 @@ pub use functions::*;
 pub use parallel::*;
 pub use symbol::*;
 pub use utilities::*;
-pub use visitor::*;
+pub use view::*;

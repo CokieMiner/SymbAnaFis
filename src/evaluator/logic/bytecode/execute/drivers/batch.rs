@@ -1,8 +1,8 @@
 //! Internal batch helpers for compiled evaluator execution.
 
+use super::{CompiledEvaluator, ToParamName};
 use crate::DiffError;
 use crate::Expr;
-use crate::evaluator::{CompiledEvaluator, ToParamName};
 use rayon::prelude::*;
 use wide::f64x4;
 
@@ -34,7 +34,7 @@ pub fn eval_single_expr_chunked<V: ToParamName>(
     Ok(output)
 }
 
-pub(super) fn run_chunked_evaluator(
+pub fn run_chunked_evaluator(
     evaluator: &CompiledEvaluator,
     columns: &[&[f64]],
     output: &mut [f64],

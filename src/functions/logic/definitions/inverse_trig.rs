@@ -1,6 +1,7 @@
-use super::super::registry::FunctionDefinition;
+use super::FunctionDefinition;
 use crate::Expr;
-use crate::core::known_symbols as ks;
+use crate::core::known_symbols::{KS, get_symbol};
+use std::f64::consts::PI;
 use std::sync::Arc;
 
 #[allow(clippy::too_many_lines, reason = "Static function definition list")]
@@ -19,7 +20,7 @@ pub fn get_definitions() -> Vec<FunctionDefinition> {
                     Expr::div_expr(
                         Expr::number(1.0),
                         Expr::func_symbol(
-                            ks::get_symbol(ks::KS.sqrt),
+                            get_symbol(KS.sqrt),
                             Expr::sub_expr(
                                 Expr::number(1.0),
                                 Expr::pow_from_arcs(u, Arc::new(Expr::number(2.0))),
@@ -42,7 +43,7 @@ pub fn get_definitions() -> Vec<FunctionDefinition> {
                     Expr::negate(Expr::div_expr(
                         Expr::number(1.0),
                         Expr::func_symbol(
-                            ks::get_symbol(ks::KS.sqrt),
+                            get_symbol(KS.sqrt),
                             Expr::sub_expr(
                                 Expr::number(1.0),
                                 Expr::pow_from_arcs(u, Arc::new(Expr::number(2.0))),
@@ -102,11 +103,11 @@ pub fn get_definitions() -> Vec<FunctionDefinition> {
             eval: |args| {
                 let x = args[0];
                 if x.abs() < 1e-15 {
-                    std::f64::consts::PI / 2.0
+                    PI / 2.0
                 } else if x > 0.0 {
                     (1.0_f64 / x).atan()
                 } else {
-                    (1.0_f64 / x).atan() + std::f64::consts::PI
+                    (1.0_f64 / x).atan() + PI
                 }
             },
             derivative: |args, arg_primes| {
@@ -138,11 +139,11 @@ pub fn get_definitions() -> Vec<FunctionDefinition> {
                         Expr::number(1.0),
                         Expr::mul_expr(
                             Expr::func_multi_from_arcs_symbol(
-                                ks::get_symbol(ks::KS.abs),
+                                get_symbol(KS.abs),
                                 vec![Arc::clone(&u)],
                             ),
                             Expr::func_symbol(
-                                ks::get_symbol(ks::KS.sqrt),
+                                get_symbol(KS.sqrt),
                                 Expr::sub_expr(
                                     Expr::pow_from_arcs(u, Arc::new(Expr::number(2.0))),
                                     Expr::number(1.0),
@@ -167,11 +168,11 @@ pub fn get_definitions() -> Vec<FunctionDefinition> {
                         Expr::number(1.0),
                         Expr::mul_from_arcs(vec![
                             Arc::new(Expr::func_multi_from_arcs_symbol(
-                                ks::get_symbol(ks::KS.abs),
+                                get_symbol(KS.abs),
                                 vec![Arc::clone(&u)],
                             )),
                             Arc::new(Expr::func_symbol(
-                                ks::get_symbol(ks::KS.sqrt),
+                                get_symbol(KS.sqrt),
                                 Expr::sub_expr(
                                     Expr::pow_from_arcs(u, Arc::new(Expr::number(2.0))),
                                     Expr::number(1.0),

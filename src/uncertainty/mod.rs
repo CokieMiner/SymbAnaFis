@@ -12,7 +12,7 @@
 //! of uncertainty in measurement" (GUM), Section 5.1.2
 //! <https://www.bipm.org/documents/20126/2071204/JCGM_100_2008_E.pdf>
 
-pub mod api;
+mod api;
 mod logic;
 
 // Public re-exports

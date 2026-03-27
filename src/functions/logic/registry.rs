@@ -1,3 +1,4 @@
+use super::definitions::all_definitions;
 use crate::Expr;
 use rustc_hash::FxHashMap;
 use std::ops::RangeInclusive;
@@ -33,7 +34,7 @@ impl FunctionDefinition {
     }
 }
 
-use crate::core::symbol::{InternedSymbol, symb_interned};
+use crate::core::{InternedSymbol, symb_interned};
 
 /// Static registry storing all function definitions
 /// Maps symbol ID -> `FunctionDefinition` for fast O(1) lookup
@@ -44,7 +45,7 @@ fn init_registry() -> FxHashMap<u64, FunctionDefinition> {
     let mut map = FxHashMap::default();
 
     // Populate from definitions
-    for def in super::definitions::all_definitions() {
+    for def in all_definitions() {
         // Intern the name to get its ID
         let sym = symb_interned(def.name);
         map.insert(sym.id(), def);

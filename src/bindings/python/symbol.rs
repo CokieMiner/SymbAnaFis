@@ -8,7 +8,8 @@
     reason = "PyO3 from_py_object macro generates lifetimes"
 )]
 
-use crate::core::symbol::Symbol as RustSymbol;
+use super::expr::{PyExpr, extract_to_expr};
+use crate::core::Symbol as RustSymbol;
 use crate::{Expr as RustExpr, remove_symbol, symb, symb_get, symb_new};
 use pyo3::prelude::*;
 
@@ -88,33 +89,33 @@ impl PySymbol {
     }
 
     /// Convert to an expression
-    fn to_expr(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.to_expr())
+    fn to_expr(&self) -> PyExpr {
+        PyExpr(self.0.to_expr())
     }
 
     // Arithmetic operators - accept Expr, Symbol, int, or float
     /// Addition operator.
-    fn __add__(&self, other: &Bound<'_, PyAny>) -> PyResult<super::expr::PyExpr> {
-        let other_expr = super::expr::extract_to_expr(other)?;
-        Ok(super::expr::PyExpr(self.0.to_expr() + other_expr))
+    fn __add__(&self, other: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+        let other_expr = extract_to_expr(other)?;
+        Ok(PyExpr(self.0.to_expr() + other_expr))
     }
 
     /// Subtraction operator.
-    fn __sub__(&self, other: &Bound<'_, PyAny>) -> PyResult<super::expr::PyExpr> {
-        let other_expr = super::expr::extract_to_expr(other)?;
-        Ok(super::expr::PyExpr(self.0.to_expr() - other_expr))
+    fn __sub__(&self, other: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+        let other_expr = extract_to_expr(other)?;
+        Ok(PyExpr(self.0.to_expr() - other_expr))
     }
 
     /// Multiplication operator.
-    fn __mul__(&self, other: &Bound<'_, PyAny>) -> PyResult<super::expr::PyExpr> {
-        let other_expr = super::expr::extract_to_expr(other)?;
-        Ok(super::expr::PyExpr(self.0.to_expr() * other_expr))
+    fn __mul__(&self, other: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+        let other_expr = extract_to_expr(other)?;
+        Ok(PyExpr(self.0.to_expr() * other_expr))
     }
 
     /// Division operator.
-    fn __truediv__(&self, other: &Bound<'_, PyAny>) -> PyResult<super::expr::PyExpr> {
-        let other_expr = super::expr::extract_to_expr(other)?;
-        Ok(super::expr::PyExpr(self.0.to_expr() / other_expr))
+    fn __truediv__(&self, other: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+        let other_expr = extract_to_expr(other)?;
+        Ok(PyExpr(self.0.to_expr() / other_expr))
     }
 
     /// Power operator.
@@ -122,36 +123,33 @@ impl PySymbol {
         &self,
         other: &Bound<'_, PyAny>,
         _modulo: Option<&Bound<'_, PyAny>>,
-    ) -> PyResult<super::expr::PyExpr> {
-        let other_expr = super::expr::extract_to_expr(other)?;
-        Ok(super::expr::PyExpr(RustExpr::pow_static(
-            self.0.to_expr(),
-            other_expr,
-        )))
+    ) -> PyResult<PyExpr> {
+        let other_expr = extract_to_expr(other)?;
+        Ok(PyExpr(RustExpr::pow_static(self.0.to_expr(), other_expr)))
     }
 
     /// Reverse addition operator.
-    fn __radd__(&self, other: &Bound<'_, PyAny>) -> PyResult<super::expr::PyExpr> {
-        let other_expr = super::expr::extract_to_expr(other)?;
-        Ok(super::expr::PyExpr(other_expr + self.0.to_expr()))
+    fn __radd__(&self, other: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+        let other_expr = extract_to_expr(other)?;
+        Ok(PyExpr(other_expr + self.0.to_expr()))
     }
 
     /// Reverse subtraction operator.
-    fn __rsub__(&self, other: &Bound<'_, PyAny>) -> PyResult<super::expr::PyExpr> {
-        let other_expr = super::expr::extract_to_expr(other)?;
-        Ok(super::expr::PyExpr(other_expr - self.0.to_expr()))
+    fn __rsub__(&self, other: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+        let other_expr = extract_to_expr(other)?;
+        Ok(PyExpr(other_expr - self.0.to_expr()))
     }
 
     /// Reverse multiplication operator.
-    fn __rmul__(&self, other: &Bound<'_, PyAny>) -> PyResult<super::expr::PyExpr> {
-        let other_expr = super::expr::extract_to_expr(other)?;
-        Ok(super::expr::PyExpr(other_expr * self.0.to_expr()))
+    fn __rmul__(&self, other: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+        let other_expr = extract_to_expr(other)?;
+        Ok(PyExpr(other_expr * self.0.to_expr()))
     }
 
     /// Reverse division operator.
-    fn __rtruediv__(&self, other: &Bound<'_, PyAny>) -> PyResult<super::expr::PyExpr> {
-        let other_expr = super::expr::extract_to_expr(other)?;
-        Ok(super::expr::PyExpr(other_expr / self.0.to_expr()))
+    fn __rtruediv__(&self, other: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+        let other_expr = extract_to_expr(other)?;
+        Ok(PyExpr(other_expr / self.0.to_expr()))
     }
 
     /// Reverse power operator.
@@ -159,300 +157,293 @@ impl PySymbol {
         &self,
         other: &Bound<'_, PyAny>,
         _modulo: Option<&Bound<'_, PyAny>>,
-    ) -> PyResult<super::expr::PyExpr> {
-        let other_expr = super::expr::extract_to_expr(other)?;
-        Ok(super::expr::PyExpr(RustExpr::pow_static(
-            other_expr,
-            self.0.to_expr(),
-        )))
+    ) -> PyResult<PyExpr> {
+        let other_expr = extract_to_expr(other)?;
+        Ok(PyExpr(RustExpr::pow_static(other_expr, self.0.to_expr())))
     }
 
     /// Negation operator.
-    fn __neg__(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(RustExpr::number(0.0) - self.0.to_expr())
+    fn __neg__(&self) -> PyExpr {
+        PyExpr(RustExpr::number(0.0) - self.0.to_expr())
     }
 
     // Math function methods - convert Symbol to Expr and apply function
     /// Sine function.
-    fn sin(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.sin())
+    fn sin(&self) -> PyExpr {
+        PyExpr(self.0.sin())
     }
     /// Cosine function.
-    fn cos(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.cos())
+    fn cos(&self) -> PyExpr {
+        PyExpr(self.0.cos())
     }
     /// Tangent function.
-    fn tan(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.tan())
+    fn tan(&self) -> PyExpr {
+        PyExpr(self.0.tan())
     }
     /// Cotangent function.
-    fn cot(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.cot())
+    fn cot(&self) -> PyExpr {
+        PyExpr(self.0.cot())
     }
     /// Secant function.
-    fn sec(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.sec())
+    fn sec(&self) -> PyExpr {
+        PyExpr(self.0.sec())
     }
     /// Cosecant function.
-    fn csc(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.csc())
+    fn csc(&self) -> PyExpr {
+        PyExpr(self.0.csc())
     }
 
     /// Inverse sine.
-    fn asin(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.asin())
+    fn asin(&self) -> PyExpr {
+        PyExpr(self.0.asin())
     }
     /// Inverse cosine.
-    fn acos(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.acos())
+    fn acos(&self) -> PyExpr {
+        PyExpr(self.0.acos())
     }
     /// Inverse tangent.
-    fn atan(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.atan())
+    fn atan(&self) -> PyExpr {
+        PyExpr(self.0.atan())
     }
 
     /// Hyperbolic sine.
-    fn sinh(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.sinh())
+    fn sinh(&self) -> PyExpr {
+        PyExpr(self.0.sinh())
     }
     /// Hyperbolic cosine.
-    fn cosh(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.cosh())
+    fn cosh(&self) -> PyExpr {
+        PyExpr(self.0.cosh())
     }
     /// Hyperbolic tangent.
-    fn tanh(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.tanh())
+    fn tanh(&self) -> PyExpr {
+        PyExpr(self.0.tanh())
     }
 
     /// Inverse hyperbolic sine.
-    fn asinh(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.asinh())
+    fn asinh(&self) -> PyExpr {
+        PyExpr(self.0.asinh())
     }
     /// Inverse hyperbolic cosine.
-    fn acosh(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.acosh())
+    fn acosh(&self) -> PyExpr {
+        PyExpr(self.0.acosh())
     }
     /// Inverse hyperbolic tangent.
-    fn atanh(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.atanh())
+    fn atanh(&self) -> PyExpr {
+        PyExpr(self.0.atanh())
     }
 
     /// Exponential function.
-    fn exp(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.exp())
+    fn exp(&self) -> PyExpr {
+        PyExpr(self.0.exp())
     }
     /// Natural logarithm.
-    fn ln(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.ln())
+    fn ln(&self) -> PyExpr {
+        PyExpr(self.0.ln())
     }
     /// Base-10 logarithm.
-    fn log10(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.log10())
+    fn log10(&self) -> PyExpr {
+        PyExpr(self.0.log10())
     }
     /// Base-2 logarithm.
-    fn log2(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.log2())
+    fn log2(&self) -> PyExpr {
+        PyExpr(self.0.log2())
     }
 
     /// Square root.
-    fn sqrt(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.sqrt())
+    fn sqrt(&self) -> PyExpr {
+        PyExpr(self.0.sqrt())
     }
     /// Cube root.
-    fn cbrt(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.cbrt())
+    fn cbrt(&self) -> PyExpr {
+        PyExpr(self.0.cbrt())
     }
     /// Absolute value.
-    fn abs(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.abs())
+    fn abs(&self) -> PyExpr {
+        PyExpr(self.0.abs())
     }
 
     /// Floor function.
-    fn floor(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.floor())
+    fn floor(&self) -> PyExpr {
+        PyExpr(self.0.floor())
     }
     /// Ceiling function.
-    fn ceil(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.ceil())
+    fn ceil(&self) -> PyExpr {
+        PyExpr(self.0.ceil())
     }
     /// Round function.
-    fn round(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.round())
+    fn round(&self) -> PyExpr {
+        PyExpr(self.0.round())
     }
 
     /// Error function.
-    fn erf(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.erf())
+    fn erf(&self) -> PyExpr {
+        PyExpr(self.0.erf())
     }
     /// Complementary error function.
-    fn erfc(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.erfc())
+    fn erfc(&self) -> PyExpr {
+        PyExpr(self.0.erfc())
     }
     /// Gamma function.
-    fn gamma(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.gamma())
+    fn gamma(&self) -> PyExpr {
+        PyExpr(self.0.gamma())
     }
     /// Log-Gamma function.
-    fn lgamma(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.lgamma())
+    fn lgamma(&self) -> PyExpr {
+        PyExpr(self.0.lgamma())
     }
 
     // Additional inverse trig
     /// Inverse cotangent.
-    fn acot(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.acot())
+    fn acot(&self) -> PyExpr {
+        PyExpr(self.0.acot())
     }
     /// Inverse secant.
-    fn asec(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.asec())
+    fn asec(&self) -> PyExpr {
+        PyExpr(self.0.asec())
     }
     /// Inverse cosecant.
-    fn acsc(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.acsc())
+    fn acsc(&self) -> PyExpr {
+        PyExpr(self.0.acsc())
     }
 
     // Additional hyperbolic
     /// Hyperbolic cotangent.
-    fn coth(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.coth())
+    fn coth(&self) -> PyExpr {
+        PyExpr(self.0.coth())
     }
     /// Hyperbolic secant.
-    fn sech(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.sech())
+    fn sech(&self) -> PyExpr {
+        PyExpr(self.0.sech())
     }
     /// Hyperbolic cosecant.
-    fn csch(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.csch())
+    fn csch(&self) -> PyExpr {
+        PyExpr(self.0.csch())
     }
 
     // Additional inverse hyperbolic
     /// Inverse hyperbolic cotangent.
-    fn acoth(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.acoth())
+    fn acoth(&self) -> PyExpr {
+        PyExpr(self.0.acoth())
     }
     /// Inverse hyperbolic secant.
-    fn asech(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.asech())
+    fn asech(&self) -> PyExpr {
+        PyExpr(self.0.asech())
     }
     /// Inverse hyperbolic cosecant.
-    fn acsch(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.acsch())
+    fn acsch(&self) -> PyExpr {
+        PyExpr(self.0.acsch())
     }
 
     // Additional special functions
     /// Sign function.
-    fn signum(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.signum())
+    fn signum(&self) -> PyExpr {
+        PyExpr(self.0.signum())
     }
     /// Sinc function.
-    fn sinc(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.sinc())
+    fn sinc(&self) -> PyExpr {
+        PyExpr(self.0.sinc())
     }
     /// Lambert W function.
-    fn lambertw(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.lambertw())
+    fn lambertw(&self) -> PyExpr {
+        PyExpr(self.0.lambertw())
     }
     /// Riemann zeta function.
-    fn zeta(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.zeta())
+    fn zeta(&self) -> PyExpr {
+        PyExpr(self.0.zeta())
     }
     /// Complete elliptic integral of the first kind.
-    fn elliptic_k(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.elliptic_k())
+    fn elliptic_k(&self) -> PyExpr {
+        PyExpr(self.0.elliptic_k())
     }
     /// Complete elliptic integral of the second kind.
-    fn elliptic_e(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.elliptic_e())
+    fn elliptic_e(&self) -> PyExpr {
+        PyExpr(self.0.elliptic_e())
     }
     /// Exponential in polar form.
-    fn exp_polar(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.exp_polar())
+    fn exp_polar(&self) -> PyExpr {
+        PyExpr(self.0.exp_polar())
     }
 
     // Additional gamma family
     /// Digamma function.
-    fn digamma(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.digamma())
+    fn digamma(&self) -> PyExpr {
+        PyExpr(self.0.digamma())
     }
     /// Trigamma function.
-    fn trigamma(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.trigamma())
+    fn trigamma(&self) -> PyExpr {
+        PyExpr(self.0.trigamma())
     }
     /// Tetragamma function.
-    fn tetragamma(&self) -> super::expr::PyExpr {
-        super::expr::PyExpr(self.0.tetragamma())
+    fn tetragamma(&self) -> PyExpr {
+        PyExpr(self.0.tetragamma())
     }
 
     // Multi-argument functions
     /// Logarithm with arbitrary base: log(base, x)
-    fn log(&self, base: &Bound<'_, PyAny>) -> PyResult<super::expr::PyExpr> {
-        let base_expr = super::expr::extract_to_expr(base)?;
-        Ok(super::expr::PyExpr(self.0.log(base_expr)))
+    fn log(&self, base: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+        let base_expr = extract_to_expr(base)?;
+        Ok(PyExpr(self.0.log(base_expr)))
     }
 
     /// Polygamma function: ψ^(n)(x)
-    fn polygamma(&self, n: &Bound<'_, PyAny>) -> PyResult<super::expr::PyExpr> {
-        let n_expr = super::expr::extract_to_expr(n)?;
-        Ok(super::expr::PyExpr(self.0.polygamma(n_expr)))
+    fn polygamma(&self, n: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+        let n_expr = extract_to_expr(n)?;
+        Ok(PyExpr(self.0.polygamma(n_expr)))
     }
 
     /// Beta function: B(self, other)
-    fn beta(&self, other: &Bound<'_, PyAny>) -> PyResult<super::expr::PyExpr> {
-        let other_expr = super::expr::extract_to_expr(other)?;
-        Ok(super::expr::PyExpr(self.0.beta(other_expr)))
+    fn beta(&self, other: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+        let other_expr = extract_to_expr(other)?;
+        Ok(PyExpr(self.0.beta(other_expr)))
     }
 
     /// Bessel function of the first kind: `J_n(x)`
-    fn besselj(&self, n: &Bound<'_, PyAny>) -> PyResult<super::expr::PyExpr> {
-        let n_expr = super::expr::extract_to_expr(n)?;
-        Ok(super::expr::PyExpr(self.0.besselj(n_expr)))
+    fn besselj(&self, n: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+        let n_expr = extract_to_expr(n)?;
+        Ok(PyExpr(self.0.besselj(n_expr)))
     }
 
     /// Bessel function of the second kind: `Y_n(x)`
-    fn bessely(&self, n: &Bound<'_, PyAny>) -> PyResult<super::expr::PyExpr> {
-        let n_expr = super::expr::extract_to_expr(n)?;
-        Ok(super::expr::PyExpr(self.0.bessely(n_expr)))
+    fn bessely(&self, n: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+        let n_expr = extract_to_expr(n)?;
+        Ok(PyExpr(self.0.bessely(n_expr)))
     }
 
     /// Modified Bessel function of the first kind: `I_n(x)`
-    fn besseli(&self, n: &Bound<'_, PyAny>) -> PyResult<super::expr::PyExpr> {
-        let n_expr = super::expr::extract_to_expr(n)?;
-        Ok(super::expr::PyExpr(self.0.besseli(n_expr)))
+    fn besseli(&self, n: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+        let n_expr = extract_to_expr(n)?;
+        Ok(PyExpr(self.0.besseli(n_expr)))
     }
 
     /// Modified Bessel function of the second kind: `K_n(x)`
-    fn besselk(&self, n: &Bound<'_, PyAny>) -> PyResult<super::expr::PyExpr> {
-        let n_expr = super::expr::extract_to_expr(n)?;
-        Ok(super::expr::PyExpr(self.0.besselk(n_expr)))
+    fn besselk(&self, n: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+        let n_expr = extract_to_expr(n)?;
+        Ok(PyExpr(self.0.besselk(n_expr)))
     }
 
     /// Two-argument arctangent: atan2(self, x) = angle to point (x, self)
-    fn atan2(&self, x: &Bound<'_, PyAny>) -> PyResult<super::expr::PyExpr> {
-        let x_expr = super::expr::extract_to_expr(x)?;
-        Ok(super::expr::PyExpr(RustExpr::func_multi(
+    fn atan2(&self, x: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+        let x_expr = extract_to_expr(x)?;
+        Ok(PyExpr(RustExpr::func_multi(
             "atan2",
             vec![self.0.to_expr(), x_expr],
         )))
     }
 
     /// Hermite polynomial `H_n(self)`
-    fn hermite(&self, n: &Bound<'_, PyAny>) -> PyResult<super::expr::PyExpr> {
-        let n_expr = super::expr::extract_to_expr(n)?;
-        Ok(super::expr::PyExpr(RustExpr::func_multi(
+    fn hermite(&self, n: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+        let n_expr = extract_to_expr(n)?;
+        Ok(PyExpr(RustExpr::func_multi(
             "hermite",
             vec![n_expr, self.0.to_expr()],
         )))
     }
 
     /// Associated Legendre polynomial `P_l^m(self)`
-    fn assoc_legendre(
-        &self,
-        l: &Bound<'_, PyAny>,
-        m: &Bound<'_, PyAny>,
-    ) -> PyResult<super::expr::PyExpr> {
-        let l_expr = super::expr::extract_to_expr(l)?;
-        let m_expr = super::expr::extract_to_expr(m)?;
-        Ok(super::expr::PyExpr(RustExpr::func_multi(
+    fn assoc_legendre(&self, l: &Bound<'_, PyAny>, m: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+        let l_expr = extract_to_expr(l)?;
+        let m_expr = extract_to_expr(m)?;
+        Ok(PyExpr(RustExpr::func_multi(
             "assoc_legendre",
             vec![l_expr, m_expr, self.0.to_expr()],
         )))
@@ -464,11 +455,11 @@ impl PySymbol {
         l: &Bound<'_, PyAny>,
         m: &Bound<'_, PyAny>,
         phi: &Bound<'_, PyAny>,
-    ) -> PyResult<super::expr::PyExpr> {
-        let l_expr = super::expr::extract_to_expr(l)?;
-        let m_expr = super::expr::extract_to_expr(m)?;
-        let phi_expr = super::expr::extract_to_expr(phi)?;
-        Ok(super::expr::PyExpr(RustExpr::func_multi(
+    ) -> PyResult<PyExpr> {
+        let l_expr = extract_to_expr(l)?;
+        let m_expr = extract_to_expr(m)?;
+        let phi_expr = extract_to_expr(phi)?;
+        Ok(PyExpr(RustExpr::func_multi(
             "spherical_harmonic",
             vec![l_expr, m_expr, self.0.to_expr(), phi_expr],
         )))
@@ -480,20 +471,20 @@ impl PySymbol {
         l: &Bound<'_, PyAny>,
         m: &Bound<'_, PyAny>,
         phi: &Bound<'_, PyAny>,
-    ) -> PyResult<super::expr::PyExpr> {
-        let l_expr = super::expr::extract_to_expr(l)?;
-        let m_expr = super::expr::extract_to_expr(m)?;
-        let phi_expr = super::expr::extract_to_expr(phi)?;
-        Ok(super::expr::PyExpr(RustExpr::func_multi(
+    ) -> PyResult<PyExpr> {
+        let l_expr = extract_to_expr(l)?;
+        let m_expr = extract_to_expr(m)?;
+        let phi_expr = extract_to_expr(phi)?;
+        Ok(PyExpr(RustExpr::func_multi(
             "ynm",
             vec![l_expr, m_expr, self.0.to_expr(), phi_expr],
         )))
     }
 
     /// Derivative of Riemann zeta function: zeta^(n)(self)
-    fn zeta_deriv(&self, n: &Bound<'_, PyAny>) -> PyResult<super::expr::PyExpr> {
-        let n_expr = super::expr::extract_to_expr(n)?;
-        Ok(super::expr::PyExpr(RustExpr::func_multi(
+    fn zeta_deriv(&self, n: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
+        let n_expr = extract_to_expr(n)?;
+        Ok(PyExpr(RustExpr::func_multi(
             "zeta_deriv",
             vec![n_expr, self.0.to_expr()],
         )))

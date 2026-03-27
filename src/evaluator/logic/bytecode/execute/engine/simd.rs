@@ -11,10 +11,20 @@
 //!
 //! This module provides vectorized evaluation using `wide::f64x4` (4-wide SIMD).
 
-use super::super::super::instruction::{FnOp, Instruction};
+use super::CompiledEvaluator;
 use super::helpers;
+use super::helpers::round_to_i32;
+use super::instruction::{FnOp, Instruction};
 use crate::core::error::DiffError;
-use crate::evaluator::CompiledEvaluator;
+use crate::math::{
+    bessel_i, bessel_j, bessel_k, bessel_y, eval_assoc_legendre, eval_beta, eval_digamma,
+    eval_elliptic_e, eval_elliptic_k, eval_erf, eval_erfc, eval_exp_polar, eval_gamma,
+    eval_hermite, eval_lambert_w, eval_lgamma, eval_polygamma, eval_spherical_harmonic,
+    eval_tetragamma, eval_trigamma, eval_zeta, eval_zeta_deriv,
+};
+use std::array::from_fn;
+use std::f64::consts::FRAC_PI_2;
+use std::mem::MaybeUninit;
 use wide::f64x4;
 
 const INLINE_SIMD_REGISTERS: usize = 64;
@@ -81,9 +91,8 @@ impl CompiledEvaluator {
         let use_inline = self.workspace_size <= INLINE_SIMD_REGISTERS;
 
         // Use provided buffer or create local one
-        let mut local_stack: Vec<std::mem::MaybeUninit<f64x4>> = Vec::new();
-        let mut inline_simd_stack =
-            [std::mem::MaybeUninit::<f64x4>::uninit(); INLINE_SIMD_REGISTERS];
+        let mut local_stack: Vec<MaybeUninit<f64x4>> = Vec::new();
+        let mut inline_simd_stack = [MaybeUninit::<f64x4>::uninit(); INLINE_SIMD_REGISTERS];
 
         let stack_ptr: *mut f64x4 = if use_inline {
             inline_simd_stack.as_mut_ptr().cast::<f64x4>()
@@ -91,7 +100,7 @@ impl CompiledEvaluator {
             simd_buffer.map_or_else(
                 || {
                     // Use spare capacity to avoid zeroing
-                    local_stack = vec![std::mem::MaybeUninit::uninit(); self.workspace_size];
+                    local_stack = vec![MaybeUninit::uninit(); self.workspace_size];
                     local_stack.as_mut_ptr().cast::<f64x4>()
                 },
                 |b| {
@@ -282,7 +291,7 @@ impl CompiledEvaluator {
         arg_pool: &[u32],
     ) {
         let one = f64x4::splat(1.0);
-        let pi_half = f64x4::splat(std::f64::consts::FRAC_PI_2);
+        let pi_half = f64x4::splat(FRAC_PI_2);
         let mut pc = instructions.as_ptr();
         let end = pc.add(instructions.len());
 
@@ -563,43 +572,43 @@ impl CompiledEvaluator {
                             *dest_ptr = f64x4::new(arr.map(f64::round));
                         }
                         FnOp::Erf => {
-                            *dest_ptr = f64x4::new(arr.map(crate::math::eval_erf));
+                            *dest_ptr = f64x4::new(arr.map(eval_erf));
                         }
                         FnOp::Erfc => {
-                            *dest_ptr = f64x4::new(arr.map(crate::math::eval_erfc));
+                            *dest_ptr = f64x4::new(arr.map(eval_erfc));
                         }
                         FnOp::Gamma => {
-                            *dest_ptr = f64x4::new(arr.map(crate::math::eval_gamma));
+                            *dest_ptr = f64x4::new(arr.map(eval_gamma));
                         }
                         FnOp::Lgamma => {
-                            *dest_ptr = f64x4::new(arr.map(crate::math::eval_lgamma));
+                            *dest_ptr = f64x4::new(arr.map(eval_lgamma));
                         }
                         FnOp::Digamma => {
-                            *dest_ptr = f64x4::new(arr.map(crate::math::eval_digamma));
+                            *dest_ptr = f64x4::new(arr.map(eval_digamma));
                         }
                         FnOp::Trigamma => {
-                            *dest_ptr = f64x4::new(arr.map(crate::math::eval_trigamma));
+                            *dest_ptr = f64x4::new(arr.map(eval_trigamma));
                         }
                         FnOp::Tetragamma => {
-                            *dest_ptr = f64x4::new(arr.map(crate::math::eval_tetragamma));
+                            *dest_ptr = f64x4::new(arr.map(eval_tetragamma));
                         }
                         FnOp::Sinc => {
                             *dest_ptr = f64x4::new(arr.map(helpers::eval_sinc));
                         }
                         FnOp::LambertW => {
-                            *dest_ptr = f64x4::new(arr.map(crate::math::eval_lambert_w));
+                            *dest_ptr = f64x4::new(arr.map(eval_lambert_w));
                         }
                         FnOp::EllipticK => {
-                            *dest_ptr = f64x4::new(arr.map(crate::math::eval_elliptic_k));
+                            *dest_ptr = f64x4::new(arr.map(eval_elliptic_k));
                         }
                         FnOp::EllipticE => {
-                            *dest_ptr = f64x4::new(arr.map(crate::math::eval_elliptic_e));
+                            *dest_ptr = f64x4::new(arr.map(eval_elliptic_e));
                         }
                         FnOp::Zeta => {
-                            *dest_ptr = f64x4::new(arr.map(crate::math::eval_zeta));
+                            *dest_ptr = f64x4::new(arr.map(eval_zeta));
                         }
                         FnOp::ExpPolar => {
-                            *dest_ptr = f64x4::new(arr.map(crate::math::eval_exp_polar));
+                            *dest_ptr = f64x4::new(arr.map(eval_exp_polar));
                         }
                         _ => {
                             *dest_ptr = unreachable_simd_builtin(1, op);
@@ -619,7 +628,7 @@ impl CompiledEvaluator {
                     let arr2 = x2.to_array();
                     match op {
                         FnOp::Atan2 => {
-                            *dest_ptr = f64x4::new(std::array::from_fn(|i| arr1[i].atan2(arr2[i])));
+                            *dest_ptr = f64x4::new(from_fn(|i| arr1[i].atan2(arr2[i])));
                         }
                         FnOp::Log => {
                             #[allow(
@@ -633,60 +642,53 @@ impl CompiledEvaluator {
                                     val.log(base)
                                 }
                             };
-                            *dest_ptr = f64x4::new(std::array::from_fn(|i| l(arr1[i], arr2[i])));
+                            *dest_ptr = f64x4::new(from_fn(|i| l(arr1[i], arr2[i])));
                         }
                         FnOp::BesselJ => {
                             let f = |n_f: f64, val: f64| {
-                                helpers::round_to_i32(n_f)
-                                    .map_or(f64::NAN, |n| crate::math::bessel_j(n, val))
+                                round_to_i32(n_f).map_or(f64::NAN, |n| bessel_j(n, val))
                             };
-                            *dest_ptr = f64x4::new(std::array::from_fn(|i| f(arr1[i], arr2[i])));
+                            *dest_ptr = f64x4::new(from_fn(|i| f(arr1[i], arr2[i])));
                         }
                         FnOp::BesselY => {
                             let f = |n_f: f64, val: f64| {
-                                helpers::round_to_i32(n_f)
-                                    .map_or(f64::NAN, |n| crate::math::bessel_y(n, val))
+                                round_to_i32(n_f).map_or(f64::NAN, |n| bessel_y(n, val))
                             };
-                            *dest_ptr = f64x4::new(std::array::from_fn(|i| f(arr1[i], arr2[i])));
+                            *dest_ptr = f64x4::new(from_fn(|i| f(arr1[i], arr2[i])));
                         }
                         FnOp::BesselI => {
                             let f = |n_f: f64, val: f64| {
-                                helpers::round_to_i32(n_f)
-                                    .map_or(f64::NAN, |n| crate::math::bessel_i(n, val))
+                                round_to_i32(n_f).map_or(f64::NAN, |n| bessel_i(n, val))
                             };
-                            *dest_ptr = f64x4::new(std::array::from_fn(|i| f(arr1[i], arr2[i])));
+                            *dest_ptr = f64x4::new(from_fn(|i| f(arr1[i], arr2[i])));
                         }
                         FnOp::BesselK => {
                             let f = |n_f: f64, val: f64| {
-                                helpers::round_to_i32(n_f)
-                                    .map_or(f64::NAN, |n| crate::math::bessel_k(n, val))
+                                round_to_i32(n_f).map_or(f64::NAN, |n| bessel_k(n, val))
                             };
-                            *dest_ptr = f64x4::new(std::array::from_fn(|i| f(arr1[i], arr2[i])));
+                            *dest_ptr = f64x4::new(from_fn(|i| f(arr1[i], arr2[i])));
                         }
                         FnOp::Polygamma => {
                             let f = |n_f: f64, val: f64| {
-                                helpers::round_to_i32(n_f)
-                                    .map_or(f64::NAN, |n| crate::math::eval_polygamma(n, val))
+                                round_to_i32(n_f).map_or(f64::NAN, |n| eval_polygamma(n, val))
                             };
-                            *dest_ptr = f64x4::new(std::array::from_fn(|i| f(arr1[i], arr2[i])));
+                            *dest_ptr = f64x4::new(from_fn(|i| f(arr1[i], arr2[i])));
                         }
                         FnOp::Beta => {
-                            let f = |a: f64, b: f64| crate::math::eval_beta(a, b);
-                            *dest_ptr = f64x4::new(std::array::from_fn(|i| f(arr1[i], arr2[i])));
+                            let f = |a: f64, b: f64| eval_beta(a, b);
+                            *dest_ptr = f64x4::new(from_fn(|i| f(arr1[i], arr2[i])));
                         }
                         FnOp::ZetaDeriv => {
                             let f = |n_f: f64, val: f64| {
-                                helpers::round_to_i32(n_f)
-                                    .map_or(f64::NAN, |n| crate::math::eval_zeta_deriv(n, val))
+                                round_to_i32(n_f).map_or(f64::NAN, |n| eval_zeta_deriv(n, val))
                             };
-                            *dest_ptr = f64x4::new(std::array::from_fn(|i| f(arr1[i], arr2[i])));
+                            *dest_ptr = f64x4::new(from_fn(|i| f(arr1[i], arr2[i])));
                         }
                         FnOp::Hermite => {
                             let f = |n_f: f64, val: f64| {
-                                helpers::round_to_i32(n_f)
-                                    .map_or(f64::NAN, |n| crate::math::eval_hermite(n, val))
+                                round_to_i32(n_f).map_or(f64::NAN, |n| eval_hermite(n, val))
                             };
-                            *dest_ptr = f64x4::new(std::array::from_fn(|i| f(arr1[i], arr2[i])));
+                            *dest_ptr = f64x4::new(from_fn(|i| f(arr1[i], arr2[i])));
                         }
                         _ => {
                             *dest_ptr = unreachable_simd_builtin(2, op);
@@ -715,14 +717,13 @@ impl CompiledEvaluator {
                     match op {
                         FnOp::AssocLegendre => {
                             let f = |l_f: f64, m_f: f64, val: f64| match (
-                                helpers::round_to_i32(l_f),
-                                helpers::round_to_i32(m_f),
+                                round_to_i32(l_f),
+                                round_to_i32(m_f),
                             ) {
-                                (Some(l), Some(m)) => crate::math::eval_assoc_legendre(l, m, val),
+                                (Some(l), Some(m)) => eval_assoc_legendre(l, m, val),
                                 _ => f64::NAN,
                             };
-                            *dest_ptr =
-                                f64x4::new(std::array::from_fn(|i| f(arr1[i], arr2[i], arr3[i])));
+                            *dest_ptr = f64x4::new(from_fn(|i| f(arr1[i], arr2[i], arr3[i])));
                         }
                         _ => {
                             *dest_ptr = unreachable_simd_builtin(3, op);
@@ -754,17 +755,14 @@ impl CompiledEvaluator {
                     match op {
                         FnOp::SphericalHarmonic => {
                             let f = |l_f: f64, m_f: f64, t: f64, p: f64| match (
-                                helpers::round_to_i32(l_f),
-                                helpers::round_to_i32(m_f),
+                                round_to_i32(l_f),
+                                round_to_i32(m_f),
                             ) {
-                                (Some(l), Some(m)) => {
-                                    crate::math::eval_spherical_harmonic(l, m, t, p)
-                                }
+                                (Some(l), Some(m)) => eval_spherical_harmonic(l, m, t, p),
                                 _ => f64::NAN,
                             };
-                            *dest_ptr = f64x4::new(std::array::from_fn(|i| {
-                                f(arr1[i], arr2[i], arr3[i], arr4[i])
-                            }));
+                            *dest_ptr =
+                                f64x4::new(from_fn(|i| f(arr1[i], arr2[i], arr3[i], arr4[i])));
                         }
                         _ => {
                             *dest_ptr = unreachable_simd_builtin(4, op);

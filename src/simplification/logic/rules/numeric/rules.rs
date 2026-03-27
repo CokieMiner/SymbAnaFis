@@ -1,8 +1,9 @@
-use super::super::core::{ExprKind, Rule, RuleCategory, RuleContext};
+use super::{ExprKind, Rule, RuleCategory, RuleContext};
 use crate::EPSILON;
 use crate::Expr;
 use crate::core::ExprKind as AstKind;
 use crate::core::known_symbols::KS;
+use crate::functions::Registry;
 use std::sync::Arc;
 
 // ===== Identity Rules for Sum (Priority 100) =====
@@ -528,12 +529,12 @@ rule!(
             && factors.len() == 2
         {
             if let AstKind::Number(n) = &factors[0].kind
-                && (*n - 0.5).abs() < EPSILON
+                && (n - 0.5).abs() < EPSILON
             {
                 return Some(Expr::div_expr((*factors[1]).clone(), Expr::number(2.0)));
             }
             if let AstKind::Number(n) = &factors[1].kind
-                && (*n - 0.5).abs() < EPSILON
+                && (n - 0.5).abs() < EPSILON
             {
                 return Some(Expr::div_expr((*factors[0]).clone(), Expr::number(2.0)));
             }
@@ -566,7 +567,7 @@ rule!(
             }
 
             // Try built-in function registry first (via InternedSymbol ID)
-            if let Some(func_def) = crate::functions::Registry::get_by_symbol(name) {
+            if let Some(func_def) = Registry::get_by_symbol(name) {
                 let result = (func_def.eval)(&numeric_args);
 
                 // Check for NaN or Inf

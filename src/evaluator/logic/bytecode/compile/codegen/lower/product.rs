@@ -1,12 +1,11 @@
-use super::super::super::vir::node::{self, NodeData};
-use super::super::super::vir::{VInstruction, VReg};
+use super::Compiler;
+use super::vir::node::{NodeData, const_from_map};
+use super::vir::{VInstruction, VReg};
 use crate::EPSILON;
 use crate::Expr;
 use crate::core::DiffError;
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
-
-use super::super::super::Compiler;
 
 impl Compiler {
     pub(super) fn compile_product_node(
@@ -22,8 +21,8 @@ impl Compiler {
         if factors.len() == 2 {
             let f0 = factors[0].as_ref();
             let f1 = factors[1].as_ref();
-            let c0 = node::const_from_map(node_map, f0);
-            let c1 = node::const_from_map(node_map, f1);
+            let c0 = const_from_map(node_map, f0);
+            let c1 = const_from_map(node_map, f1);
 
             match (c0, c1) {
                 (Some(v0), Some(v1)) => {
@@ -72,10 +71,10 @@ impl Compiler {
         let mut constant_acc = 1.0_f64;
         let mut variable_vregs = Vec::with_capacity(factors.len());
         for f in factors {
-            if let Some(c) = node::const_from_map(node_map, f.as_ref()) {
+            if let Some(c) = const_from_map(node_map, (*f).as_ref()) {
                 constant_acc *= c;
             } else {
-                variable_vregs.push(Self::vreg_from_map(node_map, f.as_ref())?);
+                variable_vregs.push(Self::vreg_from_map(node_map, (*f).as_ref())?);
             }
         }
 
@@ -87,7 +86,7 @@ impl Compiler {
             }
         } else {
             for f in factors {
-                if let Some(c) = node::const_from_map(node_map, f.as_ref()) {
+                if let Some(c) = const_from_map(node_map, (*f).as_ref()) {
                     let c_idx = self.add_const(c);
                     vregs_all.push(VReg::Const(c_idx));
                 }

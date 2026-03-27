@@ -19,9 +19,13 @@
 //
 use super::tokens::{Operator, Token};
 use crate::DiffError;
+use crate::Span;
+use crate::core::known_symbols::is_known_constant;
 use std::borrow::Cow;
-use std::cmp::Ordering;
+use std::cmp::{Ordering, Reverse};
 use std::collections::HashSet;
+use std::hash::BuildHasher;
+use std::sync::LazyLock;
 
 // DESIGN NOTE: BUILTINS vs Operator enum
 // ======================================
@@ -399,7 +403,7 @@ pub(super) fn scan_characters(input: &str) -> Result<Vec<RawToken<'_>>, DiffErro
                     Err(_) => {
                         return Err(DiffError::InvalidNumber {
                             value: num_str.to_owned(),
-                            span: Some(crate::Span::new(start_pos, pos)),
+                            span: Some(Span::new(start_pos, pos)),
                         });
                     }
                 }
@@ -442,7 +446,7 @@ pub(super) fn scan_characters(input: &str) -> Result<Vec<RawToken<'_>>, DiffErro
                 // For invalid tokens, include position information
                 return Err(DiffError::InvalidToken {
                     token: ch.to_string(),
-                    span: Some(crate::Span::new(pos, pos + 1)),
+                    span: Some(Span::new(pos, pos + 1)),
                 });
             }
         }
@@ -452,7 +456,7 @@ pub(super) fn scan_characters(input: &str) -> Result<Vec<RawToken<'_>>, DiffErro
 }
 
 /// Pass 2: Resolve sequences into tokens using context
-pub fn lex<'src, S: std::hash::BuildHasher>(
+pub fn lex<'src, S: BuildHasher>(
     input: &'src str,
     fixed_vars: &HashSet<String, S>,
     custom_functions: &HashSet<String, S>,
@@ -532,7 +536,7 @@ pub fn lex<'src, S: std::hash::BuildHasher>(
     clippy::string_slice,
     reason = "Slicing by char indices yields valid UTF-8 sequences"
 )]
-fn resolve_sequence<'src, S: std::hash::BuildHasher>(
+fn resolve_sequence<'src, S: BuildHasher>(
     seq: &'src str,
     fixed_vars: &HashSet<String, S>,
     custom_functions: &HashSet<String, S>,
@@ -546,7 +550,7 @@ fn resolve_sequence<'src, S: std::hash::BuildHasher>(
     }
 
     // Priority 1.5: Check for known constants (pi, e)
-    if crate::core::known_symbols::is_known_constant(seq) {
+    if is_known_constant(seq) {
         output.push(Token::Identifier(Cow::Borrowed(seq)));
         return;
     }
@@ -571,12 +575,11 @@ fn resolve_sequence<'src, S: std::hash::BuildHasher>(
     // Optimized: Search using length-sorted builtins to avoid O(n^2) scan
     if next_is_paren {
         // Use LazyLock for thread-safe, one-time initialization (cleaner than OnceLock)
-        static BUILTINS_SORTED: std::sync::LazyLock<Vec<&'static str>> =
-            std::sync::LazyLock::new(|| {
-                let mut b = BUILTINS.to_vec();
-                b.sort_by_key(|b| std::cmp::Reverse(b.len())); // Descending length
-                b
-            });
+        static BUILTINS_SORTED: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
+            let mut b = BUILTINS.to_vec();
+            b.sort_by_key(|s| Reverse(s.len())); // Descending length
+            b
+        });
 
         // Check suffixes first (e.g. "xsin" -> "x", "sin")
         for builtin in BUILTINS_SORTED.iter() {
@@ -649,7 +652,7 @@ fn resolve_sequence<'src, S: std::hash::BuildHasher>(
 ///
 /// **Safety**: Validates format before recursively lexing arguments to prevent
 /// infinite recursion on malformed input.
-pub(super) fn parse_derivative_notation<'src, S: std::hash::BuildHasher>(
+pub(super) fn parse_derivative_notation<'src, S: BuildHasher>(
     s: &'src str,
     fixed_vars: &HashSet<String, S>,
     custom_functions: &HashSet<String, S>,

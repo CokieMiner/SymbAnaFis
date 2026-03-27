@@ -8,11 +8,14 @@
 //! - `FxHashMap<u64, f64>` - ID-based keys (fast, use `symbol.id()`)
 
 use std::collections::HashMap;
+use std::hash::BuildHasher;
 use std::sync::Arc;
 
 use crate::Expr;
-use crate::core::expr::CustomEvalMap;
-use crate::core::{ExprKind, symbol::InternedSymbol};
+use crate::core::CustomEvalMap;
+use crate::core::known_symbols::get_constant_value;
+use crate::core::{ExprKind, InternedSymbol};
+use crate::functions::Registry;
 
 /// Trait for variable value lookup during evaluation.
 ///
@@ -24,7 +27,7 @@ pub trait VarLookup {
 }
 
 // String-based lookup (backward compatible, convenient)
-impl<S: std::hash::BuildHasher> VarLookup for HashMap<&str, f64, S> {
+impl<S: BuildHasher> VarLookup for HashMap<&str, f64, S> {
     #[inline]
     fn get_value(&self, symbol: &InternedSymbol) -> Option<f64> {
         symbol.name().and_then(|name| self.get(name).copied())
@@ -32,7 +35,7 @@ impl<S: std::hash::BuildHasher> VarLookup for HashMap<&str, f64, S> {
 }
 
 // ID-based lookup (fast, O(1) with custom or standard hasher)
-impl<S: std::hash::BuildHasher> VarLookup for HashMap<u64, f64, S> {
+impl<S: BuildHasher> VarLookup for HashMap<u64, f64, S> {
     #[inline]
     fn get_value(&self, symbol: &InternedSymbol) -> Option<f64> {
         self.get(&symbol.id()).copied()
@@ -70,7 +73,7 @@ impl Expr {
     /// String-based (convenient):
     /// ```
     /// use symb_anafis::{symb, Expr};
-    /// use std::collections::HashMap;
+    /// use HashMap;
     ///
     /// let x = symb("eval_x");
     /// let y = symb("eval_y");
@@ -87,7 +90,7 @@ impl Expr {
     /// ```
     /// use symb_anafis::{symb, Expr};
     /// use rustc_hash::FxHashMap;
-    /// use std::collections::HashMap;
+    /// use HashMap;
     ///
     /// let x = symb("eval_id_x");
     /// let y = symb("eval_id_y");
@@ -116,7 +119,7 @@ impl Expr {
                 }
                 // Check for mathematical constants
                 if let Some(name) = s.name()
-                    && let Some(value) = crate::core::known_symbols::get_constant_value(name)
+                    && let Some(value) = get_constant_value(name)
                 {
                     return Self::number(value);
                 }
@@ -137,7 +140,7 @@ impl Expr {
                     {
                         return Self::number(result);
                     }
-                    if let Some(func_def) = crate::functions::Registry::get_by_symbol(name) {
+                    if let Some(func_def) = Registry::get_by_symbol(name) {
                         let result = (func_def.eval)(&args_vec);
                         return Self::number(result);
                     }

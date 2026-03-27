@@ -1,13 +1,16 @@
-//! Public convenience APIs for common one-call operations.
-
-use crate::{DiffError, Expr, Symbol};
+use super::logic::{
+    evaluate_str as do_evaluate_str, gradient as do_gradient, gradient_str as do_gradient_str,
+    hessian as do_hessian, hessian_str as do_hessian_str, jacobian as do_jacobian,
+    jacobian_str as do_jacobian_str,
+};
+use crate::core::{DiffError, Expr, Symbol};
 
 /// Compute the gradient of an expression with respect to multiple variables.
 ///
 /// # Errors
 /// Returns `DiffError` if differentiation fails for any variable.
 pub fn gradient(expr: &Expr, vars: &[&Symbol]) -> Result<Vec<Expr>, DiffError> {
-    super::logic::calculus::gradient(expr, vars)
+    do_gradient(expr, vars)
 }
 
 /// Compute the Hessian matrix of an expression.
@@ -15,7 +18,7 @@ pub fn gradient(expr: &Expr, vars: &[&Symbol]) -> Result<Vec<Expr>, DiffError> {
 /// # Errors
 /// Returns `DiffError` if any second partial derivative fails.
 pub fn hessian(expr: &Expr, vars: &[&Symbol]) -> Result<Vec<Vec<Expr>>, DiffError> {
-    super::logic::calculus::hessian(expr, vars)
+    do_hessian(expr, vars)
 }
 
 /// Compute the Jacobian matrix of a vector of expressions.
@@ -23,7 +26,7 @@ pub fn hessian(expr: &Expr, vars: &[&Symbol]) -> Result<Vec<Vec<Expr>>, DiffErro
 /// # Errors
 /// Returns `DiffError` if any partial derivative fails.
 pub fn jacobian(exprs: &[Expr], vars: &[&Symbol]) -> Result<Vec<Vec<Expr>>, DiffError> {
-    super::logic::calculus::jacobian(exprs, vars)
+    do_jacobian(exprs, vars)
 }
 
 /// Compute gradient from a formula string.
@@ -31,7 +34,7 @@ pub fn jacobian(exprs: &[Expr], vars: &[&Symbol]) -> Result<Vec<Vec<Expr>>, Diff
 /// # Errors
 /// Returns `DiffError` if parsing or differentiation fails.
 pub fn gradient_str(formula: &str, vars: &[&str]) -> Result<Vec<String>, DiffError> {
-    super::logic::calculus::gradient_str(formula, vars)
+    do_gradient_str(formula, vars)
 }
 
 /// Compute Hessian matrix from a formula string.
@@ -39,7 +42,7 @@ pub fn gradient_str(formula: &str, vars: &[&str]) -> Result<Vec<String>, DiffErr
 /// # Errors
 /// Returns `DiffError` if parsing or differentiation fails.
 pub fn hessian_str(formula: &str, vars: &[&str]) -> Result<Vec<Vec<String>>, DiffError> {
-    super::logic::calculus::hessian_str(formula, vars)
+    do_hessian_str(formula, vars)
 }
 
 /// Compute Jacobian matrix from formula strings.
@@ -47,7 +50,7 @@ pub fn hessian_str(formula: &str, vars: &[&str]) -> Result<Vec<Vec<String>>, Dif
 /// # Errors
 /// Returns `DiffError` if parsing or differentiation fails.
 pub fn jacobian_str(formulas: &[&str], vars: &[&str]) -> Result<Vec<Vec<String>>, DiffError> {
-    super::logic::calculus::jacobian_str(formulas, vars)
+    do_jacobian_str(formulas, vars)
 }
 
 /// Evaluate a formula string with given variable values.
@@ -57,5 +60,5 @@ pub fn jacobian_str(formulas: &[&str], vars: &[&str]) -> Result<Vec<Vec<String>>
 /// # Errors
 /// Returns `DiffError` if the formula cannot be parsed.
 pub fn evaluate_str(formula: &str, vars: &[(&str, f64)]) -> Result<String, DiffError> {
-    super::logic::evaluation::evaluate_str(formula, vars)
+    do_evaluate_str(formula, vars)
 }

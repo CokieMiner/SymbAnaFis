@@ -1,8 +1,7 @@
 #[cfg(test)]
 mod division_bug_tests {
     use crate::{Expr, simplification::simplify_expr};
-    use std::collections::HashMap;
-    use std::collections::HashSet;
+    use std::collections::{HashMap, HashSet};
 
     #[test]
     fn verify_display_parens() {

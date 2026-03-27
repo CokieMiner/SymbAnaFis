@@ -1,7 +1,15 @@
 //! Convenience calculus internals built on top of [`crate::Diff`].
 
-use crate::{Diff, DiffError, Expr, Symbol, parser};
+use crate::core::DiffError;
+use crate::core::Expr;
+use crate::core::Symbol;
+use crate::diff::Diff;
+use crate::parser::parse;
 use std::collections::HashSet;
+
+// ============================================================================
+// General Helpers
+// ============================================================================
 
 #[inline]
 fn empty_context() -> (HashSet<String>, HashSet<String>) {
@@ -15,8 +23,12 @@ fn extract_var_names(vars: &[&Symbol]) -> Vec<String> {
 
 #[inline]
 fn var_names_to_str_refs(var_names: &[String]) -> Vec<&str> {
-    var_names.iter().map(std::string::String::as_str).collect()
+    var_names.iter().map(String::as_str).collect()
 }
+
+// ============================================================================
+// Expression-based API
+// ============================================================================
 
 fn gradient_internal(expr: &Expr, vars: &[&str]) -> Result<Vec<Expr>, DiffError> {
     let diff = Diff::new();
@@ -45,16 +57,13 @@ fn jacobian_internal(exprs: &[Expr], vars: &[&str]) -> Result<Vec<Vec<Expr>>, Di
         .collect()
 }
 
-pub(in crate::convenience) fn gradient(
-    expr: &Expr,
-    vars: &[&Symbol],
-) -> Result<Vec<Expr>, DiffError> {
+pub(in super::super) fn gradient(expr: &Expr, vars: &[&Symbol]) -> Result<Vec<Expr>, DiffError> {
     let var_names = extract_var_names(vars);
     let var_refs = var_names_to_str_refs(&var_names);
     gradient_internal(expr, &var_refs)
 }
 
-pub(in crate::convenience) fn hessian(
+pub(in super::super) fn hessian(
     expr: &Expr,
     vars: &[&Symbol],
 ) -> Result<Vec<Vec<Expr>>, DiffError> {
@@ -63,7 +72,7 @@ pub(in crate::convenience) fn hessian(
     hessian_internal(expr, &var_refs)
 }
 
-pub(in crate::convenience) fn jacobian(
+pub(in super::super) fn jacobian(
     exprs: &[Expr],
     vars: &[&Symbol],
 ) -> Result<Vec<Vec<Expr>>, DiffError> {
@@ -72,10 +81,14 @@ pub(in crate::convenience) fn jacobian(
     jacobian_internal(exprs, &var_refs)
 }
 
+// ============================================================================
+// String-based API
+// ============================================================================
+
 #[inline]
 fn parse_formula(formula: &str) -> Result<Expr, DiffError> {
     let (fixed_vars, custom_fns) = empty_context();
-    parser::parse(formula, &fixed_vars, &custom_fns, None)
+    parse(formula, &fixed_vars, &custom_fns, None)
 }
 
 #[inline]
@@ -83,20 +96,20 @@ fn parse_formulas(formulas: &[&str]) -> Result<Vec<Expr>, DiffError> {
     let (fixed_vars, custom_fns) = empty_context();
     formulas
         .iter()
-        .map(|f| parser::parse(f, &fixed_vars, &custom_fns, None))
+        .map(|f| parse(f, &fixed_vars, &custom_fns, None))
         .collect()
 }
 
-pub(in crate::convenience) fn gradient_str(
+pub(in super::super) fn gradient_str(
     formula: &str,
     vars: &[&str],
 ) -> Result<Vec<String>, DiffError> {
     let expr = parse_formula(formula)?;
     let grad = gradient_internal(&expr, vars)?;
-    Ok(grad.iter().map(std::string::ToString::to_string).collect())
+    Ok(grad.iter().map(ToString::to_string).collect())
 }
 
-pub(in crate::convenience) fn hessian_str(
+pub(in super::super) fn hessian_str(
     formula: &str,
     vars: &[&str],
 ) -> Result<Vec<Vec<String>>, DiffError> {
@@ -104,11 +117,11 @@ pub(in crate::convenience) fn hessian_str(
     let hess = hessian_internal(&expr, vars)?;
     Ok(hess
         .iter()
-        .map(|row| row.iter().map(std::string::ToString::to_string).collect())
+        .map(|row| row.iter().map(ToString::to_string).collect())
         .collect())
 }
 
-pub(in crate::convenience) fn jacobian_str(
+pub(in super::super) fn jacobian_str(
     formulas: &[&str],
     vars: &[&str],
 ) -> Result<Vec<Vec<String>>, DiffError> {
@@ -116,6 +129,6 @@ pub(in crate::convenience) fn jacobian_str(
     let jac = jacobian_internal(&exprs, vars)?;
     Ok(jac
         .iter()
-        .map(|row| row.iter().map(std::string::ToString::to_string).collect())
+        .map(|row| row.iter().map(ToString::to_string).collect())
         .collect())
 }

@@ -3,7 +3,8 @@
 //! [`VReg`] (virtual registers) and [`VInstruction`] are used by the [`Compiler`] before
 //! final physical register allocation via [`RegAllocator`].
 
-use super::super::super::instruction::FnOp;
+use super::instruction::FnOp;
+use std::mem::swap;
 
 /// Virtual register used during expression compilation.
 ///
@@ -326,7 +327,7 @@ impl VInstruction {
         match self {
             Self::Add2 { a, b, .. } | Self::Mul2 { a, b, .. } => {
                 if a > b {
-                    std::mem::swap(a, b);
+                    swap(a, b);
                 }
             }
             Self::Add { srcs, .. } | Self::Mul { srcs, .. } => {

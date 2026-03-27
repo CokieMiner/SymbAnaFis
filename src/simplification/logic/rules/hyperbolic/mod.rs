@@ -10,3 +10,5 @@ pub mod ratios;
 /// Rule list collector
 pub mod rules;
 pub use rules::get_hyperbolic_rules;
+
+pub(super) use super::{ExprKind, Rule, RuleCategory, RuleContext};

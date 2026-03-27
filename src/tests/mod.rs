@@ -17,7 +17,7 @@ mod debug_division_structure;
 mod debug_gaussian_cycle;
 mod debug_issue;
 mod debug_rc;
-pub mod debug_root;
+mod debug_root;
 mod debug_root_issue;
 mod derivative_oracle_tests;
 mod derivative_regressions;

@@ -1,11 +1,14 @@
 //! Base expression constructors and accessors.
 
+use std::mem::replace;
 use std::sync::Arc;
 
-use super::super::super::next_id;
-use super::super::super::{CACHED_NEG_ONE, CACHED_TWO, CACHED_ZERO, EXPR_ONE, Expr, ExprKind};
-use super::super::hash::{compute_expr_hash, compute_term_hash};
-use crate::core::symbol::{InternedSymbol, symb_interned};
+use super::{
+    CACHED_NEG_ONE, CACHED_TWO, CACHED_ZERO, EXPR_ONE, Expr, ExprKind, Polynomial,
+    compute_expr_hash, compute_term_hash, next_id,
+};
+use crate::core::traits::{is_neg_one, is_one, is_zero};
+use crate::core::{InternedSymbol, symb_interned};
 
 impl Expr {
     /// Create a new expression with fresh ID
@@ -40,7 +43,7 @@ impl Expr {
     #[inline]
     #[must_use]
     pub fn into_kind(mut self) -> ExprKind {
-        std::mem::replace(&mut self.kind, ExprKind::Number(0.0))
+        replace(&mut self.kind, ExprKind::Number(0.0))
     }
 
     // -------------------------------------------------------------------------
@@ -60,20 +63,19 @@ impl Expr {
     /// Check if this expression is the number zero (with tolerance)
     #[inline]
     pub fn is_zero_num(&self) -> bool {
-        self.as_number().is_some_and(crate::core::traits::is_zero)
+        self.as_number().is_some_and(is_zero)
     }
 
     /// Check if this expression is the number one (with tolerance)
     #[inline]
     pub fn is_one_num(&self) -> bool {
-        self.as_number().is_some_and(crate::core::traits::is_one)
+        self.as_number().is_some_and(is_one)
     }
 
     /// Check if this expression is the number negative one (with tolerance)
     #[inline]
     pub fn is_neg_one_num(&self) -> bool {
-        self.as_number()
-            .is_some_and(crate::core::traits::is_neg_one)
+        self.as_number().is_some_and(is_neg_one)
     }
 
     // -------------------------------------------------------------------------
@@ -135,7 +137,7 @@ impl Expr {
 
     /// Create a polynomial expression directly
     #[must_use]
-    pub fn poly(p: crate::core::poly::Polynomial) -> Self {
+    pub fn poly(p: Polynomial) -> Self {
         // Empty polynomial is 0
         if p.terms().is_empty() {
             return Self::number(0.0);

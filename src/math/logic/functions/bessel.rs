@@ -144,7 +144,7 @@ fn compute_miller_start(n: i32) -> i32 {
 /// For |x| ≥ 8: uses asymptotic form `J_0(x)` ≈ √(2/πx) cos(x - π/4) P(8/x)
 ///
 /// Reference: A&S §9.4.1-9.4.6 <https://dlmf.nist.gov/10.17>
-pub fn bessel_j0<T: MathScalar>(x: T) -> T {
+fn bessel_j0<T: MathScalar>(x: T) -> T {
     const BESSEL_J0_SMALL_NUM: [f64; 6] = [
         57_568_490_574.0,
         -13_362_590_354.0,
@@ -207,7 +207,7 @@ pub fn bessel_j0<T: MathScalar>(x: T) -> T {
 /// Same structure as `J_0` with different coefficients.
 ///
 /// Reference: A&S §9.4.4-9.4.6 <https://dlmf.nist.gov/10.17>
-pub fn bessel_j1<T: MathScalar>(x: T) -> T {
+fn bessel_j1<T: MathScalar>(x: T) -> T {
     const BESSEL_J1_SMALL_NUM: [f64; 6] = [
         72_362_614_232.0,
         -7_895_059_235.0,
@@ -300,7 +300,7 @@ pub fn bessel_y<T: MathScalar>(n: i32, x: T) -> T {
 /// Bessel function `Y_0(x)` via rational approximation
 ///
 /// Reference: A&S §9.4.1-9.4.6 <https://dlmf.nist.gov/10.17>
-pub fn bessel_y0<T: MathScalar>(x: T) -> T {
+fn bessel_y0<T: MathScalar>(x: T) -> T {
     const BESSEL_Y0_SMALL_NUM: [f64; 6] = [
         -2_957_821_389.0,
         7_062_834_065.0,
@@ -359,7 +359,7 @@ pub fn bessel_y0<T: MathScalar>(x: T) -> T {
 /// Bessel function `Y_1(x)` via rational approximation
 ///
 /// Reference: A&S §9.4.4-9.4.6 <https://dlmf.nist.gov/10.17>
-pub fn bessel_y1<T: MathScalar>(x: T) -> T {
+fn bessel_y1<T: MathScalar>(x: T) -> T {
     const BESSEL_Y1_SMALL_NUM: [f64; 6] = [
         -0.490_060_494_3e13,
         0.127_527_439_0e13,
@@ -498,7 +498,7 @@ pub fn bessel_i<T: MathScalar>(n: i32, x: T) -> T {
 /// Modified Bessel function `I_0(x)` via polynomial approximation
 ///
 /// Reference: A&S §9.8.1-9.8.4 <https://dlmf.nist.gov/10.40>
-pub fn bessel_i0<T: MathScalar>(x: T) -> T {
+fn bessel_i0<T: MathScalar>(x: T) -> T {
     const BESSEL_I0_SMALL: [f64; 7] = [
         1.0,
         3.515_622_9,
@@ -539,7 +539,7 @@ pub fn bessel_i0<T: MathScalar>(x: T) -> T {
 /// Modified Bessel function `I_1(x)` via polynomial approximation
 ///
 /// Reference: A&S §9.8.1-9.8.4 <https://dlmf.nist.gov/10.40>
-pub fn bessel_i1<T: MathScalar>(x: T) -> T {
+fn bessel_i1<T: MathScalar>(x: T) -> T {
     const BESSEL_I1_SMALL: [f64; 7] = [
         0.5,
         0.878_905_94,
@@ -611,7 +611,7 @@ pub fn bessel_k<T: MathScalar>(n: i32, x: T) -> T {
 /// Modified Bessel function `K_0(x)` via polynomial approximation
 ///
 /// Reference: A&S §9.8.5-9.8.8 <https://dlmf.nist.gov/10.40>
-pub fn bessel_k0<T: MathScalar>(x: T) -> T {
+fn bessel_k0<T: MathScalar>(x: T) -> T {
     const COEFFS: [f64; 7] = [
         -0.577_215_66,
         0.422_784_20,
@@ -651,7 +651,7 @@ pub fn bessel_k0<T: MathScalar>(x: T) -> T {
 }
 
 /// Computes the modified Bessel function of the second kind of order 1.
-pub fn bessel_k1<T: MathScalar>(x: T) -> T {
+fn bessel_k1<T: MathScalar>(x: T) -> T {
     const COEFFS: [f64; 7] = [
         1.0,
         0.154_431_44,

@@ -6,4 +6,4 @@
 mod api;
 mod logic;
 
-pub use api::{evaluate_str, gradient, gradient_str, hessian, hessian_str, jacobian, jacobian_str};
+pub use api::*;

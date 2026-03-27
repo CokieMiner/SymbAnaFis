@@ -1,7 +1,9 @@
-use super::super::core::{ExprKind, Rule, RuleCategory, RuleContext};
+use super::{ExprKind, Rule, RuleCategory, RuleContext};
 use crate::EPSILON;
-use crate::core::expr::{Expr, ExprKind as AstKind};
+use crate::core::InternedSymbol;
 use crate::core::known_symbols::{KS, get_symbol};
+use crate::core::{Expr, ExprKind as AstKind};
+use std::sync::Arc;
 
 rule!(
     SinhZeroRule,
@@ -245,7 +247,7 @@ rule!(
                 if let AstKind::Product(factors) = &term.kind
                     && factors.len() == 2
                     && let AstKind::Number(n) = &factors[0].kind
-                    && (*n + 1.0).abs() < EPSILON
+                    && (n + 1.0).abs() < EPSILON
                 {
                     return Some((*factors[1]).clone());
                 }
@@ -335,10 +337,7 @@ rule!(
 );
 
 /// Gets the hyperbolic function and its argument if the expression is a power of a hyperbolic function.
-fn get_hyperbolic_power(
-    expr: &Expr,
-    power: f64,
-) -> Option<(crate::core::symbol::InternedSymbol, Expr)> {
+fn get_hyperbolic_power(expr: &Expr, power: f64) -> Option<(InternedSymbol, Expr)> {
     if let AstKind::Pow(base, exp) = &expr.kind
         && let AstKind::Number(p) = &exp.kind
         && {
@@ -557,10 +556,7 @@ rule!(
 );
 
 /// Parses a function term to extract coefficient, argument, and power.
-fn parse_fn_term(
-    expr: &Expr,
-    func_name: &crate::core::symbol::InternedSymbol,
-) -> Option<(f64, Expr, f64)> {
+fn parse_fn_term(expr: &Expr, func_name: &InternedSymbol) -> Option<(f64, Expr, f64)> {
     // Direct function call: func(x) -> (1.0, x, 1.0)
     if let AstKind::FunctionCall { name, args } = &expr.kind
         && name.id() == func_name.id()

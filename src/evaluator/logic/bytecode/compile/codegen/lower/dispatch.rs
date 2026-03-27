@@ -1,11 +1,10 @@
-use super::super::super::vir::VReg;
-use super::super::super::vir::node::NodeData;
+use super::Compiler;
+use super::vir::VReg;
+use super::vir::node::NodeData;
 use crate::Expr;
+use crate::core::ExprKind;
 use crate::core::error::DiffError;
-use crate::core::expr::ExprKind;
 use rustc_hash::FxHashMap;
-
-use super::super::super::Compiler;
 
 impl Compiler {
     pub(in crate::evaluator::logic::bytecode::compile) fn compile_nonconst_node(

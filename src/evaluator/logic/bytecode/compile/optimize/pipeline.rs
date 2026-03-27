@@ -1,8 +1,12 @@
-use super::super::super::instruction::Instruction;
-use super::helper::ConstantPool;
-use super::{compact, dce, fusion, helper, power_chain, strength_reduction};
+use super::CompiledEvaluator;
+use super::compact::compact_constants;
+use super::dce::eliminate_dead_code;
+use super::fusion::fuse_instructions;
+use super::helper::{ConstantPool, calculate_use_count, validate_program};
+use super::instruction::Instruction;
+use super::power_chain::optimize_power_chains;
+use super::strength_reduction::reduce_strength;
 use crate::core::error::DiffError;
-use crate::evaluator::CompiledEvaluator;
 
 impl CompiledEvaluator {
     /// Post-compilation optimization pass that fuses instruction patterns.
@@ -37,16 +41,16 @@ impl CompiledEvaluator {
         let old_const_count = constants.len();
 
         let mut use_count = vec![0_usize; (max_reg_idx + 1) as usize];
-        helper::calculate_use_count(&instructions, &mut use_count, arg_pool);
+        calculate_use_count(&instructions, &mut use_count, arg_pool);
 
         // Single owned pool for all mutation-safe constant interning throughout the pipeline.
         let mut pool = ConstantPool::new(constants);
 
         // Initial fusion pass
-        let out = fusion::fuse_instructions(&instructions, &mut pool, &use_count);
+        let out = fuse_instructions(&instructions, &mut pool, &use_count);
 
         // DCE pass
-        let out = dce::eliminate_dead_code(
+        let out = eliminate_dead_code(
             out,
             arg_pool,
             &mut use_count,
@@ -56,28 +60,28 @@ impl CompiledEvaluator {
         );
 
         // Second fusion pass (catches patterns exposed by DCE)
-        helper::calculate_use_count(&out, &mut use_count, arg_pool);
-        let mut out = fusion::fuse_instructions(&out, &mut pool, &use_count);
+        calculate_use_count(&out, &mut use_count, arg_pool);
+        let mut out = fuse_instructions(&out, &mut pool, &use_count);
 
         // Strength reduction (may add constants)
-        strength_reduction::reduce_strength(&mut out, &mut pool);
+        reduce_strength(&mut out, &mut pool);
 
         // Third fusion pass (catches patterns exposed by strength reduction)
-        helper::calculate_use_count(&out, &mut use_count, arg_pool);
-        out = fusion::fuse_instructions(&out, &mut pool, &use_count);
+        calculate_use_count(&out, &mut use_count, arg_pool);
+        out = fuse_instructions(&out, &mut pool, &use_count);
 
         // Power chain pass
-        power_chain::optimize_power_chains(&mut out);
+        optimize_power_chains(&mut out);
 
-        helper::calculate_use_count(&out, &mut use_count, arg_pool);
+        calculate_use_count(&out, &mut use_count, arg_pool);
 
         // Final fusion pass (catches patterns from expansion)
-        let out = fusion::fuse_instructions(&out, &mut pool, &use_count);
+        let out = fuse_instructions(&out, &mut pool, &use_count);
 
         // FINAL STEP: Compact constants — must be last.
         // After this, NO MORE constants can be added.
         let (const_vec, mut const_map) = pool.into_parts();
-        let (out, rc) = compact::compact_constants(
+        let (out, rc) = compact_constants(
             out,
             const_vec,
             &mut const_map,
@@ -88,8 +92,8 @@ impl CompiledEvaluator {
         if rc > use_count.len() {
             use_count.resize(rc, 0);
         }
-        helper::validate_program(&out, const_vec, arg_pool, rc, param_count)?;
-        helper::calculate_use_count(&out, &mut use_count, arg_pool);
+        validate_program(&out, const_vec, arg_pool, rc, param_count)?;
+        calculate_use_count(&out, &mut use_count, arg_pool);
         Ok((out, rc))
     }
 }

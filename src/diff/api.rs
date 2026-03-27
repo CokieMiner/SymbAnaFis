@@ -2,11 +2,11 @@
 //!
 //! This module provides the [`Diff`] builder and the convenience [`diff`] function.
 
-use crate::core::context::{Context, UserFunction};
+use crate::core::{Context, UserFunction, symb_interned};
 use crate::evaluator::ToParamName;
-use crate::{
-    DEFAULT_MAX_DEPTH, DEFAULT_MAX_NODES, DiffError, Expr, Symbol, parser, simplification,
-};
+use crate::parser::parse;
+use crate::simplification::{CustomBodyMap, simplify_expr};
+use crate::{DEFAULT_MAX_DEPTH, DEFAULT_MAX_NODES, DiffError, Expr, Symbol, symb};
 use rustc_hash::FxHashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -121,12 +121,12 @@ impl Diff {
     }
 
     /// Build body functions map for simplification
-    fn build_bodies_map(&self) -> simplification::CustomBodyMap {
+    fn build_bodies_map(&self) -> CustomBodyMap {
         self.user_fns
             .iter()
             .filter_map(|(name, func)| {
                 func.body.as_ref().map(|b| {
-                    let id = crate::core::symbol::symb_interned(name).id();
+                    let id = symb_interned(name).id();
                     (id, Arc::clone(b))
                 })
             })
@@ -179,7 +179,7 @@ impl Diff {
             return Ok(derivative);
         }
 
-        let simplified = simplification::simplify_expr(
+        let simplified = simplify_expr(
             derivative,
             self.known_symbols.clone(),
             self.build_bodies_map(),
@@ -217,10 +217,7 @@ impl Diff {
         var: &str,
         known_symbols: &[&str],
     ) -> Result<String, DiffError> {
-        let mut symbols: HashSet<String> = known_symbols
-            .iter()
-            .map(std::string::ToString::to_string)
-            .collect();
+        let mut symbols: HashSet<String> = known_symbols.iter().map(ToString::to_string).collect();
         symbols.extend(self.known_symbols.clone());
 
         if symbols.contains(var) {
@@ -243,12 +240,12 @@ impl Diff {
             }
         }
 
-        let ast = parser::parse(formula, &symbols, &custom_functions, self.context.as_ref())?;
+        let ast = parse(formula, &symbols, &custom_functions, self.context.as_ref())?;
 
         let var_sym = self
             .context
             .as_ref()
-            .map_or_else(|| crate::symb(var), |ctx| ctx.symb(var));
+            .map_or_else(|| symb(var), |ctx| ctx.symb(var));
 
         let result = self.differentiate(&ast, &var_sym)?;
         Ok(format!("{result}"))

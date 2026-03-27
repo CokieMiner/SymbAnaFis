@@ -6,7 +6,7 @@
 use super::tokens::{Operator, Token};
 use crate::{DiffError, Expr};
 
-use crate::core::context::Context;
+use crate::core::Context;
 
 /// Parse tokens into an AST using Pratt parsing algorithm
 #[inline]

@@ -4,14 +4,17 @@
 //! This implementation uses sharding to minimize lock contention and `FxHash` for
 //! high-performance mapping.
 
-use std::sync::{Mutex, RwLock};
+use std::array::from_fn;
+use std::cell::RefCell;
+use std::hash::Hash;
+use std::sync::{LazyLock, Mutex, RwLock};
 
 use rustc_hash::{FxHashMap, FxHasher};
-use slotmap::{DefaultKey, SlotMap};
+use slotmap::{DefaultKey, KeyData, SlotMap};
 use std::hash::Hasher;
 
-use super::super::{Symbol, SymbolError};
 use super::interned::InternedSymbol;
+use crate::core::{Symbol, SymbolError};
 
 // ============================================================================
 // Public API Functions for ID/Key Conversion and Anonymous Symbols
@@ -22,7 +25,7 @@ use super::interned::InternedSymbol;
 /// This is the reverse of `key.data().as_ffi()`.
 #[inline]
 pub fn key_from_id(id: u64) -> DefaultKey {
-    slotmap::KeyData::from_ffi(id).into()
+    KeyData::from_ffi(id).into()
 }
 
 /// Create a new anonymous symbol.
@@ -73,7 +76,7 @@ struct SymbolRegistry {
 impl SymbolRegistry {
     /// Create a new symbol registry
     fn new() -> Self {
-        let shards: [Mutex<RegistryShard>; NUM_SHARDS] = std::array::from_fn(|_| {
+        let shards: [Mutex<RegistryShard>; NUM_SHARDS] = from_fn(|_| {
             Mutex::new(RegistryShard {
                 name_to_symbol_key: FxHashMap::default(),
             })
@@ -91,7 +94,7 @@ impl SymbolRegistry {
     fn get_shard(&self, name: &str) -> &Mutex<RegistryShard> {
         // Use FxHasher for sharding to stay consistent and fast
         let mut hasher = FxHasher::default();
-        std::hash::Hash::hash(name, &mut hasher);
+        Hash::hash(name, &mut hasher);
         let hash = hasher.finish();
 
         // Truncation is safe/expected here as we only need the low bits for sharding (hash % 16)
@@ -105,15 +108,14 @@ impl SymbolRegistry {
 }
 
 /// Global registry for symbols
-static REGISTRY: std::sync::LazyLock<SymbolRegistry> =
-    std::sync::LazyLock::new(SymbolRegistry::new);
+static REGISTRY: LazyLock<SymbolRegistry> = LazyLock::new(SymbolRegistry::new);
 
 thread_local! {
     // Thread-local cache to avoid global lock contention on frequently accessed symbols
-    static ID_CACHE: std::cell::RefCell<FxHashMap<DefaultKey, InternedSymbol>> = std::cell::RefCell::new(FxHashMap::default());
+    static ID_CACHE: RefCell<FxHashMap<DefaultKey, InternedSymbol>> = RefCell::new(FxHashMap::default());
 
     // Thread-local cache for name → Symbol lookups (hot path in parsing/construction)
-    static NAME_CACHE: std::cell::RefCell<FxHashMap<String, Symbol>> = std::cell::RefCell::new(FxHashMap::default());
+    static NAME_CACHE: RefCell<FxHashMap<String, Symbol>> = RefCell::new(FxHashMap::default());
 }
 
 /// Look up `InternedSymbol` by its u64 ID.

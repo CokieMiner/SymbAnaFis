@@ -13,7 +13,7 @@ use super::implicit_mul::*;
 use super::lexer::*;
 use super::pratt::*;
 use super::tokens::{Operator, Token};
-use crate::core::expr::{Expr, ExprKind};
+use crate::core::{Expr, ExprKind};
 use std::borrow::Cow;
 use std::collections::HashSet;
 

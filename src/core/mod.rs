@@ -5,11 +5,11 @@
 
 mod api_crate;
 mod api_user;
-pub mod helpers;
+mod helpers;
 
-pub mod context;
-pub mod expr;
-pub mod symbol;
+mod context;
+mod expr;
+mod symbol;
 
 pub use api_crate::*;
 pub use api_user::*;

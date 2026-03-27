@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use super::super::super::{EPSILON, Expr, ExprKind};
+use super::{EPSILON, Expr, ExprKind};
 
 impl Expr {
     /// Create addition: a + b → Sum([a, b])

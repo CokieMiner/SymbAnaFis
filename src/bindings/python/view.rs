@@ -1,6 +1,6 @@
-//! Python bindings for AST visitor utilities
+//! Python bindings for expression view and analysis utilities.
 //!
-//! This module provides functions for traversing and analyzing expression trees.
+//! This module provides `ExprView` plus small analysis helpers built on top of it.
 
 // Allow: PyO3 from_py_object macro generates FromPyObject with short lifetime names
 #![allow(
@@ -9,37 +9,9 @@
 )]
 
 use super::expr::PyExpr;
-use crate::visitor::{ExprView, NodeCounter, VariableCollector, walk_expr};
+use crate::core::ExprView;
+use pyo3::exceptions::PyIndexError;
 use pyo3::prelude::*;
-use std::collections::HashSet;
-
-/// Count the number of nodes in an expression tree.
-///
-/// Args:
-///     expr: Expr object to count nodes in
-///
-/// Returns:
-///     Number of nodes (symbols, numbers, operators, functions)
-#[pyfunction]
-pub fn count_nodes(expr: &PyExpr) -> usize {
-    let mut counter = NodeCounter::default();
-    walk_expr(&expr.0, &mut counter);
-    counter.count
-}
-
-/// Collect all unique variable names in an expression.
-///
-/// Args:
-///     expr: Expr object to collect variables from
-///
-/// Returns:
-///     Set of variable name strings
-#[pyfunction]
-pub fn collect_variables(expr: &PyExpr) -> HashSet<String> {
-    let mut collector = VariableCollector::default();
-    walk_expr(&expr.0, &mut collector);
-    collector.variable_names()
-}
 
 // =============================================================================
 // ExprView Python Bindings
@@ -191,7 +163,7 @@ impl PyExprView {
         let index = if idx < 0 { len + idx } else { idx };
 
         if index < 0 || index >= len {
-            return Err(pyo3::exceptions::PyIndexError::new_err(format!(
+            return Err(PyIndexError::new_err(format!(
                 "Index {idx} out of range for {len} children"
             )));
         }

@@ -11,8 +11,14 @@ All notable changes to symb_anafis will be documented in this file.
   - `Simplify::with_context()` has been renamed to `Simplify::context()`.
 - **Python Bindings**:
   - Similar method renames in Python builders (e.g., `.with_context()` -> `.context()`).
+- **Visitor API Removal**:
+  - The `symb_anafis::visitor` module has been removed (its functionality is superseded by the new `ExprView` API).
+  - The `ExprVisitor` trait and `walk_expr` function have been removed.
+  - Users should use `ExprView` API at the root/core level for pattern-matchable expression traversal.
+
 - **Batch Evaluation**:
   - Batch and SIMD-based evaluation are now gated behind the `parallel` feature flag.
+
 
 ### Added
 
@@ -38,6 +44,8 @@ All notable changes to symb_anafis will be documented in this file.
   - `bytecode/`: Master-stream consolidating `compile/` and `execute/` with Virtual IR hooks.
   - `tree/`: Dedicated module layer isolating tree evaluator interpreters.
 - **Granular Dispatcher Pipeline**: Decomposed the large monolithic `codegen/lower.rs` file into a modular suite (`sum.rs`, `product.rs`, `pow.rs`, etc.) to enforce declarative maintenance.
+- **Strict Architectural Boundaries (Staircase Rule)**: Enforced a project-wide tiered import structure. Eliminated all self-referential `crate::` imports and deep relative imports (e.g., `super::super::`) in favor of single-level `super::` imports through intermediate re-exports in `mod.rs` files.
+
 
 ### Changed
 
@@ -72,7 +80,9 @@ All notable changes to symb_anafis will be documented in this file.
 
 - **Lint Configuration Hardening**: Upgraded several static analysis lints in `Cargo.toml` to `deny` (e.g., `suspicious_xor_used_as_pow`, `try_err`, `unseparated_literal_suffix`) to enforce strict safety and clean code standards.
 - **Reorganized `core/logic` gadgets**: Migrated unclassified internal tools into a standardized `core/helpers` space with bounded `api_user.rs` and `api_crate.rs` gates following architecture compliance.
-- **Normalized Local Imports**: Rescoped self-referencing absolute addresses across `core/`, `evaluator/`, and `simplification/` to relative `super::` step-ups.
+- **Staircase Import Normalization**: Rescoped self-referencing absolute addresses across `core/`, `evaluator/`, and `simplification/` to relative `super::` step-ups.
+- **Redundant Visibility Cleanup**: Optimized internal module and re-export visibility from `pub(crate)` to `pub` in restricted scopes to satisfy Clippy's `redundant-pub-crate` lint while maintaining boundary isolation.
+
 
 - **Deleted legacy `stack.rs`**: Removed legacy stack-based primitive operations following the transition to the register-based evaluator.
 - **Added `eval_math.rs`**: Centralized evaluator-specific mathematical helper functions (e.g., `acot`, `sinc`, `erfc`) to improve modularity.

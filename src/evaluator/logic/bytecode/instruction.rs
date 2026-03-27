@@ -1,5 +1,5 @@
 //! Bytecode instruction set for the register-based expression evaluator.
-use std::fmt;
+use std::fmt::{Display, Formatter, Result as FmtResult};
 
 /// Mathematical operations supported by the `BuiltinFun` instruction.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -156,8 +156,8 @@ impl FnOp {
     }
 }
 
-impl fmt::Display for FnOp {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Display for FnOp {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
         formatter.write_str(self.as_str())
     }
 }
@@ -759,12 +759,12 @@ impl Instruction {
     }
 }
 
-impl fmt::Display for Instruction {
+impl Display for Instruction {
     #[allow(
         clippy::too_many_lines,
         reason = "Exhaustive formatting of all instruction variants"
     )]
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
         match *self {
             Self::LoadConst { dest, const_idx } => write!(formatter, "R{dest} = C{const_idx}"),
             Self::Copy { dest, src } => write!(formatter, "R{dest} = R{src}"),

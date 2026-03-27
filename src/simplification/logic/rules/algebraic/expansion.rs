@@ -1,7 +1,8 @@
-use super::super::core::{ExprKind, Rule, RuleCategory, RuleContext};
+use super::{ExprKind, Rule, RuleCategory, RuleContext};
 use crate::EPSILON;
 use crate::core::known_symbols::KS;
 use crate::{Expr, core::ExprKind as AstKind};
+use std::sync::Arc;
 
 rule!(
     ExpandPowerForCancellationRule,
@@ -76,7 +77,7 @@ rule!(
                         clippy::cast_possible_truncation,
                         reason = "n is integer-checked and bounded by small_pow < 10"
                     )]
-                    let small_pow: i64 = (*n).trunc() as i64;
+                    let small_pow: i64 = n.trunc() as i64;
                     small_pow < 10
                 }
             {

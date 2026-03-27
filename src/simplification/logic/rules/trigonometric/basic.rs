@@ -1,8 +1,8 @@
-use super::super::super::super::helpers;
-use super::super::core::{ExprKind, Rule, RuleCategory, RuleContext};
+use super::rule_helpers::{approx_eq, get_numeric_value, is_pi};
+use super::{ExprKind, Rule, RuleCategory, RuleContext};
 use crate::EPSILON;
-use crate::core::expr::{Expr, ExprKind as AstKind};
 use crate::core::known_symbols::{KS, get_symbol};
+use crate::core::{Expr, ExprKind as AstKind};
 use std::f64::consts::PI;
 use std::sync::Arc;
 
@@ -79,7 +79,7 @@ rule_arc!(
         if let AstKind::FunctionCall { name, args } = &expr.kind
             && name.id() == KS.sin
             && args.len() == 1
-            && helpers::is_pi(&args[0])
+            && is_pi(&args[0])
         {
             return Some(Arc::new(Expr::number(0.0)));
         }
@@ -98,7 +98,7 @@ rule_arc!(
         if let AstKind::FunctionCall { name, args } = &expr.kind
             && name.id() == KS.cos
             && args.len() == 1
-            && helpers::is_pi(&args[0])
+            && is_pi(&args[0])
         {
             return Some(Arc::new(Expr::number(-1.0)));
         }
@@ -118,7 +118,7 @@ rule_arc!(
             && name.id() == KS.sin
             && args.len() == 1
             && let AstKind::Div(num, den) = &args[0].kind
-            && helpers::is_pi(num)
+            && is_pi(num)
         {
             // Exact check for pi/2 denominator
             #[allow(clippy::float_cmp, reason = "Comparing against exact constant 2.0")]
@@ -143,7 +143,7 @@ rule_arc!(
             && name.id() == KS.cos
             && args.len() == 1
             && let AstKind::Div(num, den) = &args[0].kind
-            && helpers::is_pi(num)
+            && is_pi(num)
         {
             // Exact check for pi/2 denominator
             #[allow(clippy::float_cmp, reason = "Comparing against exact constant 2.0")]
@@ -168,7 +168,7 @@ rule_arc!(
             && args.len() == 1
         {
             let arg = &args[0];
-            let arg_val = helpers::get_numeric_value(arg).unwrap_or(f64::NAN);
+            let arg_val = get_numeric_value(arg).unwrap_or(f64::NAN);
             let is_numeric_input = matches!(arg.kind, AstKind::Number(_));
 
             match name {
@@ -176,10 +176,10 @@ rule_arc!(
                     let matches_pi_six = {
                         // Exact check for denominator 6.0 (PI/6)
                         #[allow(clippy::float_cmp, reason = "Comparing against exact constant 6.0")]
-                        let is_six = matches!(&arg.kind, AstKind::Div(num, den) if helpers::is_pi(num) && matches!(&den.kind, AstKind::Number(val) if *val == 6.0));
+                        let is_six = matches!(&arg.kind, AstKind::Div(num, den) if is_pi(num) && matches!(&den.kind, AstKind::Number(val) if *val == 6.0));
                         is_six
                     };
-                    if helpers::approx_eq(arg_val, PI / 6.0) || matches_pi_six
+                    if approx_eq(arg_val, PI / 6.0) || matches_pi_six
                     {
                         return if is_numeric_input {
                             Some(Arc::new(Expr::number(0.5)))
@@ -190,10 +190,10 @@ rule_arc!(
                     let matches_pi_four = {
                         // Exact check for denominator 4.0 (PI/4)
                         #[allow(clippy::float_cmp, reason = "Comparing against exact constant 4.0")]
-                        let is_four = matches!(&arg.kind, AstKind::Div(num, den) if helpers::is_pi(num) && matches!(&den.kind, AstKind::Number(val) if *val == 4.0));
+                        let is_four = matches!(&arg.kind, AstKind::Div(num, den) if is_pi(num) && matches!(&den.kind, AstKind::Number(val) if *val == 4.0));
                         is_four
                     };
-                    if helpers::approx_eq(arg_val, PI / 4.0) || matches_pi_four
+                    if approx_eq(arg_val, PI / 4.0) || matches_pi_four
                     {
                         return if is_numeric_input {
                             Some(Arc::new(Expr::number((2.0_f64).sqrt() / 2.0)))
@@ -209,10 +209,10 @@ rule_arc!(
                     let matches_pi_three = {
                         // Exact check for denominator 3.0 (PI/3)
                         #[allow(clippy::float_cmp, reason = "Comparing against exact constant 3.0")]
-                        let is_three = matches!(&arg.kind, AstKind::Div(num, den) if helpers::is_pi(num) && matches!(&den.kind, AstKind::Number(val) if *val == 3.0));
+                        let is_three = matches!(&arg.kind, AstKind::Div(num, den) if is_pi(num) && matches!(&den.kind, AstKind::Number(val) if *val == 3.0));
                         is_three
                     };
-                    if helpers::approx_eq(arg_val, PI / 3.0) || matches_pi_three
+                    if approx_eq(arg_val, PI / 3.0) || matches_pi_three
                     {
                         return if is_numeric_input {
                             Some(Arc::new(Expr::number(0.5)))
@@ -223,10 +223,10 @@ rule_arc!(
                     let matches_pi_four = {
                         // Exact check for denominator 4.0 (PI/4)
                         #[allow(clippy::float_cmp, reason = "Comparing against exact constant 4.0")]
-                        let is_four = matches!(&arg.kind, AstKind::Div(num, den) if helpers::is_pi(num) && matches!(&den.kind, AstKind::Number(val) if *val == 4.0));
+                        let is_four = matches!(&arg.kind, AstKind::Div(num, den) if is_pi(num) && matches!(&den.kind, AstKind::Number(val) if *val == 4.0));
                         is_four
                     };
-                    if helpers::approx_eq(arg_val, PI / 4.0) || matches_pi_four
+                    if approx_eq(arg_val, PI / 4.0) || matches_pi_four
                     {
                         return if is_numeric_input {
                             Some(Arc::new(Expr::number((2.0_f64).sqrt() / 2.0)))
@@ -242,20 +242,20 @@ rule_arc!(
                     let matches_pi_four = {
                         // Exact check for denominator 4.0 (PI/4)
                         #[allow(clippy::float_cmp, reason = "Comparing against exact constant 4.0")]
-                        let is_four = matches!(&arg.kind, AstKind::Div(num, den) if helpers::is_pi(num) && matches!(&den.kind, AstKind::Number(val) if *val == 4.0));
+                        let is_four = matches!(&arg.kind, AstKind::Div(num, den) if is_pi(num) && matches!(&den.kind, AstKind::Number(val) if *val == 4.0));
                         is_four
                     };
-                    if helpers::approx_eq(arg_val, PI / 4.0) || matches_pi_four
+                    if approx_eq(arg_val, PI / 4.0) || matches_pi_four
                     {
                         return Some(Arc::new(Expr::number(1.0)));
                     }
                     let matches_pi_three = {
                         // Exact check for denominator 3.0 (PI/3)
                         #[allow(clippy::float_cmp, reason = "Comparing against exact constant 3.0")]
-                        let is_three = matches!(&arg.kind, AstKind::Div(num, den) if helpers::is_pi(num) && matches!(&den.kind, AstKind::Number(val) if *val == 3.0));
+                        let is_three = matches!(&arg.kind, AstKind::Div(num, den) if is_pi(num) && matches!(&den.kind, AstKind::Number(val) if *val == 3.0));
                         is_three
                     };
-                    if helpers::approx_eq(arg_val, PI / 3.0) || matches_pi_three
+                    if approx_eq(arg_val, PI / 3.0) || matches_pi_three
                     {
                         return if is_numeric_input {
                             Some(Arc::new(Expr::number((3.0_f64).sqrt())))
@@ -266,10 +266,10 @@ rule_arc!(
                     let matches_pi_six = {
                         // Exact check for denominator 6.0 (PI/6)
                         #[allow(clippy::float_cmp, reason = "Comparing against exact constant 6.0")]
-                        let is_six = matches!(&arg.kind, AstKind::Div(num, den) if helpers::is_pi(num) && matches!(&den.kind, AstKind::Number(val) if *val == 6.0));
+                        let is_six = matches!(&arg.kind, AstKind::Div(num, den) if is_pi(num) && matches!(&den.kind, AstKind::Number(val) if *val == 6.0));
                         is_six
                     };
-                    if helpers::approx_eq(arg_val, PI / 6.0) || matches_pi_six
+                    if approx_eq(arg_val, PI / 6.0) || matches_pi_six
                     {
                         return if is_numeric_input {
                             Some(Arc::new(Expr::number(1.0 / (3.0_f64).sqrt())))
@@ -298,7 +298,7 @@ rule_arc!(
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::Div(num, den) = &expr.kind
             && let AstKind::Number(n) = &num.kind
-            && (*n - 1.0).abs() < EPSILON
+            && (n - 1.0).abs() < EPSILON
         {
             // 1/cos(x) → sec(x)
             if let AstKind::FunctionCall { name, args } = &den.kind
@@ -340,7 +340,7 @@ rule_arc!(
     |expr: &Expr, _context: &RuleContext| {
         if let AstKind::Div(num, den) = &expr.kind
             && let AstKind::Number(n) = &num.kind
-            && (*n - 1.0).abs() < EPSILON
+            && (n - 1.0).abs() < EPSILON
         {
             // 1/sin(x) → csc(x)
             if let AstKind::FunctionCall { name, args } = &den.kind

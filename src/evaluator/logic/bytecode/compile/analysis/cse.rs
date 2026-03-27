@@ -1,4 +1,10 @@
-use super::super::vir::VReg;
+use std::hash::{Hash, Hasher};
+use std::mem::take;
+
+use rustc_hash::FxHashMap;
+
+use super::Compiler;
+use super::vir::VReg;
 use crate::Expr;
 
 #[derive(Clone, Copy, Debug)]
@@ -20,9 +26,9 @@ impl PartialEq for CseKey {
 
 impl Eq for CseKey {}
 
-impl std::hash::Hash for CseKey {
+impl Hash for CseKey {
     #[inline]
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+    fn hash<H: Hasher>(&self, state: &mut H) {
         #[allow(
             unsafe_code,
             reason = "CseKey pointers are guaranteed valid during compilation. Using the precomputed hash field avoids expensive recursive structural hashing."
@@ -34,15 +40,13 @@ impl std::hash::Hash for CseKey {
     }
 }
 
-use super::super::Compiler;
-
 impl Compiler {
     pub(crate) fn optimize_vir_cse(&mut self) {
-        let mut seen = rustc_hash::FxHashMap::default();
-        let mut alias = rustc_hash::FxHashMap::default();
+        let mut seen = FxHashMap::default();
+        let mut alias = FxHashMap::default();
         let mut optimized = Vec::with_capacity(self.vinstrs.len());
 
-        for mut instr in std::mem::take(&mut self.vinstrs) {
+        for mut instr in take(&mut self.vinstrs) {
             instr.for_each_read_mut(|r| {
                 if let Some(&canonical) = alias.get(r) {
                     *r = canonical;

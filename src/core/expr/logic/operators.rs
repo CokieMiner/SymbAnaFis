@@ -6,7 +6,7 @@
 use std::ops::{Add, Div, Mul, Neg, Sub};
 use std::sync::Arc;
 
-use crate::Expr;
+use super::Expr;
 
 // ============================================================================
 // Operator Overloading Macro

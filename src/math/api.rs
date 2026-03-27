@@ -1,16 +1,12 @@
 //! API surface for the `math` module.
 
 // Public to external library users
-pub use super::logic::number_types::dual::Dual;
+pub use super::logic::Dual;
 
-// Crate-internal functions
-pub use super::logic::functions::bessel::*;
-pub use super::logic::functions::beta::*;
-pub use super::logic::functions::elliptic::*;
-pub use super::logic::functions::erf::*;
-pub use super::logic::functions::gamma::*;
-pub use super::logic::functions::lambert_w::*;
-pub use super::logic::functions::polar::*;
-pub use super::logic::functions::polygamma::*;
-pub use super::logic::functions::polynomials::*;
-pub use super::logic::functions::zeta::*;
+// Crate-internal numerical entry points used by sibling modules.
+pub use super::logic::{
+    bessel_i, bessel_j, bessel_k, bessel_y, eval_assoc_legendre, eval_beta, eval_digamma,
+    eval_elliptic_e, eval_elliptic_k, eval_erf, eval_erfc, eval_exp_polar, eval_gamma,
+    eval_hermite, eval_lambert_w, eval_lgamma, eval_polygamma, eval_spherical_harmonic,
+    eval_tetragamma, eval_trigamma, eval_zeta, eval_zeta_deriv,
+};

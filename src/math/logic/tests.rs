@@ -2,6 +2,7 @@
 mod dual_tests {
     use crate::Dual;
     use num_traits::Float;
+    use std::f64::consts::PI;
 
     const EPSILON: f64 = 1e-10;
 
@@ -60,7 +61,7 @@ mod dual_tests {
 
     #[test]
     fn test_dual_sin_cos() {
-        use std::f64::consts::PI;
+        use PI;
 
         // At x = π/4: sin(π/4) = √2/2, cos(π/4) = √2/2
         let x = Dual::new(PI / 4.0, 1.0);
@@ -127,7 +128,7 @@ mod dual_tests {
 
     #[test]
     fn test_dual_tan() {
-        use std::f64::consts::PI;
+        use PI;
 
         // At x = π/4: tan(π/4) = 1, d/dx tan(x) = sec^2(x) = 2
         let x = Dual::new(PI / 4.0, 1.0);
@@ -166,7 +167,7 @@ mod dual_tests {
 
         assert!(approx_eq(result.val, 0.0)); // erf(0) = 0
         // erf'(0) = 2/√π ≈ 1.1284
-        let expected_deriv = 2.0 / std::f64::consts::PI.sqrt();
+        let expected_deriv = 2.0 / PI.sqrt();
         assert!(approx_eq(result.eps, expected_deriv));
     }
 
@@ -191,7 +192,7 @@ mod dual_tests {
         assert!(approx_eq(result.eps, 0.0));
 
         // At x = π: sinc(π) = 0, sinc'(π) = -1/π
-        let x_pi = Dual::new(std::f64::consts::PI, 1.0);
+        let x_pi = Dual::new(PI, 1.0);
         let result_pi = x_pi.sinc();
         assert!(result_pi.val.abs() < 1e-10);
     }

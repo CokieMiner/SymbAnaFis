@@ -5,8 +5,8 @@
 
 use std::sync::Arc;
 
-use crate::Expr;
-use crate::core::known_symbols as ks;
+use super::Expr;
+use crate::core::known_symbols::{KS, get_interned};
 
 // ============================================================================
 // Macro for generating math function methods using pre-interned IDs
@@ -22,7 +22,7 @@ macro_rules! impl_math_functions_expr {
                 #[must_use]
                 #[inline]
                 pub fn $fn_name(self) -> Expr {
-                    Expr::func_symbol(ks::get_interned($symbol_id), self)
+                    Expr::func_symbol(get_interned($symbol_id), self)
                 }
             )*
         }
@@ -32,31 +32,31 @@ macro_rules! impl_math_functions_expr {
 // Apply to Expr (consumes self, uses pre-interned IDs)
 impl_math_functions_expr! {
     // Trigonometric functions
-    sin => ks::KS.sin, cos => ks::KS.cos, tan => ks::KS.tan,
-    cot => ks::KS.cot, sec => ks::KS.sec, csc => ks::KS.csc,
+    sin => KS.sin, cos => KS.cos, tan => KS.tan,
+    cot => KS.cot, sec => KS.sec, csc => KS.csc,
     // Inverse trigonometric functions
-    asin => ks::KS.asin, acos => ks::KS.acos, atan => ks::KS.atan,
-    acot => ks::KS.acot, asec => ks::KS.asec, acsc => ks::KS.acsc,
+    asin => KS.asin, acos => KS.acos, atan => KS.atan,
+    acot => KS.acot, asec => KS.asec, acsc => KS.acsc,
     // Hyperbolic functions
-    sinh => ks::KS.sinh, cosh => ks::KS.cosh, tanh => ks::KS.tanh,
-    coth => ks::KS.coth, sech => ks::KS.sech, csch => ks::KS.csch,
+    sinh => KS.sinh, cosh => KS.cosh, tanh => KS.tanh,
+    coth => KS.coth, sech => KS.sech, csch => KS.csch,
     // Inverse hyperbolic functions
-    asinh => ks::KS.asinh, acosh => ks::KS.acosh, atanh => ks::KS.atanh,
-    acoth => ks::KS.acoth, asech => ks::KS.asech, acsch => ks::KS.acsch,
+    asinh => KS.asinh, acosh => KS.acosh, atanh => KS.atanh,
+    acoth => KS.acoth, asech => KS.asech, acsch => KS.acsch,
     // Exponential and logarithmic functions
-    exp => ks::KS.exp, ln => ks::KS.ln,
-    log10 => ks::KS.log10, log2 => ks::KS.log2,
+    exp => KS.exp, ln => KS.ln,
+    log10 => KS.log10, log2 => KS.log2,
     // Root functions
-    sqrt => ks::KS.sqrt, cbrt => ks::KS.cbrt,
+    sqrt => KS.sqrt, cbrt => KS.cbrt,
     // Rounding functions
-    floor => ks::KS.floor, ceil => ks::KS.ceil, round => ks::KS.round,
+    floor => KS.floor, ceil => KS.ceil, round => KS.round,
     // Special functions (single-argument only)
-    abs => ks::KS.abs, signum => ks::KS.signum, sinc => ks::KS.sinc,
-    erf => ks::KS.erf, erfc => ks::KS.erfc, gamma => ks::KS.gamma, lgamma => ks::KS.lgamma,
-    digamma => ks::KS.digamma, trigamma => ks::KS.trigamma, tetragamma => ks::KS.tetragamma,
-    zeta => ks::KS.zeta, lambertw => ks::KS.lambertw,
-    elliptic_k => ks::KS.elliptic_k, elliptic_e => ks::KS.elliptic_e,
-    exp_polar => ks::KS.exp_polar,
+    abs => KS.abs, signum => KS.signum, sinc => KS.sinc,
+    erf => KS.erf, erfc => KS.erfc, gamma => KS.gamma, lgamma => KS.lgamma,
+    digamma => KS.digamma, trigamma => KS.trigamma, tetragamma => KS.tetragamma,
+    zeta => KS.zeta, lambertw => KS.lambertw,
+    elliptic_k => KS.elliptic_k, elliptic_e => KS.elliptic_e,
+    exp_polar => KS.exp_polar,
 }
 
 // =============================================================================
@@ -172,154 +172,151 @@ impl ArcExprExt for Arc<Expr> {
         Expr::pow_static(Expr::from(self), exp.into())
     }
     fn sin(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.sin), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.sin), Expr::from(self))
     }
     fn cos(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.cos), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.cos), Expr::from(self))
     }
     fn tan(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.tan), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.tan), Expr::from(self))
     }
     fn cot(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.cot), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.cot), Expr::from(self))
     }
     fn sec(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.sec), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.sec), Expr::from(self))
     }
     fn csc(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.csc), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.csc), Expr::from(self))
     }
     fn asin(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.asin), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.asin), Expr::from(self))
     }
     fn acos(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.acos), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.acos), Expr::from(self))
     }
     fn atan(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.atan), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.atan), Expr::from(self))
     }
     fn acot(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.acot), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.acot), Expr::from(self))
     }
     fn asec(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.asec), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.asec), Expr::from(self))
     }
     fn acsc(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.acsc), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.acsc), Expr::from(self))
     }
     fn sinh(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.sinh), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.sinh), Expr::from(self))
     }
     fn cosh(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.cosh), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.cosh), Expr::from(self))
     }
     fn tanh(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.tanh), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.tanh), Expr::from(self))
     }
     fn coth(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.coth), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.coth), Expr::from(self))
     }
     fn sech(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.sech), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.sech), Expr::from(self))
     }
     fn csch(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.csch), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.csch), Expr::from(self))
     }
     fn asinh(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.asinh), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.asinh), Expr::from(self))
     }
     fn acosh(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.acosh), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.acosh), Expr::from(self))
     }
     fn atanh(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.atanh), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.atanh), Expr::from(self))
     }
     fn acoth(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.acoth), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.acoth), Expr::from(self))
     }
     fn asech(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.asech), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.asech), Expr::from(self))
     }
     fn acsch(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.acsch), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.acsch), Expr::from(self))
     }
     fn exp(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.exp), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.exp), Expr::from(self))
     }
     fn ln(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.ln), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.ln), Expr::from(self))
     }
     fn log(&self, base: impl Into<Expr>) -> Expr {
-        Expr::func_multi_symbol(
-            ks::get_interned(ks::KS.log),
-            vec![base.into(), Expr::from(self)],
-        )
+        Expr::func_multi_symbol(get_interned(KS.log), vec![base.into(), Expr::from(self)])
     }
     fn log10(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.log10), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.log10), Expr::from(self))
     }
     fn log2(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.log2), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.log2), Expr::from(self))
     }
     fn sqrt(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.sqrt), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.sqrt), Expr::from(self))
     }
     fn cbrt(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.cbrt), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.cbrt), Expr::from(self))
     }
     fn floor(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.floor), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.floor), Expr::from(self))
     }
     fn ceil(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.ceil), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.ceil), Expr::from(self))
     }
     fn round(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.round), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.round), Expr::from(self))
     }
     fn abs(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.abs), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.abs), Expr::from(self))
     }
     fn signum(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.signum), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.signum), Expr::from(self))
     }
     fn sinc(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.sinc), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.sinc), Expr::from(self))
     }
     fn erf(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.erf), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.erf), Expr::from(self))
     }
     fn erfc(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.erfc), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.erfc), Expr::from(self))
     }
     fn gamma(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.gamma), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.gamma), Expr::from(self))
     }
     fn lgamma(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.lgamma), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.lgamma), Expr::from(self))
     }
     fn digamma(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.digamma), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.digamma), Expr::from(self))
     }
     fn trigamma(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.trigamma), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.trigamma), Expr::from(self))
     }
     fn tetragamma(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.tetragamma), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.tetragamma), Expr::from(self))
     }
     fn zeta(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.zeta), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.zeta), Expr::from(self))
     }
     fn lambertw(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.lambertw), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.lambertw), Expr::from(self))
     }
     fn elliptic_k(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.elliptic_k), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.elliptic_k), Expr::from(self))
     }
     fn elliptic_e(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.elliptic_e), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.elliptic_e), Expr::from(self))
     }
     fn exp_polar(&self) -> Expr {
-        Expr::func_symbol(ks::get_interned(ks::KS.exp_polar), Expr::from(self))
+        Expr::func_symbol(get_interned(KS.exp_polar), Expr::from(self))
     }
 }
 
@@ -338,62 +335,62 @@ impl Expr {
     /// Polygamma function: ψ^(n)(x)
     #[must_use]
     pub fn polygamma(self, n: impl Into<Self>) -> Self {
-        Self::func_multi_symbol(ks::get_interned(ks::KS.polygamma), vec![n.into(), self])
+        Self::func_multi_symbol(get_interned(KS.polygamma), vec![n.into(), self])
     }
 
     /// Beta function: B(a, b)
     #[must_use]
     pub fn beta(self, other: impl Into<Self>) -> Self {
-        Self::func_multi_symbol(ks::get_interned(ks::KS.beta), vec![self, other.into()])
+        Self::func_multi_symbol(get_interned(KS.beta), vec![self, other.into()])
     }
 
     /// Bessel function of the first kind: `J_n(x)`
     #[must_use]
     pub fn besselj(self, n: impl Into<Self>) -> Self {
-        Self::func_multi_symbol(ks::get_interned(ks::KS.besselj), vec![n.into(), self])
+        Self::func_multi_symbol(get_interned(KS.besselj), vec![n.into(), self])
     }
 
     /// Bessel function of the second kind: `Y_n(x)`
     #[must_use]
     pub fn bessely(self, n: impl Into<Self>) -> Self {
-        Self::func_multi_symbol(ks::get_interned(ks::KS.bessely), vec![n.into(), self])
+        Self::func_multi_symbol(get_interned(KS.bessely), vec![n.into(), self])
     }
 
     /// Modified Bessel function of the first kind: `I_n(x)`
     #[must_use]
     pub fn besseli(self, n: impl Into<Self>) -> Self {
-        Self::func_multi_symbol(ks::get_interned(ks::KS.besseli), vec![n.into(), self])
+        Self::func_multi_symbol(get_interned(KS.besseli), vec![n.into(), self])
     }
 
     /// Modified Bessel function of the second kind: `K_n(x)`
     #[must_use]
     pub fn besselk(self, n: impl Into<Self>) -> Self {
-        Self::func_multi_symbol(ks::get_interned(ks::KS.besselk), vec![n.into(), self])
+        Self::func_multi_symbol(get_interned(KS.besselk), vec![n.into(), self])
     }
 
     /// Derivative of Riemann zeta function: ζ^(n)(self)
     #[must_use]
     pub fn zeta_deriv(self, n: impl Into<Self>) -> Self {
-        Self::func_multi_symbol(ks::get_interned(ks::KS.zeta_deriv), vec![n.into(), self])
+        Self::func_multi_symbol(get_interned(KS.zeta_deriv), vec![n.into(), self])
     }
 
     /// Logarithm with arbitrary base: `x.log(base)` → `log(base, x)`
     #[must_use]
     pub fn log(self, base: impl Into<Self>) -> Self {
-        Self::func_multi_symbol(ks::get_interned(ks::KS.log), vec![base.into(), self])
+        Self::func_multi_symbol(get_interned(KS.log), vec![base.into(), self])
     }
 
     /// Hermite polynomial `H_n(self)`
     #[must_use]
     pub fn hermite(self, n: impl Into<Self>) -> Self {
-        Self::func_multi_symbol(ks::get_interned(ks::KS.hermite), vec![n.into(), self])
+        Self::func_multi_symbol(get_interned(KS.hermite), vec![n.into(), self])
     }
 
     /// Associated Legendre polynomial `P_l^m(self)`
     #[must_use]
     pub fn assoc_legendre(self, l: impl Into<Self>, m: impl Into<Self>) -> Self {
         Self::func_multi_symbol(
-            ks::get_interned(ks::KS.assoc_legendre),
+            get_interned(KS.assoc_legendre),
             vec![l.into(), m.into(), self],
         )
     }
@@ -407,7 +404,7 @@ impl Expr {
         phi: impl Into<Self>,
     ) -> Self {
         Self::func_multi_symbol(
-            ks::get_interned(ks::KS.spherical_harmonic),
+            get_interned(KS.spherical_harmonic),
             vec![l.into(), m.into(), self, phi.into()],
         )
     }
@@ -416,7 +413,7 @@ impl Expr {
     #[must_use]
     pub fn ynm(self, l: impl Into<Self>, m: impl Into<Self>, phi: impl Into<Self>) -> Self {
         Self::func_multi_symbol(
-            ks::get_interned(ks::KS.ynm),
+            get_interned(KS.ynm),
             vec![l.into(), m.into(), self, phi.into()],
         )
     }
@@ -424,6 +421,6 @@ impl Expr {
     /// Two-argument arctangent: atan2(self, x) = angle to point (x, self)
     #[must_use]
     pub fn atan2(self, x: impl Into<Self>) -> Self {
-        Self::func_multi_symbol(ks::get_interned(ks::KS.atan2), vec![self, x.into()])
+        Self::func_multi_symbol(get_interned(KS.atan2), vec![self, x.into()])
     }
 }

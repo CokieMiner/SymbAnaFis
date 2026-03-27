@@ -1,34 +1,45 @@
-use super::super::core::Rule;
-use super::{conversions, identities, ratios};
+use super::Rule;
+use super::conversions::{
+    CoshFromExpRule, CothFromExpRule, CschFromExpRule, SechFromExpRule, SinhFromExpRule,
+    TanhFromExpRule,
+};
+use super::identities::{
+    CoshAcoshIdentityRule, CoshNegationRule, CoshZeroRule, HyperbolicIdentityRule,
+    HyperbolicTripleAngleRule, SinhAsinhIdentityRule, SinhNegationRule, SinhZeroRule,
+    TanhAtanhIdentityRule, TanhNegationRule,
+};
+use super::ratios::{
+    CoshSinhToCothRule, OneCoshToSechRule, OneSinhToCschRule, OneTanhToCothRule, SinhCoshToTanhRule,
+};
 use std::sync::Arc;
 
 /// Get all hyperbolic rules in priority order
 pub fn get_hyperbolic_rules() -> Vec<Arc<dyn Rule + Send + Sync>> {
     vec![
         // High priority rules first
-        Arc::new(identities::SinhZeroRule),
-        Arc::new(identities::CoshZeroRule),
-        Arc::new(identities::SinhAsinhIdentityRule),
-        Arc::new(identities::CoshAcoshIdentityRule),
-        Arc::new(identities::TanhAtanhIdentityRule),
-        Arc::new(identities::SinhNegationRule),
-        Arc::new(identities::CoshNegationRule),
-        Arc::new(identities::TanhNegationRule),
+        Arc::new(SinhZeroRule),
+        Arc::new(CoshZeroRule),
+        Arc::new(SinhAsinhIdentityRule),
+        Arc::new(CoshAcoshIdentityRule),
+        Arc::new(TanhAtanhIdentityRule),
+        Arc::new(SinhNegationRule),
+        Arc::new(CoshNegationRule),
+        Arc::new(TanhNegationRule),
         // Identity rules
-        Arc::new(identities::HyperbolicIdentityRule),
+        Arc::new(HyperbolicIdentityRule),
         // Ratio rules - convert to tanh, coth, sech, csch
-        Arc::new(ratios::SinhCoshToTanhRule),
-        Arc::new(ratios::CoshSinhToCothRule),
-        Arc::new(ratios::OneCoshToSechRule),
-        Arc::new(ratios::OneSinhToCschRule),
-        Arc::new(ratios::OneTanhToCothRule),
+        Arc::new(SinhCoshToTanhRule),
+        Arc::new(CoshSinhToCothRule),
+        Arc::new(OneCoshToSechRule),
+        Arc::new(OneSinhToCschRule),
+        Arc::new(OneTanhToCothRule),
         // Conversion from exponential forms
-        Arc::new(conversions::SinhFromExpRule),
-        Arc::new(conversions::CoshFromExpRule),
-        Arc::new(conversions::TanhFromExpRule),
-        Arc::new(conversions::SechFromExpRule),
-        Arc::new(conversions::CschFromExpRule),
-        Arc::new(conversions::CothFromExpRule),
-        Arc::new(identities::HyperbolicTripleAngleRule),
+        Arc::new(SinhFromExpRule),
+        Arc::new(CoshFromExpRule),
+        Arc::new(TanhFromExpRule),
+        Arc::new(SechFromExpRule),
+        Arc::new(CschFromExpRule),
+        Arc::new(CothFromExpRule),
+        Arc::new(HyperbolicTripleAngleRule),
     ]
 }

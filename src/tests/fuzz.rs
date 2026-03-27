@@ -13,8 +13,8 @@
     reason = "Testing and fuzzing utilities require direct output and panic assertions"
 )]
 
-use crate::core::expr::ExprKind;
-use crate::core::symbol::symb;
+use crate::core::ExprKind;
+use crate::core::symb;
 use crate::{Expr, Simplify};
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 use std::collections::HashMap;

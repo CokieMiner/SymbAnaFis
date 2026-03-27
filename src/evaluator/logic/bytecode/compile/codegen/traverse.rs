@@ -1,10 +1,10 @@
+use super::Compiler;
+use super::analysis::CseKey;
+use super::vir::VReg;
+use super::vir::node::{NodeData, compute_const_from_children, compute_expensive_from_children};
 use crate::Expr;
 use crate::core::error::DiffError;
-use crate::evaluator::logic::bytecode::compile::vir::VReg;
-use crate::evaluator::logic::bytecode::compile::vir::node::{self, NodeData};
 use rustc_hash::FxHashMap;
-
-use super::super::Compiler;
 
 impl Compiler {
     pub(crate) fn compile_expr_iterative(
@@ -32,8 +32,8 @@ impl Compiler {
                     continue;
                 }
 
-                let const_val = node::compute_const_from_children(expr, &node_map);
-                let is_expensive = node::compute_expensive_from_children(expr, &node_map);
+                let const_val = compute_const_from_children(expr, &node_map);
+                let is_expensive = compute_expensive_from_children(expr, &node_map);
 
                 if is_expensive && let Some(cached) = self.lookup_cse(expr) {
                     let node_data = const_val.map_or_else(
@@ -55,10 +55,7 @@ impl Compiler {
                 node_map.insert(ptr, NodeData::runtime(result_vreg, is_expensive));
 
                 if is_expensive {
-                    self.cse_cache.insert(
-                        crate::evaluator::logic::bytecode::compile::analysis::CseKey(ptr),
-                        result_vreg,
-                    );
+                    self.cse_cache.insert(CseKey(ptr), result_vreg);
                 }
             } else if !node_map.contains_key(&ptr) {
                 stack.push((ptr, true));

@@ -2,10 +2,10 @@
 
 use super::{
     PyCompiledEvaluator, PyContext, PyDiff, PyDual, PyExpr, PyExprView, PyFunctionContext,
-    PySimplify, PySymbol, collect_variables, count_nodes, diff, evaluate, evaluate_str, gradient,
-    gradient_str, hessian, hessian_str, jacobian, jacobian_str, parse, py_clear_symbols,
-    py_remove_symbol, py_symb, py_symb_get, py_symb_new, py_symbol_count, py_symbol_exists,
-    py_symbol_names, relative_uncertainty_py, simplify, uncertainty_propagation_py,
+    PySimplify, PySymbol, diff, evaluate, evaluate_str, gradient, gradient_str, hessian,
+    hessian_str, jacobian, jacobian_str, parse, py_clear_symbols, py_remove_symbol, py_symb,
+    py_symb_get, py_symb_new, py_symbol_count, py_symbol_exists, py_symbol_names,
+    relative_uncertainty_py, simplify, uncertainty_propagation_py,
 };
 #[cfg(feature = "parallel")]
 use super::{eval_f64, evaluate_parallel};
@@ -57,10 +57,6 @@ fn symb_anafis(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(py_symbol_count, m)?)?;
     m.add_function(wrap_pyfunction!(py_symbol_names, m)?)?;
     m.add_function(wrap_pyfunction!(py_symbol_exists, m)?)?;
-
-    // Add visitor utilities
-    m.add_function(wrap_pyfunction!(count_nodes, m)?)?;
-    m.add_function(wrap_pyfunction!(collect_variables, m)?)?;
 
     // Version
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;

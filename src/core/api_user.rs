@@ -9,16 +9,20 @@ pub use super::helpers::{DiffError, Span};
 pub use super::symbol::SymbolError;
 
 // --- Expression types ---
-pub use super::expr::{Expr, ExprKind};
+pub use super::expr::{ArcExprExt, Expr, ExprKind, Polynomial};
 
 // --- Visitor pattern ---
 /// Expression visitor utilities
-pub mod visitor {
-    pub use super::super::helpers::visitor::*;
-}
+pub use super::helpers::ExprView;
 
 // --- Symbol management ---
 pub use super::symbol::{
-    ArcExprExt, Symbol, clear_symbols, remove_symbol, symb, symb_get, symb_new, symbol_count,
-    symbol_exists, symbol_names,
+    Symbol, clear_symbols, remove_symbol, symb, symb_get, symb_new, symbol_count, symbol_exists,
+    symbol_names,
 };
+
+// --- Context types ---
+pub use super::context::{BodyFn, Context, UserFunction};
+
+// --- Traits ---
+pub use super::helpers::traits::MathScalar;

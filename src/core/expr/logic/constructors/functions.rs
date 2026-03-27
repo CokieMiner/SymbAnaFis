@@ -2,8 +2,8 @@
 
 use std::sync::Arc;
 
-use super::super::super::{Expr, ExprKind};
-use crate::core::symbol::{InternedSymbol, symb_interned};
+use super::{Expr, ExprKind};
+use crate::core::{InternedSymbol, symb_interned};
 
 impl Expr {
     /// Create a function call expression (single argument)

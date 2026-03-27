@@ -1,6 +1,7 @@
 use crate::parser::parse;
 use crate::{core::ExprKind, diff};
 use std::collections::{HashMap, HashSet};
+use std::f64::consts::PI;
 
 const REL_TOL: f64 = 1e-12; // Relative tolerance for standard functions (trig, exp, log)
 const REL_TOL_BESSEL: f64 = 1e-7; // Bessel functions: ~7-8 decimal places
@@ -337,20 +338,10 @@ fn precision_gamma() {
     check_rel_error(eval("gamma(6)"), 120.0, REL_TOL_GAMMA, "Γ(6) = 5!");
 
     // Γ(1/2) = √π
-    check_rel_error(
-        eval("gamma(0.5)"),
-        std::f64::consts::PI.sqrt(),
-        REL_TOL_GAMMA,
-        "Γ(1/2) = √π",
-    );
+    check_rel_error(eval("gamma(0.5)"), PI.sqrt(), REL_TOL_GAMMA, "Γ(1/2) = √π");
 
     // Γ(3/2) = √π/2
-    check_rel_error(
-        eval("gamma(1.5)"),
-        std::f64::consts::PI.sqrt() / 2.0,
-        REL_TOL_GAMMA,
-        "Γ(3/2)",
-    );
+    check_rel_error(eval("gamma(1.5)"), PI.sqrt() / 2.0, REL_TOL_GAMMA, "Γ(3/2)");
 }
 
 #[test]
@@ -366,7 +357,7 @@ fn precision_digamma() {
 #[test]
 fn precision_trigamma() {
     // ψ₁(1) = π²/6
-    let expected = std::f64::consts::PI.powi(2) / 6.0;
+    let expected = PI.powi(2) / 6.0;
     // Trigamma uses asymptotic series, slightly lower precision expected (~9 decimal places)
     check_rel_error(eval("trigamma(1)"), expected, REL_TOL_GAMMA, "ψ₁(1) = π²/6");
 

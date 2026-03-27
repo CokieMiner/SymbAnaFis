@@ -1,6 +1,6 @@
-use super::super::registry::FunctionDefinition;
+use super::FunctionDefinition;
 use crate::Expr;
-use crate::core::known_symbols as ks;
+use crate::core::known_symbols::{KS, get_symbol};
 use std::sync::Arc;
 
 #[allow(clippy::too_many_lines, reason = "Static function definition list")]
@@ -16,7 +16,7 @@ pub fn get_definitions() -> Vec<FunctionDefinition> {
                 let u = Arc::clone(&args[0]);
                 let u_prime = arg_primes[0].clone();
                 Expr::mul_expr(
-                    Expr::func_multi_from_arcs_symbol(ks::get_symbol(ks::KS.exp), vec![u]),
+                    Expr::func_multi_from_arcs_symbol(get_symbol(KS.exp), vec![u]),
                     u_prime,
                 )
             },
@@ -57,17 +57,15 @@ pub fn get_definitions() -> Vec<FunctionDefinition> {
                 let x_prime = arg_primes[1].clone();
 
                 // Term 1: x' / (x * ln(b))
-                let ln_b = Expr::func_multi_from_arcs_symbol(
-                    ks::get_symbol(ks::KS.ln),
-                    vec![Arc::clone(&b)],
-                );
+                let ln_b =
+                    Expr::func_multi_from_arcs_symbol(get_symbol(KS.ln), vec![Arc::clone(&b)]);
                 let term1 = Expr::div_expr(
                     x_prime,
                     Expr::mul_from_arcs(vec![Arc::clone(&x), Arc::new(ln_b.clone())]),
                 );
 
                 // Term 2: -b' * ln(x) / (b * ln(b)^2)
-                let ln_x = Expr::func_multi_from_arcs_symbol(ks::get_symbol(ks::KS.ln), vec![x]);
+                let ln_x = Expr::func_multi_from_arcs_symbol(get_symbol(KS.ln), vec![x]);
                 let ln_b_sq = Expr::pow(ln_b, Expr::number(2.0));
                 let term2 = Expr::negate(Expr::div_expr(
                     Expr::mul_expr(b_prime, ln_x),
@@ -90,10 +88,7 @@ pub fn get_definitions() -> Vec<FunctionDefinition> {
                         Expr::number(1.0),
                         Expr::mul_from_arcs(vec![
                             u,
-                            Arc::new(Expr::func_symbol(
-                                ks::get_symbol(ks::KS.ln),
-                                Expr::number(10.0),
-                            )),
+                            Arc::new(Expr::func_symbol(get_symbol(KS.ln), Expr::number(10.0))),
                         ]),
                     ),
                     u_prime,
@@ -113,10 +108,7 @@ pub fn get_definitions() -> Vec<FunctionDefinition> {
                         Expr::number(1.0),
                         Expr::mul_from_arcs(vec![
                             u,
-                            Arc::new(Expr::func_symbol(
-                                ks::get_symbol(ks::KS.ln),
-                                Expr::number(2.0),
-                            )),
+                            Arc::new(Expr::func_symbol(get_symbol(KS.ln), Expr::number(2.0))),
                         ]),
                     ),
                     u_prime,
@@ -136,7 +128,7 @@ pub fn get_definitions() -> Vec<FunctionDefinition> {
                         Expr::number(1.0),
                         Expr::mul_expr(
                             Expr::number(2.0),
-                            Expr::func_multi_from_arcs_symbol(ks::get_symbol(ks::KS.sqrt), vec![u]),
+                            Expr::func_multi_from_arcs_symbol(get_symbol(KS.sqrt), vec![u]),
                         ),
                     ),
                     u_prime,

@@ -3,6 +3,7 @@
 //! Defines [`Token`] for lexer output and [`Operator`] for arithmetic and built-in functions.
 
 use std::borrow::Cow;
+use std::str::FromStr;
 
 /// Token types produced by the lexer
 #[derive(Debug, Clone, PartialEq)]
@@ -482,7 +483,7 @@ impl Operator {
     }
 }
 
-impl std::str::FromStr for Operator {
+impl FromStr for Operator {
     type Err = ();
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Self::parse_str(s).ok_or(())

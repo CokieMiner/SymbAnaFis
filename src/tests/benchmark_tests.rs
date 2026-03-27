@@ -5,6 +5,7 @@
 
 use crate::{CompiledEvaluator, Diff, Simplify, parse, symb};
 use std::collections::HashSet;
+use std::f64::consts::PI;
 
 // =============================================================================
 // Benchmark Expressions (from benches/rust/expressions.rs)
@@ -356,7 +357,7 @@ fn test_all_benchmarks_produce_valid_results() {
             "c" => 1.0, // speed of light
             "h" => 1.0, // Planck constant
             "k" => 1.0, // Boltzmann constant
-            "pi" => std::f64::consts::PI,
+            "pi" => PI,
 
             // Variables (must be in valid ranges)
             "v" => 0.3, // velocity, must be < c

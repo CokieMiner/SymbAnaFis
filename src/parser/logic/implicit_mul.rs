@@ -3,12 +3,14 @@
 //! Inserts `*` operators between tokens where multiplication is implied, e.g. `2x` → `2 * x`.
 
 use super::tokens::{Operator, Token};
+use std::collections::HashSet;
+use std::hash::BuildHasher;
 
 /// Check if implicit multiplication should be inserted between two tokens
-fn should_insert_mul<'src, S: std::hash::BuildHasher>(
+fn should_insert_mul<'src, S: BuildHasher>(
     current: &Token<'src>,
     next: &Token<'src>,
-    custom_functions: &std::collections::HashSet<String, S>,
+    custom_functions: &HashSet<String, S>,
 ) -> bool {
     match (current, next) {
         // Number * Function operator: 4 sin(x) → 4 * sin(x)
@@ -55,9 +57,9 @@ fn should_insert_mul<'src, S: std::hash::BuildHasher>(
 /// - Identifier/Number * (: `x (y)` → `x * (y)` (unless function call)
 ///
 /// Exception: Function followed by ( is NOT multiplication
-pub fn insert_implicit_multiplication<'src, S: std::hash::BuildHasher>(
+pub fn insert_implicit_multiplication<'src, S: BuildHasher>(
     tokens: Vec<Token<'src>>,
-    custom_functions: &std::collections::HashSet<String, S>,
+    custom_functions: &HashSet<String, S>,
 ) -> Vec<Token<'src>> {
     if tokens.is_empty() {
         return tokens;

@@ -1,13 +1,15 @@
-//! User-facing simplification API.
-
-use crate::core::context::{BodyFn, Context, UserFunction};
+use crate::core::{BodyFn, Context, UserFunction};
 use crate::evaluator::ToParamName;
-use crate::{DiffError, Expr, parser};
+use crate::parser::parse;
+use crate::{DEFAULT_MAX_DEPTH, DEFAULT_MAX_NODES, DiffError, Expr};
 use rustc_hash::FxHashMap;
 use std::collections::{HashMap, HashSet};
+use std::string::ToString;
 use std::sync::Arc;
 
+use super::logic::{Simplifier, prettify_roots};
 /// Type alias for custom body function map (symbolic expansion).
+use crate::core::symb_interned;
 /// Uses std `HashMap` at the API boundary for caller convenience;
 /// converted to `FxHashMap` internally by the engine.
 pub type CustomBodyMap = HashMap<u64, BodyFn>;
@@ -98,7 +100,7 @@ impl Simplify {
             .iter()
             .filter_map(|(name, func)| {
                 func.body.as_ref().map(|b| {
-                    let id = crate::core::symbol::symb_interned(name).id();
+                    let id = symb_interned(name).id();
                     (id, Arc::clone(b))
                 })
             })
@@ -133,10 +135,7 @@ impl Simplify {
     /// # Errors
     /// Returns `DiffError` if parsing fails or there is a symbol/function collision.
     pub fn simplify_str(&self, formula: &str, known_symbols: &[&str]) -> Result<String, DiffError> {
-        let mut symbols: HashSet<String> = known_symbols
-            .iter()
-            .map(std::string::ToString::to_string)
-            .collect();
+        let mut symbols: HashSet<String> = known_symbols.iter().map(ToString::to_string).collect();
         symbols.extend(self.known_symbols.clone());
 
         let custom_functions = self.custom_function_names();
@@ -153,7 +152,7 @@ impl Simplify {
             }
         }
 
-        let ast = parser::parse(formula, &symbols, &custom_functions, self.context.as_ref())?;
+        let ast = parse(formula, &symbols, &custom_functions, self.context.as_ref())?;
         let result = self.simplify(&ast)?;
         Ok(format!("{result}"))
     }
@@ -176,7 +175,7 @@ pub fn simplify_expr(
         }
     }
 
-    let mut simplifier = super::logic::engine::Simplifier::new()
+    let mut simplifier = Simplifier::new()
         .with_domain_safe(domain_safe)
         .with_custom_bodies(custom_bodies);
 
@@ -188,7 +187,7 @@ pub fn simplify_expr(
     }
 
     let mut current = simplifier.simplify(expr);
-    current = super::logic::helpers::prettify_roots(current);
+    current = prettify_roots(current);
     current
 }
 
@@ -326,7 +325,7 @@ pub fn simplify(
     }
 
     builder
-        .max_depth(crate::DEFAULT_MAX_DEPTH)
-        .max_nodes(crate::DEFAULT_MAX_NODES)
+        .max_depth(DEFAULT_MAX_DEPTH)
+        .max_nodes(DEFAULT_MAX_NODES)
         .simplify_str(formula, known_symbols)
 }

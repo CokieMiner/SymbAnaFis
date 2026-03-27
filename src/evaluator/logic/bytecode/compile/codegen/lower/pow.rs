@@ -1,15 +1,15 @@
-use super::super::super::vir::node::{self, NodeData};
-use super::super::super::vir::{VInstruction, VReg};
+use super::Compiler;
+use super::instruction::FnOp;
+use super::vir::node::{NodeData, const_from_map, exp_sqr_arg};
+use super::vir::{VInstruction, VReg};
 use crate::EPSILON;
 use crate::Expr;
+use crate::core::ExprKind;
+use crate::core::Polynomial;
 use crate::core::error::DiffError;
-use crate::core::expr::ExprKind;
-use crate::core::poly::Polynomial;
-use crate::evaluator::logic::bytecode::instruction::FnOp;
 use rustc_hash::FxHashMap;
+use std::f64::consts::E;
 use std::sync::Arc;
-
-use super::super::super::Compiler;
 
 impl Compiler {
     pub(super) fn compile_exp_neg_arg(
@@ -21,7 +21,7 @@ impl Compiler {
             let mut const_total = 1.0_f64;
             let mut has_const = false;
             for f in factors {
-                if let Some(c) = node::const_from_map(node_map, f.as_ref()) {
+                if let Some(c) = const_from_map(node_map, (*f).as_ref()) {
                     const_total *= c;
                     has_const = true;
                 }
@@ -32,7 +32,7 @@ impl Compiler {
             let pos_c = -const_total;
             let mut vregs_local: Vec<VReg> = Vec::new();
             for f in factors {
-                if node::const_from_map(node_map, f.as_ref()).is_none() {
+                if const_from_map(node_map, (*f).as_ref()).is_none() {
                     vregs_local.push(node_map.get(&Arc::as_ptr(f)).map(|data| data.vreg())?);
                 }
             }
@@ -72,7 +72,7 @@ impl Compiler {
                     });
                     return Some(d);
                 }
-                if let Some(n) = node::const_from_map(node_map, num.as_ref())
+                if let Some(n) = const_from_map(node_map, num.as_ref())
                     && n < 0.0
                     && n.is_finite()
                 {
@@ -105,7 +105,7 @@ impl Compiler {
             for &(p, c) in terms {
                 coeffs[p as usize] = c;
             }
-            let mut powers = rustc_hash::FxHashMap::default();
+            let mut powers = FxHashMap::default();
             powers.insert(1, base_vreg);
             return self.compile_poly_estrin(&coeffs, base_vreg, &mut powers);
         }
@@ -145,7 +145,7 @@ impl Compiler {
         &mut self,
         coeffs: &[f64],
         x: VReg,
-        powers: &mut rustc_hash::FxHashMap<usize, VReg>,
+        powers: &mut FxHashMap<usize, VReg>,
     ) -> VReg {
         if coeffs.iter().all(|&c| c == 0.0) {
             return VReg::Const(self.add_const(0.0));
@@ -197,7 +197,7 @@ impl Compiler {
         &mut self,
         x: VReg,
         n: usize,
-        powers: &mut rustc_hash::FxHashMap<usize, VReg>,
+        powers: &mut FxHashMap<usize, VReg>,
     ) -> VReg {
         if n == 1 {
             return x;
@@ -247,7 +247,7 @@ impl Compiler {
         exp: &Expr,
         node_map: &FxHashMap<*const Expr, NodeData>,
     ) -> Result<VReg, DiffError> {
-        if let Some(n_val) = node::const_from_map(node_map, exp) {
+        if let Some(n_val) = const_from_map(node_map, exp) {
             let is_integer = (n_val - n_val.round()).abs() < EPSILON;
             if is_integer {
                 #[allow(clippy::cast_possible_truncation, reason = "Integer powers fit in i64")]
@@ -343,10 +343,10 @@ impl Compiler {
             }
         }
 
-        if let Some(base_val) = node::const_from_map(node_map, base)
-            && (base_val - std::f64::consts::E).abs() < EPSILON
+        if let Some(base_val) = const_from_map(node_map, base)
+            && (base_val - E).abs() < EPSILON
         {
-            if let Some((src, neg)) = node::exp_sqr_arg(exp, node_map) {
+            if let Some((src, neg)) = exp_sqr_arg(exp, node_map) {
                 let dest = self.alloc_vreg();
                 if neg {
                     self.emit(VInstruction::ExpSqrNeg { dest, src });

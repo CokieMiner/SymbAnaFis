@@ -112,8 +112,8 @@ mod tests {
     #[test]
     fn test_fraction_integer_collapsing() {
         use crate::parser;
-        let fixed = std::collections::HashSet::new();
-        let funcs = std::collections::HashSet::new();
+        let fixed = HashSet::new();
+        let funcs = HashSet::new();
         let ast = parser::parse("12 / 3", &fixed, &funcs, None).unwrap();
         let simplified =
             simplify_expr(ast, HashSet::new(), HashMap::new(), None, None, None, false);
@@ -123,8 +123,8 @@ mod tests {
     #[test]
     fn test_trig_triple_angle() {
         use crate::parser;
-        let fixed = std::collections::HashSet::new();
-        let funcs = std::collections::HashSet::new();
+        let fixed = HashSet::new();
+        let funcs = HashSet::new();
         let ast = parser::parse("3 * sin(x) - 4 * sin(x)^3", &fixed, &funcs, None).unwrap();
         let simplified =
             simplify_expr(ast, HashSet::new(), HashMap::new(), None, None, None, false);
@@ -139,8 +139,8 @@ mod tests {
     #[test]
     fn test_hyperbolic_triple_angle() {
         use crate::parser;
-        let fixed = std::collections::HashSet::new();
-        let funcs = std::collections::HashSet::new();
+        let fixed = HashSet::new();
+        let funcs = HashSet::new();
         let ast = parser::parse("4 * sinh(x)^3 + 3 * sinh(x)", &fixed, &funcs, None).unwrap();
         let simplified =
             simplify_expr(ast, HashSet::new(), HashMap::new(), None, None, None, false);
@@ -154,8 +154,8 @@ mod tests {
     #[test]
     fn test_trig_triple_angle_permutations() {
         use crate::parser;
-        let fixed = std::collections::HashSet::new();
-        let funcs = std::collections::HashSet::new();
+        let fixed = HashSet::new();
+        let funcs = HashSet::new();
         // Test the canonical form
         let s = "3 * sin(x) - 4 * sin(x)^3";
         let ast = parser::parse(s, &fixed, &funcs, None).unwrap();
@@ -171,8 +171,8 @@ mod tests {
     #[test]
     fn test_trig_triple_angle_edge_cases() {
         use crate::parser;
-        let fixed = std::collections::HashSet::new();
-        let funcs = std::collections::HashSet::new();
+        let fixed = HashSet::new();
+        let funcs = HashSet::new();
         // Floating coefficient should not fold
         let ast =
             parser::parse("3.000000001 * sin(x) - 4 * sin(x)^3", &fixed, &funcs, None).unwrap();
@@ -195,8 +195,8 @@ mod tests {
     #[test]
     fn test_trig_triple_angle_float_tolerance() {
         use crate::parser;
-        let fixed = std::collections::HashSet::new();
-        let funcs = std::collections::HashSet::new();
+        let fixed = HashSet::new();
+        let funcs = HashSet::new();
         // small floating difference within tolerance should fold
         let ast = parser::parse(
             "3.0000000000000001 * sin(x) - 4.0 * sin(x)^3",
@@ -233,8 +233,8 @@ mod tests {
     #[test]
     fn test_trig_triple_angle_float_exact() {
         use crate::parser;
-        let fixed = std::collections::HashSet::new();
-        let funcs = std::collections::HashSet::new();
+        let fixed = HashSet::new();
+        let funcs = HashSet::new();
         let ast = parser::parse("3.0 * sin(x) - 4.0 * sin(x)^3", &fixed, &funcs, None).unwrap();
         let simplified =
             simplify_expr(ast, HashSet::new(), HashMap::new(), None, None, None, false);
@@ -248,8 +248,8 @@ mod tests {
     #[test]
     fn test_hyperbolic_triple_angle_float_tolerance() {
         use crate::parser;
-        let fixed = std::collections::HashSet::new();
-        let funcs = std::collections::HashSet::new();
+        let fixed = HashSet::new();
+        let funcs = HashSet::new();
         // sinh triple angle small difference
         let ast = parser::parse(
             "4.0000000000000001 * sinh(x)^3 + 3.0 * sinh(x)",
@@ -270,8 +270,8 @@ mod tests {
     #[test]
     fn test_roots_numeric_more_examples() {
         use crate::parser;
-        let fixed = std::collections::HashSet::new();
-        let funcs = std::collections::HashSet::new();
+        let fixed = HashSet::new();
+        let funcs = HashSet::new();
         // sqrt(9) -> 3; sqrt(8) should remain symbolic
         let ast = parser::parse("sqrt(9)", &fixed, &funcs, None).unwrap();
         assert_eq!(
@@ -316,8 +316,8 @@ mod tests {
     #[test]
     fn test_fraction_more_examples() {
         use crate::parser;
-        let fixed = std::collections::HashSet::new();
-        let funcs = std::collections::HashSet::new();
+        let fixed = HashSet::new();
+        let funcs = HashSet::new();
         // 18 / 3 -> 6
         let ast = parser::parse("18 / 3", &fixed, &funcs, None).unwrap();
         assert_eq!(
@@ -344,8 +344,8 @@ mod tests {
     #[test]
     fn test_simplification_reduces_display_length() {
         use crate::parser;
-        let fixed = std::collections::HashSet::new();
-        let funcs = std::collections::HashSet::new();
+        let fixed = HashSet::new();
+        let funcs = HashSet::new();
         // triple-angle reduced
         let s = "3 * sin(x) - 4 * sin(x)^3";
         let ast = parser::parse(s, &fixed, &funcs, None).unwrap();

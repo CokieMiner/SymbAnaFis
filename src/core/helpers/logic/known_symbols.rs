@@ -3,7 +3,8 @@
 //! This module provides lazily-initialized symbol IDs for common function names.
 //! Comparison is O(1) - just a u64 integer comparison.
 
-use crate::core::symbol::{InternedSymbol, lookup_by_id, symb_interned};
+use crate::core::{InternedSymbol, lookup_by_id, symb_interned};
+use std::f64::consts::{E, PI};
 use std::sync::LazyLock;
 
 /// Get the ID for an interned symbol (helper for the macro)
@@ -283,9 +284,9 @@ pub fn is_known_constant_by_id(id: u64) -> bool {
 pub fn get_constant_value_by_id(id: u64) -> Option<f64> {
     let ks = &*KS;
     if id == ks.pi || id == ks.pi_upper || id == ks.pi_title {
-        Some(std::f64::consts::PI)
+        Some(PI)
     } else if id == ks.e || id == ks.e_upper {
-        Some(std::f64::consts::E)
+        Some(E)
     } else {
         None
     }
@@ -307,8 +308,8 @@ pub fn is_known_constant(name: &str) -> bool {
 #[inline]
 pub fn get_constant_value(name: &str) -> Option<f64> {
     match name {
-        "pi" | "PI" | "Pi" => Some(std::f64::consts::PI),
-        "e" | "E" => Some(std::f64::consts::E),
+        "pi" | "PI" | "Pi" => Some(PI),
+        "e" | "E" => Some(E),
         _ => None,
     }
 }

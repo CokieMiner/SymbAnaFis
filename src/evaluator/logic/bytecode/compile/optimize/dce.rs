@@ -1,4 +1,6 @@
-use super::super::super::instruction::Instruction;
+use super::instruction::Instruction;
+
+use super::helper::calculate_use_count;
 
 #[allow(clippy::too_many_lines, reason = "DCE pass with multiple sub-steps")]
 pub(super) fn eliminate_dead_code(
@@ -11,7 +13,7 @@ pub(super) fn eliminate_dead_code(
 ) -> Vec<Instruction> {
     // --- Copy forwarding pass ---
     // Recompute use_count after fusion
-    super::helper::calculate_use_count(&out, use_count, arg_pool);
+    calculate_use_count(&out, use_count, arg_pool);
 
     // Build a forwarding table: copy_of[reg_idx] = the register reg_idx was copied from (or reg_idx itself)
     let mut copy_of: Vec<u32> = (0..=max_reg_idx).collect();

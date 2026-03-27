@@ -1,6 +1,6 @@
-use super::super::registry::FunctionDefinition;
+use super::FunctionDefinition;
 use crate::Expr;
-use crate::core::known_symbols as ks;
+use crate::core::known_symbols::{KS, get_symbol};
 use std::sync::Arc;
 
 #[allow(clippy::too_many_lines, reason = "Static function definition list")]
@@ -16,7 +16,7 @@ pub fn get_definitions() -> Vec<FunctionDefinition> {
                 let u = Arc::clone(&args[0]);
                 let u_prime = arg_primes[0].clone();
                 Expr::mul_expr(
-                    Expr::func_multi_from_arcs_symbol(ks::get_symbol(ks::KS.cosh), vec![u]),
+                    Expr::func_multi_from_arcs_symbol(get_symbol(KS.cosh), vec![u]),
                     u_prime,
                 )
             },
@@ -30,7 +30,7 @@ pub fn get_definitions() -> Vec<FunctionDefinition> {
                 let u = Arc::clone(&args[0]);
                 let u_prime = arg_primes[0].clone();
                 Expr::mul_expr(
-                    Expr::func_multi_from_arcs_symbol(ks::get_symbol(ks::KS.sinh), vec![u]),
+                    Expr::func_multi_from_arcs_symbol(get_symbol(KS.sinh), vec![u]),
                     u_prime,
                 )
             },
@@ -47,7 +47,7 @@ pub fn get_definitions() -> Vec<FunctionDefinition> {
                     Expr::sub_expr(
                         Expr::number(1.0),
                         Expr::pow(
-                            Expr::func_multi_from_arcs_symbol(ks::get_symbol(ks::KS.tanh), vec![u]),
+                            Expr::func_multi_from_arcs_symbol(get_symbol(KS.tanh), vec![u]),
                             Expr::number(2.0),
                         ),
                     ),
@@ -65,7 +65,7 @@ pub fn get_definitions() -> Vec<FunctionDefinition> {
                 let u_prime = arg_primes[0].clone();
                 Expr::mul_expr(
                     Expr::negate(Expr::pow(
-                        Expr::func_multi_from_arcs_symbol(ks::get_symbol(ks::KS.csch), vec![u]),
+                        Expr::func_multi_from_arcs_symbol(get_symbol(KS.csch), vec![u]),
                         Expr::number(2.0),
                     )),
                     u_prime,
@@ -83,10 +83,10 @@ pub fn get_definitions() -> Vec<FunctionDefinition> {
                 Expr::mul_expr(
                     Expr::negate(Expr::mul_expr(
                         Expr::func_multi_from_arcs_symbol(
-                            ks::get_symbol(ks::KS.sech),
+                            get_symbol(KS.sech),
                             vec![Arc::clone(&u)],
                         ),
-                        Expr::func_multi_from_arcs_symbol(ks::get_symbol(ks::KS.tanh), vec![u]),
+                        Expr::func_multi_from_arcs_symbol(get_symbol(KS.tanh), vec![u]),
                     )),
                     u_prime,
                 )
@@ -103,10 +103,10 @@ pub fn get_definitions() -> Vec<FunctionDefinition> {
                 Expr::mul_expr(
                     Expr::negate(Expr::mul_expr(
                         Expr::func_multi_from_arcs_symbol(
-                            ks::get_symbol(ks::KS.csch),
+                            get_symbol(KS.csch),
                             vec![Arc::clone(&u)],
                         ),
-                        Expr::func_multi_from_arcs_symbol(ks::get_symbol(ks::KS.coth), vec![u]),
+                        Expr::func_multi_from_arcs_symbol(get_symbol(KS.coth), vec![u]),
                     )),
                     u_prime,
                 )

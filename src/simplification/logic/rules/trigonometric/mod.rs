@@ -15,3 +15,6 @@ pub mod triple_angle;
 /// Rule list collector
 pub mod rules;
 pub use rules::get_trigonometric_rules;
+
+pub(super) use super::helpers as rule_helpers;
+pub(super) use super::{ExprKind, Rule, RuleCategory, RuleContext, extract_coeff_arc};

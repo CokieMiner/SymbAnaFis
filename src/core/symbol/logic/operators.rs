@@ -5,8 +5,8 @@
 
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
-use super::super::Symbol;
 use crate::Expr;
+use crate::core::Symbol;
 
 // ============================================================================
 // Operator Overloading Macro

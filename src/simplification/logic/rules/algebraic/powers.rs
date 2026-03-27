@@ -1,6 +1,9 @@
-use super::super::core::{ExprKind, Rule, RuleCategory, RuleContext};
+use super::{
+    ExprKind, Rule, RuleCategory, RuleContext, is_fractional_root_exponent, is_known_non_negative,
+};
 use crate::EPSILON;
-use crate::core::known_symbols as ks;
+use crate::core::arc_number;
+use crate::core::known_symbols::{KS, get_symbol};
 use crate::{Expr, core::ExprKind as AstKind};
 use std::sync::Arc;
 
@@ -77,7 +80,7 @@ rule!(
                         && (*den_val - *inner_n).abs() < EPSILON
                     {
                         return Some(Expr::func_multi_from_arcs_symbol(
-                            ks::get_symbol(ks::KS.abs),
+                            get_symbol(KS.abs),
                             vec![Arc::clone(base)],
                         ));
                     }
@@ -85,7 +88,7 @@ rule!(
                         let product = inner_n * outer_n;
                         if (product - 1.0).abs() < EPSILON {
                             return Some(Expr::func_multi_from_arcs_symbol(
-                                ks::get_symbol(ks::KS.abs),
+                                get_symbol(KS.abs),
                                 vec![Arc::clone(base)],
                             ));
                         }
@@ -154,10 +157,7 @@ rule_arc!(
                     if let AstKind::Pow(base_1, exp_1) = &f1.kind
                         && **base_1 == **f2
                     {
-                        let new_exp = Expr::sum_from_arcs(vec![
-                            Arc::clone(exp_1),
-                            crate::core::expr::arc_number(1.0),
-                        ]);
+                        let new_exp = Expr::sum_from_arcs(vec![Arc::clone(exp_1), arc_number(1.0)]);
                         let combined = Expr::pow_from_arcs(Arc::clone(base_1), Arc::new(new_exp));
                         return build_result(combined);
                     }
@@ -165,10 +165,7 @@ rule_arc!(
                     if let AstKind::Pow(base_2, exp_2) = &f2.kind
                         && **base_2 == **f1
                     {
-                        let new_exp = Expr::sum_from_arcs(vec![
-                            crate::core::expr::arc_number(1.0),
-                            Arc::clone(exp_2),
-                        ]);
+                        let new_exp = Expr::sum_from_arcs(vec![arc_number(1.0), Arc::clone(exp_2)]);
                         let combined = Expr::pow_from_arcs(Arc::clone(base_2), Arc::new(new_exp));
                         return build_result(combined);
                     }
@@ -192,10 +189,7 @@ rule!(
                 && base_u == base_v
             {
                 // x^a / x^b = x^(a-b) = x^(a + (-1)*b)
-                let neg_exp_v = Expr::product_from_arcs(vec![
-                    crate::core::expr::arc_number(-1.0),
-                    Arc::clone(exp_v),
-                ]);
+                let neg_exp_v = Expr::product_from_arcs(vec![arc_number(-1.0), Arc::clone(exp_v)]);
                 let new_exp = Expr::sum_from_arcs(vec![Arc::clone(exp_u), Arc::new(neg_exp_v)]);
                 return Some(Expr::pow_from_arcs(Arc::clone(base_u), Arc::new(new_exp)));
             }
@@ -203,24 +197,15 @@ rule!(
             if let AstKind::Pow(base_u, exp_u) = &u.kind
                 && base_u == v
             {
-                let new_exp = Expr::sum_from_arcs(vec![
-                    Arc::clone(exp_u),
-                    crate::core::expr::arc_number(-1.0),
-                ]);
+                let new_exp = Expr::sum_from_arcs(vec![Arc::clone(exp_u), arc_number(-1.0)]);
                 return Some(Expr::pow_from_arcs(Arc::clone(base_u), Arc::new(new_exp)));
             }
             // Check if denominator is a power and numerator is the same base
             if let AstKind::Pow(base_v, exp_v) = &v.kind
                 && base_v == u
             {
-                let neg_exp = Expr::product_from_arcs(vec![
-                    crate::core::expr::arc_number(-1.0),
-                    Arc::clone(exp_v),
-                ]);
-                let combined_exp = Expr::sum_from_arcs(vec![
-                    crate::core::expr::arc_number(1.0),
-                    Arc::new(neg_exp),
-                ]);
+                let neg_exp = Expr::product_from_arcs(vec![arc_number(-1.0), Arc::clone(exp_v)]);
+                let combined_exp = Expr::sum_from_arcs(vec![arc_number(1.0), Arc::new(neg_exp)]);
                 return Some(Expr::pow_from_arcs(
                     Arc::clone(base_v),
                     Arc::new(combined_exp),
@@ -254,7 +239,7 @@ rule_arc!(
                     base_to_exponents
                         .entry(Arc::clone(factor))
                         .or_default()
-                        .push(crate::core::expr::arc_number(1.0));
+                        .push(arc_number(1.0));
                 }
             }
 
@@ -315,11 +300,9 @@ rule!(
                 (&num.kind, &den.kind)
             && exp_num == exp_den
         {
-            if context.domain_safe
-                && crate::simplification::helpers::is_fractional_root_exponent(exp_num)
-            {
-                let num_non_neg = crate::simplification::helpers::is_known_non_negative(base_num);
-                let den_non_neg = crate::simplification::helpers::is_known_non_negative(base_den);
+            if context.domain_safe && is_fractional_root_exponent(exp_num) {
+                let num_non_neg = is_known_non_negative(base_num);
+                let den_non_neg = is_known_non_negative(base_den);
                 if !(num_non_neg && den_non_neg) {
                     return None;
                 }
@@ -370,13 +353,9 @@ rule_arc!(
                             continue;
                         }
 
-                        if context.domain_safe
-                            && crate::simplification::helpers::is_fractional_root_exponent(exp_1)
-                        {
-                            let left_non_neg =
-                                crate::simplification::helpers::is_known_non_negative(base_1);
-                            let right_non_neg =
-                                crate::simplification::helpers::is_known_non_negative(base_2);
+                        if context.domain_safe && is_fractional_root_exponent(exp_1) {
+                            let left_non_neg = is_known_non_negative(base_1);
+                            let right_non_neg = is_known_non_negative(base_2);
                             if !(left_non_neg && right_non_neg) {
                                 continue;
                             }

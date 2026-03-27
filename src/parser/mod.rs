@@ -6,4 +6,4 @@
 mod api;
 mod logic;
 
-pub use api::parse;
+pub use api::*;
