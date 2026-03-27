@@ -10,9 +10,10 @@ pub mod parallel;
 pub use batch::eval_single_expr_chunked;
 
 #[cfg(feature = "parallel")]
-pub use parallel::{
-    EvalResult, ExprInput, SKIP, Value, VarInput, evaluate_parallel, evaluate_parallel_with_hint,
-};
+pub use parallel::{EvalResult, ExprInput, SKIP, Value, VarInput, evaluate_parallel};
+
+#[cfg(all(feature = "parallel", feature = "python"))]
+pub use parallel::evaluate_parallel_with_hint;
 
 #[cfg(feature = "parallel")]
 pub use super::{CompiledEvaluator, ToParamName};

@@ -6,7 +6,9 @@
 use super::context::PyContext;
 use super::expr::PyExpr;
 use crate::evaluator::CompiledEvaluator as RustCompiledEvaluator;
-use numpy::{PyArray1, PyReadonlyArray1};
+#[cfg(feature = "parallel")]
+use numpy::PyArray1;
+use numpy::PyReadonlyArray1;
 use pyo3::prelude::*;
 
 /// Python wrapper for compiled evaluators
@@ -67,6 +69,7 @@ impl PyCompiledEvaluator {
         clippy::needless_pass_by_value,
         reason = "PyO3 requires owned Vec for Python list arguments"
     )]
+    #[cfg(feature = "parallel")]
     fn eval_batch<'py>(
         &self,
         py: Python<'py>,
@@ -144,6 +147,7 @@ pub enum DataInput<'py> {
 
 impl DataInput<'_> {
     /// Get the length of the data
+    #[cfg(feature = "parallel")]
     pub fn len(&self) -> PyResult<usize> {
         match self {
             Self::Array(arr) => Ok(arr.len()?),

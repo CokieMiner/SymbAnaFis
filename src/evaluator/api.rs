@@ -15,7 +15,7 @@ pub use super::logic::{EvalResult, ExprInput, SKIP, Value, VarInput, evaluate_pa
 
 #[cfg(feature = "parallel")]
 use super::logic::eval_single_expr_chunked;
-#[cfg(feature = "parallel")]
+#[cfg(all(feature = "parallel", feature = "python"))]
 pub use super::logic::evaluate_parallel_with_hint;
 
 use crate::{

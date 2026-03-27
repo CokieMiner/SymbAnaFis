@@ -10,8 +10,10 @@ pub use bytecode::{Compiler, Instruction, expand_user_functions};
 #[cfg(feature = "parallel")]
 pub use bytecode::{
     EvalResult, ExprInput, SKIP, Value, VarInput, eval_single_expr_chunked, evaluate_parallel,
-    evaluate_parallel_with_hint,
 };
+
+#[cfg(all(feature = "parallel", feature = "python"))]
+pub use bytecode::evaluate_parallel_with_hint;
 
 pub use tree::VarLookup;
 
