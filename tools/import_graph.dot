@@ -1287,6 +1287,8 @@ digraph imports {
   "src::evaluator::logic::bytecode::compile::codegen::traverse" -> "src::core::error::DiffError";
   "rustc_hash" [shape="ellipse", style="dashed"];
   "src::evaluator::logic::bytecode::compile::codegen::traverse" -> "rustc_hash";
+  "std" [shape="ellipse", style="dashed"];
+  "src::evaluator::logic::bytecode::compile::codegen::traverse" -> "std";
   "src::evaluator::logic::bytecode::compile::compiler" -> "src::evaluator::logic::bytecode::compile::emit::RegAllocator";
   "src::evaluator::logic::bytecode::compile::compiler" -> "src::evaluator::logic::bytecode::compile::instruction::Instruction";
   "src::evaluator::logic::bytecode::compile::compiler" -> "src::evaluator::logic::bytecode::compile::vir::VInstruction";

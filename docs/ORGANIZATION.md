@@ -271,6 +271,32 @@ use super::logic;
 use super::logic::SomeInternalType;
 ```
 
+Prefer shallow internal imports (`super::foo`, `super::foo::Bar`) over deep chains.
+Avoid `super::super::...` unless there is no clearer local path.
+
+Import concrete symbols at the top of the file and call them directly.
+Do not use inline-qualified paths such as `module::item(...)` when the item can be imported.
+
+```rust
+// ✅ Good
+use super::float_ops::{float_div, float_from_int};
+let out = float_div(&float_from_int(&num), &float_from_int(&den));
+
+// ❌ Bad
+let out = super::float_ops::float_div(
+  &super::float_ops::float_from_int(&num),
+  &super::float_ops::float_from_int(&den),
+);
+```
+
+Backend selector files may use one local alias import for dispatch readability:
+
+```rust
+use super::f64_ops as backend;
+```
+
+This alias is the only recommended alias pattern in numeric backend dispatch modules.
+
 ### 7.3 Encapsulation ("Blocking")
 
 Internal modules (`logic/`) **must be private** to their parent. Visibility should be

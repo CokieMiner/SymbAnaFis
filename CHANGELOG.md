@@ -2,7 +2,25 @@
 
 All notable changes to symb_anafis will be documented in this file.
 
-## [unreleased]
+## [working]
+
+### Working Update - 2026-04-01
+
+- Added a new workspace member crate, num-anafis, as the numeric core for SymbAnaFis.
+- Added backend feature routing in workspace Cargo.toml:
+  - backend32
+  - backend64
+  - backend_big_astro
+  - backend_big_rug
+- Added public ergonomic helpers in num-anafis:
+  - s(value) for scalar conversion
+  - r(num, den) for rational construction with generic integer inputs
+  - imported Clifford constructors I, J, EPS, E1, E2, E3
+- Added full CliffordNumber API and removed Multivector naming from public/source usage.
+- Added deep capabilities showcase example:
+  - crates/num-anafis/examples/examples.rs
+- Added strict lint policy for num-anafis and fixed clippy issues across backend combinations.
+- Added import audit tooling for num-anafis and updated organization guidance for import style.
 
 ### Breaking Changes
 

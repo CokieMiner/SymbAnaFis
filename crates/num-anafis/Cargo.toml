@@ -1,111 +1,28 @@
 [package]
-name = "symb_anafis"
-version = "0.9.0"
+name = "num-anafis"
+version = "0.1.0"
 edition = "2024"
 authors = ["CokieMiner"]
-description = "Fast symbolic differentiation library for Rust"
+description = "Numeric core types for SymbAnaFis"
 license = "Apache-2.0"
-repository = "https://github.com/CokieMiner/SymbAnaFis"
-keywords = [
-    "symbolic",
-    "differentiation",
-    "calculus",
-    "mathematics",
-    "derivatives",
-]
-categories = ["mathematics", "science"]
-exclude = [
-    "videos/*",
-    "benches/bench_output.txt",
-    ".github/*",
-    ".agent/*",
-    "target/*",
-    "*.mp4",
-]
-
-[workspace]
-members = [".", "crates/num-anafis"]
-resolver = "2"
-
-[lib]
-name = "symb_anafis"
-crate-type = ["cdylib", "rlib"]
-
-[dependencies]
-num-traits = "0.2.19"
-rustc-hash = "2.1.2"
-slotmap = { version = "1.1.1" }
-num-anafis = { path = "crates/num-anafis" }
-numpy = { version = "0.28.0", optional = true }
-pyo3 = { version = "0.28.2", features = ["extension-module"], optional = true }
-rayon = { version = "1.11.0", optional = true }
-wide = { version = "1.2.0", optional = true }
-
-[dev-dependencies]
-ahash = "0.8.12"
-criterion = "0.8.2"
-dotenvy = "0.15.7"
-quickcheck = "1.1.0"
-rand = "0.10.0"
-symbolica = "1.4.0"
 
 [features]
-default = []
-python = ["pyo3", "numpy"]
-parallel = ["rayon", "wide"]
-backend32 = ["num-anafis/backend32"]
-backend64 = ["num-anafis/backend64"]
-backend_big_astro = ["num-anafis/backend_big_astro"]
-backend_big_rug = ["num-anafis/backend_big_rug"]
+default = ["backend64"]
+backend32 = []
+backend64 = []
+backend_big_astro = ["dep:num-bigint", "dep:num-traits", "dep:astro-float"]
+backend_big_rug = ["dep:num-bigint", "dep:num-traits", "dep:rug"]
 
-[[bench]]
-name = "benchmark"
-harness = false
-path = "benches/rust/benchmark.rs"
+[dependencies]
+astro-float = { version = "0.9.5", optional = true }
+num-bigint = { version = "0.4.6", optional = true }
+num-traits = { version = "0.2.19", optional = true }
+rug = { version = "1.29.0", optional = true }
 
-[[bench]]
-name = "benchmark_symbolica"
-harness = false
-path = "benches/rust/benchmark_symbolica.rs"
+[lib]
+name = "num_anafis"
+path = "src/lib.rs"
 
-[[bench]]
-name = "large_expr"
-harness = false
-path = "benches/rust/large_expr.rs"
-
-[[bench]]
-name = "benchmark_parallel"
-harness = false
-path = "benches/rust/benchmark_parallel.rs"
-required-features = ["parallel"]
-
-# =============================================================================
-# EXPLICIT EXAMPLES
-# =============================================================================
-
-[[example]]
-name = "flamegraph_benchmarks"
-path = "examples/benchmarks/flamegraph_benchmarks.rs"
-
-[[example]]
-name = "flamegraph_compile_eval"
-path = "examples/benchmarks/flamegraph_compile_eval.rs"
-
-[[example]]
-name = "flamegraph_profile"
-path = "examples/benchmarks/flamegraph_profile.rs"
-
-[[example]]
-name = "profile_pipeline"
-path = "examples/benchmarks/profile_pipeline.rs"
-
-[[example]]
-name = "simplification_comparison"
-path = "examples/benchmarks/simplification_comparison.rs"
-
-[[example]]
-name = "expr_with_4649517_caracters-comparison"
-path = "examples/benchmarks/expr_with_4649517_caracters-comparison.rs"
 
 # ============================================================================
 # Lints Configuration (applies to lib, tests, examples, benches)

@@ -5,6 +5,7 @@ use super::vir::node::{NodeData, compute_const_from_children, compute_expensive_
 use crate::core::Expr;
 use crate::core::error::DiffError;
 use rustc_hash::FxHashMap;
+use std::ptr::from_ref;
 
 impl Compiler {
     pub(crate) fn compile_expr_iterative(
@@ -16,7 +17,7 @@ impl Compiler {
         let mut node_map: FxHashMap<*const Expr, NodeData> = FxHashMap::default();
         node_map.reserve(node_count);
 
-        let root_ptr = root as *const Expr;
+        let root_ptr = from_ref(root);
         stack.push((root_ptr, false));
 
         while let Some((ptr, visited)) = stack.pop() {
