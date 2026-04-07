@@ -1,4 +1,4 @@
-use super::Compiler;
+use super::VirGenerator;
 use super::analysis::CseKey;
 use super::vir::VReg;
 use super::vir::node::NodeData;
@@ -8,10 +8,9 @@ use crate::core::error::DiffError;
 use crate::core::known_symbols::get_constant_value_by_id;
 use crate::core::{Expr, ExprKind};
 use rustc_hash::FxHashMap;
-use std::ptr::from_ref;
 use std::sync::Arc;
 
-impl Compiler {
+impl VirGenerator {
     pub(super) fn compile_symbol_node(&mut self, sym: &InternedSymbol) -> Result<VReg, DiffError> {
         let sym_id = sym.id();
         if let Some(&idx) = self.param_index.get(&sym_id) {
@@ -50,7 +49,7 @@ impl Compiler {
         &self,
         expr: &Expr,
     ) -> Option<VReg> {
-        self.cse_cache.get(&CseKey(from_ref(expr))).copied()
+        self.cse_cache.get(&CseKey::new(expr)).copied()
     }
 
     pub(in crate::evaluator::logic::bytecode::compile) fn push_children(

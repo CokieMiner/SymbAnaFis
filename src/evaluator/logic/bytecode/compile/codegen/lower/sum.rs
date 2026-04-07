@@ -1,4 +1,4 @@
-use super::Compiler;
+use super::VirGenerator;
 use super::vir::node::{NodeData, const_from_map, negated_product_two_vregs, product_two_vregs};
 use super::vir::{VInstruction, VReg};
 use crate::EPSILON;
@@ -8,7 +8,16 @@ use rustc_hash::FxHashMap;
 use std::ptr::from_ref;
 use std::sync::Arc;
 
-impl Compiler {
+/// Tries `f(a, b)` then `f(b, a)`, returning the first `Some`.
+fn try_both_orderings<T>(
+    a: &Expr,
+    b: &Expr,
+    mut f: impl FnMut(&Expr, &Expr) -> Option<T>,
+) -> Option<T> {
+    f(a, b).or_else(|| f(b, a))
+}
+
+impl VirGenerator {
     pub(super) fn vreg_from_map(
         node_map: &FxHashMap<*const Expr, NodeData>,
         expr: &Expr,
@@ -23,7 +32,14 @@ impl Compiler {
             })
     }
 
-    pub(super) fn negated_inner_vreg(
+    /// Attempts to extract the inner product of a negated term.
+    ///
+    /// Given a `Product([-1, a, b, ...])`, returns the [`VReg`] for `a * b * ...`
+    /// (i.e. the product without the `-1` factor). This enables emitting
+    /// `Sub` or `MulSub` instead of adding a negated term.
+    ///
+    /// Returns `None` if `term` is not a product containing exactly one `-1` factor.
+    pub(super) fn try_extract_negated_product(
         &mut self,
         term: &Expr,
         node_map: &FxHashMap<*const Expr, NodeData>,
@@ -32,53 +48,104 @@ impl Compiler {
             let neg_idx = factors.iter().position(|f| {
                 const_from_map(node_map, (*f).as_ref()).is_some_and(|n| (n + 1.0).abs() < EPSILON)
             })?;
-            let num_inner = factors.len().saturating_sub(1);
-            match num_inner {
-                0 => {
-                    let idx = self.add_const(1.0);
-                    return Some(VReg::Const(idx));
-                }
-                1 => {
-                    for (i, f) in factors.iter().enumerate() {
-                        if i != neg_idx {
-                            return node_map.get(&Arc::as_ptr(f)).map(|data| data.vreg());
-                        }
-                    }
-                }
-                2 => {
-                    let mut iter = factors.iter().enumerate().filter(|(i, _)| *i != neg_idx);
-                    let (_, f1) = iter.next()?;
-                    let (_, f2) = iter.next()?;
-                    let a = node_map.get(&Arc::as_ptr(f1)).map(|data| data.vreg())?;
-                    let b = node_map.get(&Arc::as_ptr(f2)).map(|data| data.vreg())?;
-                    let d = self.alloc_vreg();
-                    self.emit(VInstruction::Mul2 { dest: d, a, b });
-                    return Some(d);
-                }
-                _ => {
-                    let mut inner_vregs: Vec<VReg> = Vec::with_capacity(num_inner);
-                    for (i, f) in factors.iter().enumerate() {
-                        if i != neg_idx {
-                            inner_vregs
-                                .push(node_map.get(&Arc::as_ptr(f)).map(|data| data.vreg())?);
-                        }
-                    }
-                    let d = self.alloc_vreg();
-                    self.emit(VInstruction::Mul {
-                        dest: d,
-                        srcs: inner_vregs,
-                    });
-                    return Some(d);
-                }
-            }
+            let remaining: Vec<VReg> = factors
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| *i != neg_idx)
+                .map(|(_, f)| node_map.get(&Arc::as_ptr(f)).map(|data| data.vreg()))
+                .collect::<Option<Vec<_>>>()?;
+            return Some(self.emit_mul_vregs(remaining));
         }
         None
     }
 
-    #[allow(
-        clippy::too_many_lines,
-        reason = "Large dispatch function for sum nodes"
-    )]
+    /// Tries to fold two constant terms, returning a constant [`VReg`] if possible.
+    ///
+    /// Also handles the identity cases: `0 + x = x` and `x + 0 = x`.
+    fn try_fold_two_sum_constants(
+        &mut self,
+        t0: &Expr,
+        t1: &Expr,
+        node_map: &FxHashMap<*const Expr, NodeData>,
+    ) -> Option<Result<VReg, DiffError>> {
+        let c0 = const_from_map(node_map, t0);
+        let c1 = const_from_map(node_map, t1);
+        match (c0, c1) {
+            (Some(v0), Some(v1)) => {
+                let val = v0 + v1;
+                if val.is_finite() {
+                    let idx = self.add_const(val);
+                    return Some(Ok(VReg::Const(idx)));
+                }
+            }
+            (Some(v0), None) if v0.is_finite() && v0.abs() < EPSILON => {
+                return Some(Self::vreg_from_map(node_map, t1));
+            }
+            (None, Some(v1)) if v1.is_finite() && v1.abs() < EPSILON => {
+                return Some(Self::vreg_from_map(node_map, t0));
+            }
+            _ => {}
+        }
+        None
+    }
+
+    /// Tries to emit an FMA or subtraction pattern for a 2-term sum.
+    ///
+    /// Detects patterns like `a*b - c` → `MulSub`, `c - a*b` → `NegMulAdd`,
+    /// `a*b + c` → `MulAdd`, and plain `x - y` → `Sub`.
+    fn try_fma_two_terms(
+        &mut self,
+        t0: &Expr,
+        t1: &Expr,
+        node_map: &FxHashMap<*const Expr, NodeData>,
+    ) -> Option<VReg> {
+        // Pattern: a*b - neg(c) → MulSub
+        if let Some(result) = try_both_orderings(t0, t1, |pos, neg| {
+            let (a, b) = product_two_vregs(pos, node_map)?;
+            let c = self.try_extract_negated_product(neg, node_map)?;
+            let dest = self.alloc_vreg();
+            self.emit(VInstruction::MulSub { dest, a, b, c });
+            Some(dest)
+        }) {
+            return Some(result);
+        }
+
+        // Pattern: x - neg(a*b) → NegMulAdd  (i.e. c - a*b)
+        if let Some(result) = try_both_orderings(t0, t1, |neg_term, other| {
+            let (a, b) = negated_product_two_vregs(neg_term, node_map)?;
+            let c = Self::vreg_from_map(node_map, other).ok()?;
+            let dest = self.alloc_vreg();
+            self.emit(VInstruction::NegMulAdd { dest, a, b, c });
+            Some(dest)
+        }) {
+            return Some(result);
+        }
+
+        // Pattern: a*b + c → MulAdd
+        if let Some(result) = try_both_orderings(t0, t1, |prod, other| {
+            let (a, b) = product_two_vregs(prod, node_map)?;
+            let c = Self::vreg_from_map(node_map, other).ok()?;
+            let dest = self.alloc_vreg();
+            self.emit(VInstruction::MulAdd { dest, a, b, c });
+            Some(dest)
+        }) {
+            return Some(result);
+        }
+
+        // Pattern: x - y → Sub  (one of the terms is negated)
+        if let Some(result) = try_both_orderings(t0, t1, |neg_candidate, other| {
+            let a = self.try_extract_negated_product(neg_candidate, node_map)?;
+            let b = Self::vreg_from_map(node_map, other).ok()?;
+            let dest = self.alloc_vreg();
+            self.emit(VInstruction::Sub { dest, a: b, b: a });
+            Some(dest)
+        }) {
+            return Some(result);
+        }
+
+        None
+    }
+
     pub(super) fn compile_sum_node(
         &mut self,
         terms: &[Arc<Expr>],
@@ -92,79 +159,17 @@ impl Compiler {
             return Self::vreg_from_map(node_map, terms[0].as_ref());
         }
 
+        // --- 2-term fast path ---
         if terms.len() == 2 {
             let t0 = terms[0].as_ref();
             let t1 = terms[1].as_ref();
 
-            let c0 = const_from_map(node_map, t0);
-            let c1 = const_from_map(node_map, t1);
-            match (c0, c1) {
-                (Some(v0), Some(v1)) => {
-                    let val = v0 + v1;
-                    if val.is_finite() {
-                        let idx = self.add_const(val);
-                        return Ok(VReg::Const(idx));
-                    }
-                }
-                (Some(v0), None) if v0.is_finite() && v0.abs() < EPSILON => {
-                    return Self::vreg_from_map(node_map, t1);
-                }
-                (None, Some(v1)) if v1.is_finite() && v1.abs() < EPSILON => {
-                    return Self::vreg_from_map(node_map, t0);
-                }
-                _ => {}
+            if let Some(result) = self.try_fold_two_sum_constants(t0, t1, node_map) {
+                return result;
             }
 
-            if let Some((a, b)) = product_two_vregs(t0, node_map)
-                && let Some(c) = self.negated_inner_vreg(t1, node_map)
-            {
-                let dest = self.alloc_vreg();
-                self.emit(VInstruction::MulSub { dest, a, b, c });
-                return Ok(dest);
-            }
-            if let Some((a, b)) = product_two_vregs(t1, node_map)
-                && let Some(c) = self.negated_inner_vreg(t0, node_map)
-            {
-                let dest = self.alloc_vreg();
-                self.emit(VInstruction::MulSub { dest, a, b, c });
-                return Ok(dest);
-            }
-            if let Some((a, b)) = negated_product_two_vregs(t0, node_map) {
-                let c = Self::vreg_from_map(node_map, t1)?;
-                let dest = self.alloc_vreg();
-                self.emit(VInstruction::NegMulAdd { dest, a, b, c });
-                return Ok(dest);
-            }
-            if let Some((a, b)) = negated_product_two_vregs(t1, node_map) {
-                let c = Self::vreg_from_map(node_map, t0)?;
-                let dest = self.alloc_vreg();
-                self.emit(VInstruction::NegMulAdd { dest, a, b, c });
-                return Ok(dest);
-            }
-            if let Some((a, b)) = product_two_vregs(t0, node_map) {
-                let c = Self::vreg_from_map(node_map, t1)?;
-                let dest = self.alloc_vreg();
-                self.emit(VInstruction::MulAdd { dest, a, b, c });
-                return Ok(dest);
-            }
-            if let Some((a, b)) = product_two_vregs(t1, node_map) {
-                let c = Self::vreg_from_map(node_map, t0)?;
-                let dest = self.alloc_vreg();
-                self.emit(VInstruction::MulAdd { dest, a, b, c });
-                return Ok(dest);
-            }
-            if let Some(a) = self.negated_inner_vreg(t1, node_map) {
-                let b = Self::vreg_from_map(node_map, t0)?;
-                let dest = self.alloc_vreg();
-                self.emit(VInstruction::Sub { dest, a: b, b: a });
-                return Ok(dest);
-            }
-
-            if let Some(a) = self.negated_inner_vreg(t0, node_map) {
-                let b = Self::vreg_from_map(node_map, t1)?;
-                let dest = self.alloc_vreg();
-                self.emit(VInstruction::Sub { dest, a: b, b: a });
-                return Ok(dest);
+            if let Some(result) = self.try_fma_two_terms(t0, t1, node_map) {
+                return Ok(result);
             }
 
             let a = Self::vreg_from_map(node_map, t0)?;
@@ -174,6 +179,7 @@ impl Compiler {
             return Ok(dest);
         }
 
+        // --- N-term path: separate positive, negative, and constant terms ---
         let mut pos_vregs = Vec::with_capacity(terms.len());
         let mut neg_vregs = Vec::with_capacity(terms.len());
         let mut constant_acc = 0.0_f64;
@@ -183,7 +189,7 @@ impl Compiler {
             if let Some(c) = const_from_map(node_map, term.as_ref()) {
                 constant_acc += c;
                 has_const = true;
-            } else if let Some(inner) = self.negated_inner_vreg(term.as_ref(), node_map) {
+            } else if let Some(inner) = self.try_extract_negated_product(term.as_ref(), node_map) {
                 neg_vregs.push(inner);
             } else {
                 pos_vregs.push(Self::vreg_from_map(node_map, term.as_ref())?);
@@ -213,86 +219,18 @@ impl Compiler {
         }
 
         if neg_vregs.is_empty() {
-            if pos_vregs.len() == 1 {
-                return Ok(pos_vregs[0]);
-            }
-            if pos_vregs.len() == 2 {
-                let dest = self.alloc_vreg();
-                self.emit(VInstruction::Add2 {
-                    dest,
-                    a: pos_vregs[0],
-                    b: pos_vregs[1],
-                });
-                return Ok(dest);
-            }
-            let dest = self.alloc_vreg();
-            self.emit(VInstruction::Add {
-                dest,
-                srcs: pos_vregs,
-            });
-            return Ok(dest);
+            return Ok(self.emit_add_vregs(pos_vregs));
         }
 
         if pos_vregs.is_empty() {
-            let inner = if neg_vregs.len() == 1 {
-                neg_vregs[0]
-            } else if neg_vregs.len() == 2 {
-                let s_v = self.alloc_vreg();
-                self.emit(VInstruction::Add2 {
-                    dest: s_v,
-                    a: neg_vregs[0],
-                    b: neg_vregs[1],
-                });
-                s_v
-            } else {
-                let s_v = self.alloc_vreg();
-                self.emit(VInstruction::Add {
-                    dest: s_v,
-                    srcs: neg_vregs,
-                });
-                s_v
-            };
+            let inner = self.emit_add_vregs(neg_vregs);
             let dest = self.alloc_vreg();
             self.emit(VInstruction::Neg { dest, src: inner });
             return Ok(dest);
         }
 
-        let pos_v = if pos_vregs.len() == 1 {
-            pos_vregs[0]
-        } else if pos_vregs.len() == 2 {
-            let s_v = self.alloc_vreg();
-            self.emit(VInstruction::Add2 {
-                dest: s_v,
-                a: pos_vregs[0],
-                b: pos_vregs[1],
-            });
-            s_v
-        } else {
-            let s_v = self.alloc_vreg();
-            self.emit(VInstruction::Add {
-                dest: s_v,
-                srcs: pos_vregs,
-            });
-            s_v
-        };
-        let neg_v = if neg_vregs.len() == 1 {
-            neg_vregs[0]
-        } else if neg_vregs.len() == 2 {
-            let s_v = self.alloc_vreg();
-            self.emit(VInstruction::Add2 {
-                dest: s_v,
-                a: neg_vregs[0],
-                b: neg_vregs[1],
-            });
-            s_v
-        } else {
-            let s_v = self.alloc_vreg();
-            self.emit(VInstruction::Add {
-                dest: s_v,
-                srcs: neg_vregs,
-            });
-            s_v
-        };
+        let pos_v = self.emit_add_vregs(pos_vregs);
+        let neg_v = self.emit_add_vregs(neg_vregs);
         let dest = self.alloc_vreg();
         self.emit(VInstruction::Sub {
             dest,

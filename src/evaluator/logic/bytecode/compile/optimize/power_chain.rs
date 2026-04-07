@@ -13,6 +13,35 @@ use rustc_hash::FxHashMap;
 ///   t1 = Square(R0)     // x^2
 ///   t2 = Mul(t1, R0)    // x^3 = x^2 * x
 /// ```
+///
+/// # Key invariants
+///
+/// ## `available_by_base` map
+///
+/// Contains `base_register → [(exponent, dest_register)]` entries that satisfy:
+///
+/// 1. **Destination still valid**: The `dest_register` has NOT been overwritten by
+///    any instruction after the power was computed. If it has, the power is stale.
+/// 2. **Base still valid**: The `base_register` has NOT been redefined since the
+///    power was computed. If the base is overwritten, every power rooted at that
+///    base refers to an old value and must be evicted.
+/// 3. **Linear order**: Powers are only available *after* their defining instruction.
+///    We never reorder instructions — only rewrite the RHS of a power to use an
+///    already-computed result from an earlier instruction.
+///
+/// ## `kill_written_reg` function
+///
+/// Called whenever a register is defined (written to). It evicts:
+///
+/// - All powers whose **base** equals the written register (the base value changed).
+/// - All powers whose **destination** equals the written register (the cached result
+///   is now stale because the register holds a different value).
+///
+/// ## `dest != base` guard
+///
+/// After recording a power, we skip the entry if `dest == base`. A self-referencing
+/// entry would create a cycle: the power instruction rewrites itself to use its own
+/// result before it has been computed.
 pub(super) fn optimize_power_chains(instructions: &mut [Instruction]) {
     // Only use powers that have already been computed earlier in the instruction stream.
     // Reordering by exponent can create use-before-def bugs when, for example, `x^4`
@@ -46,6 +75,16 @@ pub(super) fn optimize_power_chains(instructions: &mut [Instruction]) {
     }
 }
 
+/// Evicts cached powers invalidated by `written_reg` being overwritten.
+///
+/// Two cases require eviction:
+///
+/// 1. **Base overwritten**: If `written_reg` was used as the base of cached powers,
+///    all those powers now refer to an old value. E.g. if `R0 = x` and we cached
+///    `(R0, [(2, R5)])` meaning `R5 = x^2`, then `R0 = y` invalidates `R5 = x^2`.
+///
+/// 2. **Destination overwritten**: If `written_reg` was the destination of a cached
+///    power (e.g. `R5`), that register no longer holds the power value.
 fn kill_written_reg(available_by_base: &mut FxHashMap<u32, Vec<(i32, u32)>>, written_reg: u32) {
     // If the base register itself is overwritten, every cached power rooted at that base
     // becomes stale because future instructions see a different value in that register.

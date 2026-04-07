@@ -4,6 +4,25 @@ All notable changes to symb_anafis will be documented in this file.
 
 ## [working]
 
+### Working Update - 2026-04-07
+
+### Changed
+
+- **Evaluator compile API rename**: Renamed internal/public bytecode compile type from `Compiler` to `VirGenerator` across evaluator modules and re-exports (`logic`, `bytecode`, and API boundary usage).
+- **VIR CSE pipeline split**: Moved VIR common-subexpression-elimination logic out of the generator impl into `analysis::optimize_vir_cse(vinstrs, final_vreg)`, reducing cross-module coupling.
+- **Iterative traversal hardening**: Reworked compile traversal to a dedicated post-order walker with pointer-identity dedup before node lowering, keeping deep-tree compilation iterative while isolating unsafe pointer handling.
+- **Lowering modularization**:
+  - Added `codegen/lower/emit_helpers.rs` for shared N-ary add/mul emission (`emit_add_vregs`, `emit_mul_vregs`).
+  - Added `codegen/lower/exp_helpers.rs` for shared `exp(-x)` positive-argument extraction used by both function and power lowering.
+  - Refactored `sum.rs` and `product.rs` to use shared helpers and split 2-term fast-path logic into focused helper functions.
+- **Peephole fusion refactor**: Split monolithic fusion matcher into category-specific helper functions (`try_fuse_negation`, `try_fuse_load_const`, `try_fuse_mul_add`, `try_fuse_power`, `try_fuse_inverse`, `try_fuse_logarithmic`, `try_fuse_idempotent`, `try_fuse_const_chain`) while preserving pattern coverage.
+
+### Code Quality
+
+- **Type/visibility tightening**: Converted `CseKey` constructor usage to `CseKey::new(&Expr)` and reduced analysis exports to module-scoped visibility where appropriate.
+- **Internal docs expansion**: Added extensive invariants and rationale docs in optimizer/compile modules (`power_chain`, `compact`, `strength_reduction`, and fusion) to clarify correctness constraints and floating-point tradeoffs.
+- **Import graph regeneration**: Updated `tools/import_graph.dot` to reflect renamed symbols and newly extracted lowering/analysis modules.
+
 ### Working Update - 2026-04-01
 
 - Added a new workspace member crate, num-anafis, as the numeric core for SymbAnaFis.
@@ -21,6 +40,8 @@ All notable changes to symb_anafis will be documented in this file.
   - crates/num-anafis/examples/examples.rs
 - Added strict lint policy for num-anafis and fixed clippy issues across backend combinations.
 - Added import audit tooling for num-anafis and updated organization guidance for import style.
+
+## [unreleased]
 
 ### Breaking Changes
 

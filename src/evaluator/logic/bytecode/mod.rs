@@ -2,7 +2,7 @@ pub mod compile;
 pub mod execute;
 pub mod instruction;
 
-pub use compile::{Compiler, expand_user_functions};
+pub use compile::{VirGenerator, expand_user_functions};
 #[cfg(all(feature = "parallel", feature = "python"))]
 pub use execute::evaluate_parallel_with_hint;
 #[cfg(feature = "parallel")]

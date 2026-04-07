@@ -1,69 +1,107 @@
-use super::Compiler;
+use super::VirGenerator;
 use super::analysis::CseKey;
 use super::vir::VReg;
 use super::vir::node::{NodeData, compute_const_from_children, compute_expensive_from_children};
 use crate::core::Expr;
 use crate::core::error::DiffError;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::ptr::from_ref;
 
-impl Compiler {
+/// Produces a post-order traversal of the expression tree using an iterative
+/// approach to avoid stack overflow on deeply nested expressions.
+///
+/// All raw-pointer manipulation is confined to this function. The returned
+/// references borrow from the immutable `root` tree and are valid for its
+/// lifetime.
+///
+/// Each `&Expr` appears at most once in the output (deduplication via pointer
+/// identity).
+fn postorder_walk(root: &Expr, capacity: usize) -> Vec<&Expr> {
+    let mut stack: Vec<(*const Expr, bool)> = Vec::with_capacity(capacity);
+    let mut visited = FxHashSet::default();
+    visited.reserve(capacity);
+    let mut result = Vec::with_capacity(capacity);
+
+    let root_ptr = from_ref(root);
+    stack.push((root_ptr, false));
+
+    while let Some((ptr, processed)) = stack.pop() {
+        if visited.contains(&ptr) {
+            continue;
+        }
+
+        if processed {
+            #[allow(
+                unsafe_code,
+                reason = "Pointer derives from the immutable root expression tree and is valid for the lifetime of `root`."
+            )]
+            // SAFETY: `ptr` was obtained from `from_ref` or `Arc::as_ptr` on nodes
+            // within the immutable `root` tree. The tree is not modified during traversal.
+            let expr = unsafe { &*ptr };
+            visited.insert(ptr);
+            result.push(expr);
+        } else {
+            stack.push((ptr, true));
+            #[allow(
+                unsafe_code,
+                reason = "Pointer derives from the immutable root expression tree and is valid for the lifetime of `root`."
+            )]
+            // SAFETY: Same as above — pointer is valid and immutable.
+            let expr = unsafe { &*ptr };
+            VirGenerator::push_children(expr, &mut stack);
+        }
+    }
+
+    result
+}
+
+impl VirGenerator {
     pub(crate) fn compile_expr_iterative(
         &mut self,
         root: &Expr,
         node_count: usize,
     ) -> Result<VReg, DiffError> {
-        let mut stack: Vec<(*const Expr, bool)> = Vec::with_capacity(node_count);
         let mut node_map: FxHashMap<*const Expr, NodeData> = FxHashMap::default();
         node_map.reserve(node_count);
 
-        let root_ptr = from_ref(root);
-        stack.push((root_ptr, false));
+        // Obtain a safe post-order traversal — all `unsafe` is confined to `postorder_walk`.
+        let order = postorder_walk(root, node_count);
 
-        while let Some((ptr, visited)) = stack.pop() {
-            #[allow(
-                unsafe_code,
-                reason = "Iterative compilation uses raw pointers to Expr nodes to avoid recursion limits. These pointers are always valid as they point to nodes within the immutable root expression tree."
-            )]
-            // SAFETY: Pointers are derived from the immutable root expression tree and are valid during traversal.
-            let expr = unsafe { &*ptr };
+        for expr in order {
+            let ptr = from_ref(expr);
 
-            if visited {
-                if node_map.contains_key(&ptr) {
-                    continue;
-                }
+            if node_map.contains_key(&ptr) {
+                continue;
+            }
 
-                let const_val = compute_const_from_children(expr, &node_map);
-                let is_expensive = compute_expensive_from_children(expr, &node_map);
+            let const_val = compute_const_from_children(expr, &node_map);
+            let is_expensive = compute_expensive_from_children(expr, &node_map);
 
-                if is_expensive && let Some(cached) = self.lookup_cse(expr) {
-                    let node_data = const_val.map_or_else(
-                        || NodeData::runtime(cached, is_expensive),
-                        |value| NodeData::constant(cached, value, is_expensive),
-                    );
-                    node_map.insert(ptr, node_data);
-                    continue;
-                }
+            if is_expensive && let Some(cached) = self.lookup_cse(expr) {
+                let node_data = const_val.map_or_else(
+                    || NodeData::runtime(cached, is_expensive),
+                    |value| NodeData::constant(cached, value, is_expensive),
+                );
+                node_map.insert(ptr, node_data);
+                continue;
+            }
 
-                if let Some(val) = const_val {
-                    let idx = self.add_const(val);
-                    let vreg = VReg::Const(idx);
-                    node_map.insert(ptr, NodeData::constant(vreg, val, is_expensive));
-                    continue;
-                }
+            if let Some(val) = const_val {
+                let idx = self.add_const(val);
+                let vreg = VReg::Const(idx);
+                node_map.insert(ptr, NodeData::constant(vreg, val, is_expensive));
+                continue;
+            }
 
-                let result_vreg = self.compile_nonconst_node(expr, &node_map)?;
-                node_map.insert(ptr, NodeData::runtime(result_vreg, is_expensive));
+            let result_vreg = self.compile_nonconst_node(expr, &node_map)?;
+            node_map.insert(ptr, NodeData::runtime(result_vreg, is_expensive));
 
-                if is_expensive {
-                    self.cse_cache.insert(CseKey(ptr), result_vreg);
-                }
-            } else if !node_map.contains_key(&ptr) {
-                stack.push((ptr, true));
-                Self::push_children(expr, &mut stack);
+            if is_expensive {
+                self.cse_cache.insert(CseKey::new(expr), result_vreg);
             }
         }
 
+        let root_ptr = from_ref(root);
         node_map
             .get(&root_ptr)
             .map(|data| data.vreg())

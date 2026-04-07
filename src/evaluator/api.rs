@@ -9,7 +9,7 @@
 use std::fmt::{Debug, Formatter, Result as FmtResult};
 
 pub use super::logic::VarLookup;
-pub use super::logic::{Compiler, Instruction, expand_user_functions};
+pub use super::logic::{VirGenerator, Instruction, expand_user_functions};
 #[cfg(feature = "parallel")]
 pub use super::logic::{EvalResult, ExprInput, SKIP, Value, VarInput, evaluate_parallel};
 
@@ -362,7 +362,7 @@ impl CompiledEvaluator {
         let expanded_expr =
             context.map_or_else(|| expr.clone(), |ctx| expand_user_functions(expr, ctx));
 
-        let mut compiler = Compiler::new(&param_ids);
+        let mut compiler = VirGenerator::new(&param_ids);
         compiler.compile_expr(&expanded_expr)?;
 
         let (instructions, mut constants, mut arg_pool, _max_stack, param_count) =

@@ -5,7 +5,7 @@ pub(super) mod tree;
 
 // Re-exports for api.rs / Evaluator API Boundary
 // Crate-internal re-exports (for other modules like diff/compiler)
-pub use bytecode::{Compiler, Instruction, expand_user_functions};
+pub use bytecode::{VirGenerator, Instruction, expand_user_functions};
 
 #[cfg(feature = "parallel")]
 pub use bytecode::{

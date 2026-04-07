@@ -5,6 +5,13 @@ use super::instruction::Instruction;
 /// and `DivConst` to `MulConst` by computing the reciprocal.
 ///
 /// This pass may add new constants to the pool (e.g. reciprocals).
+///
+/// # Rounding note (`DivConst` → `MulConst`)
+///
+/// Replacing `x / c` with `x * (1/c)` introduces at most 1 ULP of additional
+/// rounding error for IEEE 754 doubles. This is acceptable for scientific
+/// computing where operands themselves carry measurement uncertainty. If exact
+/// rational arithmetic is required, this pass should be disabled.
 #[allow(
     clippy::float_cmp,
     reason = "The pass matches exact identity constants like 0.0, 1.0, and -1.0."

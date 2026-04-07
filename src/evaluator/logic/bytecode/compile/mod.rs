@@ -8,6 +8,6 @@ pub mod optimize;
 pub mod vir;
 
 pub use codegen::expand_user_functions;
-pub use compiler::Compiler;
+pub use compiler::VirGenerator;
 
 pub use super::{CompiledEvaluator, instruction};

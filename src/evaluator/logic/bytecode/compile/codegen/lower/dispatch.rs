@@ -1,11 +1,11 @@
-use super::Compiler;
+use super::VirGenerator;
 use super::vir::VReg;
 use super::vir::node::NodeData;
 use crate::core::error::DiffError;
 use crate::core::{Expr, ExprKind};
 use rustc_hash::FxHashMap;
 
-impl Compiler {
+impl VirGenerator {
     pub(in crate::evaluator::logic::bytecode::compile) fn compile_nonconst_node(
         &mut self,
         expr: &Expr,

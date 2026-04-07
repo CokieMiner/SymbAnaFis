@@ -1,12 +1,12 @@
-use super::Compiler;
+use super::VirGenerator;
 use super::vir::node::{NodeData, const_from_map};
-use super::vir::{VInstruction, VReg};
+use super::vir::VReg;
 use crate::EPSILON;
 use crate::core::{DiffError, Expr};
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
 
-impl Compiler {
+impl VirGenerator {
     pub(super) fn compile_product_node(
         &mut self,
         factors: &[Arc<Expr>],
@@ -38,13 +38,7 @@ impl Compiler {
                         }
                         let c_idx = self.add_const(v0);
                         let v1_reg = Self::vreg_from_map(node_map, f1)?;
-                        let dest = self.alloc_vreg();
-                        self.emit(VInstruction::Mul2 {
-                            dest,
-                            a: VReg::Const(c_idx),
-                            b: v1_reg,
-                        });
-                        return Ok(dest);
+                        return Ok(self.emit_mul_vregs(vec![VReg::Const(c_idx), v1_reg]));
                     }
                 }
                 (None, Some(v1)) => {
@@ -54,13 +48,7 @@ impl Compiler {
                         }
                         let c_idx = self.add_const(v1);
                         let v0_reg = Self::vreg_from_map(node_map, f0)?;
-                        let dest = self.alloc_vreg();
-                        self.emit(VInstruction::Mul2 {
-                            dest,
-                            a: v0_reg,
-                            b: VReg::Const(c_idx),
-                        });
-                        return Ok(dest);
+                        return Ok(self.emit_mul_vregs(vec![v0_reg, VReg::Const(c_idx)]));
                     }
                 }
                 _ => {}
@@ -96,24 +84,7 @@ impl Compiler {
             let idx = self.add_const(1.0);
             return Ok(VReg::Const(idx));
         }
-        if vregs_all.len() == 1 {
-            return Ok(vregs_all[0]);
-        }
-        if vregs_all.len() == 2 {
-            let dest = self.alloc_vreg();
-            self.emit(VInstruction::Mul2 {
-                dest,
-                a: vregs_all[0],
-                b: vregs_all[1],
-            });
-            return Ok(dest);
-        }
 
-        let dest = self.alloc_vreg();
-        self.emit(VInstruction::Mul {
-            dest,
-            srcs: vregs_all,
-        });
-        Ok(dest)
+        Ok(self.emit_mul_vregs(vregs_all))
     }
 }

@@ -1,6 +1,6 @@
 //! Virtual instruction set and register definitions for the compiler's intermediate representation.
 //!
-//! [`VReg`] (virtual registers) and [`VInstruction`] are used by the [`Compiler`] before
+//! [`VReg`] (virtual registers) and [`VInstruction`] are used by the [`VirGenerator`] before
 //! final physical register allocation via [`RegAllocator`].
 
 use super::instruction::FnOp;

@@ -1,4 +1,4 @@
-use super::Compiler;
+use super::VirGenerator;
 use super::instruction::FnOp;
 use super::vir::node::{NodeData, exp_sqr_arg};
 use super::vir::registry::FN_MAP;
@@ -9,7 +9,7 @@ use crate::core::{DiffError, Expr};
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
 
-impl Compiler {
+impl VirGenerator {
     pub(super) fn compile_function_node(
         &mut self,
         name: &InternedSymbol,
@@ -30,7 +30,7 @@ impl Compiler {
                 return Ok(dest);
             }
 
-            if let Some(pos_vreg) = self.compile_exp_neg_arg(&args[0], node_map) {
+            if let Some(pos_vreg) = self.try_compile_positive_exp_argument(&args[0], node_map) {
                 self.emit(VInstruction::Builtin1 {
                     dest,
                     op: FnOp::ExpNeg,

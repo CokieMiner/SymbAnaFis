@@ -113,6 +113,26 @@ fn compact_constant_pool(
     index_map
 }
 
+/// Rewrites all register references and constant indices after constant pool compaction.
+///
+/// # Register layout
+///
+/// Registers are laid out as: `[params | constants | temps]`.
+/// When constants are removed, temps must shift down to fill the gap.
+///
+/// ## Worked example
+///
+/// ```text
+/// Before: 2 params, 5 constants, temps start at register 7
+///   R0=param0  R1=param1  R2=C0  R3=C1  R4=C2  R5=C3  R6=C4  R7=temp0  R8=temp1
+///
+/// After compaction: only 3 constants survive (C0, C2, C4 kept)
+///   R0=param0  R1=param1  R2=C0  R3=C2  R4=C4  R5=temp0  R6=temp1
+///
+/// shift = old_const_count - new_const_count = 5 - 3 = 2
+/// Old R7 (temp0) → 7 - 2 = R5
+/// Old R8 (temp1) → 8 - 2 = R6
+/// ```
 fn remap_after_constant_compaction(
     instructions: &mut [Instruction],
     arg_pool: &mut [u32],

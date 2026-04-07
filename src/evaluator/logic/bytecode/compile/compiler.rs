@@ -1,8 +1,9 @@
-//! Expression compiler for the bytecode evaluator.
+//! VIR generator for the bytecode evaluator.
 //!
-//! This module compiles symbolic [`Expr`] expressions into efficient bytecode
-//! ([`Instruction`]s) that can be executed by the [`CompiledEvaluator`].
+//! This module compiles symbolic [`Expr`] expressions into Virtual Intermediate
+//! Representation ([`VInstruction`]s) that are then lowered to physical bytecode.
 
+use super::analysis::{CseKey, optimize_vir_cse};
 use super::emit::RegAllocator;
 use super::instruction::Instruction;
 use super::vir::{VInstruction, VReg};
@@ -12,9 +13,7 @@ use rustc_hash::FxHashMap;
 use std::collections::hash_map::Entry;
 use std::mem::take;
 
-use super::analysis::CseKey;
-
-pub struct Compiler {
+pub struct VirGenerator {
     pub(super) vinstrs: Vec<VInstruction>,
     pub(super) param_ids: Vec<u64>,
     pub(super) param_index: FxHashMap<u64, usize>,
@@ -25,7 +24,7 @@ pub struct Compiler {
     pub(super) final_vreg: Option<VReg>,
 }
 
-impl Compiler {
+impl VirGenerator {
     pub(crate) fn new(param_ids: &[u64]) -> Self {
         let param_index = param_ids
             .iter()
@@ -78,7 +77,7 @@ impl Compiler {
         let const_count = u32::try_from(self.constants.len()).expect("Const count too large");
         let num_temps = self.next_vreg as usize;
 
-        self.optimize_vir_cse();
+        optimize_vir_cse(&mut self.vinstrs, &mut self.final_vreg);
 
         let vinstrs = take(&mut self.vinstrs);
 

@@ -1,5 +1,6 @@
 pub mod cse;
 
-pub use cse::CseKey;
+pub(super) use cse::CseKey;
+pub(super) use cse::optimize_vir_cse;
 
-pub use super::{Compiler, vir};
+pub use super::vir;
