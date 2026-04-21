@@ -3,7 +3,7 @@
 //! [`VReg`] (virtual registers) and [`VInstruction`] are used by the [`VirGenerator`] before
 //! final physical register allocation via [`RegAllocator`].
 
-use super::instruction::FnOp;
+use super::FnOp;
 use std::mem::swap;
 
 /// Virtual register used during expression compilation.
@@ -137,6 +137,7 @@ pub enum VInstruction {
         b: VReg,
         c: VReg,
     },
+
     RecipExpm1 {
         dest: VReg,
         src: VReg,
@@ -325,6 +326,10 @@ impl VInstruction {
     /// Sorts operands for commutative operations to canonicalize layout for GVN hashing.
     pub fn sort_operands(&mut self) {
         match self {
+            #[allow(
+                clippy::collapsible_match,
+                reason = "Pattern guards cannot be used with mutable bindings"
+            )]
             Self::Add2 { a, b, .. } | Self::Mul2 { a, b, .. } => {
                 if a > b {
                     swap(a, b);

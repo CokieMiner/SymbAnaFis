@@ -334,7 +334,7 @@ fn test_batch_evaluation_1000_points() {
     let compiled = CompiledEvaluator::compile_auto(&diff, None).unwrap();
 
     // Evaluate at 1000 points
-    let mut sum = 0.0;
+    let mut sum = 0.0_f64;
     for i in 0..1000 {
         let x_val = 0.1 + i as f64 * 0.01;
         let result = compiled.evaluate(&[x_val]);

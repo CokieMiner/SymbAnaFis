@@ -102,27 +102,7 @@ fn main() {
         // Compile Simplified
         let compiled_simp = CompiledEvaluator::compile(&derivative_simp, &params, None).unwrap();
 
-        println!(
-            "Raw Instructions ({} total):",
-            compiled_raw.instruction_count()
-        );
-        println!(
-            "Simplified Instructions ({} total):",
-            compiled_simp.instruction_count()
-        );
-
-        //println!("\n--- Simplified Instructions Details ---");
-        //for (i, instr) in compiled_simp.instructions().iter().enumerate() {
-        //   println!("  {i:3}: {instr}");
-        //}
-
-        //println!("\n--- Raw Instructions Details ---");
-        //for (i, instr) in compiled_raw.instructions().iter().enumerate() {
-        //    println!("  {i:3}: {instr}");
-        //}
-
-        //println!("Constants (Simp): {:?}", compiled_simp.constants());
-        //println!("Stack size (Simp): {}", compiled_simp.workspace_size());
-        //println!();
+        println!("Raw Instructions: {} ", compiled_raw.disassemble());
+        println!("Simplified Instructions: {}", compiled_simp.disassemble());
     }
 }

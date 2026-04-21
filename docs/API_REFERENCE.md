@@ -1069,7 +1069,7 @@ For tight loops or massive repeated evaluation, use the `CompiledEvaluator`. It 
 
 | Phase | Description |
 | :--- | :--- |
-| **Common Subexpression Elimination (CSE)** | Automatically detects and caches repeated subexpressions using 64-bit structural hashing. Repeated terms are computed once and stored in a temporary register for reuse. |
+| **Global Value Numbering (GVN)** | Automatically detects and caches repeated subexpressions using 64-bit structural hashing and commutative normalization. Repeated terms are computed once and stored in a temporary register for reuse. |
 | **Register Allocation** | Analyzes the liveness of intermediate results to minimize the number of required registers, improving cache locality and reducing memory footprint. |
 | **Peephole Fusion** | Scans bytecode for patterns (like `Mul` followed by `Add`) and fuses them into high-performance instructions (like `MulAdd` or `InvSquare`). |
 | **Unsafe Hot Path** | The execution engine uses `get_unchecked` for register access, achieving near-native speed by eliminating redundant bounds checks. |
@@ -1113,6 +1113,7 @@ let result = compiled.evaluate(&[0.5]); // Result at x=0.5
 | `expr.compile_with_params(&params)`                   | Convenience method with explicit params           |
 | `evaluate(&values)`                                   | Evaluate at a single point                        |
 | `eval_batch(&columns, &mut output)`                   | Batch evaluate (SIMD optimized)                   |
+| `disassemble()`                                       | Get a human-readable bytecode dump                |
 
 ### Using Symbols or Strings
 
@@ -1152,6 +1153,9 @@ let expr = Expr::func("my_sq", x.to_expr());
 let compiled = CompiledEvaluator::compile(&expr, &[&x], Some(&ctx))?;
 
 let result = compiled.evaluate(&[3.0]); // 9.0
+
+// 4. Introspect compiled bytecode
+println!("{}", compiled.disassemble());
 ```
 
 ### Python API

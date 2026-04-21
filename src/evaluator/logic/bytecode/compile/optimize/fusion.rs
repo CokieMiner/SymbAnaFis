@@ -1,19 +1,31 @@
 use super::helper::ConstantPool;
-use super::instruction::{FnOp, Instruction};
+use super::{FnOp, Instruction};
+
+/// Stack-only replacement for `Vec<Instruction>` in fusion results.
+/// Eliminates heap allocation for every matched pattern (up to 3 instructions).
+enum FuseResult {
+    One(Instruction),
+    Two(Instruction, Instruction),
+}
+
+impl FuseResult {
+    #[inline]
+    fn push_to(self, out: &mut Vec<Instruction>) {
+        match self {
+            Self::One(a) => out.push(a),
+            Self::Two(a, b) => {
+                out.push(a);
+                out.push(b);
+            }
+        }
+    }
+}
 
 /// Peephole optimizer that fuses consecutive instruction pairs into more efficient single
 /// instructions.
 ///
-/// The patterns are organised into category-specific sub-functions:
-///
-/// - [`try_fuse_negation`]: Neg/NegMul patterns
-/// - [`try_fuse_load_const`]: `LoadConst` + arithmetic → *Const variant
-/// - [`try_fuse_mul_add`]: Mul + Add/Sub → FMA patterns
-/// - [`try_fuse_power`]: Square/Cube/Pow4 combinations
-/// - [`try_fuse_inverse`]: X + `Recip` → `InvX`
-/// - [`try_fuse_logarithmic`]: Log/Exp algebraic identities
-/// - [`try_fuse_idempotent`]: Self-cancelling pairs (Neg+Neg, Abs+Abs, etc.)
-/// - [`try_fuse_const_chain`]: Consecutive `AddConst`/`MulConst` folding
+/// Simplified for the Unified Memory Layout: constants are now treated as regular registers,
+/// so we no longer need specialized *Const variants or `LoadConst` fusions.
 #[allow(
     clippy::too_many_lines,
     clippy::float_cmp,
@@ -23,11 +35,13 @@ pub(super) fn fuse_instructions(
     instructions: &[Instruction],
     pool: &mut ConstantPool<'_>,
     use_count: &[usize],
-) -> Vec<Instruction> {
+    arg_pool: &[u32],
+) -> (Vec<Instruction>, bool) {
     let single_use = |reg_idx: &u32| use_count[*reg_idx as usize] == 1;
     let instr_count = instructions.len();
     let mut out = Vec::with_capacity(instr_count);
     let mut instr_idx = 0;
+    let mut changed = false;
 
     while instr_idx < instr_count {
         if instr_idx + 1 < instr_count {
@@ -35,63 +49,45 @@ pub(super) fn fuse_instructions(
             let next = &instructions[instr_idx + 1];
 
             if let Some(fused) = try_fuse_negation(prev, next, pool, &single_use) {
-                out.extend(fused);
+                fused.push_to(&mut out);
                 instr_idx += 2;
-                continue;
-            }
-            if let Some(fused) = try_fuse_load_const(prev, next, &single_use) {
-                out.extend(fused);
-                instr_idx += 2;
+                changed = true;
                 continue;
             }
             if let Some(fused) = try_fuse_mul_add(prev, next, &single_use) {
-                out.extend(fused);
+                fused.push_to(&mut out);
                 instr_idx += 2;
+                changed = true;
                 continue;
             }
             if let Some(fused) = try_fuse_power(prev, next, pool, &single_use) {
-                out.extend(fused);
+                fused.push_to(&mut out);
                 instr_idx += 2;
+                changed = true;
                 continue;
             }
             if let Some(fused) = try_fuse_inverse(prev, next, &single_use) {
-                out.extend(fused);
+                fused.push_to(&mut out);
                 instr_idx += 2;
+                changed = true;
                 continue;
             }
             if let Some(fused) = try_fuse_logarithmic(prev, next, pool, &single_use) {
-                out.extend(fused);
+                fused.push_to(&mut out);
                 instr_idx += 2;
+                changed = true;
                 continue;
             }
             if let Some(fused) = try_fuse_idempotent(prev, next, &single_use) {
-                out.extend(fused);
+                fused.push_to(&mut out);
                 instr_idx += 2;
+                changed = true;
                 continue;
             }
             if let Some(fused) = try_fuse_const_chain(prev, next, pool, &single_use) {
-                out.extend(fused);
+                fused.push_to(&mut out);
                 instr_idx += 2;
-                continue;
-            }
-        }
-
-        // Single-instruction transform: `MulConst` with negative value → `NegMulConst` with positive
-        if let Instruction::MulConst {
-            dest,
-            src,
-            const_idx,
-        } = instructions[instr_idx]
-        {
-            let value = pool.get(const_idx);
-            if value.is_sign_negative() && value != 0.0 {
-                let pos_const = pool.get_or_insert(-value);
-                out.push(Instruction::NegMulConst {
-                    dest,
-                    src,
-                    const_idx: pos_const,
-                });
-                instr_idx += 1;
+                changed = true;
                 continue;
             }
         }
@@ -100,32 +96,111 @@ pub(super) fn fuse_instructions(
         instr_idx += 1;
     }
 
-    out
+    // P2: Non-adjacent SinCos fusion
+    let sin_cos_changed = fuse_sin_cos(&mut out, arg_pool);
+
+    (out, changed || sin_cos_changed)
 }
 
-// ─── Negation fusions ────────────────────────────────────────────────────────
+fn fuse_sin_cos(instructions: &mut [Instruction], arg_pool: &[u32]) -> bool {
+    use rustc_hash::FxHashMap;
+    let mut changed = false;
 
-/// Fuses negation patterns:
-/// - `Neg` + `Mul` → `NegMul`
-/// - `Neg` + `MulConst` → `NegMulConst`
-/// - `MulConst(-1)` + `Mul` → `NegMul`
-/// - `Neg` + `Exp` → `ExpNeg`
-/// - `Neg` + `Square` → `Square` (square absorbs sign)
-/// - `Neg` + `Abs` → `Abs` (abs absorbs sign)
-/// - `Neg` + `AddConst` → `ConstSub`
+    let mut sin_map: FxHashMap<u32, (usize, u32)> = FxHashMap::default();
+    let mut cos_map: FxHashMap<u32, (usize, u32)> = FxHashMap::default();
+    let mut pairs: Vec<(usize, usize, u32, u32, u32)> = Vec::new();
+
+    for (idx, instr) in instructions.iter().enumerate() {
+        match *instr {
+            Instruction::Builtin1 {
+                dest,
+                op: FnOp::Sin,
+                arg,
+            } => {
+                if let Some(&(cos_idx, cos_dest)) = cos_map.get(&arg) {
+                    pairs.push((idx, cos_idx, arg, dest, cos_dest));
+                    cos_map.remove(&arg);
+                } else {
+                    sin_map.insert(arg, (idx, dest));
+                }
+            }
+            Instruction::Builtin1 {
+                dest,
+                op: FnOp::Cos,
+                arg,
+            } => {
+                if let Some(&(sin_idx, sin_dest)) = sin_map.get(&arg) {
+                    pairs.push((sin_idx, idx, arg, sin_dest, dest));
+                    sin_map.remove(&arg);
+                } else {
+                    cos_map.insert(arg, (idx, dest));
+                }
+            }
+            _ => {
+                instr.for_each_write(|dest| {
+                    sin_map.remove(&dest);
+                    cos_map.remove(&dest);
+                });
+            }
+        }
+    }
+
+    for (sin_idx, cos_idx, arg, sin_dest, cos_dest) in pairs {
+        let later_idx = sin_idx.max(cos_idx);
+        let earlier_idx = sin_idx.min(cos_idx);
+        let earlier_dest = instructions[earlier_idx].dest_reg();
+
+        let mut conflict = false;
+        for instr in &instructions[earlier_idx + 1..later_idx] {
+            instr.for_each_write(|d| {
+                if d == earlier_dest {
+                    conflict = true;
+                }
+            });
+            instr.for_each_read(|r| {
+                if r == earlier_dest {
+                    conflict = true;
+                }
+            });
+            instr.for_each_pooled_reg(arg_pool, |r| {
+                if r == earlier_dest {
+                    conflict = true;
+                }
+            });
+            if conflict {
+                break;
+            }
+        }
+
+        if conflict {
+            continue;
+        }
+
+        instructions[later_idx] = Instruction::SinCos {
+            sin_dest,
+            cos_dest,
+            arg,
+        };
+        instructions[earlier_idx] = Instruction::Copy {
+            dest: earlier_dest,
+            src: earlier_dest,
+        };
+        changed = true;
+    }
+    changed
+}
+
 #[allow(
-    clippy::too_many_lines,
     clippy::float_cmp,
-    reason = "Large match for negation patterns; exact float comparison is intentional for -1.0"
+    reason = "Exact comparison is intended for algebraic identity matching of constants"
 )]
 fn try_fuse_negation(
     prev: &Instruction,
     next: &Instruction,
-    pool: &ConstantPool<'_>,
+    _pool: &ConstantPool<'_>,
     single_use: &impl Fn(&u32) -> bool,
-) -> Option<Vec<Instruction>> {
+) -> Option<FuseResult> {
     match (prev, next) {
-        // Neg{t, s}, Mul{d, t, b} → NegMul{d, s, b}
         (
             Instruction::Neg {
                 dest: neg_dest,
@@ -138,65 +213,19 @@ fn try_fuse_negation(
             },
         ) if single_use(neg_dest) => {
             if mul_a == neg_dest {
-                return Some(vec![Instruction::NegMul {
+                return Some(FuseResult::One(Instruction::NegMul {
                     dest: *mul_dest,
                     a: *neg_src,
                     b: *mul_b,
-                }]);
+                }));
             } else if mul_b == neg_dest {
-                return Some(vec![Instruction::NegMul {
+                return Some(FuseResult::One(Instruction::NegMul {
                     dest: *mul_dest,
                     a: *neg_src,
                     b: *mul_a,
-                }]);
+                }));
             }
         }
-        // Neg{t, s}, MulConst{d, t, c} → NegMulConst{d, s, c}
-        (
-            Instruction::Neg {
-                dest: neg_dest,
-                src: neg_src,
-            },
-            Instruction::MulConst {
-                dest: mul_dest,
-                src: mul_src,
-                const_idx: mul_c,
-            },
-        ) if mul_src == neg_dest && single_use(neg_dest) => {
-            return Some(vec![Instruction::NegMulConst {
-                dest: *mul_dest,
-                src: *neg_src,
-                const_idx: *mul_c,
-            }]);
-        }
-        // MulConst{t, s, -1.0}, Mul{d, t, b} → NegMul{d, s, b}
-        (
-            Instruction::MulConst {
-                dest: mc_dest,
-                src: mc_src,
-                const_idx: mc_c,
-            },
-            Instruction::Mul {
-                dest: mul_dest,
-                a: mul_a,
-                b: mul_b,
-            },
-        ) if *mc_dest != *mc_src && single_use(mc_dest) && pool.get(*mc_c) == -1.0 => {
-            if mul_a == mc_dest {
-                return Some(vec![Instruction::NegMul {
-                    dest: *mul_dest,
-                    a: *mc_src,
-                    b: *mul_b,
-                }]);
-            } else if mul_b == mc_dest {
-                return Some(vec![Instruction::NegMul {
-                    dest: *mul_dest,
-                    a: *mc_src,
-                    b: *mul_a,
-                }]);
-            }
-        }
-        // Neg{t, s}, Exp{d, t} → ExpNeg{d, s}
         (
             Instruction::Neg {
                 dest: neg_dest,
@@ -208,13 +237,12 @@ fn try_fuse_negation(
                 arg: exp_arg,
             },
         ) if exp_arg == neg_dest && single_use(neg_dest) => {
-            return Some(vec![Instruction::Builtin1 {
+            return Some(FuseResult::One(Instruction::Builtin1 {
                 dest: *exp_dest,
                 op: FnOp::ExpNeg,
                 arg: *neg_src,
-            }]);
+            }));
         }
-        // Neg{t, s}, Square{d, t} → Square{d, s}
         (
             Instruction::Neg {
                 dest: tmp_dest,
@@ -225,12 +253,11 @@ fn try_fuse_negation(
                 src: tmp_src,
             },
         ) if tmp_src == tmp_dest && single_use(tmp_dest) => {
-            return Some(vec![Instruction::Square {
+            return Some(FuseResult::One(Instruction::Square {
                 dest: *dest_reg,
                 src: *src_reg,
-            }]);
+            }));
         }
-        // Neg{t, s}, Abs{d, t} → Abs{d, s}
         (
             Instruction::Neg {
                 dest: tmp_dest,
@@ -242,326 +269,216 @@ fn try_fuse_negation(
                 arg: tmp_arg,
             },
         ) if tmp_arg == tmp_dest && single_use(tmp_dest) => {
-            return Some(vec![Instruction::Builtin1 {
+            return Some(FuseResult::One(Instruction::Builtin1 {
                 dest: *dest_reg,
                 op: FnOp::Abs,
                 arg: *src_reg,
-            }]);
+            }));
         }
-        // Neg{t, s}, AddConst{d, t, c} → ConstSub{d, s, c}
-        (
-            Instruction::Neg {
-                dest: tmp_dest,
-                src: src_reg,
-            },
-            Instruction::AddConst {
-                dest: dest_reg,
-                src: tmp_src,
-                const_idx: const_idx_val,
-            },
-        ) if *tmp_src == *tmp_dest && single_use(tmp_dest) => {
-            return Some(vec![Instruction::ConstSub {
-                dest: *dest_reg,
-                src: *src_reg,
-                const_idx: *const_idx_val,
-            }]);
-        }
+        // Mul { a: x, b: -1.0 } -> Neg(x)
         _ => {}
     }
     None
 }
 
-// ─── LoadConst fusions ───────────────────────────────────────────────────────
-
-/// Fuses `LoadConst` patterns into *Const instruction variants:
-/// - `LoadConst` + `Add` → `AddConst`
-/// - `LoadConst` + `Mul` → `MulConst`
-/// - `LoadConst` + `Sub` → `SubConst` or `ConstSub`
-/// - `LoadConst` + `Div` → `DivConst` or `ConstDiv`
-/// - `LoadConst` + `MulAdd` → `MulAddConst`
-/// - `LoadConst` + `MulSub` → `MulSubConst`
-/// - `LoadConst` + `NegMulAdd` → `NegMulAddConst`
 #[allow(
     clippy::too_many_lines,
-    reason = "Large match for LoadConst fusion patterns"
+    reason = "Function handles extensive pattern matching for peephole optimization fusions"
 )]
-fn try_fuse_load_const(
-    prev: &Instruction,
-    next: &Instruction,
-    single_use: &impl Fn(&u32) -> bool,
-) -> Option<Vec<Instruction>> {
-    let Instruction::LoadConst {
-        dest: ld_dest,
-        const_idx: ld_c,
-    } = prev
-    else {
-        return None;
-    };
-    if !single_use(ld_dest) {
-        return None;
-    }
-
-    match next {
-        Instruction::Add {
-            dest: add_dest,
-            a: add_a,
-            b: add_b,
-        } => {
-            if add_a == ld_dest {
-                return Some(vec![Instruction::AddConst {
-                    dest: *add_dest,
-                    src: *add_b,
-                    const_idx: *ld_c,
-                }]);
-            } else if add_b == ld_dest {
-                return Some(vec![Instruction::AddConst {
-                    dest: *add_dest,
-                    src: *add_a,
-                    const_idx: *ld_c,
-                }]);
-            }
-        }
-        Instruction::Mul {
-            dest: mul_dest,
-            a: mul_a,
-            b: mul_b,
-        } => {
-            if mul_a == ld_dest {
-                return Some(vec![Instruction::MulConst {
-                    dest: *mul_dest,
-                    src: *mul_b,
-                    const_idx: *ld_c,
-                }]);
-            } else if mul_b == ld_dest {
-                return Some(vec![Instruction::MulConst {
-                    dest: *mul_dest,
-                    src: *mul_a,
-                    const_idx: *ld_c,
-                }]);
-            }
-        }
-        Instruction::Sub {
-            dest: sub_dest,
-            a: sub_a,
-            b: sub_b,
-        } => {
-            if *sub_b == *ld_dest {
-                return Some(vec![Instruction::SubConst {
-                    dest: *sub_dest,
-                    src: *sub_a,
-                    const_idx: *ld_c,
-                }]);
-            } else if *sub_a == *ld_dest {
-                return Some(vec![Instruction::ConstSub {
-                    dest: *sub_dest,
-                    src: *sub_b,
-                    const_idx: *ld_c,
-                }]);
-            }
-        }
-        Instruction::Div {
-            dest: div_dest,
-            num: div_num,
-            den: div_den,
-        } => {
-            if *div_den == *ld_dest {
-                return Some(vec![Instruction::DivConst {
-                    dest: *div_dest,
-                    src: *div_num,
-                    const_idx: *ld_c,
-                }]);
-            } else if *div_num == *ld_dest {
-                return Some(vec![Instruction::ConstDiv {
-                    dest: *div_dest,
-                    src: *div_den,
-                    const_idx: *ld_c,
-                }]);
-            }
-        }
-        Instruction::MulAdd {
-            dest: add_dest,
-            a: add_a,
-            b: add_b,
-            c: add_c,
-        } if *add_c == *ld_dest => {
-            return Some(vec![Instruction::MulAddConst {
-                dest: *add_dest,
-                a: *add_a,
-                b: *add_b,
-                const_idx: *ld_c,
-            }]);
-        }
-        Instruction::MulSub {
-            dest: sub_dest,
-            a: sub_a,
-            b: sub_b,
-            c: sub_c,
-        } if *sub_c == *ld_dest => {
-            return Some(vec![Instruction::MulSubConst {
-                dest: *sub_dest,
-                a: *sub_a,
-                b: *sub_b,
-                const_idx: *ld_c,
-            }]);
-        }
-        Instruction::NegMulAdd {
-            dest: add_dest,
-            a: add_a,
-            b: add_b,
-            c: add_c,
-        } if *add_c == *ld_dest => {
-            return Some(vec![Instruction::NegMulAddConst {
-                dest: *add_dest,
-                a: *add_a,
-                b: *add_b,
-                const_idx: *ld_c,
-            }]);
-        }
-        _ => {}
-    }
-    None
-}
-
-// ─── Mul+Add/Sub fusions (FMA) ──────────────────────────────────────────────
-
-/// Fuses `Mul` + add/sub into FMA patterns:
-/// - `Mul` + `Add` → `MulAdd`
-/// - `Mul` + `AddConst` → `MulAddConst`
-/// - `Mul` + `Sub(mul_result, x)` → `MulSub`
-/// - `Mul` + `SubConst` → `MulSubConst`
-/// - `Mul` + `Sub(x, mul_result)` → `NegMulAdd`
-/// - `Mul` + `ConstSub` → `NegMulAddConst`
 fn try_fuse_mul_add(
     prev: &Instruction,
     next: &Instruction,
     single_use: &impl Fn(&u32) -> bool,
-) -> Option<Vec<Instruction>> {
-    let Instruction::Mul {
-        dest: mul_dest,
-        a: mul_a,
-        b: mul_b,
-    } = prev
-    else {
-        return None;
+) -> Option<FuseResult> {
+    let (mul_dest, mul_a, mul_b, is_neg) = match prev {
+        Instruction::Mul { dest, a, b } => (*dest, *a, *b, false),
+        Instruction::NegMul { dest, a, b } => (*dest, *a, *b, true),
+        _ => return None,
     };
-    if !single_use(mul_dest) {
+
+    if !single_use(&mul_dest) {
         return None;
     }
 
     match next {
-        // Mul{t,a,b}, Add{d, t, c} → MulAdd{d, a, b, c}
         Instruction::Add {
             dest: add_dest,
             a: add_a,
             b: add_b,
         } => {
-            if add_a == mul_dest {
-                return Some(vec![Instruction::MulAdd {
-                    dest: *add_dest,
-                    a: *mul_a,
-                    b: *mul_b,
-                    c: *add_b,
-                }]);
-            } else if add_b == mul_dest {
-                return Some(vec![Instruction::MulAdd {
-                    dest: *add_dest,
-                    a: *mul_a,
-                    b: *mul_b,
-                    c: *add_a,
-                }]);
+            if *add_a == mul_dest {
+                return Some(FuseResult::One(if is_neg {
+                    Instruction::NegMulAdd {
+                        dest: *add_dest,
+                        a: mul_a,
+                        b: mul_b,
+                        c: *add_b,
+                    }
+                } else {
+                    Instruction::MulAdd {
+                        dest: *add_dest,
+                        a: mul_a,
+                        b: mul_b,
+                        c: *add_b,
+                    }
+                }));
+            } else if *add_b == mul_dest {
+                return Some(FuseResult::One(if is_neg {
+                    Instruction::NegMulAdd {
+                        dest: *add_dest,
+                        a: mul_a,
+                        b: mul_b,
+                        c: *add_a,
+                    }
+                } else {
+                    Instruction::MulAdd {
+                        dest: *add_dest,
+                        a: mul_a,
+                        b: mul_b,
+                        c: *add_a,
+                    }
+                }));
             }
         }
-        // Mul{t,a,b}, AddConst{d, t, c} → MulAddConst{d, a, b, c}
-        Instruction::AddConst {
+        Instruction::Sub {
+            dest: sub_dest,
+            a: sub_a,
+            b: sub_b,
+        } if *sub_a == mul_dest => {
+            return Some(FuseResult::One(if is_neg {
+                Instruction::NegMulSub {
+                    dest: *sub_dest,
+                    a: mul_a,
+                    b: mul_b,
+                    c: *sub_b,
+                }
+            } else {
+                Instruction::MulSub {
+                    dest: *sub_dest,
+                    a: mul_a,
+                    b: mul_b,
+                    c: *sub_b,
+                }
+            }));
+        }
+        Instruction::Sub {
+            dest: sub_dest,
+            a: sub_a,
+            b: sub_b,
+        } if *sub_b == mul_dest => {
+            return Some(FuseResult::One(if is_neg {
+                Instruction::MulAdd {
+                    dest: *sub_dest,
+                    a: mul_a,
+                    b: mul_b,
+                    c: *sub_a,
+                }
+            } else {
+                Instruction::NegMulAdd {
+                    dest: *sub_dest,
+                    a: mul_a,
+                    b: mul_b,
+                    c: *sub_a,
+                }
+            }));
+        }
+        Instruction::Add3 {
             dest: add_dest,
-            src: add_src,
-            const_idx: add_c,
-        } if add_src == mul_dest => {
-            return Some(vec![Instruction::MulAddConst {
-                dest: *add_dest,
-                a: *mul_a,
-                b: *mul_b,
-                const_idx: *add_c,
-            }]);
+            a,
+            b,
+            c,
+        } => {
+            let (other1, other2) = if *a == mul_dest {
+                (*b, *c)
+            } else if *b == mul_dest {
+                (*a, *c)
+            } else if *c == mul_dest {
+                (*a, *b)
+            } else {
+                return None;
+            };
+            return Some(FuseResult::Two(
+                if is_neg {
+                    Instruction::NegMulAdd {
+                        dest: mul_dest,
+                        a: mul_a,
+                        b: mul_b,
+                        c: other1,
+                    }
+                } else {
+                    Instruction::MulAdd {
+                        dest: mul_dest,
+                        a: mul_a,
+                        b: mul_b,
+                        c: other1,
+                    }
+                },
+                Instruction::Add {
+                    dest: *add_dest,
+                    a: mul_dest,
+                    b: other2,
+                },
+            ));
         }
-        // Mul{t,a,b}, Sub{d, t, c} → MulSub{d, a, b, c}
-        Instruction::Sub {
-            dest: sub_dest,
-            a: sub_a,
-            b: sub_b,
-        } if sub_a == mul_dest => {
-            return Some(vec![Instruction::MulSub {
-                dest: *sub_dest,
-                a: *mul_a,
-                b: *mul_b,
-                c: *sub_b,
-            }]);
-        }
-        // Mul{t,a,b}, SubConst{d, t, c} → MulSubConst{d, a, b, c}
-        Instruction::SubConst {
-            dest: sub_dest,
-            src: sub_src,
-            const_idx: sub_c,
-        } if sub_src == mul_dest => {
-            return Some(vec![Instruction::MulSubConst {
-                dest: *sub_dest,
-                a: *mul_a,
-                b: *mul_b,
-                const_idx: *sub_c,
-            }]);
-        }
-        // Mul{t,a,b}, Sub{d, c, t} → NegMulAdd{d, a, b, c}
-        Instruction::Sub {
-            dest: sub_dest,
-            a: sub_a,
-            b: sub_b,
-        } if sub_b == mul_dest => {
-            return Some(vec![Instruction::NegMulAdd {
-                dest: *sub_dest,
-                a: *mul_a,
-                b: *mul_b,
-                c: *sub_a,
-            }]);
-        }
-        // Mul{t,a,b}, ConstSub{d, t, c} → NegMulAddConst{d, a, b, c}
-        Instruction::ConstSub {
-            dest: sub_dest,
-            src: sub_src,
-            const_idx: sub_c,
-        } if sub_src == mul_dest => {
-            return Some(vec![Instruction::NegMulAddConst {
-                dest: *sub_dest,
-                a: *mul_a,
-                b: *mul_b,
-                const_idx: *sub_c,
-            }]);
+        Instruction::Add4 {
+            dest: add_dest,
+            a,
+            b,
+            c,
+            d,
+        } => {
+            let (other1, other2, other3) = if *a == mul_dest {
+                (*b, *c, *d)
+            } else if *b == mul_dest {
+                (*a, *c, *d)
+            } else if *c == mul_dest {
+                (*a, *b, *d)
+            } else if *d == mul_dest {
+                (*a, *b, *c)
+            } else {
+                return None;
+            };
+            return Some(FuseResult::Two(
+                if is_neg {
+                    Instruction::NegMulAdd {
+                        dest: mul_dest,
+                        a: mul_a,
+                        b: mul_b,
+                        c: other1,
+                    }
+                } else {
+                    Instruction::MulAdd {
+                        dest: mul_dest,
+                        a: mul_a,
+                        b: mul_b,
+                        c: other1,
+                    }
+                },
+                Instruction::Add3 {
+                    dest: *add_dest,
+                    a: mul_dest,
+                    b: other2,
+                    c: other3,
+                },
+            ));
         }
         _ => {}
     }
     None
 }
 
-// ─── Power fusions ───────────────────────────────────────────────────────────
-
-/// Fuses power-related patterns:
-/// - `Square` + `Square` → `Pow4`
-/// - `Square` + `Mul(sq, base)` → `Cube`
-/// - `Cube` + `Mul(cu, base)` → `Pow4`
-/// - `Exp` + `Square` → `MulConst(2)` + `Exp`
-/// - `Square` + `Ln` → `Abs` + `Ln` + `MulConst(2)`
-/// - `Pow4` + `Recip` → `Square` + `InvSquare`
 #[allow(
     clippy::too_many_lines,
-    reason = "Large match for power fusion patterns"
+    clippy::float_cmp,
+    reason = "Function handles extensive pattern matching for peephole optimization fusions"
 )]
 fn try_fuse_power(
     prev: &Instruction,
     next: &Instruction,
     pool: &mut ConstantPool<'_>,
     single_use: &impl Fn(&u32) -> bool,
-) -> Option<Vec<Instruction>> {
+) -> Option<FuseResult> {
     match (prev, next) {
-        // Square{t, s}, Square{d, t} → Pow4{d, s}
         (
             Instruction::Square {
                 dest: sq1_dest,
@@ -572,12 +489,11 @@ fn try_fuse_power(
                 src: sq2_src,
             },
         ) if sq2_src == sq1_dest && single_use(sq1_dest) => {
-            return Some(vec![Instruction::Pow4 {
+            return Some(FuseResult::One(Instruction::Pow4 {
                 dest: *sq2_dest,
                 src: *sq1_src,
-            }]);
+            }));
         }
-        // Square{t, s}, Mul{d, t, s} or Mul{d, s, t} → Cube{d, s}
         (
             Instruction::Square {
                 dest: sq_dest,
@@ -592,12 +508,11 @@ fn try_fuse_power(
             && ((*mul_a == *sq_dest && *mul_b == *sq_src)
                 || (*mul_a == *sq_src && *mul_b == *sq_dest)) =>
         {
-            return Some(vec![Instruction::Cube {
+            return Some(FuseResult::One(Instruction::Cube {
                 dest: *mul_dest,
                 src: *sq_src,
-            }]);
+            }));
         }
-        // Cube{t, s}, Mul{d, t, s} or Mul{d, s, t} → Pow4{d, s}
         (
             Instruction::Cube {
                 dest: cube_dest,
@@ -612,12 +527,11 @@ fn try_fuse_power(
             && ((*mul_a == *cube_dest && *mul_b == *cube_src)
                 || (*mul_a == *cube_src && *mul_b == *cube_dest)) =>
         {
-            return Some(vec![Instruction::Pow4 {
+            return Some(FuseResult::One(Instruction::Pow4 {
                 dest: *mul_dest,
                 src: *cube_src,
-            }]);
+            }));
         }
-        // Exp{t, s}, Square{d, t} → MulConst{t, s, 2.0}, Exp{d, t}
         (
             Instruction::Builtin1 {
                 dest: exp_dest,
@@ -628,53 +542,39 @@ fn try_fuse_power(
                 dest: sq_dest,
                 src: sq_src,
             },
-        ) if sq_src == exp_dest && single_use(exp_dest) => {
-            let c_idx = pool.get_or_insert(2.0);
-            return Some(vec![
-                Instruction::MulConst {
+        ) if *sq_src == *exp_dest && single_use(exp_dest) => {
+            // Exp(x)^2 = Exp(2x)
+            let c_2 = pool.get_or_insert(2.0);
+            return Some(FuseResult::Two(
+                Instruction::Mul {
                     dest: *exp_dest,
-                    src: *exp_arg,
-                    const_idx: c_idx,
+                    a: *exp_arg,
+                    b: c_2,
                 },
                 Instruction::Builtin1 {
                     dest: *sq_dest,
                     op: FnOp::Exp,
                     arg: *exp_dest,
                 },
-            ]);
+            ));
         }
-        // Square{t, s}, Builtin1{d, Ln, t} → Abs{t, s}, Ln{t, t}, MulConst{d, t, 2.0}
+        // Square { t, s }, Builtin1 { d, Exp, t } -> ExpSqr { d, s }
         (
             Instruction::Square {
-                dest: sq_dest,
-                src: sq_src,
+                dest: tmp_dest,
+                src: src_reg,
             },
             Instruction::Builtin1 {
-                dest: ln_dest,
-                op: FnOp::Ln,
-                arg: ln_arg,
+                dest: dest_reg,
+                op: FnOp::Exp,
+                arg: tmp_arg,
             },
-        ) if ln_arg == sq_dest && single_use(sq_dest) => {
-            let c_idx = pool.get_or_insert(2.0);
-            return Some(vec![
-                Instruction::Builtin1 {
-                    dest: *sq_dest,
-                    op: FnOp::Abs,
-                    arg: *sq_src,
-                },
-                Instruction::Builtin1 {
-                    dest: *sq_dest,
-                    op: FnOp::Ln,
-                    arg: *sq_dest,
-                },
-                Instruction::MulConst {
-                    dest: *ln_dest,
-                    src: *sq_dest,
-                    const_idx: c_idx,
-                },
-            ]);
+        ) if *tmp_arg == *tmp_dest && single_use(tmp_dest) => {
+            return Some(FuseResult::One(Instruction::ExpSqr {
+                dest: *dest_reg,
+                src: *src_reg,
+            }));
         }
-        // Pow4{t, s}, Recip{d, t} → Square{t, s}, InvSquare{d, t}
         (
             Instruction::Pow4 {
                 dest: p4_dest,
@@ -685,7 +585,7 @@ fn try_fuse_power(
                 src: recip_src,
             },
         ) if recip_src == p4_dest && single_use(p4_dest) => {
-            return Some(vec![
+            return Some(FuseResult::Two(
                 Instruction::Square {
                     dest: *p4_dest,
                     src: *p4_src,
@@ -694,27 +594,18 @@ fn try_fuse_power(
                     dest: *recip_dest,
                     src: *p4_dest,
                 },
-            ]);
+            ));
         }
         _ => {}
     }
     None
 }
 
-// ─── Inverse fusions ─────────────────────────────────────────────────────────
-
-/// Fuses X + `Recip` → `InvX` patterns:
-/// - `Sqrt` + `Recip` → `InvSqrt`
-/// - `Square` + `Recip` → `InvSquare`
-/// - `Cube` + `Recip` → `InvCube`
-/// - `Pow3_2` + `Recip` → `InvPow3_2`
-/// - `Exp` + `Recip` → `ExpNeg`
-/// - `Expm1` + `Recip` → `RecipExpm1`
 fn try_fuse_inverse(
     prev: &Instruction,
     next: &Instruction,
     single_use: &impl Fn(&u32) -> bool,
-) -> Option<Vec<Instruction>> {
+) -> Option<FuseResult> {
     match (prev, next) {
         (
             Instruction::Builtin1 {
@@ -727,10 +618,10 @@ fn try_fuse_inverse(
                 src: recip_src,
             },
         ) if recip_src == sqrt_dest && single_use(sqrt_dest) => {
-            return Some(vec![Instruction::InvSqrt {
+            return Some(FuseResult::One(Instruction::InvSqrt {
                 dest: *recip_dest,
                 src: *sqrt_src,
-            }]);
+            }));
         }
         (
             Instruction::Square {
@@ -742,10 +633,10 @@ fn try_fuse_inverse(
                 src: recip_src,
             },
         ) if recip_src == sq_dest && single_use(sq_dest) => {
-            return Some(vec![Instruction::InvSquare {
+            return Some(FuseResult::One(Instruction::InvSquare {
                 dest: *recip_dest,
                 src: *sq_src,
-            }]);
+            }));
         }
         (
             Instruction::Cube {
@@ -757,10 +648,10 @@ fn try_fuse_inverse(
                 src: recip_src,
             },
         ) if recip_src == cube_dest && single_use(cube_dest) => {
-            return Some(vec![Instruction::InvCube {
+            return Some(FuseResult::One(Instruction::InvCube {
                 dest: *recip_dest,
                 src: *cube_src,
-            }]);
+            }));
         }
         (
             Instruction::Pow3_2 {
@@ -772,10 +663,10 @@ fn try_fuse_inverse(
                 src: recip_src,
             },
         ) if recip_src == p32_dest && single_use(p32_dest) => {
-            return Some(vec![Instruction::InvPow3_2 {
+            return Some(FuseResult::One(Instruction::InvPow3_2 {
                 dest: *recip_dest,
                 src: *p32_src,
-            }]);
+            }));
         }
         (
             Instruction::Builtin1 {
@@ -788,11 +679,11 @@ fn try_fuse_inverse(
                 src: recip_src,
             },
         ) if recip_src == exp_dest && single_use(exp_dest) => {
-            return Some(vec![Instruction::Builtin1 {
+            return Some(FuseResult::One(Instruction::Builtin1 {
                 dest: *recip_dest,
                 op: FnOp::ExpNeg,
                 arg: *exp_arg,
-            }]);
+            }));
         }
         (
             Instruction::Builtin1 {
@@ -805,149 +696,201 @@ fn try_fuse_inverse(
                 src: recip_src,
             },
         ) if recip_src == expm1_dest && single_use(expm1_dest) => {
-            return Some(vec![Instruction::RecipExpm1 {
+            return Some(FuseResult::One(Instruction::RecipExpm1 {
                 dest: *recip_dest,
                 src: *expm1_arg,
-            }]);
+            }));
         }
         _ => {}
     }
     None
 }
 
-// ─── Logarithmic / Exponential algebraic fusions ─────────────────────────────
-
-/// Fuses log/exp algebraic identities:
 #[allow(
+    clippy::too_many_lines,
     clippy::float_cmp,
-    reason = "Exact comparison against 1.0 is intentional for Expm1/Log1p identity matching"
+    reason = "Function handles extensive pattern matching for peephole optimization fusions"
 )]
-/// - `Exp` + `SubConst(1)` → `Expm1`
-/// - `AddConst(1)` + `Ln` → `Log1p`
-/// - `Recip` + `Ln` → `Ln` + `Neg`
-/// - `Sqrt` + `Ln` → `Ln` + `MulConst(0.5)`
 fn try_fuse_logarithmic(
     prev: &Instruction,
     next: &Instruction,
     pool: &mut ConstantPool<'_>,
     single_use: &impl Fn(&u32) -> bool,
-) -> Option<Vec<Instruction>> {
+) -> Option<FuseResult> {
     match (prev, next) {
-        // Exp{t, s}, SubConst{d, t, c=1.0} → Expm1{d, s}
+        // Ln(Exp(x)) -> x
+        (
+            Instruction::Builtin1 {
+                dest: tmp_dest,
+                op: FnOp::Exp,
+                arg: src,
+            },
+            Instruction::Builtin1 {
+                dest: final_dest,
+                op: FnOp::Ln,
+                arg: tmp_arg,
+            },
+        ) if *tmp_arg == *tmp_dest && single_use(tmp_dest) => {
+            Some(FuseResult::One(Instruction::Copy {
+                dest: *final_dest,
+                src: *src,
+            }))
+        }
+        // Ln(Pow(x, n)) -> n * Ln(x)
+        (
+            Instruction::Pow {
+                dest: tmp_dest,
+                base: src_x,
+                exp: src_n,
+            },
+            Instruction::Builtin1 {
+                dest: final_dest,
+                op: FnOp::Ln,
+                arg: tmp_arg,
+            },
+        ) if *tmp_arg == *tmp_dest && single_use(tmp_dest) && pool.is_constant(*src_n) => {
+            let n = pool.get(*src_n);
+            let ln_x = Instruction::Builtin1 {
+                dest: *final_dest,
+                op: FnOp::Ln,
+                arg: *src_x,
+            };
+            let c_n = pool.get_or_insert(n);
+            Some(FuseResult::Two(
+                ln_x,
+                Instruction::Mul {
+                    dest: *final_dest,
+                    a: *final_dest,
+                    b: c_n,
+                },
+            ))
+        }
+        (
+            Instruction::Builtin1 {
+                dest: tmp_dest,
+                op: FnOp::Sqrt,
+                arg: src_reg,
+            },
+            Instruction::Builtin1 {
+                dest: dest_reg,
+                op: FnOp::Ln,
+                arg: tmp_arg,
+            },
+        ) if *tmp_arg == *tmp_dest && single_use(tmp_dest) => {
+            // Ln(Sqrt(x)) = 0.5 * Ln(x)
+            let ln_x = Instruction::Builtin1 {
+                dest: *dest_reg,
+                op: FnOp::Ln,
+                arg: *src_reg,
+            };
+            let c_0_5 = pool.get_or_insert(0.5);
+            Some(FuseResult::Two(
+                ln_x,
+                Instruction::Mul {
+                    dest: *dest_reg,
+                    a: *dest_reg,
+                    b: c_0_5,
+                },
+            ))
+        }
+        // Ln(Recip(x)) -> -Ln(x)
+        (
+            Instruction::Recip {
+                dest: tmp_dest,
+                src: src_reg,
+            },
+            Instruction::Builtin1 {
+                dest: dest_reg,
+                op: FnOp::Ln,
+                arg: tmp_arg,
+            },
+        ) if *tmp_arg == *tmp_dest && single_use(tmp_dest) => Some(FuseResult::Two(
+            Instruction::Builtin1 {
+                dest: *tmp_dest,
+                op: FnOp::Ln,
+                arg: *src_reg,
+            },
+            Instruction::Neg {
+                dest: *dest_reg,
+                src: *tmp_dest,
+            },
+        )),
+        // Exp(x) - 1 -> Expm1(x)
         (
             Instruction::Builtin1 {
                 dest: exp_dest,
                 op: FnOp::Exp,
                 arg: exp_arg,
             },
-            Instruction::SubConst {
-                dest: sub_dest,
-                src: sub_src,
-                const_idx: sub_c,
+            Instruction::Sub {
+                dest: final_dest,
+                a: tmp_arg,
+                b: c_reg,
             },
-        ) if sub_src == exp_dest && single_use(exp_dest) && pool.get(*sub_c) == 1.0 => {
-            return Some(vec![Instruction::Builtin1 {
-                dest: *sub_dest,
+        ) if *tmp_arg == *exp_dest
+            && single_use(exp_dest)
+            && pool.is_constant(*c_reg)
+            && pool.get(*c_reg) == 1.0 =>
+        {
+            Some(FuseResult::One(Instruction::Builtin1 {
+                dest: *final_dest,
                 op: FnOp::Expm1,
                 arg: *exp_arg,
-            }]);
+            }))
         }
-        // AddConst{t, s, c=1.0}, Ln{d, t} → Log1p{d, s}
+        // 1 + x -> Add(x, 1) handled by canonicalization, then Add(x, 1) + Ln -> Log1p
         (
-            Instruction::AddConst {
-                dest: add_dest,
-                src: add_src,
-                const_idx: add_c,
+            Instruction::Add {
+                dest: tmp_dest,
+                a: src_reg,
+                b: c_reg,
             },
             Instruction::Builtin1 {
-                dest: ln_dest,
+                dest: final_dest,
                 op: FnOp::Ln,
-                arg: ln_arg,
+                arg: tmp_arg,
             },
-        ) if ln_arg == add_dest && single_use(add_dest) && pool.get(*add_c) == 1.0 => {
-            return Some(vec![Instruction::Builtin1 {
-                dest: *ln_dest,
+        ) if *tmp_arg == *tmp_dest
+            && single_use(tmp_dest)
+            && pool.is_constant(*c_reg)
+            && pool.get(*c_reg) == 1.0 =>
+        {
+            Some(FuseResult::One(Instruction::Builtin1 {
+                dest: *final_dest,
                 op: FnOp::Log1p,
-                arg: *add_src,
-            }]);
+                arg: *src_reg,
+            }))
         }
-        // Recip{t, s}, Builtin1{d, Ln, t} → Ln{t, s}, Neg{d, t}
-        (
-            Instruction::Recip {
-                dest: tmp_dest,
-                src: src_reg,
-            },
-            Instruction::Builtin1 {
-                dest: dest_reg,
-                op: FnOp::Ln,
-                arg: tmp_arg,
-            },
-        ) if tmp_arg == tmp_dest && single_use(tmp_dest) => {
-            return Some(vec![
-                Instruction::Builtin1 {
-                    dest: *tmp_dest,
-                    op: FnOp::Ln,
-                    arg: *src_reg,
-                },
-                Instruction::Neg {
-                    dest: *dest_reg,
-                    src: *tmp_dest,
-                },
-            ]);
-        }
-        // Sqrt{t, s}, Builtin1{d, Ln, t} → Ln{t, s}, MulConst{d, t, 0.5}
-        (
-            Instruction::Builtin1 {
-                dest: tmp_dest,
-                op: FnOp::Sqrt,
-                arg: src_reg,
-            },
-            Instruction::Builtin1 {
-                dest: dest_reg,
-                op: FnOp::Ln,
-                arg: tmp_arg,
-            },
-        ) if tmp_arg == tmp_dest && single_use(tmp_dest) => {
-            let c_idx = pool.get_or_insert(0.5);
-            return Some(vec![
-                Instruction::Builtin1 {
-                    dest: *tmp_dest,
-                    op: FnOp::Ln,
-                    arg: *src_reg,
-                },
-                Instruction::MulConst {
-                    dest: *dest_reg,
-                    src: *tmp_dest,
-                    const_idx: c_idx,
-                },
-            ]);
-        }
-        _ => {}
+        _ => None,
     }
-    None
 }
 
-// ─── Idempotent / self-cancelling fusions ────────────────────────────────────
-
-/// Fuses self-cancelling or idempotent pairs:
-/// - `Abs` + `Abs` → `Abs`
-/// - `Neg` + `Neg` → `Copy`
-/// - `Recip` + `Recip` → `Copy`
-/// - `Square` + `Sqrt` → `Abs`
-/// - `Abs` + `Square` → `Square`
-/// - `InvSqrt` + `Recip` → `Sqrt`
-/// - `ExpNeg` + `Recip` → `Exp`
-#[allow(
-    clippy::too_many_lines,
-    reason = "Large match for idempotent/self-cancelling patterns"
-)]
 fn try_fuse_idempotent(
     prev: &Instruction,
     next: &Instruction,
     single_use: &impl Fn(&u32) -> bool,
-) -> Option<Vec<Instruction>> {
+) -> Option<FuseResult> {
+    if let Some(fused) = try_fuse_abs_neg_idempotent(prev, next, single_use) {
+        return Some(fused);
+    }
+    if let Some(fused) = try_fuse_recip_idempotent(prev, next, single_use) {
+        return Some(fused);
+    }
+    if let Some(fused) = try_fuse_power_idempotent(prev, next, single_use) {
+        return Some(fused);
+    }
+    if let Some(fused) = try_fuse_transcendental_idempotent(prev, next, single_use) {
+        return Some(fused);
+    }
+    None
+}
+
+fn try_fuse_abs_neg_idempotent(
+    prev: &Instruction,
+    next: &Instruction,
+    single_use: &impl Fn(&u32) -> bool,
+) -> Option<FuseResult> {
     match (prev, next) {
-        // Abs{t, s}, Abs{d, t} → Abs{d, s}
         (
             Instruction::Builtin1 {
                 dest: tmp_dest,
@@ -960,13 +903,12 @@ fn try_fuse_idempotent(
                 arg: tmp_arg,
             },
         ) if tmp_arg == tmp_dest && single_use(tmp_dest) => {
-            return Some(vec![Instruction::Builtin1 {
+            Some(FuseResult::One(Instruction::Builtin1 {
                 dest: *dest_reg,
                 op: FnOp::Abs,
                 arg: *src_reg,
-            }]);
+            }))
         }
-        // Neg{t, s}, Neg{d, t} → Copy{d, s}
         (
             Instruction::Neg {
                 dest: tmp_dest,
@@ -977,12 +919,21 @@ fn try_fuse_idempotent(
                 src: tmp_src,
             },
         ) if tmp_src == tmp_dest && single_use(tmp_dest) => {
-            return Some(vec![Instruction::Copy {
+            Some(FuseResult::One(Instruction::Copy {
                 dest: *dest_reg,
                 src: *src_reg,
-            }]);
+            }))
         }
-        // Recip{t, s}, Recip{d, t} → Copy{d, s}
+        _ => None,
+    }
+}
+
+fn try_fuse_recip_idempotent(
+    prev: &Instruction,
+    next: &Instruction,
+    single_use: &impl Fn(&u32) -> bool,
+) -> Option<FuseResult> {
+    match (prev, next) {
         (
             Instruction::Recip {
                 dest: tmp_dest,
@@ -993,47 +944,11 @@ fn try_fuse_idempotent(
                 src: tmp_src,
             },
         ) if tmp_src == tmp_dest && single_use(tmp_dest) => {
-            return Some(vec![Instruction::Copy {
+            Some(FuseResult::One(Instruction::Copy {
                 dest: *dest_reg,
                 src: *src_reg,
-            }]);
+            }))
         }
-        // Square{t, s}, Builtin1{d, Sqrt, t} → Abs{d, s}
-        (
-            Instruction::Square {
-                dest: tmp_dest,
-                src: src_reg,
-            },
-            Instruction::Builtin1 {
-                dest: dest_reg,
-                op: FnOp::Sqrt,
-                arg: tmp_arg,
-            },
-        ) if tmp_arg == tmp_dest && single_use(tmp_dest) => {
-            return Some(vec![Instruction::Builtin1 {
-                dest: *dest_reg,
-                op: FnOp::Abs,
-                arg: *src_reg,
-            }]);
-        }
-        // Abs{t, s}, Square{d, t} → Square{d, s}
-        (
-            Instruction::Builtin1 {
-                dest: tmp_dest,
-                op: FnOp::Abs,
-                arg: src_reg,
-            },
-            Instruction::Square {
-                dest: dest_reg,
-                src: tmp_src,
-            },
-        ) if tmp_src == tmp_dest && single_use(tmp_dest) => {
-            return Some(vec![Instruction::Square {
-                dest: *dest_reg,
-                src: *src_reg,
-            }]);
-        }
-        // InvSqrt{t, s}, Recip{d, t} → Sqrt{d, s}
         (
             Instruction::InvSqrt {
                 dest: tmp_dest,
@@ -1044,13 +959,180 @@ fn try_fuse_idempotent(
                 src: tmp_src,
             },
         ) if tmp_src == tmp_dest && single_use(tmp_dest) => {
-            return Some(vec![Instruction::Builtin1 {
+            Some(FuseResult::One(Instruction::Builtin1 {
                 dest: *dest_reg,
                 op: FnOp::Sqrt,
                 arg: *src_reg,
-            }]);
+            }))
         }
-        // ExpNeg{t, s}, Recip{d, t} → Exp{d, s}
+        _ => None,
+    }
+}
+
+fn try_fuse_power_idempotent(
+    prev: &Instruction,
+    next: &Instruction,
+    single_use: &impl Fn(&u32) -> bool,
+) -> Option<FuseResult> {
+    match (prev, next) {
+        (
+            Instruction::Square {
+                dest: tmp_dest,
+                src: src_reg,
+            },
+            Instruction::Builtin1 {
+                dest: dest_reg,
+                op: FnOp::Sqrt,
+                arg: tmp_arg,
+            },
+        ) if tmp_arg == tmp_dest && single_use(tmp_dest) => {
+            Some(FuseResult::One(Instruction::Builtin1 {
+                dest: *dest_reg,
+                op: FnOp::Abs,
+                arg: *src_reg,
+            }))
+        }
+        (
+            Instruction::Builtin1 {
+                dest: tmp_dest,
+                op: FnOp::Abs,
+                arg: src_reg,
+            },
+            Instruction::Square {
+                dest: dest_reg,
+                src: tmp_src,
+            },
+        ) if tmp_src == tmp_dest && single_use(tmp_dest) => {
+            Some(FuseResult::One(Instruction::Square {
+                dest: *dest_reg,
+                src: *src_reg,
+            }))
+        }
+        _ => None,
+    }
+}
+
+#[allow(
+    clippy::too_many_lines,
+    clippy::float_cmp,
+    reason = "Exact comparison is intended for algebraic identity matching of constants"
+)]
+fn try_fuse_const_chain(
+    prev: &Instruction,
+    next: &Instruction,
+    pool: &mut ConstantPool<'_>,
+    single_use: &impl Fn(&u32) -> bool,
+) -> Option<FuseResult> {
+    match (prev, next) {
+        // (x + c1) + c2 -> x + (c1 + c2)
+        (
+            Instruction::Add {
+                dest: t_d,
+                a: prev_a,
+                b: prev_b,
+            },
+            Instruction::Add {
+                dest: f_d,
+                a: n_a,
+                b: n_b,
+            },
+        ) if single_use(t_d) => {
+            // Check if one of the operands in the second Add is the result of the first Add
+            let c2_reg = if *n_a == *t_d {
+                *n_b
+            } else if *n_b == *t_d {
+                *n_a
+            } else {
+                return None;
+            };
+
+            // Ensure the other operand in the second Add is a constant
+            if !pool.is_constant(c2_reg) {
+                return None;
+            }
+
+            // In the first Add, find which one is the source and which one is the constant
+            let (src, c1_reg) = if pool.is_constant(*prev_b) {
+                (*prev_a, *prev_b)
+            } else if pool.is_constant(*prev_a) {
+                (*prev_b, *prev_a)
+            } else {
+                return None;
+            };
+
+            let sum = pool.get(c1_reg) + pool.get(c2_reg);
+            if sum == 0.0 {
+                Some(FuseResult::One(Instruction::Copy { dest: *f_d, src }))
+            } else {
+                let c_sum = pool.get_or_insert(sum);
+                Some(FuseResult::One(Instruction::Add {
+                    dest: *f_d,
+                    a: src,
+                    b: c_sum,
+                }))
+            }
+        }
+        // (x * c1) * c2 -> x * (c1 * c2)
+        (
+            Instruction::Mul {
+                dest: t_d,
+                a: prev_a,
+                b: prev_b,
+            },
+            Instruction::Mul {
+                dest: f_d,
+                a: n_a,
+                b: n_b,
+            },
+        ) if single_use(t_d) => {
+            let (_t_res, c2_reg) = if *n_a == *t_d {
+                (*n_a, *n_b)
+            } else if *n_b == *t_d {
+                (*n_b, *n_a)
+            } else {
+                return None;
+            };
+
+            if !pool.is_constant(c2_reg) {
+                return None;
+            }
+
+            let (src, c1_reg) = if pool.is_constant(*prev_b) {
+                (*prev_a, *prev_b)
+            } else if pool.is_constant(*prev_a) {
+                (*prev_b, *prev_a)
+            } else {
+                return None;
+            };
+
+            let prod = pool.get(c1_reg) * pool.get(c2_reg);
+            if prod == 0.0 {
+                let c_zero = pool.get_or_insert(0.0);
+                Some(FuseResult::One(Instruction::Copy {
+                    dest: *f_d,
+                    src: c_zero,
+                }))
+            } else if prod == 1.0 {
+                Some(FuseResult::One(Instruction::Copy { dest: *f_d, src }))
+            } else {
+                let c_prod = pool.get_or_insert(prod);
+                Some(FuseResult::One(Instruction::Mul {
+                    dest: *f_d,
+                    a: src,
+                    b: c_prod,
+                }))
+            }
+        }
+        _ => None,
+    }
+}
+
+fn try_fuse_transcendental_idempotent(
+    prev: &Instruction,
+    next: &Instruction,
+    single_use: &impl Fn(&u32) -> bool,
+) -> Option<FuseResult> {
+    match (prev, next) {
         (
             Instruction::Builtin1 {
                 dest: tmp_dest,
@@ -1061,73 +1143,13 @@ fn try_fuse_idempotent(
                 dest: dest_reg,
                 src: tmp_src,
             },
-        ) if tmp_src == tmp_dest && single_use(tmp_dest) => {
-            return Some(vec![Instruction::Builtin1 {
+        ) if *tmp_src == *tmp_dest && single_use(tmp_dest) => {
+            Some(FuseResult::One(Instruction::Builtin1 {
                 dest: *dest_reg,
                 op: FnOp::Exp,
                 arg: *src_reg,
-            }]);
+            }))
         }
-        _ => {}
+        _ => None,
     }
-    None
-}
-
-// ─── Constant chain fusions ─────────────────────────────────────────────────
-
-/// Fuses consecutive constant operations:
-/// - `AddConst(c1)` + `AddConst(c2)` → `AddConst(c1 + c2)`
-/// - `MulConst(c1)` + `MulConst(c2)` → `MulConst(c1 * c2)`
-fn try_fuse_const_chain(
-    prev: &Instruction,
-    next: &Instruction,
-    pool: &mut ConstantPool<'_>,
-    single_use: &impl Fn(&u32) -> bool,
-) -> Option<Vec<Instruction>> {
-    match (prev, next) {
-        // AddConst{t, s, c1}, AddConst{d, t, c2} → AddConst{d, s, c1+c2}
-        (
-            Instruction::AddConst {
-                dest: tmp_dest,
-                src: src_reg,
-                const_idx: const_idx1,
-            },
-            Instruction::AddConst {
-                dest: dest_reg,
-                src: tmp_src,
-                const_idx: const_idx2,
-            },
-        ) if tmp_src == tmp_dest && single_use(tmp_dest) => {
-            let val = pool.get(*const_idx1) + pool.get(*const_idx2);
-            let new_idx = pool.get_or_insert(val);
-            return Some(vec![Instruction::AddConst {
-                dest: *dest_reg,
-                src: *src_reg,
-                const_idx: new_idx,
-            }]);
-        }
-        // MulConst{t, s, c1}, MulConst{d, t, c2} → MulConst{d, s, c1*c2}
-        (
-            Instruction::MulConst {
-                dest: tmp_dest,
-                src: src_reg,
-                const_idx: const_idx1,
-            },
-            Instruction::MulConst {
-                dest: dest_reg,
-                src: tmp_src,
-                const_idx: const_idx2,
-            },
-        ) if tmp_src == tmp_dest && single_use(tmp_dest) => {
-            let val = pool.get(*const_idx1) * pool.get(*const_idx2);
-            let new_idx = pool.get_or_insert(val);
-            return Some(vec![Instruction::MulConst {
-                dest: *dest_reg,
-                src: *src_reg,
-                const_idx: new_idx,
-            }]);
-        }
-        _ => {}
-    }
-    None
 }

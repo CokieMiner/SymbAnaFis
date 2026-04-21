@@ -8,4 +8,4 @@ pub mod pow;
 pub mod product;
 pub mod sum;
 
-pub use super::{VirGenerator, analysis, instruction, vir};
+pub use super::{FnOp, VirGenerator, analysis, vir};

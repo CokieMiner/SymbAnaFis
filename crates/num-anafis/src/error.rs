@@ -54,7 +54,10 @@ impl fmt::Display for NumAnafisError {
                 write!(f, "inline coefficients require n <= 4, got n={active}")
             }
             Self::DenseCoefficientLengthMismatch { expected, found } => {
-                write!(f, "dense coefficient length mismatch: expected {expected}, got {found}")
+                write!(
+                    f,
+                    "dense coefficient length mismatch: expected {expected}, got {found}"
+                )
             }
             Self::ActiveGeneratorsTooLargeForPlatform { active } => {
                 write!(

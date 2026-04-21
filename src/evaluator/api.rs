@@ -6,12 +6,17 @@
 //! - [`ToParamName`] — trait for types usable as parameter names
 //! - [`eval_f64`] — parallel batch evaluation over multiple expressions (requires `parallel` feature)
 
+use std::cmp::Reverse;
+use std::collections::BTreeMap;
+use std::fmt::Write;
 use std::fmt::{Debug, Formatter, Result as FmtResult};
 
 pub use super::logic::VarLookup;
-pub use super::logic::{VirGenerator, Instruction, expand_user_functions};
 #[cfg(feature = "parallel")]
 pub use super::logic::{EvalResult, ExprInput, SKIP, Value, VarInput, evaluate_parallel};
+pub use super::logic::{
+    FnOp, Instruction, VirGenerator, assemble_flat_bytecode, expand_user_functions,
+};
 
 #[cfg(feature = "parallel")]
 use super::logic::eval_single_expr_chunked;
@@ -23,10 +28,6 @@ use crate::{
     core::{Context, error::DiffError, known_symbols::is_known_constant_by_id, symb_interned},
     symb,
 };
-#[cfg(feature = "parallel")]
-use std::sync::OnceLock;
-#[cfg(feature = "parallel")]
-use wide::f64x4;
 
 // ============================================================================
 // EvaluatorBuilder
@@ -124,6 +125,8 @@ impl<'ctx> EvaluatorBuilder<'ctx> {
 pub struct CompiledEvaluator {
     /// Bytecode instructions (immutable after compilation)
     pub(crate) instructions: Box<[Instruction]>,
+    /// Flat bytecode for ultra-fast execution loop dispatch (L1 cache optimized)
+    pub(crate) flat_bytecode: Box<[u32]>,
     /// Constant pool for numeric literals
     pub(crate) constants: Box<[f64]>,
     /// Argument pool for N-ary instructions (`AddN`, `MulN`)
@@ -134,12 +137,8 @@ pub struct CompiledEvaluator {
     pub(crate) workspace_size: usize,
     /// Number of parameters expected
     pub(crate) param_count: usize,
-    /// Lazily cached SIMD-splatted constants (one f64x4 per scalar constant).
-    #[cfg(feature = "parallel")]
-    pub(crate) simd_constants_cache: OnceLock<Box<[f64x4]>>,
-    /// Pre-loaded register template with constants filled in.
-    /// Used to avoid repeated constant copying in scalar evaluation.
-    pub(crate) registers_template: Box<[f64]>,
+    /// Register index where the final result is stored.
+    pub(crate) result_reg: u32,
 }
 
 impl CompiledEvaluator {
@@ -148,20 +147,6 @@ impl CompiledEvaluator {
     #[must_use]
     pub const fn builder(expr: &Expr) -> EvaluatorBuilder<'_> {
         EvaluatorBuilder::new(expr)
-    }
-
-    /// Get constants as SIMD vectors, computed once and cached.
-    #[cfg(feature = "parallel")]
-    #[inline]
-    pub(crate) fn simd_constants(&self) -> &[f64x4] {
-        self.simd_constants_cache
-            .get_or_init(|| {
-                self.constants
-                    .iter()
-                    .map(|&c| f64x4::splat(c))
-                    .collect::<Box<[_]>>()
-            })
-            .as_ref()
     }
 
     /// Get the compiled evaluator parameter names in order.
@@ -198,6 +183,88 @@ impl CompiledEvaluator {
     pub fn constant_count(&self) -> usize {
         self.constants.len()
     }
+
+    /// Disassemble the compiled bytecode into a readable string format,
+    /// including execution statistics to aid in performance analysis.
+    #[must_use]
+    pub fn disassemble(&self) -> String {
+        let mut s = String::new();
+        writeln!(&mut s, "=== Bytecode Disassembly ===")
+            .expect("Failed to write to disassembly string");
+        writeln!(&mut s, "Parameters ({}): {}", self.param_count, {
+            let mut param_str = String::new();
+            write!(&mut param_str, "[").expect("Failed to write to disassembly string");
+            for (i, name) in self.param_names.iter().enumerate() {
+                write!(
+                    &mut param_str,
+                    "{}{}",
+                    name,
+                    if i < self.param_names.len() - 1 {
+                        ", "
+                    } else {
+                        ""
+                    }
+                )
+                .expect("Failed to write to disassembly string");
+            }
+            write!(&mut param_str, "]").expect("Failed to write to disassembly string");
+            param_str
+        })
+        .expect("Failed to write to disassembly string");
+
+        if !self.constants.is_empty() {
+            writeln!(&mut s, "\n=== Constants ({}) ===", self.constants.len())
+                .expect("Failed to write to disassembly string");
+            for (i, c) in self.constants.iter().enumerate() {
+                writeln!(&mut s, "  R{:<4} = {}", self.param_count + i, c)
+                    .expect("Failed to write to disassembly string");
+            }
+        }
+
+        writeln!(&mut s, "\n=== Memory Layout ===").expect("Failed to write to disassembly string");
+        writeln!(&mut s, "Workspace Size: {} registers", self.workspace_size)
+            .expect("Failed to write to disassembly string");
+        writeln!(&mut s, "Arg Pool Size:  {} entries", self.arg_pool.len())
+            .expect("Failed to write to disassembly string");
+
+        writeln!(
+            &mut s,
+            "\n=== Instructions ({}) ===",
+            self.instructions.len()
+        )
+        .expect("Failed to write to disassembly string");
+
+        let mut instr_counts = BTreeMap::new();
+        for (i, instr) in self.instructions.iter().enumerate() {
+            let debug_str = format!("{instr:?}");
+            let variant_name = debug_str
+                .split_once(['{', '(', ' '])
+                .map_or(debug_str.as_str(), |(v, _)| v);
+            *instr_counts.entry(variant_name.to_owned()).or_insert(0) += 1;
+
+            writeln!(&mut s, "  [{i:04}] {instr}").expect("Failed to write to disassembly string");
+        }
+
+        if !self.instructions.is_empty() {
+            writeln!(&mut s, "\n=== Instruction Summary ===")
+                .expect("Failed to write to disassembly string");
+            let mut sorted_counts: Vec<_> = instr_counts.into_iter().collect();
+            sorted_counts.sort_by_key(|b| Reverse(b.1));
+
+            #[allow(
+                clippy::cast_precision_loss,
+                reason = "Instruction count unlikely to exceed f64 mantissa precision"
+            )]
+            let total_instrs = self.instructions.len() as f64;
+            for (name, count) in sorted_counts {
+                let percentage = (f64::from(count) / total_instrs) * 100.0;
+                writeln!(&mut s, "  {name:<15}: {count:>6} ({percentage:>5.1}%)")
+                    .expect("Failed to write to disassembly string");
+            }
+        }
+
+        s
+    }
 }
 
 impl Debug for CompiledEvaluator {
@@ -206,21 +273,12 @@ impl Debug for CompiledEvaluator {
         s.field("param_names", &self.param_names)
             .field("param_count", &self.param_count)
             .field("instruction_count", &self.instructions.len())
+            .field("flat_bytecode_len", &self.flat_bytecode.len())
             .field("arg_pool_count", &self.arg_pool.len())
             .field("workspace_size", &self.workspace_size)
+            .field("result_reg", &self.result_reg)
             .field("constant_count", &self.constants.len());
-
-        #[cfg(feature = "parallel")]
-        s.field(
-            "simd_constants_cached",
-            &self.simd_constants_cache.get().is_some(),
-        );
-
-        s.field(
-            "has_registers_template",
-            &!self.registers_template.is_empty(),
-        )
-        .finish()
+        s.finish()
     }
 }
 
@@ -365,28 +423,30 @@ impl CompiledEvaluator {
         let mut compiler = VirGenerator::new(&param_ids);
         compiler.compile_expr(&expanded_expr)?;
 
-        let (instructions, mut constants, mut arg_pool, _max_stack, param_count) =
+        let (vinstrs, mut constants, const_map, mut arg_pool, param_count, max_phys, result_reg) =
             compiler.into_parts();
 
-        let (optimized_instructions, max_stack) =
-            Self::optimize_instructions(instructions, &mut constants, &mut arg_pool, param_count)?;
+        let (optimized_instructions, max_stack, result_reg) = Self::optimize_instructions(
+            vinstrs,
+            &mut constants,
+            const_map,
+            &mut arg_pool,
+            param_count,
+            max_phys,
+            result_reg,
+        )?;
 
-        let mut registers_template = vec![0.0; max_stack];
-        if !constants.is_empty() {
-            registers_template[param_count..(param_count + constants.len())]
-                .copy_from_slice(&constants);
-        }
+        let flat_bytecode = assemble_flat_bytecode(&optimized_instructions);
 
         Ok(Self {
             instructions: Box::from(optimized_instructions),
+            flat_bytecode: flat_bytecode.into_boxed_slice(),
             constants: Box::from(constants),
-            arg_pool: Box::from(arg_pool),
-            param_names: Box::from(param_names),
+            arg_pool: arg_pool.into_boxed_slice(),
+            param_names: param_names.into_boxed_slice(),
             workspace_size: max_stack,
             param_count,
-            #[cfg(feature = "parallel")]
-            simd_constants_cache: OnceLock::new(),
-            registers_template: Box::from(registers_template),
+            result_reg,
         })
     }
 

@@ -149,11 +149,7 @@ const DEFAULT_CACHE_CAPACITY: usize = 100_000;
 /// Check if tracing is enabled via environment variable (cached)
 fn trace_enabled() -> bool {
     static TRACE: OnceLock<bool> = OnceLock::new();
-    *TRACE.get_or_init(|| {
-        var("SYMB_TRACE")
-            .map(|v| v == "1" || v.to_lowercase() == "true")
-            .unwrap_or(false)
-    })
+    *TRACE.get_or_init(|| var("SYMB_TRACE").is_ok_and(|v| v == "1" || v.to_lowercase() == "true"))
 }
 
 /// Global rule registry singleton - built once, reused across all simplifications

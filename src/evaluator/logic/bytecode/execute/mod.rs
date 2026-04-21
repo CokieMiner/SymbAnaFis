@@ -2,9 +2,9 @@ pub mod drivers;
 pub mod engine;
 
 // Staircase re-exports
+pub use super::CompiledEvaluator;
 #[cfg(feature = "parallel")]
 pub use super::ToParamName;
-pub use super::{CompiledEvaluator, instruction};
 #[cfg(all(feature = "parallel", feature = "python"))]
 pub use drivers::evaluate_parallel_with_hint;
 #[cfg(feature = "parallel")]

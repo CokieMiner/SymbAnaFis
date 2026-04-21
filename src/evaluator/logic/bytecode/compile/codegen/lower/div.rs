@@ -1,5 +1,5 @@
+use super::FnOp;
 use super::VirGenerator;
-use super::instruction::FnOp;
 use super::vir::node::{NodeData, const_from_map, recip_expm1_arg};
 use super::vir::{VInstruction, VReg};
 use crate::EPSILON;
@@ -15,11 +15,6 @@ impl VirGenerator {
         den: &Expr,
         node_map: &FxHashMap<*const Expr, NodeData>,
     ) -> Result<VReg, DiffError> {
-        if num == den {
-            let idx = self.add_const(1.0);
-            return Ok(VReg::Const(idx));
-        }
-
         if let Some(n) = const_from_map(node_map, num)
             && (n - 1.0).abs() < EPSILON
             && let Some(arg) = recip_expm1_arg(den, node_map)
@@ -27,6 +22,21 @@ impl VirGenerator {
             let src = Self::vreg_from_map(node_map, arg)?;
             let dest = self.alloc_vreg();
             self.emit(VInstruction::RecipExpm1 { dest, src });
+            return Ok(dest);
+        }
+
+        if let Some(c) = const_from_map(node_map, den)
+            && c != 0.0
+            && c.is_finite()
+        {
+            let inv_c = self.add_const(1.0 / c);
+            let num_v = Self::vreg_from_map(node_map, num)?;
+            let dest = self.alloc_vreg();
+            self.emit(VInstruction::Mul2 {
+                dest,
+                a: num_v,
+                b: VReg::Const(inv_c),
+            });
             return Ok(dest);
         }
 

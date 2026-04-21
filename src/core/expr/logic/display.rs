@@ -153,16 +153,14 @@ fn analyze_negative(expr: &Expr) -> NegativeExtraction<'_> {
                 };
             }
         }
-        ExprKind::Number(n) => {
-            if *n < 0.0 {
-                return NegativeExtraction {
-                    is_negative: true,
-                    abs_coeff: Some(n.abs()),
-                    rest: None, // No "rest", just the number itself printed differently
-                    rest_factors: None,
-                    poly_negated: None,
-                };
-            }
+        ExprKind::Number(n) if *n < 0.0 => {
+            return NegativeExtraction {
+                is_negative: true,
+                abs_coeff: Some(n.abs()),
+                rest: None, // No "rest", just the number itself printed differently
+                rest_factors: None,
+                poly_negated: None,
+            };
         }
         ExprKind::Poly(poly) => {
             if let Some(first_coeff) = poly.first_coeff()

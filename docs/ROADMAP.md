@@ -13,18 +13,28 @@
 
 ## Tasks
 
+### CRITICAL PRIORITY: Performance & Precision
+- [ ] **Arbitrary Precision Backend**: Transition `Expr` from `f64` to `Number` (Integer/Rational/Float) to eliminate epsilon noise.
+- [ ] **Algebraic Simplifier Refactor**: Transition from fixed-point iteration to Goal-Oriented (Target-based) simplification. Implement explicit modes (e.g., **Force Expand** vs. **Force Factorize**) to ensure predictable, non-redundant canonical forms and prevent infinite recursive loops.
+- [ ] **JIT Compilation (`symjit`)**: Switch from interpreted bytecode to machine code via `symjit` for ultra-fast heavy evaluations.
+
 ### Symbolic Engine (`symb_anafis`)
 - [x] Pratt parser with implicit multiplication
 - [x] Symbolic differentiation engine
 - [x] Registry of 50+ functions with derivatives
 - [x] Compiled bytecode evaluator with SIMD
+    - [x] Register-based VM
+    - [x] Instruction Scheduling (minimize peak register pressure)
+    - [x] Linear Scan Register Allocation
+    - [x] Late Fusion (FMA) optimization
+    - [x] GVN (Global Value Numbering) integration
 - [x] Uncertainty propagation via dual numbers
 - [x] Python bindings (PyO3)
-- [x] CSE (Common Subexpression Elimination) in compiler
+- [x] Bytecode disassembly & performance statistics
 - [x] Compile-time singularity detection (E/E, sin(E)/E → sinc)
-- [x] Modular evaluator architecture (7 focused modules)
+- [x] Modular evaluator architecture
 - [x] Property-based testing (quickcheck)
-- [x] Developer documentation (CONTRIBUTING.md, agentic workflows)
+- [ ] Developer documentation (CONTRIBUTING.md, agentic workflows)
 
 ### Domain Analysis (`symb_anafis::domain`) - HIGH PRIORITY
 - [ ] Detect division by zero patterns at compile time
@@ -33,15 +43,14 @@
 - [ ] Full domain inference (log domain, sqrt domain, etc.)
 
 ### Compiler Optimization Levels (`symb_anafis::config`) - HIGH PRIORITY
-- [ ] Flags for Stack VM vs Cranelift JIT
-- [x] CSE (Common Subexpression Elimination) pass optimization
+- [ ] Flags for Interpreted vs SymJit JIT
 - [ ] Integration with JIT and Domain Analysis modules
 
-### JIT Compilation (`symb_anafis::jit`) - HIGH PRIORITY
-- [ ] Cranelift backend: basic arithmetic ops
-- [ ] Trig/exp/log function calls
-- [ ] SIMD vectorization in JIT
-- [ ] Benchmarks: target > Stack VM for >1M evaluations
+### JIT Compilation (via `symjit`) - HIGH PRIORITY
+- [ ] Integration of basic arithmetic ops
+- [ ] Support for transcendental function calls
+- [ ] Vectorized evaluation (SIMD within JIT)
+- [ ] Comparison benchmarks vs Interpreted Bytecode VM
 
 ### Extended Functions (`symb_anafis::special`) - MEDIUM PRIORITY
 - [ ] Factorial, DoubleFactorial

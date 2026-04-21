@@ -1,5 +1,5 @@
+use super::FnOp;
 use super::VirGenerator;
-use super::instruction::FnOp;
 use super::vir::node::{NodeData, exp_sqr_arg};
 use super::vir::registry::FN_MAP;
 use super::vir::{VInstruction, VReg};
@@ -18,10 +18,10 @@ impl VirGenerator {
     ) -> Result<VReg, DiffError> {
         let id = name.id();
         let ks = &*KS;
-        let dest = self.alloc_vreg();
 
         if id == ks.exp && args.len() == 1 {
             if let Some((src, neg)) = exp_sqr_arg(args[0].as_ref(), node_map) {
+                let dest = self.alloc_vreg();
                 if neg {
                     self.emit(VInstruction::ExpSqrNeg { dest, src });
                 } else {
@@ -31,6 +31,7 @@ impl VirGenerator {
             }
 
             if let Some(pos_vreg) = self.try_compile_positive_exp_argument(&args[0], node_map) {
+                let dest = self.alloc_vreg();
                 self.emit(VInstruction::Builtin1 {
                     dest,
                     op: FnOp::ExpNeg,
@@ -46,6 +47,7 @@ impl VirGenerator {
                 return Err(DiffError::UnsupportedFunction(name.as_str().to_owned()));
             }
 
+            let dest = self.alloc_vreg();
             match args.len() {
                 1 => {
                     let arg = Self::vreg_from_map(node_map, args[0].as_ref())?;
@@ -90,6 +92,7 @@ impl VirGenerator {
                 None
             };
             if let Some(bv) = base_val {
+                let dest = self.alloc_vreg();
                 let base_idx = self.add_const(bv);
                 let arg = Self::vreg_from_map(node_map, args[0].as_ref())?;
                 self.emit(VInstruction::Builtin2 {

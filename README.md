@@ -176,6 +176,7 @@ SymbAnaFis supports over 50 built-in mathematical functions:
 ## Documentation
 
 - **[API Reference](docs/API_REFERENCE.md)** - Detailed guide to all functions and modules.
+- **[Compiler Architecture](src/evaluator/logic/bytecode/ARCHITECTURE.md)** - Detailed design of the register-based VM and optimization pipeline.
 - **[docs.rs](https://docs.rs/symb_anafis)** - Full Rust crate documentation.
 
 ## License

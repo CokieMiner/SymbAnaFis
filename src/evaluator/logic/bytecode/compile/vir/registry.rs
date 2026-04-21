@@ -1,6 +1,12 @@
-use super::instruction::FnOp;
+use super::FnOp;
+use crate::EPSILON;
 use crate::core::known_symbols::KS;
+use crate::math::{
+    eval_digamma, eval_elliptic_e, eval_elliptic_k, eval_erf, eval_erfc, eval_exp_polar,
+    eval_gamma, eval_lambert_w, eval_lgamma, eval_tetragamma, eval_trigamma, eval_zeta,
+};
 use rustc_hash::FxHashMap;
+use std::f64::consts::FRAC_PI_2;
 use std::sync::LazyLock;
 
 pub type ConstFoldFn = fn(f64) -> f64;
@@ -96,9 +102,59 @@ pub static CONST_FOLD_MAP: LazyLock<FxHashMap<u64, ConstFoldFn>> = LazyLock::new
     m.insert(ks.ln, f64::ln as ConstFoldFn);
     m.insert(ks.log, f64::ln as ConstFoldFn);
     m.insert(ks.sqrt, f64::sqrt as ConstFoldFn);
+    m.insert(ks.cbrt, f64::cbrt as ConstFoldFn);
     m.insert(ks.abs, f64::abs as ConstFoldFn);
     m.insert(ks.floor, f64::floor as ConstFoldFn);
     m.insert(ks.ceil, f64::ceil as ConstFoldFn);
     m.insert(ks.round, f64::round as ConstFoldFn);
+    m.insert(ks.signum, f64::signum as ConstFoldFn);
+    m.insert(ks.sign, f64::signum as ConstFoldFn);
+    m.insert(ks.sgn, f64::signum as ConstFoldFn);
+    m.insert(ks.log2, f64::log2 as ConstFoldFn);
+    m.insert(ks.log10, f64::log10 as ConstFoldFn);
+
+    // Additional secondary trig and hyperbolic functions mapped to avoid CONST_FOLD_MAP discrepancy
+    m.insert(ks.cot, (|v: f64| v.tan().recip()) as ConstFoldFn);
+    m.insert(ks.sec, (|v: f64| v.cos().recip()) as ConstFoldFn);
+    m.insert(ks.csc, (|v: f64| v.sin().recip()) as ConstFoldFn);
+    m.insert(ks.acot, (|v: f64| FRAC_PI_2 - v.atan()) as ConstFoldFn);
+    m.insert(ks.asec, (|v: f64| (1.0 / v).acos()) as ConstFoldFn);
+    m.insert(ks.acsc, (|v: f64| (1.0 / v).asin()) as ConstFoldFn);
+    m.insert(ks.coth, (|v: f64| v.tanh().recip()) as ConstFoldFn);
+    m.insert(ks.sech, (|v: f64| v.cosh().recip()) as ConstFoldFn);
+    m.insert(ks.csch, (|v: f64| v.sinh().recip()) as ConstFoldFn);
+    m.insert(ks.asinh, f64::asinh as ConstFoldFn);
+    m.insert(ks.acosh, f64::acosh as ConstFoldFn);
+    m.insert(ks.atanh, f64::atanh as ConstFoldFn);
+    m.insert(
+        ks.acoth,
+        (|v: f64| 0.5 * ((v + 1.0) / (v - 1.0)).ln()) as ConstFoldFn,
+    );
+    m.insert(
+        ks.acsch,
+        (|v: f64| (1.0 / v + v.mul_add(v, 1.0).sqrt() / v.abs()).ln()) as ConstFoldFn,
+    );
+    m.insert(
+        ks.asech,
+        (|v: f64| ((1.0 + v.mul_add(-v, 1.0).sqrt()) / v).ln()) as ConstFoldFn,
+    );
+    m.insert(
+        ks.sinc,
+        (|v: f64| if v.abs() < EPSILON { 1.0 } else { v.sin() / v }) as ConstFoldFn,
+    );
+
+    // Special functions via math crate
+    m.insert(ks.erf, eval_erf::<f64> as ConstFoldFn);
+    m.insert(ks.erfc, eval_erfc::<f64> as ConstFoldFn);
+    m.insert(ks.gamma, eval_gamma::<f64> as ConstFoldFn);
+    m.insert(ks.lgamma, eval_lgamma::<f64> as ConstFoldFn);
+    m.insert(ks.digamma, eval_digamma::<f64> as ConstFoldFn);
+    m.insert(ks.trigamma, eval_trigamma::<f64> as ConstFoldFn);
+    m.insert(ks.tetragamma, eval_tetragamma::<f64> as ConstFoldFn);
+    m.insert(ks.lambertw, eval_lambert_w::<f64> as ConstFoldFn);
+    m.insert(ks.elliptic_k, eval_elliptic_k::<f64> as ConstFoldFn);
+    m.insert(ks.elliptic_e, eval_elliptic_e::<f64> as ConstFoldFn);
+    m.insert(ks.zeta, eval_zeta::<f64> as ConstFoldFn);
+    m.insert(ks.exp_polar, eval_exp_polar::<f64> as ConstFoldFn);
     m
 });

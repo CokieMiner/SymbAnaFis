@@ -92,19 +92,29 @@ impl Expr {
     pub fn number(n: f64) -> Self {
         // Fast path for the most common values in differentiation and parsing
         if n == 0.0 {
-            return CACHED_ZERO.clone();
+            return Self::clone_cached_with_fresh_id(&CACHED_ZERO);
         }
         let bits = n.to_bits();
         if bits == 1.0_f64.to_bits() {
-            return EXPR_ONE.clone();
+            return Self::clone_cached_with_fresh_id(&EXPR_ONE);
         }
         if bits == (-1.0_f64).to_bits() {
-            return CACHED_NEG_ONE.clone();
+            return Self::clone_cached_with_fresh_id(&CACHED_NEG_ONE);
         }
         if bits == 2.0_f64.to_bits() {
-            return CACHED_TWO.clone();
+            return Self::clone_cached_with_fresh_id(&CACHED_TWO);
         }
         Self::new(ExprKind::Number(n))
+    }
+
+    #[inline]
+    fn clone_cached_with_fresh_id(template: &Self) -> Self {
+        Self {
+            id: next_id(),
+            hash: template.hash,
+            term_hash: template.term_hash,
+            kind: template.kind.clone(),
+        }
     }
 
     /// Create a symbol expression (auto-interned)

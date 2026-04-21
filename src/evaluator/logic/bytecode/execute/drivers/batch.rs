@@ -44,10 +44,8 @@ pub fn run_chunked_evaluator(
         if n_points == 0 {
             return Ok(());
         }
-    } else if columns.first().is_some_and(|c| c.len() != n_points) {
-        return Err(DiffError::invalid_syntax(
-            "Output buffer length must match data column length",
-        ));
+    } else if !columns.iter().all(|c| c.len() == n_points) {
+        return Err(DiffError::EvalColumnLengthMismatch);
     }
 
     if n_points < CHUNK_SIZE {

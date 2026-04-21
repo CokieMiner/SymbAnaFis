@@ -49,6 +49,20 @@ mod api_user_tests {
             _ => panic!("Expected Sum from subtraction"),
         }
     }
+
+    #[test]
+    fn test_cached_constants_get_fresh_expr_ids() {
+        let zero_a = Expr::number(0.0);
+        let zero_b = Expr::number(0.0);
+        let one_a = Expr::number(1.0);
+        let one_b = Expr::number(1.0);
+        let two_a = Expr::number(2.0);
+        let two_b = Expr::number(2.0);
+
+        assert_ne!(zero_a.id(), zero_b.id());
+        assert_ne!(one_a.id(), one_b.id());
+        assert_ne!(two_a.id(), two_b.id());
+    }
 }
 
 #[allow(

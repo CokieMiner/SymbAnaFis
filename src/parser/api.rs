@@ -29,7 +29,7 @@ use std::hash::BuildHasher;
 /// # Example
 /// ```
 /// use symb_anafis::parse;
-/// use HashSet;
+/// use std::collections::HashSet;
 ///
 /// let known_symbols = HashSet::new();
 /// let custom_fns = HashSet::new();

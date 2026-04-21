@@ -73,7 +73,7 @@ impl Expr {
     /// String-based (convenient):
     /// ```
     /// use symb_anafis::{symb, Expr};
-    /// use HashMap;
+    /// use std::collections::HashMap;
     ///
     /// let x = symb("eval_x");
     /// let y = symb("eval_y");
@@ -90,7 +90,7 @@ impl Expr {
     /// ```
     /// use symb_anafis::{symb, Expr};
     /// use rustc_hash::FxHashMap;
-    /// use HashMap;
+    /// use std::collections::HashMap;
     ///
     /// let x = symb("eval_id_x");
     /// let y = symb("eval_id_y");

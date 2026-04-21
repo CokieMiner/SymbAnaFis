@@ -2,26 +2,20 @@
 
 All notable changes to symb_anafis will be documented in this file.
 
-## [working]
 
-### Working Update - 2026-04-07
+## Index
+- [Working](#working)
+- [Unreleased](#unreleased)
+- [0.8.1](#081---2026-02-15)
+- [0.8.0](#080---2026-02-09)
+- [0.7.0](#070---2026-01-20)
+- [0.6.0](#060---2026-01-09)
+- [0.5.1](#051---2025-12-31)
+- [0.5.0](#050---2025-12-31)
+- [0.4.1](#041---2025-12-29)
+- [0.4.0](#040---2025-12-28)
 
-### Changed
-
-- **Evaluator compile API rename**: Renamed internal/public bytecode compile type from `Compiler` to `VirGenerator` across evaluator modules and re-exports (`logic`, `bytecode`, and API boundary usage).
-- **VIR CSE pipeline split**: Moved VIR common-subexpression-elimination logic out of the generator impl into `analysis::optimize_vir_cse(vinstrs, final_vreg)`, reducing cross-module coupling.
-- **Iterative traversal hardening**: Reworked compile traversal to a dedicated post-order walker with pointer-identity dedup before node lowering, keeping deep-tree compilation iterative while isolating unsafe pointer handling.
-- **Lowering modularization**:
-  - Added `codegen/lower/emit_helpers.rs` for shared N-ary add/mul emission (`emit_add_vregs`, `emit_mul_vregs`).
-  - Added `codegen/lower/exp_helpers.rs` for shared `exp(-x)` positive-argument extraction used by both function and power lowering.
-  - Refactored `sum.rs` and `product.rs` to use shared helpers and split 2-term fast-path logic into focused helper functions.
-- **Peephole fusion refactor**: Split monolithic fusion matcher into category-specific helper functions (`try_fuse_negation`, `try_fuse_load_const`, `try_fuse_mul_add`, `try_fuse_power`, `try_fuse_inverse`, `try_fuse_logarithmic`, `try_fuse_idempotent`, `try_fuse_const_chain`) while preserving pattern coverage.
-
-### Code Quality
-
-- **Type/visibility tightening**: Converted `CseKey` constructor usage to `CseKey::new(&Expr)` and reduced analysis exports to module-scoped visibility where appropriate.
-- **Internal docs expansion**: Added extensive invariants and rationale docs in optimizer/compile modules (`power_chain`, `compact`, `strength_reduction`, and fusion) to clarify correctness constraints and floating-point tradeoffs.
-- **Import graph regeneration**: Updated `tools/import_graph.dot` to reflect renamed symbols and newly extracted lowering/analysis modules.
+## [Working]
 
 ### Working Update - 2026-04-01
 
@@ -41,7 +35,7 @@ All notable changes to symb_anafis will be documented in this file.
 - Added strict lint policy for num-anafis and fixed clippy issues across backend combinations.
 - Added import audit tooling for num-anafis and updated organization guidance for import style.
 
-## [unreleased]
+## [Unreleased]
 
 ### Breaking Changes
 
@@ -61,6 +55,12 @@ All notable changes to symb_anafis will be documented in this file.
 
 ### Added
 
+- **Bytecode Disassembler**: Added `CompiledEvaluator::disassemble()` to provide a human-readable dump of the compiled bytecode, including instruction frequency statistics for performance profiling. Exposed to Python as `CompiledEvaluator.disassemble()`.
+- **Large Expression Tooling**: Added `examples/dump_large_expr.rs` for stress-testing and auditing bytecode generation for expressions with millions of nodes.
+- **Compiler Architecture Spec**: Added `src/evaluator/logic/bytecode/ARCHITECTURE.md` documenting the full lifecycle and optimization pipeline of the register-based VM.
+- **Global Value Numbering (GVN)**: Implemented a forward-iteration Global Value Numbering pass on Virtual IR. Commutative operations (`Add`, `Mul`) now have their operands sorted before hashing, enabling the deduplication of algebraically equivalent expressions (e.g., `a+b` vs `b+a`) that escape AST-level caches.
+- **Dense-by-Construction Lowering**: Refactored `codegen/lower/sum.rs` to directly emit FMA/FMS instructions (`MulAdd`, `MulSub`, `NegMulAdd`) during AST lowering. This significantly reduces bytecode instruction density by bypassing post-hoc fusion for core arithmetic patterns.
+- **Sparse Estrin's Scheme**: Refined polynomial reification in `pow.rs` to prune zero-coefficient terms, specializing the expansion for sparse polynomial configurations.
 - **Architectural Refactor**: Complete reorganization of the codebase into a strict tiered structure to improve modularity and maintainability.
   - New hierarchy: `core/`, `parser/`, `simplification/`, `diff/`, `evaluator/`, `uncertainty/`, `functions/`, `math/`, and `convenience/`.
   - Each major component now follows a clear separation between `api` (public traits/wrappers) and `logic` (internal implementation).
@@ -83,11 +83,28 @@ All notable changes to symb_anafis will be documented in this file.
   - `bytecode/`: Master-stream consolidating `compile/` and `execute/` with Virtual IR hooks.
   - `tree/`: Dedicated module layer isolating tree evaluator interpreters.
 - **Granular Dispatcher Pipeline**: Decomposed the large monolithic `codegen/lower.rs` file into a modular suite (`sum.rs`, `product.rs`, `pow.rs`, etc.) to enforce declarative maintenance.
-- **Strict Architectural Boundaries (Staircase Rule)**: Enforced a project-wide tiered import structure. Eliminated all self-referential `crate::` imports and deep relative imports (e.g., `super::super::`) in favor of single-level `super::` imports through intermediate re-exports in `mod.rs` files.
+- **Strict Architectural Boundaries (Staircase Rule)**: Enforced a project-wide tiered import structure. Eliminated all self-referential `crate::` imports and deep relative imports (e.g., `super::super::`) in favor of single-level `super::` imports through intermediate re-exports in `mod.rs` files. (Standardized across `core/`, `evaluator/`, and `simplification/`).
 
 
 ### Changed
 
+- **Unified Memory Layout**: Hardwired parameters and constants directly into the beginning of the register file, eliminating specialized `LoadParam` or `LoadConst` instructions.
+- **Global Value Numbering (GVN)**: Replaced the previous CSE pass with a more robust GVN engine that handles commutative normalization and algebraic identity simplification (`x + 0 -> x`, `x * 1 -> x`, etc.).
+- **Dependency Updates**: 
+  - `rayon` → `1.12.0`
+  - `wide` → `1.3.0`
+  - `rand` → `0.10.1`
+  - `symbolica` → `1.5.0` (with corresponding API updates in benchmarks).
+- **Execution Modularization**: Refactored the bytecode evaluator into focused `engine` (core loop) and `drivers` (batch/parallel orchestration) modules.
+- **Evaluator API Refactor**:
+  - Renamed internal/public bytecode compile type from `Compiler` to `VirGenerator` across all modules.
+  - Split VIR common-subexpression-elimination logic into `analysis::optimize_vir_cse`, reducing coupling.
+  - Hardened compile traversal with a dedicated iterative post-order walker and pointer-identity deduplication.
+- **Lowering Modularization**:
+  - Extracted shared N-ary emission helpers and exponential extraction logic into dedicated modules (`emit_helpers.rs`, `exp_helpers.rs`).
+  - Refactored `sum.rs` and `product.rs` to leverage shared infrastructure and optimized 2-term fast paths.
+- **Peephole Fusion Architecture**: Refactored the monolithic fusion matcher into category-specific optimized helpers while maintaining full pattern coverage.
+- **Optimization Pipeline Pruning**: Consolidated the bytecode optimizer in `pipeline.rs` into a high-performance 2-pass DCE strategy. Removed redundant initial and middle sweeps, using one pass to perform Copy Forwarding and a final sweep to clean up fusion artifacts.
 - **Internal Directory Structure**: Massive movement of logic files into `logic/` subdirectories across all modules.
 - **Unified `core/context` State**: Re-engineered `Context` mapping to share internal state via a single unified `Arc<RwLock<ContextInner>>`, making `Context::clone()` an $O(1)$ operation.
 - **Decomposed monolithic `core/expr/constructors.rs`**: Segmented heavy AST core generators into thematic isolated files (`binary.rs`, `nary.rs`, `functions.rs`).
@@ -107,7 +124,10 @@ All notable changes to symb_anafis will be documented in this file.
 
 ### Fixed
 
-- **`acot` compiler/interpreter formula mismatch**: Compiler previously emitted `Recip → Atan` for `acot(x)`, always computing `atan(1/x)`. The interpreter uses `atan(1/x) + π` for x < 0 to produce range (0, π). Added a dedicated `Acot` bytecode instruction with the correct branch and consolidated the implementation in `stack::eval_acot` (alongside `eval_sinc`). Fixes scalar mismatch for expressions like `zeta(acot(-2.128...))`.
+- **Expression ID Collisions**: Ensured `Expr::number()` generates fresh unique IDs even for cached constants (`0`, `1`, `-1`, `2`), preventing incorrect GVN/CSE mapping during complex compilation passes.
+- **Instruction Semantic Mismatches**: Fixed edge cases in N-ary sum assembly where `MulSub` and `NegMulAdd` patterns were incorrectly ordered or missing.
+
+- **`acot` compiler/interpreter formula mismatch**: Compiler previously emitted `Recip → Atan` for `acot(x)`, always computing `atan(1/x)`. The interpreter uses `atan(1/x) + π` for x < 0 to produce range (0, π). Added a dedicated `Acot` bytecode instruction with the correct branch. Implementation has been consolidated in `eval_math.rs`.
 - **SIMD `exp`/`ln` swallowing NaN**: `wide::f64x4::exp()` and `wide::f64x4::ln()` use polynomial approximations that do not propagate NaN (e.g. `exp(NaN) → 0`, `ln(0) → NaN` instead of `−∞`). Changed `Exp`, `ExpNeg`, `ExpSqr`, `ExpSqrNeg`, and `Ln` SIMD fast-paths to per-lane scalar calls (`f64::exp` / `f64::ln`) which correctly follow IEEE 754. This fixes SIMD batch mismatches involving NaN-producing sub-expressions.
 - **`hermite(n, NaN)` ignoring NaN argument**: All four `Hermite` instruction paths (inline/heap scalar, SIMD packed, SIMD scalar fallback) only guarded against `n.is_nan()` but not `x.is_nan()`. Added `|| x.is_nan()` check so `hermite(0, NaN) → NaN` instead of `1`.
 - **Product evaluator swallowing NaN (`0 * NaN → 0`)**: The tree-walking interpreter had an early-exit optimization that returned `0.0` immediately upon seeing a zero numeric factor, skipping evaluation of remaining factors. This caused `signum(…) * undefined_expr → 0` instead of NaN when the second factor produced NaN. Removed the early exit to be IEEE 754 compliant: all factors are now always evaluated and multiplied.
@@ -115,27 +135,39 @@ All notable changes to symb_anafis will be documented in this file.
 - **Product display truncation**: Products with more than 2 factors now print all factors; previously only the first two were displayed, silently dropping the rest.
 - **cos(x) factor dropped during simplification**: Fixed a regression where `(-(x) + x*x) * -(cos(x))` lost the `cos(x)` factor after simplification. Added regression test `test_regression_cos_factor_not_dropped`.
 
+### Documentation
+
+- **Architecture Spec Update**: Updated `ARCHITECTURE.md` to document the shift from "Late Fusion" to "Dense Lowering", the new GVN engine, and the consolidated optimization pipeline.
+
 ### Code Quality
+
+- **Internal Optimization & Visibility**:
+  - Tightened type and module visibility across analysis and evaluator layers.
+  - Expanded internal documentation with invariants and design rationale for all optimizer passes.
+  - Regenerated project import graphs to reflect current architectural state.
 
 - **Lint Configuration Hardening**: Upgraded several static analysis lints in `Cargo.toml` to `deny` (e.g., `suspicious_xor_used_as_pow`, `try_err`, `unseparated_literal_suffix`) to enforce strict safety and clean code standards.
 - **Reorganized `core/logic` gadgets**: Migrated unclassified internal tools into a standardized `core/helpers` space with bounded `api_user.rs` and `api_crate.rs` gates following architecture compliance.
-- **Staircase Import Normalization**: Rescoped self-referencing absolute addresses across `core/`, `evaluator/`, and `simplification/` to relative `super::` step-ups.
-- **Redundant Visibility Cleanup**: Optimized internal module and re-export visibility from `pub(crate)` to `pub` in restricted scopes to satisfy Clippy's `redundant-pub-crate` lint while maintaining boundary isolation.
+- **Redundant Visibility Cleanup**: Optimized internal module and re-export visibility from `pub(crate)` to `pub` in restricted scopes to satisfy Clippy's `redundant-pub-crate` lint while maintaining boundary isolation. (Complements the **Staircase Import** normalization).
 
 
 - **Deleted legacy `stack.rs`**: Removed legacy stack-based primitive operations following the transition to the register-based evaluator.
 - **Added `eval_math.rs`**: Centralized evaluator-specific mathematical helper functions (e.g., `acot`, `sinc`, `erfc`) to improve modularity.
-- **Consolidated `eval_acot`**: Moved `eval_acot` from duplicated definitions in `execution.rs` and `simd.rs` into `eval_math.rs` (formerly `stack.rs`), co-located with `eval_sinc`. All call sites updated.
+- **Consolidated `eval_acot`**: Moved `eval_acot` from duplicated definitions in `execution.rs` and `simd.rs` into `eval_math.rs` (which replaces the legacy `stack.rs`), co-located with `eval_sinc`. All call sites updated.
 - **Visitor Silence**: Silenced deep-tree warnings in release builds to reduce library noise. Traversal remains truncated for safety.
 - **`push_children` / `push_children_rev` helpers on `Expr`**: Factored out the repeated child-pushing match block shared by `node_count`, `contains_var_id`, `contains_var_str`, `has_free_variables`, `collect_variables`, and `fold`. Merged `FunctionCall`/`Sum`/`Product` arms into a single arm using the common `args` binding, reducing ~100 lines of duplication in `analysis.rs`.
 
 ### Performance
 
+- **Flat Bytecode Dispatch Engine**: Implemented a high-performance execution loop using a flat `u32` bytecode stream and manual PC management. This bypasses the overhead of `Boxed` instruction objects and leverages L1 cache more effectively.
+- **Instruction Scheduling**: Added a new pass to the `VirGenerator` that reorders instructions to minimize peak register pressure using a Sethi-Ullman inspired greedy topological sort.
+- **Linear Scan Register Allocation**: Implemented a liveness-aware register allocator that aggressively reuses physical register slots, keeping the execution "workspace" as small as possible.
+- **Staircase Memory Allocation**: Introduced a multi-tiered stack allocation strategy (`evaluate_staircase!`) that uses `MaybeUninit` stack arrays for small-to-medium expressions (up to 256 registers), falling back to thread-local heap storage only when necessary.
 - **Reduced memory traffic**: Register-based evaluation eliminates stack pointer manipulation overhead and improves cache efficiency for complex expressions.
 - **Enhanced Instruction Fusion**: Optimized peephole optimizer with new fusion patterns for `MulAdd`, `MulSub`, `NegMulAdd`, and `ExpNeg` instructions in the register-based evaluator.
 - **Iterative Compilation**: The bytecode compiler now uses an iterative traversal for expression compilation, enabling the processing of extremely large Sum/Product chains (millions of terms) without risking host stack overflow.
-- **Fused Load-Operate Instructions**: Added `AddParam`, `MulParam`, `SubParam`, `DivParam`, `AddCached`, and `MulCached` bytecode instructions to the compiled evaluator. This optimizes common evaluation patterns by executing operations directly against parameters and cached values, reducing stack `Push` and `Pop` overhead.
-- **Compiler Constant Folding**: Added compile-time merging of consecutive `AddConst` and `MulConst` instructions. This reduces instruction count and stack manipulation overhead during batch evaluation.
+- **Fused Load-Operate Instructions**: Added `AddParam`, `MulParam`, `SubParam`, `DivParam`, `AddCached`, and `MulCached` bytecode instructions to the compiled evaluator. This optimizes common evaluation patterns by executing operations directly against parameters and cached values to minimize register-to-register movement and instruction density.
+- **Compiler Constant Folding**: Added compile-time merging of consecutive `AddConst` and `MulConst` instructions. This reduces instruction count and bytecode processing overhead during batch evaluation.
 - **Cached `Arc<Expr>` constants (`arc_number`)**: Added `arc_number(n)` helper and four static `LazyLock<Arc<Expr>>` statics for `0.0`, `1.0`, `-1.0`, and `2.0`. All ~114 `Arc::new(Expr::number(N))` call sites in simplification rules replaced with `arc_number(N)` — hot-path constant construction is now a single atomic refcount bump instead of a heap allocation.
 - **`term_hash` field on `Expr`**: Pre-computed coefficient-insensitive hash cached at construction. Used by like-term grouping in simplification to skip repeated full-tree traversals.
 - **Two-map generational cache eviction** (`HashKeyedCache`): Replaced O(n) `Vec::retain` eviction with O(1) swap of `current`/`previous` maps. Old generation is dropped in bulk when the cache exceeds capacity.
@@ -148,11 +180,7 @@ All notable changes to symb_anafis will be documented in this file.
   - `prettify_roots`, `normalize_for_comparison`, `is_known_non_negative` (simplification helpers) — use a Visit/Assemble two-stack post-order pattern for owned transforms.
 - **`can_apply()` pre-check on `Rule` trait**: New default method returns `true`; the engine calls it before `apply()` on cache-miss. Avoids building the call frame and cache insertion for non-matching expressions. Implemented for `PerfectSquareRule` (skip sums with ≠2–3 terms) and `PolyGcdSimplifyRule` (skip plain-number numerator/denominator).
 - **Simplifier `max_depth` raised to 200**: Up from 50 to accommodate deeper expressions that previously hit the limit prematurely.
-- **Streamlined Polynomial Evaluation**: Removed opaque `PolyEval` instruction from entire pipeline in favor of in-line arithmetic chains to improve downstream fusion transparency.
 - **Estrin's Scheme Tree Expansion**: Reconfigured polynomial expansion for degree $\ge 4$ to build a balanced, logarithmic arithmetic tree for better superscalar pipeline depth utilization.
-- **Instruction-Level CSE (GVN)**: Implemented forward-iteration Global Value Numbering pass on Virtual IR to deduplicate algebraic redundancies escaping top-level AST-structural caches.
-- **Commutative Normalization**: Enabled GVN to sort commutative operands of virtual instructions, boosting redundancy matches for commutative pairs.
-
 
 ## [0.8.1] - 2026-02-15
 
@@ -479,8 +507,6 @@ All notable changes to symb_anafis will be documented in this file.
 - Removed deprecated validation test module
 - Cleaned up outdated comments in rules engine
 
-[0.4.1]: https://github.com/CokieMiner/SymbAnaFis/compare/v0.4.0...v0.4.1
-
 ## [0.4.0] - 2025-12-28
 
 ### Added
@@ -526,4 +552,14 @@ All notable changes to symb_anafis will be documented in this file.
 - Updated BENCHMARK_RESULTS.md with latest performance metrics
 - Added inline documentation for all public APIs
 
+## [Links]
+[0.8.1]: https://github.com/CokieMiner/SymbAnaFis/compare/v0.8.0...v0.8.1
+[0.8.0]: https://github.com/CokieMiner/SymbAnaFis/compare/v0.7.0...v0.8.0
+[0.7.0]: https://github.com/CokieMiner/SymbAnaFis/compare/v0.6.0...v0.7.0
+[0.6.0]: https://github.com/CokieMiner/SymbAnaFis/compare/v0.5.1...v0.6.0
+[0.5.1]: https://github.com/CokieMiner/SymbAnaFis/compare/v0.5.0...v0.5.1
+[0.5.0]: https://github.com/CokieMiner/SymbAnaFis/compare/v0.4.1...v0.5.0
+[0.4.1]: https://github.com/CokieMiner/SymbAnaFis/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/CokieMiner/SymbAnaFis/compare/v0.3.0...v0.4.0
+
+

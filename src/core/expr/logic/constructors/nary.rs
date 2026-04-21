@@ -3,7 +3,7 @@
 use std::cmp::Ordering;
 use std::sync::Arc;
 
-use super::{EPSILON, EXPR_ONE, Expr, ExprKind, Polynomial, expr_cmp};
+use super::{EPSILON, Expr, ExprKind, Polynomial, expr_cmp};
 
 impl Expr {
     // -------------------------------------------------------------------------
@@ -431,7 +431,7 @@ fn get_poly_base_hash(expr: &Expr) -> Option<u64> {
 fn get_factor_base_and_exponent(expr: &Arc<Expr>) -> (Arc<Expr>, Expr) {
     match &expr.kind {
         ExprKind::Pow(base, exp) => (Arc::clone(base), (**exp).clone()),
-        _ => (Arc::clone(expr), EXPR_ONE.clone()),
+        _ => (Arc::clone(expr), Expr::number(1.0)),
     }
 }
 

@@ -131,6 +131,11 @@ impl PyCompiledEvaluator {
     const fn workspace_size(&self) -> usize {
         self.evaluator.workspace_size
     }
+
+    /// Disassemble the bytecode into a human-readable string.
+    fn disassemble(&self) -> String {
+        self.evaluator.disassemble()
+    }
 }
 
 // ============================================================================

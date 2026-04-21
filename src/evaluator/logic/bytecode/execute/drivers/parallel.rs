@@ -29,6 +29,11 @@
 //! # }
 //! ```
 
+#![allow(
+    unsafe_code,
+    reason = "Parallel evaluator uses unsafe for guaranteed unreachable branches in the fast path"
+)]
+
 use super::CompiledEvaluator;
 use super::batch::run_chunked_evaluator;
 use crate::core::{DiffError, Expr, Symbol, symb};
@@ -38,6 +43,7 @@ use rayon::prelude::*;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fmt::{Display, Formatter, Result as FmtResult};
+use std::hint::unreachable_unchecked;
 use std::sync::Arc;
 
 // ============================================================================
@@ -371,214 +377,251 @@ pub fn evaluate_parallel_with_hint(
         })
         .collect::<Result<Vec<_>, DiffError>>()?;
 
-    // Process each expression in parallel
-    let results: Vec<Vec<EvalResult>> = (0..n_exprs)
-        .into_par_iter()
-        .map(|expr_idx| {
-            let (expr, was_string) = &parsed[expr_idx];
-            let vars: Vec<&str> = var_names[expr_idx].iter().map(VarInput::as_str).collect();
-            let expr_values = &values[expr_idx];
+    // Helper to process a single expression
+    let process_expr = |expr_idx: usize| -> Result<Vec<EvalResult>, DiffError> {
+        let (expr, was_string) = &parsed[expr_idx];
+        let vars: Vec<&str> = var_names[expr_idx].iter().map(VarInput::as_str).collect();
+        let expr_values = &values[expr_idx];
 
-            // Validate dimensions
-            if vars.len() != expr_values.len() {
-                return Err(DiffError::EvalColumnMismatch {
-                    expected: vars.len(),
-                    got: expr_values.len(),
-                });
-            }
+        // Validate dimensions
+        if vars.len() != expr_values.len() {
+            return Err(DiffError::EvalColumnMismatch {
+                expected: vars.len(),
+                got: expr_values.len(),
+            });
+        }
 
-            let n_vars = vars.len();
-            if n_vars == 0 {
-                let empty_vars: HashMap<&str, f64> = HashMap::new();
-                let result = expr.evaluate(&empty_vars, &HashMap::new());
-                return Ok(vec![if *was_string {
-                    EvalResult::String(result.to_string())
-                } else {
-                    EvalResult::Expr(result)
-                }]);
-            }
-            // Find max points across all variables
-            let n_points = expr_values.iter().map(Vec::len).max().unwrap_or(0);
-            if n_points == 0 {
-                return Ok(vec![]);
-            }
+        let n_vars = vars.len();
+        if n_vars == 0 {
+            let empty_vars: HashMap<&str, f64> = HashMap::new();
+            let result = expr.evaluate(&empty_vars, &HashMap::new());
+            return Ok(vec![if *was_string {
+                EvalResult::String(result.to_string())
+            } else {
+                EvalResult::Expr(result)
+            }]);
+        }
+        // Find max points across all variables
+        let n_points = expr_values.iter().map(Vec::len).max().unwrap_or(0);
+        if n_points == 0 {
+            return Ok(vec![]);
+        }
 
-            // SAFETY: Validate that no columns are empty when n_points > 0
-            // This prevents panics in the fast paths that use .last().expect()
-            // Broadcasting from the last value is only valid if the column has at least one value
-            if expr_values.iter().any(Vec::is_empty) {
-                return Err(DiffError::EvalColumnLengthMismatch);
-            }
+        // SAFETY: Validate that no columns are empty when n_points > 0
+        // This prevents panics in the fast paths that use .last().expect()
+        // Broadcasting from the last value is only valid if the column has at least one value
+        if expr_values.iter().any(Vec::is_empty) {
+            return Err(DiffError::EvalColumnLengthMismatch);
+        }
 
-            // =========================================================
-            // OPTIMIZATION: Attempt to compile for fast evaluation
-            // =========================================================
+        // =========================================================
+        // OPTIMIZATION: Attempt to compile for fast evaluation
+        // =========================================================
 
-            // We ignore all_values_numeric check here - we'll check per-point
-            // We also rely on compile() to check that all variables are bound
-            let evaluator = CompiledEvaluator::compile(expr, &vars, None).ok();
+        // We ignore all_values_numeric check here - we'll check per-point
+        // We also rely on compile() to check that all variables are bound
+        let evaluator = CompiledEvaluator::compile(expr, &vars, None).ok();
 
-            if let Some(evaluator) = evaluator {
-                // OPTIMIZATION: Use pre-computed hint if available, otherwise compute lazily
-                let globally_numeric = is_fully_numeric.as_ref().map_or_else(
-                    || {
-                        expr_values
-                            .iter()
-                            .all(|col| col.iter().all(|v| matches!(v, Value::Num(_))))
-                    },
-                    |hints| hints.get(expr_idx).copied().unwrap_or(false),
-                );
-
-                if globally_numeric {
-                    // ULTRA-FAST PATH: Unpack to f64 and delegate to high-perf chunked evaluator
-                    // 1. Unpack all columns to contiguous f64 vectors upfront.
-                    // This avoids repeated allocation and indirection inside the parallel loop.
-                    let numeric_cols: Vec<Vec<f64>> = expr_values
+        if let Some(evaluator) = evaluator {
+            // OPTIMIZATION: Use pre-computed hint if available, otherwise compute lazily
+            let globally_numeric = is_fully_numeric.as_ref().map_or_else(
+                || {
+                    expr_values
                         .iter()
-                        .take(n_vars)
-                        .map(|var_vals| {
-                            let vlen = var_vals.len();
-                            if vlen >= n_points {
-                                // Common case: column already has enough points, direct unpack
-                                var_vals[..n_points]
-                                    .iter()
-                                    .map(|v| if let Value::Num(n) = v { *n } else { f64::NAN })
-                                    .collect()
-                            } else {
-                                // Broadcasting: fill from column, then repeat last value
-                                let mut col = Vec::with_capacity(n_points);
-                                for v in var_vals {
-                                    col.push(if let Value::Num(n) = v { *n } else { f64::NAN });
-                                }
-                                // SAFETY: validated that no columns are empty when n_points > 0
-                                let last = *col
-                                    .last()
-                                    .expect("Column cannot be empty (validated earlier)");
-                                col.resize(n_points, last);
-                                col
+                        .all(|col| col.iter().all(|v| matches!(v, Value::Num(_))))
+                },
+                |hints| hints.get(expr_idx).copied().unwrap_or(false),
+            );
+
+            if globally_numeric {
+                // ULTRA-FAST PATH: Unpack to f64 and delegate to high-perf chunked evaluator
+                // 1. Unpack all columns to contiguous f64 vectors upfront.
+                // This avoids repeated allocation and indirection inside the parallel loop.
+                let numeric_cols: Vec<Vec<f64>> = expr_values
+                    .iter()
+                    .take(n_vars)
+                    .map(|var_vals| {
+                        let vlen = var_vals.len();
+                        if vlen >= n_points {
+                            // Common case: column already has enough points, direct unpack
+                            var_vals[..n_points]
+                                .iter()
+                                .map(|v| if let Value::Num(n) = v { *n } else { f64::NAN })
+                                .collect()
+                        } else {
+                            // Broadcasting: fill from column, then repeat last value
+                            let mut col = Vec::with_capacity(n_points);
+                            for v in var_vals {
+                                col.push(if let Value::Num(n) = v { *n } else { f64::NAN });
                             }
-                        })
-                        .collect();
+                            // SAFETY: validated that no columns are empty when n_points > 0
+                            let last = *col
+                                .last()
+                                .expect("Column cannot be empty (validated earlier)");
+                            col.resize(n_points, last);
+                            col
+                        }
+                    })
+                    .collect();
 
-                    let col_refs: Vec<&[f64]> = numeric_cols.iter().map(AsRef::as_ref).collect();
+                let col_refs: Vec<&[f64]> = numeric_cols.iter().map(AsRef::as_ref).collect();
 
-                    // 2. Pre-allocate output and run the dedicated f64 evaluator
-                    let mut output = vec![0.0; n_points];
-                    run_chunked_evaluator(&evaluator, &col_refs, &mut output)
-                        .expect("Chunked evaluation failed in parallel numeric path");
+                // 2. Pre-allocate output and run the dedicated f64 evaluator
+                let mut output = vec![0.0; n_points];
+                run_chunked_evaluator(&evaluator, &col_refs, &mut output)
+                    .expect("Chunked evaluation failed in parallel numeric path");
 
-                    // 3. Convert results back to the required EvalResult type
-                    let results = output
-                        .into_iter()
-                        .map(|n| {
-                            if *was_string {
-                                EvalResult::String(format_float(n))
-                            } else {
-                                EvalResult::Expr(Expr::number(n))
-                            }
-                        })
-                        .collect();
+                // 3. Convert results back to the required EvalResult type
+                let results = output
+                    .into_iter()
+                    .map(|n| {
+                        if *was_string {
+                            EvalResult::String(format_float(n))
+                        } else {
+                            EvalResult::Expr(Expr::number(n))
+                        }
+                    })
+                    .collect();
 
-                    return Ok(results);
-                }
+                return Ok(results);
+            }
 
-                // FAST / HYBRID PATH: Use compiled evaluator where possible
-                // Use par_chunks to amortize Rayon overhead over many evaluations
-                #[allow(clippy::items_after_statements, reason = "Scoped to hybrid path block")]
-                const HYBRID_CHUNK: usize = 256;
-                let point_indices: Vec<usize> = (0..n_points).collect();
-                let chunks: Vec<Vec<EvalResult>> = point_indices
-                    .par_chunks(HYBRID_CHUNK)
+            // FAST / HYBRID PATH: Use compiled evaluator where possible
+            // Pre-identify mixed columns to avoid O(n_vars) scan per point
+            let mixed_cols: Vec<usize> = expr_values
+                .iter()
+                .take(n_vars)
+                .enumerate()
+                .filter(|(_, col)| !col.iter().all(|v| matches!(v, Value::Num(_))))
+                .map(|(i, _)| i)
+                .collect();
+
+            // Use Rayon directly on the range to avoid allocating index vectors
+            let results: Vec<EvalResult> = if mixed_cols.is_empty() {
+                // Pure fast path — no per-point check needed at all
+                (0..n_points)
+                    .into_par_iter()
+                    .with_min_len(256)
                     .map_init(
-                        || {
-                            (
-                                Vec::with_capacity(n_vars),
-                                vec![0.0; evaluator.workspace_size],
-                            )
-                        },
-                        |buffers, chunk| {
+                        || (vec![0.0; n_vars], vec![0.0; evaluator.workspace_size]),
+                        |buffers, point_idx| {
                             let (params, workspace) = buffers;
-                            let mut results = Vec::with_capacity(chunk.len());
 
-                            for &point_idx in chunk {
-                                // Check if this specific point has all numeric inputs
-                                let mut all_numeric = true;
-                                for var_vals in expr_values.iter().take(n_vars) {
-                                    if point_idx >= var_vals.len() {
-                                        if let Some(val) = var_vals.last() {
-                                            if !matches!(val, Value::Num(_)) {
-                                                all_numeric = false;
-                                                break;
-                                            }
-                                        } else {
-                                            all_numeric = false;
-                                            break;
-                                        }
-                                    } else if !matches!(&var_vals[point_idx], Value::Num(_)) {
-                                        all_numeric = false;
-                                        break;
+                            for (i, var_vals) in expr_values.iter().take(n_vars).enumerate() {
+                                let val = var_vals.get(point_idx).unwrap_or_else(|| {
+                                    var_vals
+                                        .last()
+                                        .expect("Column cannot be empty (validated earlier)")
+                                });
+
+                                if let Value::Num(n) = val {
+                                    params[i] = *n;
+                                } else {
+                                    debug_assert!(false, "Non-numeric value in pure numeric path");
+                                    // SAFETY: mixed_cols.is_empty() guarantees all values are Value::Num
+                                    unsafe {
+                                        unreachable_unchecked();
                                     }
                                 }
-
-                                let result = if all_numeric {
-                                    // FAST PATH: Run compiled code
-                                    params.clear();
-                                    for var_vals in expr_values.iter().take(n_vars) {
-                                        let val = if point_idx < var_vals.len() {
-                                            &var_vals[point_idx]
-                                        } else {
-                                            var_vals.last().expect(
-                                                "Column cannot be empty (validated earlier)",
-                                            )
-                                        };
-
-                                        if let Value::Num(n) = val {
-                                            params.push(*n);
-                                        } else {
-                                            return Err(DiffError::UnsupportedOperation(
-                                                "Value must be Num after all_numeric check"
-                                                    .to_owned(),
-                                            ));
-                                        }
-                                    }
-
-                                    let r = evaluator.evaluate_heap(params, workspace);
-
-                                    Ok(if *was_string {
-                                        EvalResult::String(format_float(r))
-                                    } else {
-                                        EvalResult::Expr(Expr::number(r))
-                                    })
-                                } else {
-                                    // SLOW PATH: Fallback for this point
-                                    evaluate_slow_point(
-                                        expr,
-                                        &vars,
-                                        expr_values,
-                                        point_idx,
-                                        *was_string,
-                                    )
-                                };
-                                results.push(result?);
                             }
-                            Ok(results)
+
+                            let r = evaluator.evaluate_heap(params, workspace);
+
+                            Ok(if *was_string {
+                                EvalResult::String(format_float(r))
+                            } else {
+                                EvalResult::Expr(Expr::number(r))
+                            })
                         },
                     )
-                    .collect::<Result<Vec<_>, _>>()?;
-                Ok(chunks.into_iter().flatten().collect())
+                    .collect::<Result<Vec<_>, DiffError>>()?
             } else {
-                // SLOW PATH: Compilation failed (unsupported function, etc.)
-                // Evaluate entirely using substitution
-                let pts: Vec<EvalResult> = (0..n_points)
+                (0..n_points)
                     .into_par_iter()
-                    .map(|point_idx| {
-                        evaluate_slow_point(expr, &vars, expr_values, point_idx, *was_string)
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-                Ok(pts)
-            }
-        })
-        .collect::<Result<Vec<Vec<_>>, _>>()?;
+                    .with_min_len(256)
+                    .map_init(
+                        || (vec![0.0; n_vars], vec![0.0; evaluator.workspace_size]),
+                        |buffers, point_idx| {
+                            let (params, workspace) = buffers;
+
+                            // Check if this specific point has all numeric inputs
+                            let mut all_numeric = true;
+                            for &col_idx in &mixed_cols {
+                                let var_vals = &expr_values[col_idx];
+                                let val = var_vals.get(point_idx).unwrap_or_else(|| {
+                                    var_vals
+                                        .last()
+                                        .expect("Column cannot be empty (validated earlier)")
+                                });
+
+                                if !matches!(val, Value::Num(_)) {
+                                    all_numeric = false;
+                                    break;
+                                }
+                            }
+
+                            if all_numeric {
+                                // FAST PATH: Run compiled code
+                                for (i, var_vals) in expr_values.iter().take(n_vars).enumerate() {
+                                    let val = var_vals.get(point_idx).unwrap_or_else(|| {
+                                        var_vals
+                                            .last()
+                                            .expect("Column cannot be empty (validated earlier)")
+                                    });
+
+                                    if let Value::Num(n) = val {
+                                        params[i] = *n;
+                                    } else {
+                                        return Err(DiffError::UnsupportedOperation(
+                                            "Value must be Num after all_numeric check".to_owned(),
+                                        ));
+                                    }
+                                }
+
+                                let r = evaluator.evaluate_heap(params, workspace);
+
+                                Ok(if *was_string {
+                                    EvalResult::String(format_float(r))
+                                } else {
+                                    EvalResult::Expr(Expr::number(r))
+                                })
+                            } else {
+                                // SLOW PATH: Fallback for this point
+                                evaluate_slow_point(
+                                    expr,
+                                    &vars,
+                                    expr_values,
+                                    point_idx,
+                                    *was_string,
+                                )
+                            }
+                        },
+                    )
+                    .collect::<Result<Vec<_>, _>>()?
+            };
+            Ok(results)
+        } else {
+            // SLOW PATH: Compilation failed (unsupported function, etc.)
+            // Evaluate entirely using substitution
+            let pts: Vec<EvalResult> = (0..n_points)
+                .into_par_iter()
+                .map(|point_idx| {
+                    evaluate_slow_point(expr, &vars, expr_values, point_idx, *was_string)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(pts)
+        }
+    };
+
+    // Process each expression (skip outer parallelism if only 1 expression to minimize Rayon overhead)
+    let results: Vec<Vec<EvalResult>> = if n_exprs == 1 {
+        vec![process_expr(0)?]
+    } else {
+        (0..n_exprs)
+            .into_par_iter()
+            .map(process_expr)
+            .collect::<Result<Vec<Vec<_>>, _>>()?
+    };
 
     Ok(results)
 }

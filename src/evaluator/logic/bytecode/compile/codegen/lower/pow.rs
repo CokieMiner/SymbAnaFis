@@ -1,11 +1,11 @@
+use super::FnOp;
 use super::VirGenerator;
-use super::instruction::FnOp;
 use super::vir::node::{NodeData, const_from_map, exp_sqr_arg};
 use super::vir::{VInstruction, VReg};
 use crate::EPSILON;
+use crate::core::Expr;
 use crate::core::Polynomial;
 use crate::core::error::DiffError;
-use crate::core::Expr;
 use rustc_hash::FxHashMap;
 use std::f64::consts::E;
 
@@ -72,15 +72,31 @@ impl VirGenerator {
             return VReg::Const(self.add_const(coeffs[0]));
         }
         if coeffs.len() == 2 {
+            let c1 = coeffs[1];
+            let c0 = coeffs[0];
+
+            if c1 == 0.0 {
+                return VReg::Const(self.add_const(c0));
+            }
+
+            let c1_idx = self.add_const(c1);
             let dest = self.alloc_vreg();
-            let c1 = self.add_const(coeffs[1]);
-            let c0 = self.add_const(coeffs[0]);
-            self.emit(VInstruction::MulAdd {
-                dest,
-                a: VReg::Const(c1),
-                b: x,
-                c: VReg::Const(c0),
-            });
+
+            if c0 == 0.0 {
+                self.emit(VInstruction::Mul2 {
+                    dest,
+                    a: VReg::Const(c1_idx),
+                    b: x,
+                });
+            } else {
+                let c0_idx = self.add_const(c0);
+                self.emit(VInstruction::MulAdd {
+                    dest,
+                    a: VReg::Const(c1_idx),
+                    b: x,
+                    c: VReg::Const(c0_idx),
+                });
+            }
             return dest;
         }
 
@@ -90,6 +106,10 @@ impl VirGenerator {
 
         let left_vreg = self.compile_poly_estrin(left, x, powers);
         let right_vreg = self.compile_poly_estrin(right, x, powers);
+
+        if self.is_const_zero(right_vreg) {
+            return left_vreg;
+        }
 
         let x_pow_mid = self.get_power_vreg(x, mid, powers);
 
@@ -119,6 +139,9 @@ impl VirGenerator {
     ) -> VReg {
         if n == 1 {
             return x;
+        }
+        if let Some(&cached) = powers.get(&n) {
+            return cached;
         }
         #[allow(
             clippy::manual_is_multiple_of,

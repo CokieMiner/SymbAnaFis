@@ -1,5 +1,5 @@
 use super::VirGenerator;
-use super::analysis::CseKey;
+use super::analysis::GvnKey;
 use super::vir::VReg;
 use super::vir::node::NodeData;
 use crate::core::InternedSymbol;
@@ -49,7 +49,7 @@ impl VirGenerator {
         &self,
         expr: &Expr,
     ) -> Option<VReg> {
-        self.cse_cache.get(&CseKey::new(expr)).copied()
+        self.gvn_cache.get(&GvnKey::new(expr)).copied()
     }
 
     pub(in crate::evaluator::logic::bytecode::compile) fn push_children(

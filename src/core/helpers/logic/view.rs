@@ -9,7 +9,7 @@
 //! to get a stable API that works across internal representation changes.
 //!
 //! ```rust
-//! use symb_anafis::{symb, visitor::ExprView};
+//! use symb_anafis::{symb, ExprView};
 //!
 //! let x = symb("x");
 //! let expr = x.pow(2.0) + x + 1.0;  // May be stored as Poly internally
@@ -39,7 +39,7 @@ use std::sync::Arc;
 /// # Example
 ///
 /// ```rust
-/// use symb_anafis::{symb, visitor::ExprView};
+/// use symb_anafis::{symb, ExprView};
 ///
 /// let x = symb("view_x");
 /// let expr = x.pow(2.0) + 2.0*x + 1.0;

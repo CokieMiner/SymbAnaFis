@@ -4,4 +4,4 @@ pub mod traverse;
 
 pub use expand::expand_user_functions;
 
-pub use super::{VirGenerator, analysis, instruction, vir};
+pub use super::{FnOp, VirGenerator, analysis, vir};

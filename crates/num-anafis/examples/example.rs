@@ -10,8 +10,8 @@
 use core::array::from_fn;
 
 use num_anafis::{
-    CliffordNumber, Evaluate, Interval, NumAnafisError, Number, Signature, Vector, r, s,
-    e1, e2, e3, eps, i, j,
+    CliffordNumber, Evaluate, Interval, NumAnafisError, Number, Signature, Vector, e1, e2, e3, eps,
+    i, j, r, s,
 };
 
 fn print_title(title: &str) {
@@ -157,11 +157,8 @@ fn main() -> Result<(), NumAnafisError> {
     );
 
     print_title("Clifford coefficients: inline and heap representations");
-    let inline = CliffordNumber::from_coeffs(
-        sig_r3,
-        3,
-        from_fn(|idx| if idx == 0 { s(1) } else { s(0) }),
-    )?;
+    let inline =
+        CliffordNumber::from_coeffs(sig_r3, 3, from_fn(|idx| if idx == 0 { s(1) } else { s(0) }))?;
 
     println!("inline storage? {}", !inline.is_heap_allocated());
 

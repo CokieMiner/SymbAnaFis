@@ -36,7 +36,7 @@ impl Expr {
     /// # Example
     ///
     /// ```rust
-    /// use symb_anafis::{symb, visitor::ExprView};
+    /// use symb_anafis::{symb, ExprView};
     ///
     /// let x = symb("view_api_x");
     /// let expr = x.pow(2.0) + 2.0*x + 1.0;

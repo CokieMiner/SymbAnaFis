@@ -3,21 +3,21 @@
 //! This module compiles symbolic [`Expr`] expressions into Virtual Intermediate
 //! Representation ([`VInstruction`]s) that are then lowered to physical bytecode.
 
-use super::analysis::{CseKey, optimize_vir_cse};
+use super::Instruction;
+use super::analysis::{GvnKey, eliminate_vir_dead_code, optimize_vir_gvn};
 use super::emit::RegAllocator;
-use super::instruction::Instruction;
+use super::optimize::schedule::greedy_schedule;
 use super::vir::{VInstruction, VReg};
 use crate::core::Expr;
 use crate::core::error::DiffError;
 use rustc_hash::FxHashMap;
 use std::collections::hash_map::Entry;
-use std::mem::take;
 
 pub struct VirGenerator {
     pub(super) vinstrs: Vec<VInstruction>,
     pub(super) param_ids: Vec<u64>,
     pub(super) param_index: FxHashMap<u64, usize>,
-    pub(super) cse_cache: FxHashMap<CseKey, VReg>,
+    pub(super) gvn_cache: FxHashMap<GvnKey, VReg>,
     pub(super) constants: Vec<f64>,
     pub(super) const_map: FxHashMap<u64, u32>,
     pub(super) next_vreg: u32,
@@ -35,7 +35,7 @@ impl VirGenerator {
             vinstrs: Vec::with_capacity(64),
             param_ids: param_ids.to_vec(),
             param_index,
-            cse_cache: FxHashMap::default(),
+            gvn_cache: FxHashMap::default(),
             constants: Vec::new(),
             const_map: FxHashMap::default(),
             next_vreg: 0,
@@ -59,7 +59,8 @@ impl VirGenerator {
         match self.const_map.entry(bits) {
             Entry::Occupied(o) => *o.get(),
             Entry::Vacant(v) => {
-                let idx = u32::try_from(self.constants.len()).unwrap_or(u32::MAX);
+                let idx = u32::try_from(self.constants.len())
+                    .expect("constant pool overflow: more than u32::MAX constants");
                 self.constants.push(val);
                 v.insert(idx);
                 idx
@@ -72,24 +73,56 @@ impl VirGenerator {
         self.vinstrs.push(instr);
     }
 
-    pub(crate) fn into_parts(mut self) -> (Vec<Instruction>, Vec<f64>, Vec<u32>, usize, usize) {
+    #[allow(
+        clippy::type_complexity,
+        reason = "Internal signature for bytecode decomposition"
+    )]
+    pub(crate) fn into_parts(
+        mut self,
+    ) -> (
+        Vec<Instruction>,
+        Vec<f64>,
+        FxHashMap<u64, u32>,
+        Vec<u32>,
+        usize,
+        usize,
+        u32,
+    ) {
         let param_count = u32::try_from(self.param_ids.len()).expect("Param count too large");
+        optimize_vir_gvn(
+            &mut self.vinstrs,
+            &mut self.final_vreg,
+            &mut self.constants,
+            &mut self.const_map,
+            param_count,
+        );
         let const_count = u32::try_from(self.constants.len()).expect("Const count too large");
-        let num_temps = self.next_vreg as usize;
 
-        optimize_vir_cse(&mut self.vinstrs, &mut self.final_vreg);
+        // Greedy Instruction Scheduling (Minimizes Register Pressure)
+        self.vinstrs = greedy_schedule(self.vinstrs, self.next_vreg);
 
-        let vinstrs = take(&mut self.vinstrs);
+        // VIR Backward Dead Code Elimination
+        let (vinstrs, num_temps) =
+            eliminate_vir_dead_code(self.vinstrs, self.final_vreg, self.next_vreg);
 
-        let allocator = RegAllocator::new(param_count, const_count, num_temps, &vinstrs);
-        let (instructions, arg_pool, register_count) = allocator.allocate(vinstrs, self.final_vreg);
+        let allocator = RegAllocator::new(
+            param_count,
+            const_count,
+            num_temps,
+            &vinstrs,
+            self.final_vreg,
+        );
+        let (instructions, arg_pool, max_phys, result_reg) =
+            allocator.allocate(vinstrs, self.final_vreg);
 
         (
             instructions,
             self.constants,
+            self.const_map,
             arg_pool,
-            register_count,
             param_count as usize,
+            max_phys,
+            result_reg,
         )
     }
 
@@ -107,7 +140,7 @@ impl VirGenerator {
             clippy::integer_division,
             reason = "Intentional integer division for capacity reservation"
         )]
-        self.cse_cache.reserve(node_count / 8);
+        self.gvn_cache.reserve(node_count / 8);
         let vreg = self.compile_expr_iterative(expr, node_count)?;
         self.final_vreg = Some(vreg);
         Ok(vreg)

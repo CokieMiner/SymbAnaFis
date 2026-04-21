@@ -191,9 +191,15 @@ impl CliffordNumber {
     ///
     /// Returns [`NumAnafisError`] when `n > 4`, when `n` exceeds signature generators,
     /// or when `2^n` cannot be indexed on the current platform.
-    pub fn from_coeffs(sig: Signature, n: u8, coeffs: [Number; 16]) -> Result<Self, NumAnafisError> {
+    pub fn from_coeffs(
+        sig: Signature,
+        n: u8,
+        coeffs: [Number; 16],
+    ) -> Result<Self, NumAnafisError> {
         if n > INLINE_GENERATOR_LIMIT {
-            return Err(NumAnafisError::InlineCoefficientsRequireAtMostFourGenerators { active: n });
+            return Err(
+                NumAnafisError::InlineCoefficientsRequireAtMostFourGenerators { active: n },
+            );
         }
         Self::validate_active_generators(sig, n)?;
         Ok(Self {

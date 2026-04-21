@@ -1,6 +1,6 @@
 use super::VirGenerator;
-use super::vir::node::{NodeData, const_from_map};
 use super::vir::VReg;
+use super::vir::node::{NodeData, const_from_map};
 use crate::EPSILON;
 use crate::core::{DiffError, Expr};
 use rustc_hash::FxHashMap;
@@ -31,25 +31,21 @@ impl VirGenerator {
                         return Ok(VReg::Const(idx));
                     }
                 }
-                (Some(v0), None) => {
-                    if v0.is_finite() {
-                        if (v0 - 1.0).abs() < EPSILON {
-                            return Self::vreg_from_map(node_map, f1);
-                        }
-                        let c_idx = self.add_const(v0);
-                        let v1_reg = Self::vreg_from_map(node_map, f1)?;
-                        return Ok(self.emit_mul_vregs(vec![VReg::Const(c_idx), v1_reg]));
+                (Some(v0), None) if v0.is_finite() => {
+                    if (v0 - 1.0).abs() < EPSILON {
+                        return Self::vreg_from_map(node_map, f1);
                     }
+                    let c_idx = self.add_const(v0);
+                    let v1_reg = Self::vreg_from_map(node_map, f1)?;
+                    return Ok(self.emit_mul_vregs(vec![VReg::Const(c_idx), v1_reg]));
                 }
-                (None, Some(v1)) => {
-                    if v1.is_finite() {
-                        if (v1 - 1.0).abs() < EPSILON {
-                            return Self::vreg_from_map(node_map, f0);
-                        }
-                        let c_idx = self.add_const(v1);
-                        let v0_reg = Self::vreg_from_map(node_map, f0)?;
-                        return Ok(self.emit_mul_vregs(vec![v0_reg, VReg::Const(c_idx)]));
+                (None, Some(v1)) if v1.is_finite() => {
+                    if (v1 - 1.0).abs() < EPSILON {
+                        return Self::vreg_from_map(node_map, f0);
                     }
+                    let c_idx = self.add_const(v1);
+                    let v0_reg = Self::vreg_from_map(node_map, f0)?;
+                    return Ok(self.emit_mul_vregs(vec![v0_reg, VReg::Const(c_idx)]));
                 }
                 _ => {}
             }
@@ -68,7 +64,13 @@ impl VirGenerator {
         let mut vregs_all = variable_vregs;
         if constant_acc.is_finite() {
             if (constant_acc - 1.0).abs() > EPSILON {
-                let c_idx = self.add_const(constant_acc);
+                // Normalize -0.0 → +0.0 to avoid IEEE 754 sign propagation artifacts
+                let val = if constant_acc == 0.0 {
+                    0.0
+                } else {
+                    constant_acc
+                };
+                let c_idx = self.add_const(val);
                 vregs_all.push(VReg::Const(c_idx));
             }
         } else {

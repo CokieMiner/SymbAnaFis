@@ -1,4 +1,4 @@
-use super::instruction::Instruction;
+use super::Instruction;
 use rustc_hash::FxHashMap;
 
 /// Optimization pass that rewires independent power instructions sharing the same base into chains.
@@ -47,6 +47,7 @@ pub(super) fn optimize_power_chains(instructions: &mut [Instruction]) {
     // Reordering by exponent can create use-before-def bugs when, for example, `x^4`
     // is emitted before `x^2` and then rewritten to depend on that later `x^2`.
     let mut available_by_base: FxHashMap<u32, Vec<(i32, u32)>> = FxHashMap::default();
+    let mut dest_to_base: FxHashMap<u32, u32> = FxHashMap::default();
 
     for instr in instructions.iter_mut() {
         let (base, exp, dest) = match *instr {
@@ -54,10 +55,11 @@ pub(super) fn optimize_power_chains(instructions: &mut [Instruction]) {
             Instruction::Cube { src, dest } => (src, 3, dest),
             Instruction::Pow4 { src, dest } => (src, 4, dest),
             Instruction::Powi { src, n, dest } => (src, n, dest),
+            Instruction::Recip { src, dest } => (src, -1, dest),
             Instruction::InvSquare { src, dest } => (src, -2, dest),
             Instruction::InvCube { src, dest } => (src, -3, dest),
             _ => {
-                kill_written_reg(&mut available_by_base, instr.dest_reg());
+                kill_written_reg(&mut available_by_base, &mut dest_to_base, instr.dest_reg());
                 continue;
             }
         };
@@ -68,9 +70,10 @@ pub(super) fn optimize_power_chains(instructions: &mut [Instruction]) {
         {
             *instr = replacement;
         }
-        kill_written_reg(&mut available_by_base, dest);
+        kill_written_reg(&mut available_by_base, &mut dest_to_base, dest);
         if dest != base {
             available_by_base.entry(base).or_default().push((exp, dest));
+            dest_to_base.insert(dest, base);
         }
     }
 }
@@ -85,14 +88,32 @@ pub(super) fn optimize_power_chains(instructions: &mut [Instruction]) {
 ///
 /// 2. **Destination overwritten**: If `written_reg` was the destination of a cached
 ///    power (e.g. `R5`), that register no longer holds the power value.
-fn kill_written_reg(available_by_base: &mut FxHashMap<u32, Vec<(i32, u32)>>, written_reg: u32) {
+fn kill_written_reg(
+    available_by_base: &mut FxHashMap<u32, Vec<(i32, u32)>>,
+    dest_to_base: &mut FxHashMap<u32, u32>,
+    written_reg: u32,
+) {
+    // Fast path: most temps are not tracked
+    if !dest_to_base.contains_key(&written_reg) && !available_by_base.contains_key(&written_reg) {
+        return;
+    }
+
     // If the base register itself is overwritten, every cached power rooted at that base
     // becomes stale because future instructions see a different value in that register.
-    available_by_base.remove(&written_reg);
-    available_by_base.retain(|_, cached| {
+    if let Some(removed) = available_by_base.remove(&written_reg) {
+        for (_, reg) in removed {
+            dest_to_base.remove(&reg);
+        }
+    }
+
+    if let Some(base) = dest_to_base.remove(&written_reg)
+        && let Some(cached) = available_by_base.get_mut(&base)
+    {
         cached.retain(|&(_, reg)| reg != written_reg);
-        !cached.is_empty()
-    });
+        if cached.is_empty() {
+            available_by_base.remove(&base);
+        }
+    }
 }
 
 fn find_cheap_combo(
@@ -147,6 +168,11 @@ fn find_cheap_combo(
     // Only positive exponents for now to keep it simple and safe.
     if target_exp > 1 {
         for &(ea, ra) in available {
+            // target = a * 2 (squaring an available power)
+            if ea * 2 == target_exp {
+                return Some(Instruction::Square { dest, src: ra });
+            }
+
             let eb = target_exp - ea;
             if eb <= 0 || eb == ea {
                 continue;
@@ -154,9 +180,25 @@ fn find_cheap_combo(
             if let Some(&(_, rb)) = available.iter().find(|&&(e, _)| e == eb) {
                 return Some(Instruction::Mul { dest, a: ra, b: rb });
             }
-            // target = a * 2 (squaring an available power)
+        }
+    }
+
+    if target_exp < -1 {
+        for &(ea, ra) in available {
+            if ea >= 0 {
+                continue;
+            }
+            // target = a * 2 (squaring an available negative power, e.g. x^-4 from x^-2)
             if ea * 2 == target_exp {
                 return Some(Instruction::Square { dest, src: ra });
+            }
+
+            let eb = target_exp - ea;
+            if eb >= 0 || eb == ea {
+                continue;
+            }
+            if let Some(&(_, rb)) = available.iter().find(|&&(e, _)| e == eb) {
+                return Some(Instruction::Mul { dest, a: ra, b: rb });
             }
         }
     }

@@ -1,7 +1,7 @@
 use super::VirGenerator;
-use super::analysis::CseKey;
+use super::analysis::GvnKey;
 use super::vir::VReg;
-use super::vir::node::{NodeData, compute_const_from_children, compute_expensive_from_children};
+use super::vir::node::{NodeData, compute_const_from_children, compute_is_cse_candidate};
 use crate::core::Expr;
 use crate::core::error::DiffError;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -17,7 +17,7 @@ use std::ptr::from_ref;
 /// Each `&Expr` appears at most once in the output (deduplication via pointer
 /// identity).
 fn postorder_walk(root: &Expr, capacity: usize) -> Vec<&Expr> {
-    let mut stack: Vec<(*const Expr, bool)> = Vec::with_capacity(capacity);
+    let mut stack: Vec<(*const Expr, bool)> = Vec::with_capacity(1024.min(capacity));
     let mut visited = FxHashSet::default();
     visited.reserve(capacity);
     let mut result = Vec::with_capacity(capacity);
@@ -26,10 +26,6 @@ fn postorder_walk(root: &Expr, capacity: usize) -> Vec<&Expr> {
     stack.push((root_ptr, false));
 
     while let Some((ptr, processed)) = stack.pop() {
-        if visited.contains(&ptr) {
-            continue;
-        }
-
         if processed {
             #[allow(
                 unsafe_code,
@@ -38,9 +34,14 @@ fn postorder_walk(root: &Expr, capacity: usize) -> Vec<&Expr> {
             // SAFETY: `ptr` was obtained from `from_ref` or `Arc::as_ptr` on nodes
             // within the immutable `root` tree. The tree is not modified during traversal.
             let expr = unsafe { &*ptr };
-            visited.insert(ptr);
             result.push(expr);
         } else {
+            // Mark visited on first encounter. If already visited (shared subtree
+            // pushed by another parent), skip entirely — prevents redundant stack
+            // growth proportional to the DAG's sharing factor.
+            if !visited.insert(ptr) {
+                continue;
+            }
             stack.push((ptr, true));
             #[allow(
                 unsafe_code,
@@ -70,17 +71,13 @@ impl VirGenerator {
         for expr in order {
             let ptr = from_ref(expr);
 
-            if node_map.contains_key(&ptr) {
-                continue;
-            }
-
             let const_val = compute_const_from_children(expr, &node_map);
-            let is_expensive = compute_expensive_from_children(expr, &node_map);
+            let is_cse_candidate = compute_is_cse_candidate(expr, &node_map);
 
-            if is_expensive && let Some(cached) = self.lookup_cse(expr) {
+            if is_cse_candidate && let Some(cached) = self.lookup_cse(expr) {
                 let node_data = const_val.map_or_else(
-                    || NodeData::runtime(cached, is_expensive),
-                    |value| NodeData::constant(cached, value, is_expensive),
+                    || NodeData::runtime(cached),
+                    |value| NodeData::constant(cached, value),
                 );
                 node_map.insert(ptr, node_data);
                 continue;
@@ -89,15 +86,15 @@ impl VirGenerator {
             if let Some(val) = const_val {
                 let idx = self.add_const(val);
                 let vreg = VReg::Const(idx);
-                node_map.insert(ptr, NodeData::constant(vreg, val, is_expensive));
+                node_map.insert(ptr, NodeData::constant(vreg, val));
                 continue;
             }
 
             let result_vreg = self.compile_nonconst_node(expr, &node_map)?;
-            node_map.insert(ptr, NodeData::runtime(result_vreg, is_expensive));
+            node_map.insert(ptr, NodeData::runtime(result_vreg));
 
-            if is_expensive {
-                self.cse_cache.insert(CseKey::new(expr), result_vreg);
+            if is_cse_candidate {
+                self.gvn_cache.insert(GvnKey::new(expr), result_vreg);
             }
         }
 

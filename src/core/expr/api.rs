@@ -41,6 +41,12 @@ pub fn next_id() -> u64 {
 // ============================================================================
 
 /// A symbolic mathematical expression.
+///
+/// # Layout and Safety
+///
+/// Nodes are intended to be wrapped in `Arc<Expr>`, providing immutability and stable
+/// pointers. This property is exploited by the evaluator's Global Value Numbering (GVN)
+/// pass, which relies on `*const Expr` pointers remaining valid during compilation.
 #[derive(Debug, Clone)]
 pub struct Expr {
     pub(crate) id: u64,

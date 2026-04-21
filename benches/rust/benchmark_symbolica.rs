@@ -21,10 +21,9 @@ use std::env;
 use std::hint::black_box;
 use symbolica::{
     LicenseManager,
-    atom::{Atom, AtomCore, Indeterminate},
+    atom::{AtomCore, Indeterminate},
     evaluate::{FunctionMap, OptimizationSettings},
-    parser::ParseSettings,
-    wrap_input,
+    parse,
 };
 
 // Setup license
@@ -47,7 +46,7 @@ fn bench_parse(c: &mut Criterion) {
 
     for (name, expr, _, _) in ALL_EXPRESSIONS {
         group.bench_with_input(BenchmarkId::new("symbolica", name), expr, |b, expr| {
-            b.iter(|| Atom::parse(wrap_input!(black_box(expr)), ParseSettings::default()));
+            b.iter(|| parse!(black_box(expr)));
         });
     }
 
@@ -65,9 +64,8 @@ fn bench_diff(c: &mut Criterion) {
 
     for (name, expr_str, var, _) in ALL_EXPRESSIONS {
         // Pre-parse for fair comparison
-        let expr = Atom::parse(wrap_input!(expr_str), ParseSettings::default()).unwrap();
-        let var_atom = Atom::parse(wrap_input!(var), ParseSettings::default()).unwrap();
-        let var_indet: Indeterminate = var_atom.try_into().unwrap();
+        let expr = parse!(expr_str);
+        let var_indet: Indeterminate = parse!(var).try_into().unwrap();
 
         // Symbolica: diff only (auto light-simplifies)
         group.bench_with_input(BenchmarkId::new("symbolica", name), &expr, |b, expr| {
@@ -102,7 +100,7 @@ fn bench_compile(c: &mut Criterion) {
             continue;
         }
         // Pre-parse to isolate compile time
-        let expr = Atom::parse(wrap_input!(expr_str), ParseSettings::default()).unwrap();
+        let expr = parse!(expr_str);
 
         // Handle extra variables that are not in fixed_vars but are in the expression
         let mut all_fixed_vars = fixed_vars.to_vec();
@@ -110,13 +108,11 @@ fn bench_compile(c: &mut Criterion) {
             all_fixed_vars.push("y");
         }
 
-        let var_atom = Atom::parse(wrap_input!(var), ParseSettings::default()).unwrap();
-        let mut params = vec![var_atom];
+        let mut params = vec![parse!(var)];
 
         // Add fixed vars to params
         for f_var in all_fixed_vars {
-            let f_atom = Atom::parse(wrap_input!(f_var), ParseSettings::default()).unwrap();
-            params.push(f_atom);
+            params.push(parse!(f_var));
         }
 
         let func_map = FunctionMap::new();
@@ -153,7 +149,7 @@ fn bench_eval(c: &mut Criterion) {
         }
 
         // Pre-parse to isolate compile time
-        let expr = Atom::parse(wrap_input!(expr_str), ParseSettings::default()).unwrap();
+        let expr = parse!(expr_str);
 
         // Handle extra variables that are not in fixed_vars but are in the expression
         let mut all_fixed_vars = fixed_vars.to_vec();
@@ -161,13 +157,11 @@ fn bench_eval(c: &mut Criterion) {
             all_fixed_vars.push("y");
         }
 
-        let var_atom = Atom::parse(wrap_input!(var), ParseSettings::default()).unwrap();
-        let mut params = vec![var_atom];
+        let mut params = vec![parse!(var)];
 
         // Add fixed vars to params
         for f_var in &all_fixed_vars {
-            let f_atom = Atom::parse(wrap_input!(f_var), ParseSettings::default()).unwrap();
-            params.push(f_atom);
+            params.push(parse!(f_var));
         }
 
         let func_map = FunctionMap::new();
@@ -231,29 +225,18 @@ fn bench_full_pipeline(c: &mut Criterion) {
             |b, expr_str| {
                 b.iter(|| {
                     // 1. Parse
-                    let expr =
-                        Atom::parse(wrap_input!(expr_str), ParseSettings::default()).unwrap();
-                    let var_atom = Atom::parse(wrap_input!(var), ParseSettings::default()).unwrap();
-                    let var_indet: Indeterminate = var_atom.try_into().unwrap();
+                    let expr = parse!(expr_str);
+                    let var_indet: Indeterminate = parse!(var).try_into().unwrap();
 
                     // 2. Diff
                     let diff = expr.derivative(var_indet);
 
                     // 3. Compile (Create Evaluator)
-                    // Need to prepare params for the differentiated expression
-                    // The derivative might contain the differentiation variable and fixed vars
-                    // plus potentially "y" for Gaussian 2D.
-
                     let all_fixed_vars = fixed_vars.to_vec();
 
-                    // Re-parse var for params list (as Atom)
-                    let var_param =
-                        Atom::parse(wrap_input!(var), ParseSettings::default()).unwrap();
-                    let mut params = vec![var_param];
+                    let mut params = vec![parse!(var)];
                     for f_var in &all_fixed_vars {
-                        let f_atom =
-                            Atom::parse(wrap_input!(f_var), ParseSettings::default()).unwrap();
-                        params.push(f_atom);
+                        params.push(parse!(f_var));
                     }
 
                     let func_map = FunctionMap::new();

@@ -1,9 +1,14 @@
-pub mod compact;
-pub mod dce;
-pub mod fusion;
+mod compact;
+mod dce;
+mod fusion;
 pub mod helper;
-pub mod pipeline;
-pub mod power_chain;
-pub mod strength_reduction;
+pub use helper::ConstantPool;
+mod pipeline;
+mod power_chain;
+pub mod schedule;
+mod strength_reduction;
 
-pub use super::{CompiledEvaluator, instruction};
+pub use super::{CompiledEvaluator, FnOp, Instruction, VInstruction, VReg};
+
+#[cfg(test)]
+mod tests;

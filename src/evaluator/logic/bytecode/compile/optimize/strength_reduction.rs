@@ -1,104 +1,120 @@
+use super::Instruction;
 use super::helper::ConstantPool;
-use super::instruction::Instruction;
 
 /// Performs strength reduction on instructions, such as converting `Mul { a, a }` to `Square { a }`,
-/// and `DivConst` to `MulConst` by computing the reciprocal.
-///
-/// This pass may add new constants to the pool (e.g. reciprocals).
-///
-/// # Rounding note (`DivConst` → `MulConst`)
-///
-/// Replacing `x / c` with `x * (1/c)` introduces at most 1 ULP of additional
-/// rounding error for IEEE 754 doubles. This is acceptable for scientific
-/// computing where operands themselves carry measurement uncertainty. If exact
-/// rational arithmetic is required, this pass should be disabled.
+/// and `Div { x, const }` to `Mul { x, recip }`.
 #[allow(
     clippy::float_cmp,
-    reason = "The pass matches exact identity constants like 0.0, 1.0, and -1.0."
+    reason = "Exact floating point comparison is necessary for identifying algebraic identities (e.g. x * 1.0)"
+)]
+#[allow(
+    clippy::too_many_lines,
+    reason = "Strength reduction pass covering many instruction variants"
 )]
 pub(super) fn reduce_strength(instructions: &mut [Instruction], pool: &mut ConstantPool<'_>) {
     for instr in instructions {
         match *instr {
             Instruction::Mul { dest, a, b } if a == b => {
-                *instr = Instruction::Square { dest, src: a };
-            }
-            Instruction::DivConst {
-                dest,
-                src,
-                const_idx,
-            } => {
-                let divisor = pool.get(const_idx);
-                if divisor == 1.0 {
-                    *instr = Instruction::Copy { dest, src };
-                } else if divisor != 0.0 && divisor.is_finite() {
-                    let recip = 1.0 / divisor;
-                    let new_idx = pool.get_or_insert(recip);
-
-                    *instr = Instruction::MulConst {
-                        dest,
-                        src,
-                        const_idx: new_idx,
-                    };
-                }
-            }
-            Instruction::ConstDiv {
-                dest,
-                src,
-                const_idx,
-            } => {
-                let c_val = pool.get(const_idx);
-                if c_val == 1.0 {
-                    *instr = Instruction::Recip { dest, src };
-                }
-            }
-            Instruction::AddConst {
-                dest,
-                src,
-                const_idx,
-            } => {
-                let c_val = pool.get(const_idx);
-                if c_val == 0.0 {
-                    *instr = Instruction::Copy { dest, src };
-                }
-            }
-            Instruction::MulConst {
-                dest,
-                src,
-                const_idx,
-            } => {
-                let c_val = pool.get(const_idx);
-                if c_val == 1.0 {
-                    *instr = Instruction::Copy { dest, src };
-                } else if c_val == -1.0 {
-                    *instr = Instruction::Neg { dest, src };
-                }
-            }
-            Instruction::SubConst {
-                dest,
-                src,
-                const_idx,
-            } => {
-                let c_val = pool.get(const_idx);
-                if c_val == 0.0 {
-                    *instr = Instruction::Copy { dest, src };
+                if pool.is_constant(a) {
+                    let v = pool.get(a);
+                    let sq = pool.get_or_insert(v * v);
+                    *instr = Instruction::Copy { dest, src: sq };
                 } else {
-                    let neg_c = -c_val;
-                    let new_idx = pool.get_or_insert(neg_c);
-                    *instr = Instruction::AddConst {
+                    *instr = Instruction::Square { dest, src: a };
+                }
+            }
+            Instruction::Mul { dest, a, b } => {
+                if pool.is_constant(a) && pool.is_constant(b) {
+                    let v = pool.get(a) * pool.get(b);
+                    let c = pool.get_or_insert(v);
+                    *instr = Instruction::Copy { dest, src: c };
+                    continue;
+                }
+                let (c_reg, v_reg) = if pool.is_constant(b) {
+                    (b, a)
+                } else if pool.is_constant(a) {
+                    (a, b)
+                } else {
+                    continue;
+                };
+
+                // x * 1.0 -> Copy x
+                // x * -1.0 -> Neg x
+                // x * 2.0 -> Add x, x
+                let c = pool.get(c_reg);
+                if c == 1.0 {
+                    *instr = Instruction::Copy { dest, src: v_reg };
+                } else if c == -1.0 {
+                    *instr = Instruction::Neg { dest, src: v_reg };
+                } else if c == 2.0 {
+                    *instr = Instruction::Add {
                         dest,
-                        src,
-                        const_idx: new_idx,
+                        a: v_reg,
+                        b: v_reg,
                     };
                 }
             }
-            Instruction::ConstSub {
-                dest,
-                src,
-                const_idx,
-            } => {
-                let c_val = pool.get(const_idx);
-                if c_val == 0.0 {
-                    *instr = Instruction::Neg { dest, src };
+            Instruction::Div { dest, num, den } => {
+                if pool.is_constant(num) && pool.is_constant(den) {
+                    let v = pool.get(num) / pool.get(den);
+                    let c = pool.get_or_insert(v);
+                    *instr = Instruction::Copy { dest, src: c };
+                    continue;
+                }
+                // x / const -> x * (1/const)
+                if pool.is_constant(den) {
+                    let divisor = pool.get(den);
+                    if divisor == 1.0 {
+                        *instr = Instruction::Copy { dest, src: num };
+                    } else if divisor != 0.0 && divisor.is_finite() {
+                        let recip = 1.0 / divisor;
+                        let recip_reg = pool.get_or_insert(recip);
+                        *instr = Instruction::Mul {
+                            dest,
+                            a: num,
+                            b: recip_reg,
+                        };
+                    }
+                } else if pool.is_constant(num) {
+                    let c = pool.get(num);
+                    if c == 1.0 {
+                        *instr = Instruction::Recip { dest, src: den };
+                    }
+                }
+            }
+            Instruction::Add { dest, a, b } => {
+                if pool.is_constant(a) && pool.is_constant(b) {
+                    let v = pool.get(a) + pool.get(b);
+                    let c = pool.get_or_insert(v);
+                    *instr = Instruction::Copy { dest, src: c };
+                    continue;
+                }
+                let (c_reg, v_reg) = if pool.is_constant(b) {
+                    (b, a)
+                } else if pool.is_constant(a) {
+                    (a, b)
+                } else {
+                    continue;
+                };
+
+                // x + 0.0 -> Copy x
+                if pool.get(c_reg) == 0.0 {
+                    *instr = Instruction::Copy { dest, src: v_reg };
+                }
+            }
+            Instruction::Sub { dest, a, b } => {
+                if pool.is_constant(a) && pool.is_constant(b) {
+                    let v = pool.get(a) - pool.get(b);
+                    let c = pool.get_or_insert(v);
+                    *instr = Instruction::Copy { dest, src: c };
+                    continue;
+                }
+                // x - 0.0 -> Copy x
+                // 0.0 - x -> Neg x
+                if pool.is_constant(b) && pool.get(b) == 0.0 {
+                    *instr = Instruction::Copy { dest, src: a };
+                } else if pool.is_constant(a) && pool.get(a) == 0.0 {
+                    *instr = Instruction::Neg { dest, src: b };
                 }
             }
             Instruction::Powi {
@@ -114,6 +130,13 @@ pub(super) fn reduce_strength(instructions: &mut [Instruction], pool: &mut Const
                 -3 => *instr = Instruction::InvCube { dest, src },
                 _ => {}
             },
+            Instruction::Pow { dest, base, exp }
+                if pool.is_constant(base) && pool.is_constant(exp) =>
+            {
+                let v = pool.get(base).powf(pool.get(exp));
+                let c = pool.get_or_insert(v);
+                *instr = Instruction::Copy { dest, src: c };
+            }
             _ => {}
         }
     }

@@ -1,4 +1,4 @@
-use super::instruction::Instruction;
+use super::Instruction;
 use super::vir::{VInstruction, VReg};
 
 pub struct RegAllocator {
@@ -6,9 +6,19 @@ pub struct RegAllocator {
     const_count: u32,
     num_temps: usize,
     last_use: Vec<Option<usize>>,
-    deaths: Vec<(usize, u32)>,
+    death_heads: Vec<u32>,
+    death_next: Vec<u32>,
     arg_pool: Vec<u32>,
     last_phys_0_read: Option<usize>,
+}
+
+#[inline]
+fn map_vreg(vreg: VReg, param_count: u32, t2p: &[u32]) -> u32 {
+    match vreg {
+        VReg::Param(p) => p,
+        VReg::Const(c) => param_count + c,
+        VReg::Temp(t) => t2p[t as usize],
+    }
 }
 
 impl RegAllocator {
@@ -17,6 +27,7 @@ impl RegAllocator {
         const_count: u32,
         num_temps: usize,
         vinstrs: &[VInstruction],
+        final_vreg: Option<VReg>,
     ) -> Self {
         let mut last_use = vec![None; num_temps];
         let mut last_phys_0_read = None;
@@ -42,21 +53,35 @@ impl RegAllocator {
             });
         }
 
-        let mut deaths: Vec<(usize, u32)> = last_use
-            .iter()
-            .enumerate()
-            .filter_map(|(t, lu_opt)| {
-                lu_opt.map(|lu| (lu, u32::try_from(t).expect("Temp index too large")))
-            })
-            .collect();
-        deaths.sort_unstable_by_key(|&(idx, _)| idx);
+        // Ensure the final result register is kept alive until the very end
+        // so its physical register is not overwritten by intermediate computations.
+        if let Some(VReg::Temp(t)) = final_vreg {
+            let last_idx = vinstrs.len().saturating_sub(1);
+            if let Some(lu) = last_use[t as usize] {
+                last_use[t as usize] = Some(lu.max(last_idx));
+            } else {
+                last_use[t as usize] = Some(last_idx);
+            }
+        }
+
+        // O(N) linked bucket sort for temporal register deaths
+        let mut death_heads = vec![u32::MAX; vinstrs.len()];
+        let mut death_next = vec![u32::MAX; num_temps];
+        for (t, lu_opt) in last_use.iter().enumerate() {
+            if let Some(lu) = lu_opt {
+                let t_u32 = u32::try_from(t).expect("Temp index too large");
+                death_next[t] = death_heads[*lu];
+                death_heads[*lu] = t_u32;
+            }
+        }
 
         Self {
             param_count,
             const_count,
             num_temps,
             last_use,
-            deaths,
+            death_heads,
+            death_next,
             arg_pool: Vec::with_capacity(128),
             last_phys_0_read,
         }
@@ -64,29 +89,20 @@ impl RegAllocator {
 
     #[allow(
         clippy::too_many_lines,
-        reason = "Large match statement for IR dispatch"
+        reason = "Register allocation is a complex linear pass that is easier to maintain and faster to execute when kept in a single function"
     )]
     pub(crate) fn allocate(
         mut self,
         vinstrs: Vec<VInstruction>,
         final_vreg: Option<VReg>,
-    ) -> (Vec<Instruction>, Vec<u32>, usize) {
+    ) -> (Vec<Instruction>, Vec<u32>, usize, u32) {
         let n_instrs = vinstrs.len();
         let mut max_phys = self.param_count + self.const_count;
         let mut temp_to_phys: Vec<u32> = vec![u32::MAX; self.num_temps];
-        let mut free_phys: Vec<u32> = Vec::new();
+        let mut free_phys: Vec<u32> = Vec::with_capacity(self.num_temps.min(64));
         let mut instructions = Vec::with_capacity(n_instrs);
-        let mut death_cursor = 0;
 
         for (idx, instr) in vinstrs.into_iter().enumerate() {
-            let map_vreg_phys = |vreg: VReg, t2p: &[u32]| -> u32 {
-                match vreg {
-                    VReg::Param(p) => p,
-                    VReg::Const(c) => self.param_count + c,
-                    VReg::Temp(t) => t2p[t as usize],
-                }
-            };
-
             let dest_vreg = instr.dest();
             let is_final_prod = final_vreg == Some(dest_vreg);
 
@@ -94,10 +110,11 @@ impl RegAllocator {
                 VReg::Param(p) => p,
                 VReg::Const(c) => self.param_count + c,
                 VReg::Temp(t) => {
-                    // Optimization: If this instruction produces the final result, try to land it in
-                    // register 0 immediately. This is safe if register 0 (Param(0) or Const(0))
-                    // is not used after this instruction.
-                    if is_final_prod && self.last_phys_0_read.is_none_or(|lu| lu <= idx) {
+                    if is_final_prod
+                        && self.last_phys_0_read.is_none_or(|lu| lu <= idx)
+                        && self.param_count == 0
+                        && self.const_count == 0
+                    {
                         temp_to_phys[t as usize] = 0;
                         0
                     } else {
@@ -107,6 +124,10 @@ impl RegAllocator {
                             p
                         });
                         temp_to_phys[t as usize] = p;
+                        debug_assert!(
+                            self.last_use[t as usize].is_some(),
+                            "Temp {t} has no last_use — should have been DCE'd"
+                        );
                         if self.last_use[t as usize].is_none() {
                             free_phys.push(p);
                         }
@@ -115,26 +136,52 @@ impl RegAllocator {
                 }
             };
 
-            let map_vreg_local = |vreg: VReg| map_vreg_phys(vreg, &temp_to_phys);
-
+            // Inlined macro for mapping VReg to physical register to avoid closure overhead
+            // and ensure direct inlining at each call site.
+            macro_rules! map_vreg_to_phys {
+                ($vreg:expr) => {
+                    match $vreg {
+                        VReg::Param(p) => p,
+                        VReg::Const(c) => self.param_count + c,
+                        VReg::Temp(t) => temp_to_phys[t as usize],
+                    }
+                };
+            }
             match instr {
-                VInstruction::Add { srcs, .. } => match srcs.len() {
-                    1 => instructions.push(Instruction::Copy {
-                        dest: dest_phys,
-                        src: map_vreg_local(srcs[0]),
-                    }),
-                    2 => self.emit_add2(
-                        dest_phys,
-                        srcs[0],
-                        srcs[1],
-                        &temp_to_phys,
-                        &mut instructions,
-                    ),
-                    _ => {
+                VInstruction::Add { srcs, .. } => {
+                    debug_assert!(
+                        srcs.len() >= 2,
+                        "1-element Add should be simplified in VIR lowering"
+                    );
+                    if srcs.len() == 2 {
+                        self.emit_add2(
+                            dest_phys,
+                            srcs[0],
+                            srcs[1],
+                            &temp_to_phys,
+                            &mut instructions,
+                        );
+                    } else if srcs.len() == 3 {
+                        instructions.push(Instruction::Add3 {
+                            dest: dest_phys,
+                            a: map_vreg_to_phys!(srcs[0]),
+                            b: map_vreg_to_phys!(srcs[1]),
+                            c: map_vreg_to_phys!(srcs[2]),
+                        });
+                    } else if srcs.len() == 4 {
+                        instructions.push(Instruction::Add4 {
+                            dest: dest_phys,
+                            a: map_vreg_to_phys!(srcs[0]),
+                            b: map_vreg_to_phys!(srcs[1]),
+                            c: map_vreg_to_phys!(srcs[2]),
+                            d: map_vreg_to_phys!(srcs[3]),
+                        });
+                    } else {
+                        self.arg_pool.reserve(srcs.len());
                         let start_idx = u32::try_from(self.arg_pool.len())
                             .expect("Arg pool too large for u32 index");
                         for &s in &srcs {
-                            self.arg_pool.push(map_vreg_local(s));
+                            self.arg_pool.push(map_vreg_to_phys!(s));
                         }
                         instructions.push(Instruction::AddN {
                             dest: dest_phys,
@@ -142,27 +189,44 @@ impl RegAllocator {
                             count: u32::try_from(srcs.len()).expect("Too many sources for AddN"),
                         });
                     }
-                },
+                }
                 VInstruction::Add2 { a, b, .. } => {
                     self.emit_add2(dest_phys, a, b, &temp_to_phys, &mut instructions);
                 }
-                VInstruction::Mul { srcs, .. } => match srcs.len() {
-                    1 => instructions.push(Instruction::Copy {
-                        dest: dest_phys,
-                        src: map_vreg_local(srcs[0]),
-                    }),
-                    2 => self.emit_mul2(
-                        dest_phys,
-                        srcs[0],
-                        srcs[1],
-                        &temp_to_phys,
-                        &mut instructions,
-                    ),
-                    _ => {
+                VInstruction::Mul { srcs, .. } => {
+                    debug_assert!(
+                        srcs.len() >= 2,
+                        "1-element Mul should be simplified in VIR lowering"
+                    );
+                    if srcs.len() == 2 {
+                        self.emit_mul2(
+                            dest_phys,
+                            srcs[0],
+                            srcs[1],
+                            &temp_to_phys,
+                            &mut instructions,
+                        );
+                    } else if srcs.len() == 3 {
+                        instructions.push(Instruction::Mul3 {
+                            dest: dest_phys,
+                            a: map_vreg_to_phys!(srcs[0]),
+                            b: map_vreg_to_phys!(srcs[1]),
+                            c: map_vreg_to_phys!(srcs[2]),
+                        });
+                    } else if srcs.len() == 4 {
+                        instructions.push(Instruction::Mul4 {
+                            dest: dest_phys,
+                            a: map_vreg_to_phys!(srcs[0]),
+                            b: map_vreg_to_phys!(srcs[1]),
+                            c: map_vreg_to_phys!(srcs[2]),
+                            d: map_vreg_to_phys!(srcs[3]),
+                        });
+                    } else {
+                        self.arg_pool.reserve(srcs.len());
                         let start_idx = u32::try_from(self.arg_pool.len())
                             .expect("Arg pool too large for u32 index");
                         for &s in &srcs {
-                            self.arg_pool.push(map_vreg_local(s));
+                            self.arg_pool.push(map_vreg_to_phys!(s));
                         }
                         instructions.push(Instruction::MulN {
                             dest: dest_phys,
@@ -170,70 +234,46 @@ impl RegAllocator {
                             count: u32::try_from(srcs.len()).expect("Too many sources for MulN"),
                         });
                     }
-                },
+                }
                 VInstruction::Mul2 { a, b, .. } => {
                     self.emit_mul2(dest_phys, a, b, &temp_to_phys, &mut instructions);
                 }
-                VInstruction::Sub { a, b, .. } => match (a, b) {
-                    (VReg::Const(c), _) => instructions.push(Instruction::ConstSub {
-                        dest: dest_phys,
-                        src: map_vreg_local(b),
-                        const_idx: c,
-                    }),
-                    (_, VReg::Const(c)) => instructions.push(Instruction::SubConst {
-                        dest: dest_phys,
-                        src: map_vreg_local(a),
-                        const_idx: c,
-                    }),
-                    _ => instructions.push(Instruction::Sub {
-                        dest: dest_phys,
-                        a: map_vreg_local(a),
-                        b: map_vreg_local(b),
-                    }),
-                },
-                VInstruction::Div { num, den, .. } => match (num, den) {
-                    (VReg::Const(c), _) => instructions.push(Instruction::ConstDiv {
-                        dest: dest_phys,
-                        src: map_vreg_local(den),
-                        const_idx: c,
-                    }),
-                    (_, VReg::Const(c)) => instructions.push(Instruction::DivConst {
-                        dest: dest_phys,
-                        src: map_vreg_local(num),
-                        const_idx: c,
-                    }),
-                    _ => instructions.push(Instruction::Div {
-                        dest: dest_phys,
-                        num: map_vreg_local(num),
-                        den: map_vreg_local(den),
-                    }),
-                },
+                VInstruction::Sub { a, b, .. } => instructions.push(Instruction::Sub {
+                    dest: dest_phys,
+                    a: map_vreg_to_phys!(a),
+                    b: map_vreg_to_phys!(b),
+                }),
+                VInstruction::Div { num, den, .. } => instructions.push(Instruction::Div {
+                    dest: dest_phys,
+                    num: map_vreg_to_phys!(num),
+                    den: map_vreg_to_phys!(den),
+                }),
                 VInstruction::Pow { base, exp, .. } => instructions.push(Instruction::Pow {
                     dest: dest_phys,
-                    base: map_vreg_local(base),
-                    exp: map_vreg_local(exp),
+                    base: map_vreg_to_phys!(base),
+                    exp: map_vreg_to_phys!(exp),
                 }),
                 VInstruction::Neg { src, .. } => instructions.push(Instruction::Neg {
                     dest: dest_phys,
-                    src: map_vreg_local(src),
+                    src: map_vreg_to_phys!(src),
                 }),
                 VInstruction::BuiltinFun { op, args, .. } => match args.len() {
                     1 => instructions.push(Instruction::Builtin1 {
                         dest: dest_phys,
                         op,
-                        arg: map_vreg_local(args[0]),
+                        arg: map_vreg_to_phys!(args[0]),
                     }),
                     2 => instructions.push(Instruction::Builtin2 {
                         dest: dest_phys,
                         op,
-                        arg1: map_vreg_local(args[0]),
-                        arg2: map_vreg_local(args[1]),
+                        arg1: map_vreg_to_phys!(args[0]),
+                        arg2: map_vreg_to_phys!(args[1]),
                     }),
                     _ => {
                         let start_idx = u32::try_from(self.arg_pool.len())
                             .expect("Arg pool too large for u32 index");
                         for &s in &args {
-                            self.arg_pool.push(map_vreg_local(s));
+                            self.arg_pool.push(map_vreg_to_phys!(s));
                         }
                         if args.len() == 3 {
                             instructions.push(Instruction::Builtin3 {
@@ -254,155 +294,123 @@ impl RegAllocator {
                     instructions.push(Instruction::Builtin1 {
                         dest: dest_phys,
                         op,
-                        arg: map_vreg_local(arg),
+                        arg: map_vreg_to_phys!(arg),
                     });
                 }
                 VInstruction::Builtin2 { op, arg1, arg2, .. } => {
                     instructions.push(Instruction::Builtin2 {
                         dest: dest_phys,
                         op,
-                        arg1: map_vreg_local(arg1),
-                        arg2: map_vreg_local(arg2),
+                        arg1: map_vreg_to_phys!(arg1),
+                        arg2: map_vreg_to_phys!(arg2),
                     });
                 }
                 VInstruction::Square { src, .. } => instructions.push(Instruction::Square {
                     dest: dest_phys,
-                    src: map_vreg_local(src),
+                    src: map_vreg_to_phys!(src),
                 }),
                 VInstruction::Cube { src, .. } => instructions.push(Instruction::Cube {
                     dest: dest_phys,
-                    src: map_vreg_local(src),
+                    src: map_vreg_to_phys!(src),
                 }),
                 VInstruction::Pow4 { src, .. } => instructions.push(Instruction::Pow4 {
                     dest: dest_phys,
-                    src: map_vreg_local(src),
+                    src: map_vreg_to_phys!(src),
                 }),
                 VInstruction::Pow3_2 { src, .. } => instructions.push(Instruction::Pow3_2 {
                     dest: dest_phys,
-                    src: map_vreg_local(src),
+                    src: map_vreg_to_phys!(src),
                 }),
                 VInstruction::InvPow3_2 { src, .. } => instructions.push(Instruction::InvPow3_2 {
                     dest: dest_phys,
-                    src: map_vreg_local(src),
+                    src: map_vreg_to_phys!(src),
                 }),
                 VInstruction::InvSqrt { src, .. } => instructions.push(Instruction::InvSqrt {
                     dest: dest_phys,
-                    src: map_vreg_local(src),
+                    src: map_vreg_to_phys!(src),
                 }),
                 VInstruction::InvSquare { src, .. } => instructions.push(Instruction::InvSquare {
                     dest: dest_phys,
-                    src: map_vreg_local(src),
+                    src: map_vreg_to_phys!(src),
                 }),
                 VInstruction::InvCube { src, .. } => instructions.push(Instruction::InvCube {
                     dest: dest_phys,
-                    src: map_vreg_local(src),
+                    src: map_vreg_to_phys!(src),
                 }),
                 VInstruction::Recip { src, .. } => instructions.push(Instruction::Recip {
                     dest: dest_phys,
-                    src: map_vreg_local(src),
+                    src: map_vreg_to_phys!(src),
                 }),
                 VInstruction::Powi { src, n, .. } => instructions.push(Instruction::Powi {
                     dest: dest_phys,
-                    src: map_vreg_local(src),
+                    src: map_vreg_to_phys!(src),
                     n,
                 }),
                 VInstruction::MulAdd { a, b, c, .. } => {
-                    if let VReg::Const(c_idx) = c {
-                        instructions.push(Instruction::MulAddConst {
-                            dest: dest_phys,
-                            a: map_vreg_local(a),
-                            b: map_vreg_local(b),
-                            const_idx: c_idx,
-                        });
-                    } else {
-                        instructions.push(Instruction::MulAdd {
-                            dest: dest_phys,
-                            a: map_vreg_local(a),
-                            b: map_vreg_local(b),
-                            c: map_vreg_local(c),
-                        });
-                    }
+                    instructions.push(Instruction::MulAdd {
+                        dest: dest_phys,
+                        a: map_vreg_to_phys!(a),
+                        b: map_vreg_to_phys!(b),
+                        c: map_vreg_to_phys!(c),
+                    });
                 }
                 VInstruction::MulSub { a, b, c, .. } => {
-                    if let VReg::Const(c_idx) = c {
-                        instructions.push(Instruction::MulSubConst {
-                            dest: dest_phys,
-                            a: map_vreg_local(a),
-                            b: map_vreg_local(b),
-                            const_idx: c_idx,
-                        });
-                    } else {
-                        instructions.push(Instruction::MulSub {
-                            dest: dest_phys,
-                            a: map_vreg_local(a),
-                            b: map_vreg_local(b),
-                            c: map_vreg_local(c),
-                        });
-                    }
+                    instructions.push(Instruction::MulSub {
+                        dest: dest_phys,
+                        a: map_vreg_to_phys!(a),
+                        b: map_vreg_to_phys!(b),
+                        c: map_vreg_to_phys!(c),
+                    });
                 }
                 VInstruction::NegMulAdd { a, b, c, .. } => {
-                    if let VReg::Const(c_idx) = c {
-                        instructions.push(Instruction::NegMulAddConst {
-                            dest: dest_phys,
-                            a: map_vreg_local(a),
-                            b: map_vreg_local(b),
-                            const_idx: c_idx,
-                        });
-                    } else {
-                        instructions.push(Instruction::NegMulAdd {
-                            dest: dest_phys,
-                            a: map_vreg_local(a),
-                            b: map_vreg_local(b),
-                            c: map_vreg_local(c),
-                        });
-                    }
+                    instructions.push(Instruction::NegMulAdd {
+                        dest: dest_phys,
+                        a: map_vreg_to_phys!(a),
+                        b: map_vreg_to_phys!(b),
+                        c: map_vreg_to_phys!(c),
+                    });
                 }
+
                 VInstruction::RecipExpm1 { src, .. } => {
                     instructions.push(Instruction::RecipExpm1 {
                         dest: dest_phys,
-                        src: map_vreg_local(src),
+                        src: map_vreg_to_phys!(src),
                     });
                 }
                 VInstruction::ExpSqr { src, .. } => instructions.push(Instruction::ExpSqr {
                     dest: dest_phys,
-                    src: map_vreg_local(src),
+                    src: map_vreg_to_phys!(src),
                 }),
                 VInstruction::ExpSqrNeg { src, .. } => instructions.push(Instruction::ExpSqrNeg {
                     dest: dest_phys,
-                    src: map_vreg_local(src),
+                    src: map_vreg_to_phys!(src),
                 }),
             }
 
-            while death_cursor < self.deaths.len() && self.deaths[death_cursor].0 == idx {
-                let t_id = self.deaths[death_cursor].1;
+            let mut curr_death = self.death_heads[idx];
+            while curr_death != u32::MAX {
+                let t_id = curr_death;
                 let p = temp_to_phys[t_id as usize];
                 if p != u32::MAX {
                     free_phys.push(p);
                 }
-                death_cursor += 1;
+                curr_death = self.death_next[t_id as usize];
             }
         }
 
-        if let Some(f_vreg) = final_vreg {
-            let src_phys = match f_vreg {
+        let result_phys = if let Some(f_vreg) = final_vreg {
+            match f_vreg {
                 VReg::Param(p) => p,
                 VReg::Const(c) => self.param_count + c,
                 VReg::Temp(t) => temp_to_phys[t as usize],
-            };
-            if src_phys != 0 {
-                instructions.push(Instruction::Copy {
-                    dest: 0,
-                    src: src_phys,
-                });
             }
         } else {
-            instructions.push(Instruction::LoadConst {
-                dest: 0,
-                const_idx: 0,
-            });
-        }
+            // No result produced (e.g. empty program), use default zero (first constant)
+            // In the unified layout, constant 0 (0.0) is at param_count + 0.
+            self.param_count
+        };
 
-        (instructions, self.arg_pool, max_phys as usize)
+        (instructions, self.arg_pool, max_phys as usize, result_phys)
     }
 
     fn emit_add2(
@@ -413,28 +421,11 @@ impl RegAllocator {
         t2p: &[u32],
         instrs: &mut Vec<Instruction>,
     ) {
-        let map = |v| match v {
-            VReg::Param(p) => p,
-            VReg::Const(c) => self.param_count + c,
-            VReg::Temp(t) => t2p[t as usize],
-        };
-        match (a, b) {
-            (VReg::Const(c), _) => instrs.push(Instruction::AddConst {
-                dest: dest_phys,
-                src: map(b),
-                const_idx: c,
-            }),
-            (_, VReg::Const(c)) => instrs.push(Instruction::AddConst {
-                dest: dest_phys,
-                src: map(a),
-                const_idx: c,
-            }),
-            _ => instrs.push(Instruction::Add {
-                dest: dest_phys,
-                a: map(a),
-                b: map(b),
-            }),
-        }
+        instrs.push(Instruction::Add {
+            dest: dest_phys,
+            a: map_vreg(a, self.param_count, t2p),
+            b: map_vreg(b, self.param_count, t2p),
+        });
     }
 
     fn emit_mul2(
@@ -445,27 +436,10 @@ impl RegAllocator {
         t2p: &[u32],
         instrs: &mut Vec<Instruction>,
     ) {
-        let map = |v| match v {
-            VReg::Param(p) => p,
-            VReg::Const(c) => self.param_count + c,
-            VReg::Temp(t) => t2p[t as usize],
-        };
-        match (a, b) {
-            (VReg::Const(c), _) => instrs.push(Instruction::MulConst {
-                dest: dest_phys,
-                src: map(b),
-                const_idx: c,
-            }),
-            (_, VReg::Const(c)) => instrs.push(Instruction::MulConst {
-                dest: dest_phys,
-                src: map(a),
-                const_idx: c,
-            }),
-            _ => instrs.push(Instruction::Mul {
-                dest: dest_phys,
-                a: map(a),
-                b: map(b),
-            }),
-        }
+        instrs.push(Instruction::Mul {
+            dest: dest_phys,
+            a: map_vreg(a, self.param_count, t2p),
+            b: map_vreg(b, self.param_count, t2p),
+        });
     }
 }

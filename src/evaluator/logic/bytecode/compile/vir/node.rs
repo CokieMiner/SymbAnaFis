@@ -12,7 +12,6 @@ use crate::core::known_symbols::KS;
 use crate::core::known_symbols::get_constant_value_by_id;
 use crate::core::{Expr, ExprKind};
 use rustc_hash::FxHashMap;
-use std::cmp::Ordering;
 use std::ptr::from_ref;
 use std::sync::Arc;
 
@@ -40,21 +39,18 @@ impl NodeValue {
 #[derive(Clone, Copy)]
 pub struct NodeData {
     pub value: NodeValue,
-    pub is_expensive: bool,
 }
 
 impl NodeData {
-    pub const fn runtime(vreg: VReg, is_expensive: bool) -> Self {
+    pub const fn runtime(vreg: VReg) -> Self {
         Self {
             value: NodeValue::Runtime(vreg),
-            is_expensive,
         }
     }
 
-    pub const fn constant(vreg: VReg, value: f64, is_expensive: bool) -> Self {
+    pub const fn constant(vreg: VReg, value: f64) -> Self {
         Self {
             value: NodeValue::Constant { vreg, value },
-            is_expensive,
         }
     }
 
@@ -74,40 +70,13 @@ pub fn const_from_map(node_map: &FxHashMap<*const Expr, NodeData>, expr: &Expr) 
         .and_then(|data| data.const_val())
 }
 
-pub fn compute_expensive_from_children(
+pub const fn compute_is_cse_candidate(
     expr: &Expr,
-    node_map: &FxHashMap<*const Expr, NodeData>,
+    _node_map: &FxHashMap<*const Expr, NodeData>,
 ) -> bool {
-    match &expr.kind {
-        ExprKind::FunctionCall { .. } | ExprKind::Div(..) | ExprKind::Poly(_) => true,
-        ExprKind::Pow(base, exp) => {
-            if const_from_map(node_map, exp.as_ref())
-                .is_none_or(|n| (n - n.round()).abs() > EPSILON)
-            {
-                true
-            } else {
-                !matches!(base.kind, ExprKind::Number(_))
-            }
-        }
-        ExprKind::Sum(terms) | ExprKind::Product(terms) => match terms.len().cmp(&2) {
-            Ordering::Greater => true,
-            Ordering::Equal => terms.iter().any(|t| {
-                if node_map
-                    .get(&Arc::as_ptr(t))
-                    .is_some_and(|data| data.is_expensive)
-                {
-                    return true;
-                }
-                !matches!(t.kind, ExprKind::Number(_) | ExprKind::Symbol(_))
-            }),
-            Ordering::Less => terms.iter().any(|t| {
-                node_map
-                    .get(&Arc::as_ptr(t))
-                    .is_some_and(|data| data.is_expensive)
-            }),
-        },
-        _ => false,
-    }
+    // Any node that maps to an instruction is considered "expensive" and eligible for CSE.
+    // Symbols and Numbers simply map to Param/Const virtual registers without emitting instructions.
+    !matches!(expr.kind, ExprKind::Number(_) | ExprKind::Symbol(_))
 }
 
 pub fn compute_const_from_children(
@@ -161,7 +130,6 @@ pub fn compute_const_from_children(
     }
 }
 
-#[inline]
 pub fn product_two_vregs(
     term: &Expr,
     node_map: &FxHashMap<*const Expr, NodeData>,
@@ -169,23 +137,20 @@ pub fn product_two_vregs(
     if let ExprKind::Product(factors) = &term.kind
         && factors.len() == 2
     {
-        if factors.iter().any(|f| {
-            const_from_map(node_map, (*f).as_ref()).is_some_and(|n| (n + 1.0).abs() < EPSILON)
-        }) {
+        let d0 = node_map.get(&Arc::as_ptr(&factors[0]))?;
+        let d1 = node_map.get(&Arc::as_ptr(&factors[1]))?;
+
+        if d0.const_val().is_some_and(|n| (n + 1.0).abs() < EPSILON)
+            || d1.const_val().is_some_and(|n| (n + 1.0).abs() < EPSILON)
+        {
             return None;
         }
-        let a = node_map
-            .get(&Arc::as_ptr(&factors[0]))
-            .map(|data| data.vreg())?;
-        let b = node_map
-            .get(&Arc::as_ptr(&factors[1]))
-            .map(|data| data.vreg())?;
-        return Some((a, b));
+
+        return Some((d0.vreg(), d1.vreg()));
     }
     None
 }
 
-#[inline]
 pub fn negated_product_two_vregs(
     term: &Expr,
     node_map: &FxHashMap<*const Expr, NodeData>,
@@ -196,27 +161,30 @@ pub fn negated_product_two_vregs(
     if factors.len() != 3 {
         return None;
     }
+
+    let d0 = node_map.get(&Arc::as_ptr(&factors[0]))?;
+    let d1 = node_map.get(&Arc::as_ptr(&factors[1]))?;
+    let d2 = node_map.get(&Arc::as_ptr(&factors[2]))?;
+
     let mut neg_idx = None;
-    for (i, f) in factors.iter().enumerate() {
-        if const_from_map(node_map, (*f).as_ref()).is_some_and(|n| (n + 1.0).abs() < EPSILON) {
+    let data = [d0, d1, d2];
+    for (i, d) in data.iter().enumerate() {
+        if d.const_val().is_some_and(|n| (n + 1.0).abs() < EPSILON) {
             if neg_idx.is_some() {
                 return None;
             }
             neg_idx = Some(i);
         }
     }
+
     let neg_idx = neg_idx?;
-    let mut iter = factors
+    let mut iter = data
         .iter()
         .enumerate()
         .filter(|(i, _)| *i != neg_idx)
-        .map(|(_, f)| f);
-    let a = node_map
-        .get(&Arc::as_ptr(iter.next()?))
-        .map(|data| data.vreg())?;
-    let b = node_map
-        .get(&Arc::as_ptr(iter.next()?))
-        .map(|data| data.vreg())?;
+        .map(|(_, d)| d.vreg());
+    let a = iter.next()?;
+    let b = iter.next()?;
     Some((a, b))
 }
 
