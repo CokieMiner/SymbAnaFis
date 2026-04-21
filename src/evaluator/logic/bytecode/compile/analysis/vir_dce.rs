@@ -1,4 +1,4 @@
-use super::vir::{VInstruction, VReg};
+use super::vir::{VInstruction, VReg}; // Assuming vir is in the same parent module
 
 /// Performs backward Dead Code Elimination (DCE) on Virtual IR.
 ///

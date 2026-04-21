@@ -1,7 +1,7 @@
-pub mod dce;
+pub mod vir_dce;
 pub mod gvn;
 
-pub(super) use dce::eliminate_vir_dead_code;
+pub(super) use vir_dce::eliminate_vir_dead_code;
 pub(super) use gvn::GvnKey;
 pub(super) use gvn::optimize_vir_gvn;
 
