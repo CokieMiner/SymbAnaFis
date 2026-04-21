@@ -237,7 +237,7 @@ impl Expr {
                             reason = "Polynomial powers are small positive integers"
                         )]
                         {
-                            total += coeff * base_val.powi(pow as i32);
+                            total = coeff.mul_add(base_val.powi(pow as i32), total);
                         }
                     }
                     Self::number(total)
