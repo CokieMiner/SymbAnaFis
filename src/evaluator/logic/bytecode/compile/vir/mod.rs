@@ -1,3 +1,4 @@
+pub mod matcher;
 pub mod node;
 pub mod registry;
 pub mod types;

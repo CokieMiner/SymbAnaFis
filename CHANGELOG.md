@@ -71,7 +71,7 @@ All notable changes to symb_anafis will be documented in this file.
   - **Encapsulate Boundaries**: Moved `ExprKind` out of the root level back into `crate::core::ExprKind` to enforce strict architectural separation between core items and high-level APIs.
 - **Enhanced Evaluator Pipeline**:
   - Division of compilation into discrete stages: `expand` → `reg_alloc` → `optimize`.
-  - New optimization passes: `dce` (Dead Code Elimination), `fusion` (Instruction Fusion), `strength_reduction`, and `power_chain` optimization.
+  - New optimization passes: `dce` (Dead Code Elimination), `fusion` (Instruction Fusion), `strength_reduction`, `power_chain` optimization, and **N-ary Common Subset Extraction** (extracts maximal shared operand subsets from large sums and products to minimize redundant computations) due to high compile time last one will not be added and stay there for future consideration.
   - Introduction of **`vir` (Virtual Intermediate Representation)** for evaluator-specific optimizations before final bytecode emission.
 - **Advanced Math Support**:
   - Expansion of `src/math` with dedicated logic for `bessel`, `beta`, `erf`, `gamma`, `lambert_w`, and `zeta` functions.
@@ -90,6 +90,7 @@ All notable changes to symb_anafis will be documented in this file.
 
 - **Unified Memory Layout**: Hardwired parameters and constants directly into the beginning of the register file, eliminating specialized `LoadParam` or `LoadConst` instructions.
 - **Global Value Numbering (GVN)**: Replaced the previous CSE pass with a more robust GVN engine that handles commutative normalization and algebraic identity simplification (`x + 0 -> x`, `x * 1 -> x`, etc.).
+- **Instruction Definition Macro**: Refactored the internal `Instruction` set using a declarative macro (`instruction_set!`) to unify definitions, `Display` logic, and register-mapping metadata, significantly reducing boilerplate.
 - **Dependency Updates**: 
   - `rayon` → `1.12.0`
   - `wide` → `1.3.0`

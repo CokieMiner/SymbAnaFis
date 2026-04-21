@@ -9,6 +9,7 @@ pub(super) struct DceScratch {
     pub last_use: Vec<usize>,
     pub lives: Vec<bool>,
     pub dirty_uses: Vec<u32>,
+    pub instr_lives: Vec<bool>,
 }
 
 impl DceScratch {
@@ -20,6 +21,7 @@ impl DceScratch {
             last_use: Vec::new(),
             lives: Vec::new(),
             dirty_uses: Vec::new(),
+            instr_lives: Vec::new(),
         }
     }
 }
@@ -47,6 +49,7 @@ pub(super) fn eliminate_dead_code(
         last_use,
         lives,
         dirty_uses,
+        instr_lives,
     } = scratch;
 
     // --- Copy forwarding pass ---
@@ -131,9 +134,10 @@ pub(super) fn eliminate_dead_code(
     // Seed liveness with the required output register
     lives[output_reg as usize] = true;
 
-    // We need to build `live_instrs` on the instructions *after* copy forwarding.
+    // We need to build `instr_lives` on the instructions *after* copy forwarding.
     // This array will store whether each instruction is live.
-    let mut temp_live_instrs = vec![false; out.len()];
+    instr_lives.clear();
+    instr_lives.resize(out.len(), false);
 
     for (i, instr) in out.iter().enumerate().rev() {
         // Iterate over the *current* `out`
@@ -145,7 +149,7 @@ pub(super) fn eliminate_dead_code(
         });
 
         if is_live {
-            temp_live_instrs[i] = true;
+            instr_lives[i] = true;
             // Kill the destination(s) - they are redefined here
             instr.for_each_write(|d| lives[d as usize] = false);
 
@@ -164,7 +168,7 @@ pub(super) fn eliminate_dead_code(
         } else {
             false // Not a copy, so not a "dead copy"
         };
-        let is_live = temp_live_instrs[current_idx];
+        let is_live = instr_lives[current_idx];
         current_idx += 1;
         is_live && !is_dead_copy
     });

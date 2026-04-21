@@ -50,30 +50,78 @@ pub(super) fn optimize_power_chains(instructions: &mut [Instruction]) {
     let mut dest_to_base: FxHashMap<u32, u32> = FxHashMap::default();
 
     for instr in instructions.iter_mut() {
-        let (base, exp, dest) = match *instr {
-            Instruction::Square { src, dest } => (src, 2_i32, dest),
-            Instruction::Cube { src, dest } => (src, 3, dest),
-            Instruction::Pow4 { src, dest } => (src, 4, dest),
-            Instruction::Powi { src, n, dest } => (src, n, dest),
-            Instruction::Recip { src, dest } => (src, -1, dest),
-            Instruction::InvSquare { src, dest } => (src, -2, dest),
-            Instruction::InvCube { src, dest } => (src, -3, dest),
-            _ => {
-                kill_written_reg(&mut available_by_base, &mut dest_to_base, instr.dest_reg());
-                continue;
+        let power_info = match *instr {
+            Instruction::Square { src, dest }
+            | Instruction::Cube { src, dest }
+            | Instruction::Pow4 { src, dest }
+            | Instruction::Powi { src, dest, .. }
+            | Instruction::Recip { src, dest }
+            | Instruction::InvSquare { src, dest }
+            | Instruction::InvCube { src, dest } => {
+                let base_src = dest_to_base.get(&src).copied();
+                let exp_src = base_src.map_or(1, |b| {
+                    available_by_base
+                        .get(&b)
+                        .and_then(|v| v.iter().find(|&&(_, r)| r == src))
+                        .map_or(1, |&(e, _)| e)
+                });
+
+                let multiplier = match *instr {
+                    Instruction::Square { .. } => 2,
+                    Instruction::Cube { .. } => 3,
+                    Instruction::Pow4 { .. } => 4,
+                    Instruction::Powi { n, .. } => n,
+                    Instruction::Recip { .. } => -1,
+                    Instruction::InvSquare { .. } => -2,
+                    Instruction::InvCube { .. } => -3,
+                    _ => 1, // Fallback for safety, though should be covered by outer match
+                };
+
+                Some((base_src.unwrap_or(src), exp_src * multiplier, dest))
             }
+            Instruction::Mul { a, b, dest } => {
+                let base_a = dest_to_base.get(&a).copied();
+                let base_b = dest_to_base.get(&b).copied();
+
+                let exp_a = base_a.map_or(1, |base_reg| {
+                    available_by_base
+                        .get(&base_reg)
+                        .and_then(|v| v.iter().find(|&&(_, r)| r == a))
+                        .map_or(1, |&(e, _)| e)
+                });
+                let exp_b = base_b.map_or(1, |base_reg| {
+                    available_by_base
+                        .get(&base_reg)
+                        .and_then(|v| v.iter().find(|&&(_, r)| r == b))
+                        .map_or(1, |&(e, _)| e)
+                });
+
+                let effective_base_a = base_a.unwrap_or(a);
+                let effective_base_b = base_b.unwrap_or(b);
+
+                (effective_base_a == effective_base_b)
+                    .then(|| (effective_base_a, exp_a + exp_b, dest))
+            }
+            _ => None,
         };
 
-        if let Some(replacement) = available_by_base
-            .get(&base)
-            .and_then(|available| find_cheap_combo(base, exp, dest, available))
-        {
-            *instr = replacement;
-        }
-        kill_written_reg(&mut available_by_base, &mut dest_to_base, dest);
-        if dest != base {
-            available_by_base.entry(base).or_default().push((exp, dest));
-            dest_to_base.insert(dest, base);
+        if let Some((base, exp, dest)) = power_info {
+            if let Some(replacement) = available_by_base
+                .get(&base)
+                .and_then(|available| find_cheap_combo(base, exp, dest, available))
+            {
+                *instr = replacement;
+            }
+
+            kill_written_reg(&mut available_by_base, &mut dest_to_base, dest);
+            if dest != base {
+                available_by_base.entry(base).or_default().push((exp, dest));
+                dest_to_base.insert(dest, base);
+            }
+        } else {
+            instr.for_each_write(|dest| {
+                kill_written_reg(&mut available_by_base, &mut dest_to_base, dest);
+            });
         }
     }
 }

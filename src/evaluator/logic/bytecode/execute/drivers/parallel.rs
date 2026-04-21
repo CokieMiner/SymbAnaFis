@@ -13,7 +13,7 @@
 //! # #[cfg(feature = "parallel")]
 //! # {
 //! use symb_anafis::{eval_parallel, symb};
-//! use symb_anafis::parallel::SKIP;
+//! use symb_anafis::SKIP;
 //!
 //! let x = symb("x");
 //! let expr = x.pow(2.0);
@@ -731,7 +731,7 @@ macro_rules! __parse_values_inner {
 /// # #[cfg(feature = "parallel")]
 /// # {
 /// use symb_anafis::{eval_parallel, symb};
-/// use symb_anafis::parallel::SKIP;
+/// use symb_anafis::SKIP;
 ///
 /// let x = symb("x");
 /// let expr = x.pow(2.0);

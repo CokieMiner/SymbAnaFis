@@ -112,11 +112,7 @@ fn fuse_sin_cos(instructions: &mut [Instruction], arg_pool: &[u32]) -> bool {
 
     for (idx, instr) in instructions.iter().enumerate() {
         match *instr {
-            Instruction::Builtin1 {
-                dest,
-                op: FnOp::Sin,
-                arg,
-            } => {
+            Instruction::Sin { dest, arg } => {
                 if let Some(&(cos_idx, cos_dest)) = cos_map.get(&arg) {
                     pairs.push((idx, cos_idx, arg, dest, cos_dest));
                     cos_map.remove(&arg);
@@ -124,11 +120,7 @@ fn fuse_sin_cos(instructions: &mut [Instruction], arg_pool: &[u32]) -> bool {
                     sin_map.insert(arg, (idx, dest));
                 }
             }
-            Instruction::Builtin1 {
-                dest,
-                op: FnOp::Cos,
-                arg,
-            } => {
+            Instruction::Cos { dest, arg } => {
                 if let Some(&(sin_idx, sin_dest)) = sin_map.get(&arg) {
                     pairs.push((sin_idx, idx, arg, sin_dest, dest));
                     sin_map.remove(&arg);
@@ -148,7 +140,11 @@ fn fuse_sin_cos(instructions: &mut [Instruction], arg_pool: &[u32]) -> bool {
     for (sin_idx, cos_idx, arg, sin_dest, cos_dest) in pairs {
         let later_idx = sin_idx.max(cos_idx);
         let earlier_idx = sin_idx.min(cos_idx);
-        let earlier_dest = instructions[earlier_idx].dest_reg();
+        let earlier_dest = if earlier_idx == sin_idx {
+            sin_dest
+        } else {
+            cos_dest
+        };
 
         let mut conflict = false;
         for instr in &instructions[earlier_idx + 1..later_idx] {
@@ -231,9 +227,8 @@ fn try_fuse_negation(
                 dest: neg_dest,
                 src: neg_src,
             },
-            Instruction::Builtin1 {
+            Instruction::Exp {
                 dest: exp_dest,
-                op: FnOp::Exp,
                 arg: exp_arg,
             },
         ) if exp_arg == neg_dest && single_use(neg_dest) => {
@@ -564,9 +559,8 @@ fn try_fuse_power(
                 dest: tmp_dest,
                 src: src_reg,
             },
-            Instruction::Builtin1 {
+            Instruction::Exp {
                 dest: dest_reg,
-                op: FnOp::Exp,
                 arg: tmp_arg,
             },
         ) if *tmp_arg == *tmp_dest && single_use(tmp_dest) => {
@@ -608,9 +602,8 @@ fn try_fuse_inverse(
 ) -> Option<FuseResult> {
     match (prev, next) {
         (
-            Instruction::Builtin1 {
+            Instruction::Sqrt {
                 dest: sqrt_dest,
-                op: FnOp::Sqrt,
                 arg: sqrt_src,
             },
             Instruction::Recip {
@@ -669,9 +662,8 @@ fn try_fuse_inverse(
             }));
         }
         (
-            Instruction::Builtin1 {
+            Instruction::Exp {
                 dest: exp_dest,
-                op: FnOp::Exp,
                 arg: exp_arg,
             },
             Instruction::Recip {
@@ -720,14 +712,12 @@ fn try_fuse_logarithmic(
     match (prev, next) {
         // Ln(Exp(x)) -> x
         (
-            Instruction::Builtin1 {
+            Instruction::Exp {
                 dest: tmp_dest,
-                op: FnOp::Exp,
                 arg: src,
             },
-            Instruction::Builtin1 {
+            Instruction::Ln {
                 dest: final_dest,
-                op: FnOp::Ln,
                 arg: tmp_arg,
             },
         ) if *tmp_arg == *tmp_dest && single_use(tmp_dest) => {
@@ -743,16 +733,14 @@ fn try_fuse_logarithmic(
                 base: src_x,
                 exp: src_n,
             },
-            Instruction::Builtin1 {
+            Instruction::Ln {
                 dest: final_dest,
-                op: FnOp::Ln,
                 arg: tmp_arg,
             },
         ) if *tmp_arg == *tmp_dest && single_use(tmp_dest) && pool.is_constant(*src_n) => {
             let n = pool.get(*src_n);
-            let ln_x = Instruction::Builtin1 {
+            let ln_x = Instruction::Ln {
                 dest: *final_dest,
-                op: FnOp::Ln,
                 arg: *src_x,
             };
             let c_n = pool.get_or_insert(n);
@@ -766,21 +754,18 @@ fn try_fuse_logarithmic(
             ))
         }
         (
-            Instruction::Builtin1 {
+            Instruction::Sqrt {
                 dest: tmp_dest,
-                op: FnOp::Sqrt,
                 arg: src_reg,
             },
-            Instruction::Builtin1 {
+            Instruction::Ln {
                 dest: dest_reg,
-                op: FnOp::Ln,
                 arg: tmp_arg,
             },
         ) if *tmp_arg == *tmp_dest && single_use(tmp_dest) => {
             // Ln(Sqrt(x)) = 0.5 * Ln(x)
-            let ln_x = Instruction::Builtin1 {
+            let ln_x = Instruction::Ln {
                 dest: *dest_reg,
-                op: FnOp::Ln,
                 arg: *src_reg,
             };
             let c_0_5 = pool.get_or_insert(0.5);

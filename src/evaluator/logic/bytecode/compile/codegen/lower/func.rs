@@ -1,6 +1,7 @@
 use super::FnOp;
 use super::VirGenerator;
-use super::vir::node::{NodeData, exp_sqr_arg};
+use super::vir::matcher::exp_sqr_arg;
+use super::vir::node::NodeData;
 use super::vir::registry::FN_MAP;
 use super::vir::{VInstruction, VReg};
 use crate::core::InternedSymbol;

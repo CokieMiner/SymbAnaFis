@@ -139,6 +139,10 @@ pub fn eval_builtin4(op: FnOp, x1: f64, x2: f64, x3: f64, x4: f64) -> f64 {
 }
 
 /// Dispatches a 1-argument builtin function for SIMD evaluation.
+///
+/// SIMD speedup is achieved for arithmetic operations (Add, Mul, etc.) via vectorized dispatch macros.
+/// Transcendental functions (sin, exp, gamma, etc.) are evaluated lane-by-lane in scalar code,
+/// as there are no portable SIMD intrinsics for these or their vectorized equivalents don't do proper NaN propagation.
 #[cfg(feature = "parallel")]
 #[inline]
 pub fn eval_builtin1_simd(op: FnOp, x: f64x4) -> f64x4 {

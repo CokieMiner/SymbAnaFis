@@ -1,5 +1,6 @@
 use super::VirGenerator;
-use super::vir::node::{NodeData, const_from_map, negated_product_two_vregs, product_two_vregs};
+use super::vir::matcher::{negated_product_two_vregs, product_two_vregs};
+use super::vir::node::{NodeData, const_from_map};
 use super::vir::{VInstruction, VReg};
 use crate::EPSILON;
 use crate::core::error::DiffError;

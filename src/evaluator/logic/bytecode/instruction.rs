@@ -3,468 +3,393 @@ use std::fmt::{Display, Formatter, Result as FmtResult};
 
 use super::functions::FnOp;
 
-/// Bytecode instruction for the register-based expression evaluator.
-///
-/// This ISA follows a Unified Memory Layout:
-/// - Registers `0..param_count` are input parameters.
-/// - Registers `param_count..param_count + const_count` are hardwired to the constant pool.
-/// - Registers `param_count + const_count..` are temporaries.
-///
-/// Because constants are mapped directly into the register file, there are no
-/// specialized `LoadConst` or `AddConst` instructions.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-#[repr(u8)]
-pub enum Instruction {
+macro_rules! define_isa {
+    (
+        $(
+            $( #[$attr:meta] )*
+            $name:ident {
+                $( $field:ident : $type:ty $(, @$tag:ident)? ),* $(,)?
+            }
+            $( => ( $fmt:expr $(, $fmt_arg:expr)* ) )?
+        ),* $(,)?
+    ) => {
+        /// Bytecode instruction for the register-based expression evaluator.
+        ///
+        /// This ISA follows a Unified Memory Layout:
+        /// - Registers `0..param_count` are input parameters.
+        /// - Registers `param_count..param_count + const_count` are hardwired to the constant pool.
+        /// - Registers `param_count + const_count..` are temporaries.
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+        #[repr(u8)]
+        pub enum Instruction {
+            $(
+                $( #[$attr] )*
+                $name {
+                    $( $field : $type, )*
+                },
+            )*
+        }
+
+        impl Instruction {
+            /// Returns the u32 opcode for this instruction.
+            #[inline]
+            pub const fn opcode(&self) -> u32 {
+                #[allow(
+                    unsafe_code,
+                    reason = "High-performance opcode extraction via pointer cast is safe for repr(u8) enums"
+                )]
+                // SAFETY: Instruction is repr(u8), ensuring the discriminant is the first byte.
+                unsafe { *std::ptr::from_ref::<Self>(self).cast::<u8>() as u32 }
+            }
+
+            /// Range in the arg-pool used by this instruction, if any.
+            #[inline]
+            pub(crate) const fn arg_pool_range(&self) -> Option<(u32, u32)> {
+                match self {
+                    $(
+                        Self::$name { $( $field, )* } => {
+                            let _ = ( $( &$field, )* );
+                            let mut start = None;
+                            let mut count = None;
+                            let _ = (&mut start, &mut count);
+                            $(
+                                define_isa!(@pool_fields $field, start, count $(, @$tag)?);
+                            )*
+                            if let (Some(s), Some(c)) = (start, count) {
+                                Some((s, c))
+                            } else {
+                                None
+                            }
+                        }
+                    )*
+                }
+            }
+
+            /// Executes the provided callback for each register read by this instruction.
+            #[inline]
+            pub fn for_each_read<F>(&self, mut callback: F)
+            where
+                F: FnMut(u32),
+            {
+                match self {
+                    $(
+                        Self::$name { $( $field, )* } => {
+                            let _ = ( $( &$field, )* );
+                            $(
+                                define_isa!(@read_field $field, callback $(, @$tag)?);
+                            )*
+                        }
+                    )*
+                }
+            }
+
+            /// Executes the provided callback for each register written by this instruction.
+            #[inline]
+            pub fn for_each_write<F>(&self, mut callback: F)
+            where
+                F: FnMut(u32),
+            {
+                match self {
+                    $(
+                        Self::$name { $( $field, )* } => {
+                            let _ = ( $( &$field, )* );
+                            $(
+                                define_isa!(@write_field $field, callback $(, @$tag)?);
+                            )*
+                        }
+                    )*
+                }
+            }
+
+            /// Executes the provided callback for each register in this instruction (read or write).
+            #[inline]
+            pub fn for_each_reg<F>(&self, mut callback: F)
+            where
+                F: FnMut(u32),
+            {
+                match self {
+                    $(
+                        Self::$name { $( $field, )* } => {
+                            let _ = ( $( &$field, )* );
+                            $(
+                                define_isa!(@any_reg_field $field, callback $(, @$tag)?);
+                            )*
+                        }
+                    )*
+                }
+            }
+
+            /// Executes the provided callback for each register in a pool used by this instruction.
+            #[inline]
+            pub fn for_each_pooled_reg<F>(&self, arg_pool: &[u32], mut callback: F)
+            where
+                F: FnMut(u32),
+            {
+                if let Some((start, count)) = self.arg_pool_range() {
+                    for i in 0..count {
+                        callback(arg_pool[(start + i) as usize]);
+                    }
+                }
+            }
+
+            /// Maps all destination registers using the provided mapper function.
+            #[inline]
+            pub fn map_dests<F>(&mut self, mut mapper: F)
+            where
+                F: FnMut(u32) -> u32,
+            {
+                match self {
+                    $(
+                        Self::$name { $( $field, )* } => {
+                            let _ = ( $( &$field, )* );
+                            $(
+                                define_isa!(@map_dest_field $field, mapper $(, @$tag)?);
+                            )*
+                        }
+                    )*
+                }
+            }
+
+            /// Maps all read registers using the provided mapper function.
+            #[inline]
+            pub fn map_reads<F>(&mut self, mut mapper: F)
+            where
+                F: FnMut(u32) -> u32,
+            {
+                match self {
+                    $(
+                        Self::$name { $( $field, )* } => {
+                            let _ = ( $( &$field, )* );
+                            $(
+                                define_isa!(@map_read_field $field, mapper $(, @$tag)?);
+                            )*
+                        }
+                    )*
+                }
+            }
+
+            /// Maps all registers in a pool using the provided mapper function.
+            #[inline]
+            pub fn map_pooled_regs<F>(&mut self, arg_pool: &mut [u32], mut mapper: F)
+            where
+                F: FnMut(u32) -> u32,
+            {
+                if let Some((start, count)) = self.arg_pool_range() {
+                    for i in 0..count {
+                        let r = &mut arg_pool[(start + i) as usize];
+                        *r = mapper(*r);
+                    }
+                }
+            }
+
+            /// Returns the primary destination register of this instruction, if any.
+            #[inline]
+            pub const fn primary_dest(&self) -> Option<u32> {
+                let mut res = None;
+                match self {
+                    $(
+                        Self::$name { $( $field, )* } => {
+                            let _ = ( $( &$field, )* );
+                            $(
+                                define_isa!(@primary_dest_helper $field, res $(, @$tag)?);
+                            )*
+                        }
+                    )*
+                }
+                res
+            }
+
+            /// Utility to map EVERY register in the instruction (including pool) via a single mapper.
+            #[inline]
+            pub fn map_all_regs<F>(&mut self, arg_pool: &mut [u32], mut mapper: F)
+            where
+                F: FnMut(u32) -> u32,
+            {
+                self.map_pooled_regs(arg_pool, &mut mapper);
+                match self {
+                    $(
+                        Self::$name { $( $field, )* } => {
+                            let _ = ( $( &$field, )* );
+                            $(
+                                define_isa!(@map_any_field $field, mapper $(, @$tag)?);
+                            )*
+                        }
+                    )*
+                }
+            }
+        }
+
+        impl Display for Instruction {
+            fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+                match self {
+                    $(
+                        Self::$name { $( $field, )* } => {
+                            let _ = ( $( &$field, )* );
+                            define_isa!(@fmt_dispatch f, $name { $( $field ),* } $(, display = ( $fmt $(, $fmt_arg)* ) )? )
+                        }
+                    )*
+                }
+            }
+        }
+    };
+
+    // --- Helpers for for_each_write ---
+    (@write_field $field:ident, $callback:ident, @dest) => { $callback(*$field); };
+    (@write_field $field:ident, $callback:ident $(, @$tag:ident)?) => { };
+
+    // --- Helpers for for_each_read ---
+    (@read_field $field:ident, $callback:ident, @read) => { $callback(*$field); };
+    (@read_field $field:ident, $callback:ident $(, @$tag:ident)?) => { };
+
+    // --- Helpers for for_each_reg ---
+    (@any_reg_field $field:ident, $callback:ident, @read) => { $callback(*$field); };
+    (@any_reg_field $field:ident, $callback:ident, @dest) => { $callback(*$field); };
+    (@any_reg_field $field:ident, $callback:ident $(, @$tag:ident)?) => { };
+
+    // --- Helpers for map_dests ---
+    (@map_dest_field $field:ident, $mapper:ident, @dest) => { *$field = $mapper(*$field); };
+    (@map_dest_field $field:ident, $mapper:ident $(, @$tag:ident)?) => { };
+
+    // --- Helpers for map_reads ---
+    (@map_read_field $field:ident, $mapper:ident, @read) => { *$field = $mapper(*$field); };
+    (@map_read_field $field:ident, $mapper:ident $(, @$tag:ident)?) => { };
+
+    // --- Internal Dispatchers ---
+    (@fmt_dispatch $f:ident, $name:ident { $( $field:ident ),* } , display = ( $fmt:expr $(, $fmt_arg:expr)* ) ) => {
+        write!($f, $fmt, $( $fmt_arg ),*)
+    };
+    (@fmt_dispatch $f:ident, $name:ident { $( $field:ident ),* } ) => {{
+        write!($f, stringify!($name))?;
+        let mut first = true;
+        let _ = &mut first;
+        $(
+            if first { write!($f, "(")?; first = false; } else { write!($f, ", ")?; }
+            write!($f, "{}: {}", stringify!($field), $field)?;
+        )*
+        if !first { write!($f, ")")?; }
+        Ok(())
+    }};
+
+    (@is_dest @dest) => { true };
+    (@is_dest $(@$tag:ident)?) => { false };
+
+    (@primary_dest_helper $field:ident, $res:ident, @dest) => { if $res.is_none() { $res = Some(*$field); } };
+    (@primary_dest_helper $field:ident, $res:ident $(, @$tag:ident)?) => { };
+
+    (@is_pool_start @pool_start) => { true };
+    (@is_pool_start $(@$tag:ident)?) => { false };
+
+    (@is_pool_start @pool_count) => { true };
+    (@is_pool_start $(@$tag:ident)?) => { false };
+
+    (@map_any_field $field:ident, $mapper:ident, @dest) => { *$field = $mapper(*$field); };
+    (@map_any_field $field:ident, $mapper:ident, @read) => { *$field = $mapper(*$field); };
+    (@map_any_field $field:ident, $mapper:ident $(, @$tag:ident)?) => { };
+
+    // --- Helpers for arg_pool_range ---
+    (@pool_fields $field:ident, $start:ident, $count:ident, @pool_start) => { $start = Some(*$field); };
+    (@pool_fields $field:ident, $start:ident, $count:ident, @pool_count) => { $count = Some(*$field); };
+    (@pool_fields $field:ident, $start:ident, $count:ident $(, @$tag:ident)?) => { };
+}
+
+define_isa! {
+    /// Sentinel to mark end of bytecode stream.
+    End { },
+
     /// Copy register value: `dest = src`
-    Copy { dest: u32, src: u32 },
+    Copy { dest: u32, @dest, src: u32, @read } => ("R{} = R{}", dest, src),
 
-    /// Addition: `dest = a + b`
-    Add { dest: u32, a: u32, b: u32 },
-    /// Ternary Addition: `dest = a + b + c`
-    Add3 { dest: u32, a: u32, b: u32, c: u32 },
-    /// Quaternary Addition: `dest = a + b + c + d`
-    Add4 {
-        dest: u32,
-        a: u32,
-        b: u32,
-        c: u32,
-        d: u32,
-    },
-    /// Multiplication: `dest = a * b`
-    Mul { dest: u32, a: u32, b: u32 },
-    /// Ternary Multiplication: `dest = a * b * c`
-    Mul3 { dest: u32, a: u32, b: u32, c: u32 },
-    /// Quaternary Multiplication: `dest = a * b * c * d`
-    Mul4 {
-        dest: u32,
-        a: u32,
-        b: u32,
-        c: u32,
-        d: u32,
-    },
-    /// Subtraction: `dest = a - b`
-    Sub { dest: u32, a: u32, b: u32 },
-    /// Division: `dest = num / den`
-    Div { dest: u32, num: u32, den: u32 },
-    /// Power: `dest = base ^ exp`
-    Pow { dest: u32, base: u32, exp: u32 },
     /// Negation: `dest = -src`
-    Neg { dest: u32, src: u32 },
-
-    /// N-ary Addition: `dest = sum(registers[start_idx..start_idx + count])`
-    AddN {
-        dest: u32,
-        start_idx: u32,
-        count: u32,
-    },
-    /// N-ary Multiplication: `dest = product(registers[start_idx..start_idx + count])`
-    MulN {
-        dest: u32,
-        start_idx: u32,
-        count: u32,
-    },
-
-    /// Unary Builtin: `dest = op(arg)`
-    Builtin1 { dest: u32, op: FnOp, arg: u32 },
-    /// Binary Builtin: `dest = op(arg1, arg2)`
-    Builtin2 {
-        dest: u32,
-        op: FnOp,
-        arg1: u32,
-        arg2: u32,
-    },
-    /// Ternary Builtin: `dest = op(registers[start_idx..start_idx + 3])`
-    Builtin3 { dest: u32, op: FnOp, start_idx: u32 },
-    /// Quaternary Builtin: `dest = op(registers[start_idx..start_idx + 4])`
-    Builtin4 { dest: u32, op: FnOp, start_idx: u32 },
-
-    /// Square: `dest = src^2`
-    Square { dest: u32, src: u32 },
-    /// Cube: `dest = src^3`
-    Cube { dest: u32, src: u32 },
-    /// Fourth Power: `dest = src^4`
-    Pow4 { dest: u32, src: u32 },
-    /// Power 3/2: `dest = src^(3/2)`
-    Pow3_2 { dest: u32, src: u32 },
-    /// Inverse Power 3/2: `dest = src^(-3/2)`
-    InvPow3_2 { dest: u32, src: u32 },
-    /// Inverse Square Root: `dest = 1/sqrt(src)`
-    InvSqrt { dest: u32, src: u32 },
-    /// Inverse Square: `dest = 1/src^2`
-    InvSquare { dest: u32, src: u32 },
-    /// Inverse Cube: `dest = 1/src^3`
-    InvCube { dest: u32, src: u32 },
-    /// Reciprocal: `dest = 1/src`
-    Recip { dest: u32, src: u32 },
-    /// Integer Power: `dest = src^n`
-    Powi { dest: u32, src: u32, n: i32 },
-
-    /// Fused Multiply-Add: `dest = a * b + c`
-    MulAdd { dest: u32, a: u32, b: u32, c: u32 },
-    /// Fused Multiply-Subtract: `dest = a * b - c`
-    MulSub { dest: u32, a: u32, b: u32, c: u32 },
-    /// Negated Multiplication: `dest = -(a * b)`
-    NegMul { dest: u32, a: u32, b: u32 },
-    /// Negated Fused Multiply-Add: `dest = -(a * b) + c`
-    NegMulAdd { dest: u32, a: u32, b: u32, c: u32 },
-    /// Negated Fused Multiply-Subtract: `dest = -(a * b) - c`
-    NegMulSub { dest: u32, a: u32, b: u32, c: u32 },
-
-    /// Reciprocal of exp(x)-1: `dest = 1/(exp(src)-1)`
-    RecipExpm1 { dest: u32, src: u32 },
-    /// Exponential of Square: `dest = exp(src^2)`
-    ExpSqr { dest: u32, src: u32 },
-    /// Exponential of Negative Square: `dest = exp(-src^2)`
-    ExpSqrNeg { dest: u32, src: u32 },
+    Neg { dest: u32, @dest, src: u32, @read } => ("R{} = -R{}", dest, src),
 
     /// Fused Sine and Cosine: `(sin_dest, cos_dest) = sincos(arg)`
-    SinCos {
-        sin_dest: u32,
-        cos_dest: u32,
-        arg: u32,
-    },
-}
+    SinCos { sin_dest: u32, @dest, cos_dest: u32, @dest, arg: u32, @read } => ("(R{}, R{}) = sincos(R{})", sin_dest, cos_dest, arg),
 
-impl Instruction {
-    /// Range in the arg-pool used by this instruction, if any.
-    pub(crate) const fn arg_pool_range(&self) -> Option<(u32, u32)> {
-        match *self {
-            Self::AddN {
-                start_idx, count, ..
-            }
-            | Self::MulN {
-                start_idx, count, ..
-            } => Some((start_idx, count)),
-            Self::Builtin3 { start_idx, .. } => Some((start_idx, 3)),
-            Self::Builtin4 { start_idx, .. } => Some((start_idx, 4)),
-            _ => None,
-        }
-    }
+    /// Addition: `dest = a + b`
+    Add { dest: u32, @dest, a: u32, @read, b: u32, @read } => ("R{} = R{} + R{}", dest, a, b),
+    /// Ternary Addition: `dest = a + b + c`
+    Add3 { dest: u32, @dest, a: u32, @read, b: u32, @read, c: u32, @read } => ("R{} = R{} + R{} + R{}", dest, a, b, c),
+    /// Quaternary Addition: `dest = a + b + c + d`
+    Add4 { dest: u32, @dest, a: u32, @read, b: u32, @read, c: u32, @read, d: u32, @read } => ("R{} = R{} + R{} + R{} + R{}", dest, a, b, c, d),
 
-    /// Get the primary destination register for this instruction.
-    pub(crate) const fn dest_reg(&self) -> u32 {
-        match self {
-            Self::Copy { dest, .. }
-            | Self::Add { dest, .. }
-            | Self::Add3 { dest, .. }
-            | Self::Add4 { dest, .. }
-            | Self::Mul { dest, .. }
-            | Self::Mul3 { dest, .. }
-            | Self::Mul4 { dest, .. }
-            | Self::AddN { dest, .. }
-            | Self::MulN { dest, .. }
-            | Self::Sub { dest, .. }
-            | Self::Div { dest, .. }
-            | Self::Pow { dest, .. }
-            | Self::Neg { dest, .. }
-            | Self::Builtin1 { dest, .. }
-            | Self::Builtin2 { dest, .. }
-            | Self::Builtin3 { dest, .. }
-            | Self::Builtin4 { dest, .. }
-            | Self::Square { dest, .. }
-            | Self::Cube { dest, .. }
-            | Self::Pow4 { dest, .. }
-            | Self::Pow3_2 { dest, .. }
-            | Self::InvPow3_2 { dest, .. }
-            | Self::InvSqrt { dest, .. }
-            | Self::InvSquare { dest, .. }
-            | Self::InvCube { dest, .. }
-            | Self::Recip { dest, .. }
-            | Self::Powi { dest, .. }
-            | Self::MulAdd { dest, .. }
-            | Self::MulSub { dest, .. }
-            | Self::NegMul { dest, .. }
-            | Self::NegMulAdd { dest, .. }
-            | Self::NegMulSub { dest, .. }
-            | Self::RecipExpm1 { dest, .. }
-            | Self::ExpSqr { dest, .. }
-            | Self::ExpSqrNeg { dest, .. } => *dest,
-            Self::SinCos { sin_dest, .. } => *sin_dest,
-        }
-    }
+    /// N-ary Addition: `dest = sum(registers[start_idx..start_idx + count])`
+    AddN { dest: u32, @dest, start_idx: u32, @pool_start, count: u32, @pool_count } => ("R{} = sum(pool[{}..{}])", dest, start_idx, start_idx + count),
 
-    /// Execute a closure for every register index being WRITTEN in this instruction.
-    pub(crate) fn for_each_write(&self, mut callback: impl FnMut(u32)) {
-        match *self {
-            Self::SinCos {
-                sin_dest, cos_dest, ..
-            } => {
-                callback(sin_dest);
-                callback(cos_dest);
-            }
-            _ => callback(self.dest_reg()),
-        }
-    }
+    /// Multiplication: `dest = a * b`
+    Mul { dest: u32, @dest, a: u32, @read, b: u32, @read } => ("R{} = R{} * R{}", dest, a, b),
+    /// Ternary Multiplication: `dest = a * b * c`
+    Mul3 { dest: u32, @dest, a: u32, @read, b: u32, @read, c: u32, @read } => ("R{} = R{} * R{} * R{}", dest, a, b, c),
+    /// Quaternary Multiplication: `dest = a * b * c * d`
+    Mul4 { dest: u32, @dest, a: u32, @read, b: u32, @read, c: u32, @read, d: u32, @read } => ("R{} = R{} * R{} * R{} * R{}", dest, a, b, c, d),
 
-    /// Execute a closure for every register index being READ in this instruction.
-    pub(crate) fn for_each_read(&self, mut callback: impl FnMut(u32)) {
-        match self {
-            Self::Copy { src: a, .. }
-            | Self::Neg { src: a, .. }
-            | Self::Builtin1 { arg: a, .. }
-            | Self::Square { src: a, .. }
-            | Self::Cube { src: a, .. }
-            | Self::Pow4 { src: a, .. }
-            | Self::Pow3_2 { src: a, .. }
-            | Self::InvPow3_2 { src: a, .. }
-            | Self::InvSqrt { src: a, .. }
-            | Self::InvSquare { src: a, .. }
-            | Self::InvCube { src: a, .. }
-            | Self::Recip { src: a, .. }
-            | Self::Powi { src: a, .. }
-            | Self::RecipExpm1 { src: a, .. }
-            | Self::ExpSqr { src: a, .. }
-            | Self::ExpSqrNeg { src: a, .. }
-            | Self::SinCos { arg: a, .. } => callback(*a),
-            Self::Add { a, b, .. }
-            | Self::Mul { a, b, .. }
-            | Self::Sub { a, b, .. }
-            | Self::Div { num: a, den: b, .. }
-            | Self::Pow {
-                base: a, exp: b, ..
-            }
-            | Self::Builtin2 {
-                arg1: a, arg2: b, ..
-            }
-            | Self::NegMul { a, b, .. } => {
-                callback(*a);
-                callback(*b);
-            }
-            Self::Add3 { a, b, c, .. }
-            | Self::Mul3 { a, b, c, .. }
-            | Self::MulAdd { a, b, c, .. }
-            | Self::MulSub { a, b, c, .. }
-            | Self::NegMulAdd { a, b, c, .. }
-            | Self::NegMulSub { a, b, c, .. } => {
-                callback(*a);
-                callback(*b);
-                callback(*c);
-            }
-            Self::Add4 { a, b, c, d, .. } | Self::Mul4 { a, b, c, d, .. } => {
-                callback(*a);
-                callback(*b);
-                callback(*c);
-                callback(*d);
-            }
-            Self::AddN { .. }
-            | Self::MulN { .. }
-            | Self::Builtin3 { .. }
-            | Self::Builtin4 { .. } => {}
-        }
-    }
+    /// N-ary Multiplication: `dest = product(registers[start_idx..start_idx + count])`
+    MulN { dest: u32, @dest, start_idx: u32, @pool_start, count: u32, @pool_count } => ("R{} = prod(pool[{}..{}])", dest, start_idx, start_idx + count),
 
-    /// Map all destination, read, and pooled register indices in this instruction using the provided function.
-    #[inline]
-    pub fn map_all_regs(&mut self, arg_pool: &mut [u32], mapper: &impl Fn(u32) -> u32) {
-        self.map_dests(mapper);
-        self.map_reads(mapper);
-        self.map_pooled_regs(arg_pool, mapper);
-    }
+    /// Subtraction: `dest = a - b`
+    Sub { dest: u32, @dest, a: u32, @read, b: u32, @read } => ("R{} = R{} - R{}", dest, a, b),
 
-    /// Map all destination register indices in this instruction using the provided function.
-    pub fn map_dests(&mut self, mapper: &impl Fn(u32) -> u32) {
-        match self {
-            Self::SinCos {
-                sin_dest, cos_dest, ..
-            } => {
-                *sin_dest = mapper(*sin_dest);
-                *cos_dest = mapper(*cos_dest);
-            }
-            Self::Copy { dest, .. }
-            | Self::Add { dest, .. }
-            | Self::Add3 { dest, .. }
-            | Self::Add4 { dest, .. }
-            | Self::Mul { dest, .. }
-            | Self::Mul3 { dest, .. }
-            | Self::Mul4 { dest, .. }
-            | Self::AddN { dest, .. }
-            | Self::MulN { dest, .. }
-            | Self::Sub { dest, .. }
-            | Self::Div { dest, .. }
-            | Self::Pow { dest, .. }
-            | Self::Neg { dest, .. }
-            | Self::Builtin1 { dest, .. }
-            | Self::Builtin2 { dest, .. }
-            | Self::Builtin3 { dest, .. }
-            | Self::Builtin4 { dest, .. }
-            | Self::Square { dest, .. }
-            | Self::Cube { dest, .. }
-            | Self::Pow4 { dest, .. }
-            | Self::Pow3_2 { dest, .. }
-            | Self::InvPow3_2 { dest, .. }
-            | Self::InvSqrt { dest, .. }
-            | Self::InvSquare { dest, .. }
-            | Self::InvCube { dest, .. }
-            | Self::Recip { dest, .. }
-            | Self::Powi { dest, .. }
-            | Self::MulAdd { dest, .. }
-            | Self::MulSub { dest, .. }
-            | Self::NegMul { dest, .. }
-            | Self::NegMulAdd { dest, .. }
-            | Self::NegMulSub { dest, .. }
-            | Self::RecipExpm1 { dest, .. }
-            | Self::ExpSqr { dest, .. }
-            | Self::ExpSqrNeg { dest, .. } => {
-                *dest = mapper(*dest);
-            }
-        }
-    }
+    /// Division: `dest = num / den`
+    Div { dest: u32, @dest, num: u32, @read, den: u32, @read } => ("R{} = R{} / R{}", dest, num, den),
 
-    /// Map all source register indices (reads) using the provided function.
-    pub(crate) fn map_reads(&mut self, mut mapper: impl FnMut(u32) -> u32) {
-        match self {
-            Self::Copy { src, .. }
-            | Self::Neg { src, .. }
-            | Self::Square { src, .. }
-            | Self::Cube { src, .. }
-            | Self::Pow4 { src, .. }
-            | Self::Pow3_2 { src, .. }
-            | Self::InvPow3_2 { src, .. }
-            | Self::InvSqrt { src, .. }
-            | Self::InvSquare { src, .. }
-            | Self::InvCube { src, .. }
-            | Self::Recip { src, .. }
-            | Self::Powi { src, .. }
-            | Self::RecipExpm1 { src, .. }
-            | Self::ExpSqr { src, .. }
-            | Self::ExpSqrNeg { src, .. } => {
-                *src = mapper(*src);
-            }
-            Self::Add { a, b, .. }
-            | Self::Mul { a, b, .. }
-            | Self::Sub { a, b, .. }
-            | Self::Div { num: a, den: b, .. }
-            | Self::Pow {
-                base: a, exp: b, ..
-            }
-            | Self::NegMul { a, b, .. } => {
-                *a = mapper(*a);
-                *b = mapper(*b);
-            }
-            Self::Builtin1 { arg, .. } | Self::SinCos { arg, .. } => {
-                *arg = mapper(*arg);
-            }
-            Self::Builtin2 { arg1, arg2, .. } => {
-                *arg1 = mapper(*arg1);
-                *arg2 = mapper(*arg2);
-            }
-            Self::Add3 { a, b, c, .. }
-            | Self::Mul3 { a, b, c, .. }
-            | Self::MulAdd { a, b, c, .. }
-            | Self::MulSub { a, b, c, .. }
-            | Self::NegMulAdd { a, b, c, .. }
-            | Self::NegMulSub { a, b, c, .. } => {
-                *a = mapper(*a);
-                *b = mapper(*b);
-                *c = mapper(*c);
-            }
-            Self::Add4 { a, b, c, d, .. } | Self::Mul4 { a, b, c, d, .. } => {
-                *a = mapper(*a);
-                *b = mapper(*b);
-                *c = mapper(*c);
-                *d = mapper(*d);
-            }
-            Self::AddN { .. }
-            | Self::MulN { .. }
-            | Self::Builtin3 { .. }
-            | Self::Builtin4 { .. } => {}
-        }
-    }
+    /// Power: `dest = base ^ exp`
+    Pow { dest: u32, @dest, base: u32, @read, exp: u32, @read } => ("R{} = R{} ^ R{}", dest, base, exp),
 
-    /// Execute a closure for every register index read from the arg-pool.
-    pub(crate) fn for_each_pooled_reg(&self, arg_pool: &[u32], mut callback: impl FnMut(u32)) {
-        if let Some((start_idx, count)) = self.arg_pool_range() {
-            for offset in 0..count {
-                callback(arg_pool[(start_idx + offset) as usize]);
-            }
-        }
-    }
+    /// Fused Multiply-Add: `dest = a * b + c`
+    MulAdd { dest: u32, @dest, a: u32, @read, b: u32, @read, c: u32, @read } => ("R{} = R{} * R{} + R{}", dest, a, b, c),
+    /// Fused Multiply-Subtract: `dest = a * b - c`
+    MulSub { dest: u32, @dest, a: u32, @read, b: u32, @read, c: u32, @read } => ("R{} = R{} * R{} - R{}", dest, a, b, c),
+    /// Negated Multiplication: `dest = -(a * b)`
+    NegMul { dest: u32, @dest, a: u32, @read, b: u32, @read } => ("R{} = -(R{} * R{})", dest, a, b),
+    /// Negated Fused Multiply-Add: `dest = -(a * b) + c`
+    NegMulAdd { dest: u32, @dest, a: u32, @read, b: u32, @read, c: u32, @read } => ("R{} = -(R{} * R{}) + R{}", dest, a, b, c),
+    /// Negated Fused Multiply-Subtract: `dest = -(a * b) - c`
+    NegMulSub { dest: u32, @dest, a: u32, @read, b: u32, @read, c: u32, @read } => ("R{} = -(R{} * R{}) - R{}", dest, a, b, c),
 
-    /// Map every register index read from the arg-pool.
-    pub(crate) fn map_pooled_regs(&self, arg_pool: &mut [u32], mut mapper: impl FnMut(u32) -> u32) {
-        if let Some((start_idx, count)) = self.arg_pool_range() {
-            for offset in 0..count {
-                let reg = &mut arg_pool[(start_idx + offset) as usize];
-                *reg = mapper(*reg);
-            }
-        }
-    }
+    /// Square: `dest = src^2`
+    Square { dest: u32, @dest, src: u32, @read } => ("R{}^2", dest),
+    /// Cube: `dest = src^3`
+    Cube { dest: u32, @dest, src: u32, @read } => ("R{}^3", dest),
+    /// Fourth Power: `dest = src^4`
+    Pow4 { dest: u32, @dest, src: u32, @read } => ("R{}^4", dest),
+    /// Power 3/2: `dest = src^(3/2)`
+    Pow3_2 { dest: u32, @dest, src: u32, @read } => ("R{}^(3/2)", dest),
+    /// Inverse Power 3/2: `dest = src^(-3/2)`
+    InvPow3_2 { dest: u32, @dest, src: u32, @read } => ("R{}^(-3/2)", dest),
+    /// Inverse Square Root: `dest = 1/sqrt(src)`
+    InvSqrt { dest: u32, @dest, src: u32, @read } => ("1/sqrt(R{})", src),
+    /// Inverse Square: `dest = 1/src^2`
+    InvSquare { dest: u32, @dest, src: u32, @read } => ("1/R{}^2", src),
+    /// Inverse Cube: `dest = 1/src^3`
+    InvCube { dest: u32, @dest, src: u32, @read } => ("1/R{}^3", src),
+    /// Reciprocal: `dest = 1/src`
+    Recip { dest: u32, @dest, src: u32, @read } => ("1/R{}", src),
+    /// Integer Power: `dest = src^n`
+    Powi { dest: u32, @dest, src: u32, @read, n: i32 } => ("R{}^{}", dest, n),
 
-    /// Execute a closure for every register index (dest or src) in this instruction.
-    pub(crate) fn for_each_reg(&self, mut callback: impl FnMut(u32)) {
-        self.for_each_write(&mut callback);
-        self.for_each_read(callback);
-    }
-}
+    /// Sine: `dest = sin(arg)`
+    Sin { dest: u32, @dest, arg: u32, @read } => ("R{} = sin(R{})", dest, arg),
+    /// Cosine: `dest = cos(arg)`
+    Cos { dest: u32, @dest, arg: u32, @read } => ("R{} = cos(R{})", dest, arg),
+    /// Exponential: `dest = exp(arg)`
+    Exp { dest: u32, @dest, arg: u32, @read } => ("R{} = exp(R{})", dest, arg),
+    /// Natural Logarithm: `dest = ln(arg)`
+    Ln { dest: u32, @dest, arg: u32, @read } => ("R{} = ln(R{})", dest, arg),
+    /// Square Root: `dest = sqrt(arg)`
+    Sqrt { dest: u32, @dest, arg: u32, @read } => ("R{} = sqrt(R{})", dest, arg),
 
-impl Display for Instruction {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        match *self {
-            Self::Copy { dest, src } => write!(f, "R{dest} = R{src}"),
-            Self::Add { dest, a, b } => write!(f, "R{dest} = R{a} + R{b}"),
-            Self::Add3 { dest, a, b, c } => write!(f, "R{dest} = R{a} + R{b} + R{c}"),
-            Self::Add4 { dest, a, b, c, d } => write!(f, "R{dest} = R{a} + R{b} + R{c} + R{d}"),
-            Self::Mul { dest, a, b } => write!(f, "R{dest} = R{a} * R{b}"),
-            Self::Mul3 { dest, a, b, c } => write!(f, "R{dest} = R{a} * R{b} * R{c}"),
-            Self::Mul4 { dest, a, b, c, d } => write!(f, "R{dest} = R{a} * R{b} * R{c} * R{d}"),
-            Self::Sub { dest, a, b } => write!(f, "R{dest} = R{a} - R{b}"),
-            Self::Div { dest, num, den } => write!(f, "R{dest} = R{num} / R{den}"),
-            Self::Pow { dest, base, exp } => write!(f, "R{dest} = R{base} ^ R{exp}"),
-            Self::Neg { dest, src } => write!(f, "R{dest} = -R{src}"),
-            Self::AddN {
-                dest,
-                start_idx,
-                count,
-            } => write!(f, "R{dest} = sum(pool[{start_idx}..{}])", start_idx + count),
-            Self::MulN {
-                dest,
-                start_idx,
-                count,
-            } => write!(
-                f,
-                "R{dest} = prod(pool[{start_idx}..{}])",
-                start_idx + count
-            ),
-            Self::Builtin1 { dest, op, arg } => write!(f, "R{dest} = {op}(R{arg})"),
-            Self::Builtin2 {
-                dest,
-                op,
-                arg1,
-                arg2,
-            } => write!(f, "R{dest} = {op}(R{arg1}, R{arg2})"),
-            Self::Builtin3 {
-                dest,
-                op,
-                start_idx,
-            } => write!(f, "R{dest} = {op}(pool[{start_idx}..3])"),
-            Self::Builtin4 {
-                dest,
-                op,
-                start_idx,
-            } => write!(f, "R{dest} = {op}(pool[{start_idx}..4])"),
-            Self::Square { dest, src } => write!(f, "R{dest} = R{src}^2"),
-            Self::Cube { dest, src } => write!(f, "R{dest} = R{src}^3"),
-            Self::Pow4 { dest, src } => write!(f, "R{dest} = R{src}^4"),
-            Self::Pow3_2 { dest, src } => write!(f, "R{dest} = R{src}^(3/2)"),
-            Self::InvPow3_2 { dest, src } => write!(f, "R{dest} = R{src}^(-3/2)"),
-            Self::InvSqrt { dest, src } => write!(f, "R{dest} = 1/sqrt(R{src})"),
-            Self::InvSquare { dest, src } => write!(f, "R{dest} = 1/R{src}^2"),
-            Self::InvCube { dest, src } => write!(f, "R{dest} = 1/R{src}^3"),
-            Self::Recip { dest, src } => write!(f, "R{dest} = 1/R{src}"),
-            Self::Powi { dest, src, n } => write!(f, "R{dest} = R{src}^{n}"),
-            Self::MulAdd { dest, a, b, c } => write!(f, "R{dest} = R{a} * R{b} + R{c}"),
-            Self::MulSub { dest, a, b, c } => write!(f, "R{dest} = R{a} * R{b} - R{c}"),
-            Self::NegMul { dest, a, b } => write!(f, "R{dest} = -(R{a} * R{b})"),
-            Self::NegMulAdd { dest, a, b, c } => write!(f, "R{dest} = -(R{a} * R{b}) + R{c}"),
-            Self::NegMulSub { dest, a, b, c } => write!(f, "R{dest} = -(R{a} * R{b}) - R{c}"),
-            Self::RecipExpm1 { dest, src } => write!(f, "R{dest} = 1/(exp(R{src})-1)"),
-            Self::ExpSqr { dest, src } => write!(f, "R{dest} = exp(R{src}^2)"),
-            Self::ExpSqrNeg { dest, src } => write!(f, "R{dest} = exp(-R{src}^2)"),
-            Self::SinCos {
-                sin_dest,
-                cos_dest,
-                arg,
-            } => write!(f, "(R{sin_dest}, R{cos_dest}) = sincos(R{arg})"),
-        }
-    }
+    /// Reciprocal of exp(x)-1: `dest = 1/(exp(src)-1)`
+    RecipExpm1 { dest: u32, @dest, src: u32, @read } => ("R{} = 1/(exp(R{})-1)", dest, src),
+    /// Exponential of Square: `dest = exp(src^2)`
+    ExpSqr { dest: u32, @dest, src: u32, @read } => ("R{} = exp(R{}^2)", dest, src),
+    /// Exponential of Negative Square: `dest = exp(-src^2)`
+    ExpSqrNeg { dest: u32, @dest, src: u32, @read } => ("R{} = exp(-R{}^2)", dest, src),
+
+    /// Unary Builtin: `dest = u32, op: FnOp, arg: u32`
+    Builtin1 { dest: u32, @dest, op: FnOp, arg: u32, @read } => ("R{} = {}(R{})", dest, op, arg),
+    /// Binary Builtin: `dest = u32, op: FnOp, arg1: u32, arg2: u32`
+    Builtin2 { dest: u32, @dest, op: FnOp, arg1: u32, @read, arg2: u32, @read } => ("R{} = {}(R{}, R{})", dest, op, arg1, arg2),
+    /// Ternary Builtin: `dest = u32, op: FnOp, arg1: u32, arg2: u32, arg3: u32`
+    Builtin3 { dest: u32, @dest, op: FnOp, arg1: u32, @read, arg2: u32, @read, arg3: u32, @read } => ("R{} = {}(R{}, R{}, R{})", dest, op, arg1, arg2, arg3),
+    /// Quaternary Builtin: `dest = u32, op: FnOp, arg1: u32, arg2: u32, arg3: u32, arg4: u32`
+    Builtin4 { dest: u32, @dest, op: FnOp, arg1: u32, @read, arg2: u32, @read, arg3: u32, @read, arg4: u32, @read } => ("R{} = {}(R{}, R{}, R{}, R{})", dest, op, arg1, arg2, arg3, arg4),
 }

@@ -129,7 +129,7 @@ fn remap_after_constant_compaction(
     let next_temp = RefCell::new(temp_start);
     let temp_map = RefCell::new(FxHashMap::default());
 
-    let remap_register = |reg_idx: u32| {
+    let mut remap_register = |reg_idx: u32| {
         if reg_idx < param_count_u32 {
             reg_idx
         } else if reg_idx < const_limit_u32 {
@@ -147,7 +147,7 @@ fn remap_after_constant_compaction(
     };
 
     for instr in instructions {
-        instr.map_all_regs(arg_pool, &remap_register);
+        instr.map_all_regs(arg_pool, &mut remap_register);
     }
 
     remap_register(output_reg)

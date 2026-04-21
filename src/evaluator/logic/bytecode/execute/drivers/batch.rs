@@ -5,6 +5,7 @@ use crate::core::{DiffError, Expr};
 use rayon::prelude::*;
 use wide::f64x4;
 
+// 256 points × 4 lanes × 8 bytes ≈ 8 KB register traffic per chunk, fits in L1
 const CHUNK_SIZE: usize = 256;
 
 /// Evaluates a single expression in chunks for parallel processing.

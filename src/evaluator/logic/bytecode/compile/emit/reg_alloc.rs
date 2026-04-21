@@ -1,3 +1,4 @@
+use super::FnOp;
 use super::Instruction;
 use super::vir::{VInstruction, VReg};
 
@@ -258,11 +259,33 @@ impl RegAllocator {
                     src: map_vreg_to_phys!(src),
                 }),
                 VInstruction::BuiltinFun { op, args, .. } => match args.len() {
-                    1 => instructions.push(Instruction::Builtin1 {
-                        dest: dest_phys,
-                        op,
-                        arg: map_vreg_to_phys!(args[0]),
-                    }),
+                    1 => match op {
+                        FnOp::Sin => instructions.push(Instruction::Sin {
+                            dest: dest_phys,
+                            arg: map_vreg_to_phys!(args[0]),
+                        }),
+                        FnOp::Cos => instructions.push(Instruction::Cos {
+                            dest: dest_phys,
+                            arg: map_vreg_to_phys!(args[0]),
+                        }),
+                        FnOp::Exp => instructions.push(Instruction::Exp {
+                            dest: dest_phys,
+                            arg: map_vreg_to_phys!(args[0]),
+                        }),
+                        FnOp::Ln => instructions.push(Instruction::Ln {
+                            dest: dest_phys,
+                            arg: map_vreg_to_phys!(args[0]),
+                        }),
+                        FnOp::Sqrt => instructions.push(Instruction::Sqrt {
+                            dest: dest_phys,
+                            arg: map_vreg_to_phys!(args[0]),
+                        }),
+                        _ => instructions.push(Instruction::Builtin1 {
+                            dest: dest_phys,
+                            op,
+                            arg: map_vreg_to_phys!(args[0]),
+                        }),
+                    },
                     2 => instructions.push(Instruction::Builtin2 {
                         dest: dest_phys,
                         op,
@@ -270,33 +293,61 @@ impl RegAllocator {
                         arg2: map_vreg_to_phys!(args[1]),
                     }),
                     _ => {
-                        let start_idx = u32::try_from(self.arg_pool.len())
-                            .expect("Arg pool too large for u32 index");
-                        for &s in &args {
-                            self.arg_pool.push(map_vreg_to_phys!(s));
-                        }
                         if args.len() == 3 {
                             instructions.push(Instruction::Builtin3 {
                                 dest: dest_phys,
                                 op,
-                                start_idx,
+                                arg1: map_vreg_to_phys!(args[0]),
+                                arg2: map_vreg_to_phys!(args[1]),
+                                arg3: map_vreg_to_phys!(args[2]),
                             });
-                        } else {
+                        } else if args.len() == 4 {
                             instructions.push(Instruction::Builtin4 {
                                 dest: dest_phys,
                                 op,
-                                start_idx,
+                                arg1: map_vreg_to_phys!(args[0]),
+                                arg2: map_vreg_to_phys!(args[1]),
+                                arg3: map_vreg_to_phys!(args[2]),
+                                arg4: map_vreg_to_phys!(args[3]),
                             });
+                        } else {
+                            #[allow(
+                                clippy::unreachable,
+                                reason = "Functions in FnOp only have up to 4 arguments; parser rejects others."
+                            )]
+                            {
+                                unreachable!("No builtin functions with more than 4 arguments");
+                            }
                         }
                     }
                 },
-                VInstruction::Builtin1 { op, arg, .. } => {
-                    instructions.push(Instruction::Builtin1 {
+                VInstruction::Builtin1 { op, arg, .. } => match op {
+                    FnOp::Sin => instructions.push(Instruction::Sin {
+                        dest: dest_phys,
+                        arg: map_vreg_to_phys!(arg),
+                    }),
+                    FnOp::Cos => instructions.push(Instruction::Cos {
+                        dest: dest_phys,
+                        arg: map_vreg_to_phys!(arg),
+                    }),
+                    FnOp::Exp => instructions.push(Instruction::Exp {
+                        dest: dest_phys,
+                        arg: map_vreg_to_phys!(arg),
+                    }),
+                    FnOp::Ln => instructions.push(Instruction::Ln {
+                        dest: dest_phys,
+                        arg: map_vreg_to_phys!(arg),
+                    }),
+                    FnOp::Sqrt => instructions.push(Instruction::Sqrt {
+                        dest: dest_phys,
+                        arg: map_vreg_to_phys!(arg),
+                    }),
+                    _ => instructions.push(Instruction::Builtin1 {
                         dest: dest_phys,
                         op,
                         arg: map_vreg_to_phys!(arg),
-                    });
-                }
+                    }),
+                },
                 VInstruction::Builtin2 { op, arg1, arg2, .. } => {
                     instructions.push(Instruction::Builtin2 {
                         dest: dest_phys,

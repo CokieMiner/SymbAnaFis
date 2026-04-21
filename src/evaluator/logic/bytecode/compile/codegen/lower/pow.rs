@@ -1,6 +1,7 @@
 use super::FnOp;
 use super::VirGenerator;
-use super::vir::node::{NodeData, const_from_map, exp_sqr_arg};
+use super::vir::matcher::exp_sqr_arg;
+use super::vir::node::{NodeData, const_from_map};
 use super::vir::{VInstruction, VReg};
 use crate::EPSILON;
 use crate::core::Expr;

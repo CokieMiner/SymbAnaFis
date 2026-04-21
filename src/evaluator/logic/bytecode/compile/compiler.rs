@@ -4,7 +4,11 @@
 //! Representation ([`VInstruction`]s) that are then lowered to physical bytecode.
 
 use super::Instruction;
-use super::analysis::{GvnKey, eliminate_vir_dead_code, optimize_vir_gvn};
+use super::analysis::{
+    GvnKey,
+    eliminate_vir_dead_code, //optimize_nary_extraction,
+    optimize_vir_gvn,
+};
 use super::emit::RegAllocator;
 use super::optimize::schedule::greedy_schedule;
 use super::vir::{VInstruction, VReg};
@@ -97,6 +101,10 @@ impl VirGenerator {
             param_count,
         );
         let const_count = u32::try_from(self.constants.len()).expect("Const count too large");
+
+        // Sub-Product Extraction for large N-ary instructions, for now to heavy so commented out,
+        // may be worth revisiting in a more simpler aproach
+        //optimize_nary_extraction(&mut self.vinstrs, &mut self.next_vreg);
 
         // Greedy Instruction Scheduling (Minimizes Register Pressure)
         self.vinstrs = greedy_schedule(self.vinstrs, self.next_vreg);

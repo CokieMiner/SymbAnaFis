@@ -651,7 +651,12 @@ mod unit_tests {
         // Either way, the result must be correct (no undefined registers).
         for instr in &out {
             // Verify no instruction reads a register that isn't defined
-            let dest_set: Vec<u32> = out.iter().map(Instruction::dest_reg).collect();
+            let mut dest_set = rustc_hash::FxHashSet::default();
+            for out_instr in &out {
+                out_instr.for_each_write(|d| {
+                    dest_set.insert(d);
+                });
+            }
             instr.for_each_read(|r| {
                 let is_param = r < 2;
                 let is_defined = dest_set.contains(&r);

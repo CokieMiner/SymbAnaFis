@@ -4,4 +4,4 @@ pub mod reg_alloc;
 pub use assemble::assemble_flat_bytecode;
 pub use reg_alloc::RegAllocator;
 
-pub use super::{Instruction, vir};
+pub use super::{FnOp, Instruction, vir};

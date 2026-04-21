@@ -324,26 +324,31 @@ macro_rules! dispatch_loop {
                 40 /* Builtin3 */ => {
                     let dest = *pc as usize;
                     let op = unsafe { std::mem::transmute_copy::<u32, FnOp>(&*pc.add(1)) };
-                    let start_idx = *pc.add(2) as usize;
-                    pc = pc.add(3);
+                    let arg1 = *pc.add(2) as usize;
+                    let arg2 = *pc.add(3) as usize;
+                    let arg3 = *pc.add(4) as usize;
+                    pc = pc.add(5);
                     *($regs.add(dest)) = $b3(
                         op,
-                        *($regs.add(*$arg_pool.get_unchecked(start_idx) as usize)),
-                        *($regs.add(*$arg_pool.get_unchecked(start_idx + 1) as usize)),
-                        *($regs.add(*$arg_pool.get_unchecked(start_idx + 2) as usize)),
+                        *($regs.add(arg1)),
+                        *($regs.add(arg2)),
+                        *($regs.add(arg3)),
                     );
                 }
                 41 /* Builtin4 */ => {
                     let dest = *pc as usize;
                     let op = unsafe { std::mem::transmute_copy::<u32, FnOp>(&*pc.add(1)) };
-                    let start_idx = *pc.add(2) as usize;
-                    pc = pc.add(3);
+                    let arg1 = *pc.add(2) as usize;
+                    let arg2 = *pc.add(3) as usize;
+                    let arg3 = *pc.add(4) as usize;
+                    let arg4 = *pc.add(5) as usize;
+                    pc = pc.add(6);
                     *($regs.add(dest)) = $b4(
                         op,
-                        *($regs.add(*$arg_pool.get_unchecked(start_idx) as usize)),
-                        *($regs.add(*$arg_pool.get_unchecked(start_idx + 1) as usize)),
-                        *($regs.add(*$arg_pool.get_unchecked(start_idx + 2) as usize)),
-                        *($regs.add(*$arg_pool.get_unchecked(start_idx + 3) as usize)),
+                        *($regs.add(arg1)),
+                        *($regs.add(arg2)),
+                        *($regs.add(arg3)),
+                        *($regs.add(arg4)),
                     );
                 }
                 _ => unsafe { std::hint::unreachable_unchecked() },

@@ -52,6 +52,7 @@ impl CompiledEvaluator {
     #[cfg(feature = "parallel")]
     pub fn eval_batch_simd(&self, columns: &[&[f64]], output: &mut [f64], workspace: &mut [f64x4]) {
         let n_points = output.len();
+        // SIMD operates on 4 lanes at a time, so we process in chunks of 4.
         let n_lanes = 4;
 
         // Prepare workspace with constants (no need to zero the rest)

@@ -181,6 +181,14 @@ impl CompiledEvaluator {
 
             let provided_cols = self.param_count.min(columns.len());
 
+            // Pre-fetch column pointers to avoid redundant slicing/indexing in the inner loop.
+            let mut col_ptrs = Vec::with_capacity(provided_cols);
+            let mut col_lens = Vec::with_capacity(provided_cols);
+            for column in columns.iter().take(provided_cols) {
+                col_ptrs.push(column.as_ptr());
+                col_lens.push(column.len());
+            }
+
             // Zero out missing parameter columns once per batch
             for col_idx in provided_cols..self.param_count {
                 unsafe {
@@ -190,11 +198,12 @@ impl CompiledEvaluator {
 
             for (i, out) in output.iter_mut().enumerate() {
                 for col_idx in 0..provided_cols {
-                    let col = unsafe { *columns.get_unchecked(col_idx) };
-                    let val = if i < col.len() {
-                        unsafe { *col.get_unchecked(i) }
+                    let col_ptr = col_ptrs[col_idx];
+                    let col_len = col_lens[col_idx];
+                    let val = if i < col_len {
+                        unsafe { *col_ptr.add(i) }
                     } else {
-                        unsafe { *col.get_unchecked(col.len() - 1) }
+                        unsafe { *col_ptr.add(col_len - 1) }
                     };
                     unsafe {
                         *ptr.add(col_idx) = val;
