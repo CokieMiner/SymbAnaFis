@@ -1,5 +1,5 @@
 use crate::parser::parse as parser_parse;
-use crate::{CompiledEvaluator, Expr, Simplify, core::ExprKind, diff};
+use crate::{Expr, Simplify, VmEvaluator, core::ExprKind, diff};
 use std::collections::{HashMap, HashSet};
 use std::f64::consts::PI;
 
@@ -11,7 +11,7 @@ fn parse_expr(s: &str) -> Expr {
     parser_parse(s, &HashSet::new(), &HashSet::new(), None).unwrap()
 }
 
-/// Evaluate expression string with variables using CompiledEvaluator.
+/// Evaluate expression string with variables using VmEvaluator.
 /// This handles all function types including assoc_legendre properly.
 fn eval_at_vars(expr_str: &str, vars: &[(&str, f64)]) -> f64 {
     let expr = parser_parse(expr_str, &HashSet::new(), &HashSet::new(), None).unwrap();
@@ -20,8 +20,8 @@ fn eval_at_vars(expr_str: &str, vars: &[(&str, f64)]) -> f64 {
     let param_names: Vec<&str> = vars.iter().map(|(name, _)| *name).collect();
     let param_values: Vec<f64> = vars.iter().map(|(_, val)| *val).collect();
 
-    // Try using CompiledEvaluator first (handles all functions properly)
-    if let Ok(eval) = CompiledEvaluator::compile(&expr, &param_names, None) {
+    // Try using VmEvaluator first (handles all functions properly)
+    if let Ok(eval) = VmEvaluator::compile(&expr, &param_names, None) {
         return eval.evaluate(&param_values);
     }
 
@@ -545,7 +545,7 @@ fn test_spherical_harmonic_periodicity_phi() {
 // Tree-Walk Evaluator Domain Tests
 // ============================================================================
 
-/// Helper to test tree-walk evaluator directly (without `CompiledEvaluator` fallback)
+/// Helper to test tree-walk evaluator directly (without `VmEvaluator` fallback)
 fn tree_walk_eval(expr_str: &str, vars: &[(&str, f64)]) -> Result<f64, String> {
     let expr = parser_parse(expr_str, &HashSet::new(), &HashSet::new(), None).unwrap();
     let var_map: HashMap<&str, f64> = vars.iter().copied().collect();

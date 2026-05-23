@@ -4,7 +4,7 @@ use crate::core::BodyFn;
 use crate::core::{lookup_by_id, symb_get, symb_new_isolated};
 use std::collections::HashSet;
 use std::collections::hash_map::Entry;
-use std::fmt::{Debug, Formatter, Result as FmtResult};
+use std::fmt::{Debug, Error, Formatter, Result as FmtResult};
 use std::ops::RangeInclusive;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
@@ -585,7 +585,7 @@ impl Context {
 
 impl Debug for Context {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let inner = self.inner.read().expect("Context lock poisoned");
+        let inner = self.inner.read().map_err(|_err| Error)?;
         f.debug_struct("Context")
             .field("id", &self.id)
             .field("symbols", &self.symbol_names())

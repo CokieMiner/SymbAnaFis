@@ -4,12 +4,12 @@ pub mod functions;
 pub mod instruction;
 
 // --- Core API ---
-pub use super::CompiledEvaluator;
+pub use super::VmEvaluator;
 pub use functions::FnOp;
 pub use instruction::Instruction;
 
 // --- Compilation ---
-pub use compile::{VirGenerator, assemble_flat_bytecode, expand_user_functions};
+pub use compile::{CompiledProgram, VirGenerator, assemble_flat_bytecode, expand_user_functions};
 
 // --- Execution & Parallelism ---
 #[cfg(all(feature = "parallel", feature = "python"))]

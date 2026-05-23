@@ -11,10 +11,17 @@ use rustc_hash::FxHashMap;
 #[cfg(test)]
 #[allow(
     clippy::panic,
+    clippy::arithmetic_side_effects,
+    clippy::as_conversions,
+    clippy::indexing_slicing,
+    clippy::single_call_fn,
     reason = "Test-only module uses panics for expressive failure messages"
 )]
 mod unit_tests {
     use super::*;
+    use crate::evaluator::VmEvaluator;
+    use crate::parser::parse;
+    use std::collections::{HashMap, HashSet};
 
     #[test]
     fn test_gvn_constant_folding_basic() {
@@ -666,5 +673,134 @@ mod unit_tests {
                 );
             });
         }
+    }
+
+    #[test]
+    fn test_bessel_i_fuzz_repro() {
+        let expr_str = "besselj(0, x2) / besseli(-1, -7.3030858368915474)";
+        let expr = parse(expr_str, &HashSet::new(), &HashSet::new(), None)
+            .expect("Failed to parse expression");
+
+        let mut vars_map = HashMap::new();
+        vars_map.insert("x2", -2.072_933_127_543_577);
+        let ground_truth = expr
+            .evaluate(&vars_map, &HashMap::new())
+            .as_number()
+            .expect("Result should be a number");
+
+        let evaluator =
+            VmEvaluator::compile(&expr, &["x2"], None).expect("Failed to compile evaluator");
+        let compiled = evaluator.evaluate(&[-2.072_933_127_543_577]);
+
+        assert!(
+            (ground_truth - compiled).abs() < 1e-10,
+            "Bessel mismatch: {ground_truth} != {compiled}"
+        );
+    }
+
+    #[test]
+    fn test_fusion_asin_acos() {
+        let instrs = vec![
+            Instruction::Builtin1 {
+                dest: 10,
+                op: FnOp::Asin,
+                arg: 1,
+            },
+            Instruction::Builtin1 {
+                dest: 11,
+                op: FnOp::Acos,
+                arg: 1,
+            },
+        ];
+        let use_count = vec![0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1];
+
+        let mut constants = vec![];
+        let mut pool = ConstantPool::with_index(&mut constants, FxHashMap::default(), 0);
+        let (fused, changed) = fuse_instructions(&instrs, &mut pool, &use_count, &[]);
+
+        assert!(changed);
+        // Self-copy + AsinAcos = 2 instructions (DCE removes the copy later)
+        assert_eq!(fused.len(), 2);
+        assert!(
+            matches!(fused[0], Instruction::Copy { dest: 10, src: 10 }),
+            "Expected self-copy, got {:?}",
+            fused[0]
+        );
+        if let Instruction::AsinAcos {
+            asin_dest,
+            acos_dest,
+            arg,
+        } = fused[1]
+        {
+            assert_eq!(asin_dest, 10);
+            assert_eq!(acos_dest, 11);
+            assert_eq!(arg, 1);
+        } else {
+            panic!("Expected AsinAcos, got {:?}", fused[1]);
+        }
+    }
+
+    #[test]
+    fn test_fusion_asin_acos_reversed_order() {
+        let instrs = vec![
+            Instruction::Builtin1 {
+                dest: 10,
+                op: FnOp::Acos,
+                arg: 1,
+            },
+            Instruction::Builtin1 {
+                dest: 11,
+                op: FnOp::Asin,
+                arg: 1,
+            },
+        ];
+        let use_count = vec![0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1];
+
+        let mut constants = vec![];
+        let mut pool = ConstantPool::with_index(&mut constants, FxHashMap::default(), 0);
+        let (fused, changed) = fuse_instructions(&instrs, &mut pool, &use_count, &[]);
+
+        assert!(changed);
+        assert_eq!(fused.len(), 2);
+        assert!(
+            matches!(fused[0], Instruction::Copy { dest: 10, src: 10 }),
+            "Expected self-copy, got {:?}",
+            fused[0]
+        );
+        if let Instruction::AsinAcos {
+            asin_dest,
+            acos_dest,
+            arg,
+        } = fused[1]
+        {
+            assert_eq!(asin_dest, 11);
+            assert_eq!(acos_dest, 10);
+            assert_eq!(arg, 1);
+        } else {
+            panic!("Expected AsinAcos, got {:?}", fused[1]);
+        }
+    }
+
+    #[test]
+    fn test_fusion_asin_acos_no_fusion_different_args() {
+        let instrs = vec![
+            Instruction::Builtin1 {
+                dest: 10,
+                op: FnOp::Asin,
+                arg: 1,
+            },
+            Instruction::Builtin1 {
+                dest: 11,
+                op: FnOp::Acos,
+                arg: 2,
+            },
+        ];
+        let use_count = vec![0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1];
+
+        let mut constants = vec![];
+        let mut pool = ConstantPool::with_index(&mut constants, FxHashMap::default(), 0);
+        let (fused, _) = fuse_instructions(&instrs, &mut pool, &use_count, &[]);
+
+        assert_eq!(fused.len(), 2);
     }
 }

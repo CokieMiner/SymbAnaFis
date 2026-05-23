@@ -8,7 +8,7 @@ import unittest
 import math
 from symb_anafis import (
     diff, simplify, evaluate_str, parse, Expr, Symbol, symb,
-    CompiledEvaluator
+    VmEvaluator
 )
 
 EPSILON = 1e-6
@@ -277,30 +277,30 @@ class TestDerivativeAccuracy(unittest.TestCase):
         self.assertEqual(str(result), "3")
 
 
-class TestCompiledEvaluator(unittest.TestCase):
-    """CompiledEvaluator parity tests."""
+class TestVmEvaluator(unittest.TestCase):
+    """VmEvaluator parity tests."""
 
     def test_compiled_sin(self):
         expr = parse("sin(x)")
-        compiled = CompiledEvaluator(expr, ["x"])
+        compiled = VmEvaluator(expr, ["x"])
         result = compiled.evaluate([math.pi/2])
         self.assertAlmostEqual(result, 1.0, places=10)
 
     def test_compiled_polynomial(self):
         expr = parse("x^2 + 2*x + 1")
-        compiled = CompiledEvaluator(expr, ["x"])
+        compiled = VmEvaluator(expr, ["x"])
         result = compiled.evaluate([3.0])
         self.assertAlmostEqual(result, 16.0, places=10)
 
     def test_compiled_multivar(self):
         expr = parse("x*y + z")
-        compiled = CompiledEvaluator(expr, ["x", "y", "z"])
+        compiled = VmEvaluator(expr, ["x", "y", "z"])
         result = compiled.evaluate([2.0, 3.0, 4.0])
         self.assertAlmostEqual(result, 10.0, places=10)
 
     def test_compiled_log(self):
         expr = parse("log(2, x)")
-        compiled = CompiledEvaluator(expr, ["x"])
+        compiled = VmEvaluator(expr, ["x"])
         result = compiled.evaluate([8.0])
         self.assertAlmostEqual(result, 3.0, places=10)
 
@@ -311,7 +311,7 @@ class TestCompiledEvaluator(unittest.TestCase):
             self.skipTest("NumPy not installed")
 
         expr = parse("x^2")
-        compiled = CompiledEvaluator(expr, ["x"])
+        compiled = VmEvaluator(expr, ["x"])
         results = compiled.eval_batch([np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float64)])
         self.assertEqual(len(results), 4)
         self.assertAlmostEqual(results[0], 1.0, places=10)

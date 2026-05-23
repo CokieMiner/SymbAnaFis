@@ -171,10 +171,10 @@ impl Expr {
                         if num_sum != 0.0 {
                             v.push(Self::number(num_sum));
                         }
-                        if v.len() == 1 {
-                            v.pop().expect("v must have exactly one element")
-                        } else {
-                            Self::sum(v)
+                        match v.len() {
+                            0 => Self::number(num_sum),
+                            1 => v.pop().expect("v must have exactly one element"),
+                            _ => Self::sum(v),
                         }
                     },
                 )
@@ -198,12 +198,12 @@ impl Expr {
                     |mut v| {
                         #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
                         if num_prod != 1.0 {
-                            v.insert(0, Self::number(num_prod));
+                            v.push(Self::number(num_prod));
                         }
-                        if v.len() == 1 {
-                            v.pop().expect("v must have exactly one element")
-                        } else {
-                            Self::product(v)
+                        match v.len() {
+                            0 => Self::number(num_prod),
+                            1 => v.pop().expect("v must have exactly one element"),
+                            _ => Self::product(v),
                         }
                     },
                 )

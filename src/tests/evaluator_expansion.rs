@@ -2,7 +2,7 @@
 mod tests {
     use crate::Expr;
     use crate::core::known_symbols::{KS, get_symbol};
-    use crate::evaluator::CompiledEvaluator;
+    use crate::evaluator::VmEvaluator;
     use crate::parser;
     use std::collections::HashSet;
     use std::f64::consts::PI;
@@ -18,7 +18,7 @@ mod tests {
         let expr_str = "spherical_harmonic(0, 0, 0, 0)";
         let expr = parse_expr(expr_str);
 
-        let eval = CompiledEvaluator::compile_auto(&expr, None).unwrap();
+        let eval = VmEvaluator::compile_auto(&expr, None).unwrap();
         let result = eval.evaluate(&[]);
 
         let expected = 0.5 * (1.0 / PI).sqrt();
@@ -31,7 +31,7 @@ mod tests {
         let expr_str = "ynm(0, 0, 0, 0)";
         let expr = parse_expr(expr_str);
 
-        let eval = CompiledEvaluator::compile_auto(&expr, None).unwrap();
+        let eval = VmEvaluator::compile_auto(&expr, None).unwrap();
         let result = eval.evaluate(&[]);
 
         let expected = 0.5 * (1.0 / PI).sqrt();
@@ -44,7 +44,7 @@ mod tests {
         let expr_str = "exp_polar(2.0)";
         let expr = parse_expr(expr_str);
 
-        let eval = CompiledEvaluator::compile_auto(&expr, None).unwrap();
+        let eval = VmEvaluator::compile_auto(&expr, None).unwrap();
         let result = eval.evaluate(&[]);
 
         let expected = (2.0_f64).exp();
@@ -52,7 +52,7 @@ mod tests {
     }
     #[test]
     fn test_atan2() {
-        let evaluator = CompiledEvaluator::compile_auto(
+        let evaluator = VmEvaluator::compile_auto(
             &Expr::func_multi_from_arcs_symbol(
                 get_symbol(KS.atan2),
                 vec![

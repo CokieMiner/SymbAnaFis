@@ -24,7 +24,7 @@ use std::fs;
 use std::hint::black_box;
 use std::time::Instant;
 
-use symb_anafis::{CompiledEvaluator, Diff, Simplify, parse, symb};
+use symb_anafis::{Diff, Simplify, VmEvaluator, parse, symb};
 
 const VAR_NAME: &str = "x6";
 
@@ -131,8 +131,7 @@ fn bench_compile(expr_str: &str, iters: u32) {
     let start = Instant::now();
     for i in 0..iters {
         let t = Instant::now();
-        let evaluator =
-            CompiledEvaluator::compile(&expr, &params_str, None).expect("compile failed");
+        let evaluator = VmEvaluator::compile(&expr, &params_str, None).expect("compile failed");
         eprintln!("  iter {}: {:?}", i + 1, t.elapsed());
         black_box(evaluator);
     }
@@ -154,7 +153,7 @@ fn run_all(expr_str: &str) {
     // 2. Compile (parsed)
     eprintln!("\n═══ Phase 2: Compile (parsed) ═══");
     let t2 = Instant::now();
-    let evaluator = CompiledEvaluator::compile(&expr, &params_str, None).expect("compile failed");
+    let evaluator = VmEvaluator::compile(&expr, &params_str, None).expect("compile failed");
     eprintln!("  Compile: {:?}", t2.elapsed());
 
     // 3. Evaluate (parsed)
@@ -184,15 +183,14 @@ fn run_all(expr_str: &str) {
     // 6. Compile (simplified)
     eprintln!("\n═══ Phase 6: Compile (simplified) ═══");
     let t6 = Instant::now();
-    let eval_simplified = CompiledEvaluator::compile(&simplified, &params_str, None)
-        .expect("compile simplified failed");
+    let eval_simplified =
+        VmEvaluator::compile(&simplified, &params_str, None).expect("compile simplified failed");
     eprintln!("  Compile: {:?}", t6.elapsed());
 
     // 7. Compile (raw derivative)
     eprintln!("\n═══ Phase 7: Compile (raw derivative) ═══");
     let t7 = Instant::now();
-    let eval_raw =
-        CompiledEvaluator::compile(&diff_expr, &params_str, None).expect("compile raw failed");
+    let eval_raw = VmEvaluator::compile(&diff_expr, &params_str, None).expect("compile raw failed");
     eprintln!("  Compile: {:?}", t7.elapsed());
 
     // 8. Evaluate derivatives

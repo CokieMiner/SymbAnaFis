@@ -140,10 +140,10 @@ class TestApi(unittest.TestCase):
         # Expr("5.0") -> symbol "5.0" (as requested: string input creates symbol)
         subbed = expr.substitute("x", Expr(5.0))
         
-        # User wants to use CompiledEvaluator here
-        from symb_anafis import CompiledEvaluator
+        # User wants to use VmEvaluator here
+        from symb_anafis import VmEvaluator
         # Compile for no variables remaining (or just compile and eval)
-        compiled = CompiledEvaluator(subbed, [])
+        compiled = VmEvaluator(subbed, [])
         val = compiled.evaluate([])
         self.assertEqual(val, 6.0)
         

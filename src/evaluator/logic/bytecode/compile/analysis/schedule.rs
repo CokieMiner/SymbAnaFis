@@ -1,5 +1,4 @@
 use super::{VInstruction, VReg};
-use rustc_hash::FxHashSet;
 use std::collections::BinaryHeap;
 
 /// Schedules `VInstruction`s using a greedy topological sort to minimize peak register pressure.
@@ -45,14 +44,15 @@ pub fn greedy_schedule(vinstrs: Vec<VInstruction>, next_vreg: u32) -> Vec<VInstr
     // Pass 2: count outgoing degree per node to allocate CSR arrays and compute heuristic weights
     let mut degree = vec![0_usize; n];
     let mut weights = vec![0_i32; n];
-    let mut seen = FxHashSet::default();
+    let mut seen_gen = vec![0_u32; n];
+    let mut gen_id: u32 = 1;
     for (i, instr) in vinstrs.iter().enumerate() {
-        seen.clear();
         let mut dying = 0_i32;
         instr.for_each_read(|r| {
             if let VReg::Temp(t) = r {
                 let p = producer_map[t as usize];
-                if p != usize::MAX && seen.insert(p) {
+                if p != usize::MAX && seen_gen[p] != gen_id {
+                    seen_gen[p] = gen_id;
                     degree[p] += 1;
                     if last_use[t as usize] == i {
                         dying += 1;
@@ -60,6 +60,7 @@ pub fn greedy_schedule(vinstrs: Vec<VInstruction>, next_vreg: u32) -> Vec<VInstr
                 }
             }
         });
+        gen_id = gen_id.wrapping_add(1);
         weights[i] = dying - 1;
     }
 
@@ -77,11 +78,12 @@ pub fn greedy_schedule(vinstrs: Vec<VInstruction>, next_vreg: u32) -> Vec<VInstr
     cursor[..n].copy_from_slice(&offsets[..n]);
     let mut in_degree = vec![0_u32; n];
     for (i, instr) in vinstrs.iter().enumerate() {
-        seen.clear();
+        gen_id = gen_id.wrapping_add(1);
         instr.for_each_read(|r| {
             if let VReg::Temp(t) = r {
                 let p = producer_map[t as usize];
-                if p != usize::MAX && seen.insert(p) {
+                if p != usize::MAX && seen_gen[p] != gen_id {
+                    seen_gen[p] = gen_id;
                     #[allow(
                         clippy::cast_possible_truncation,
                         reason = "n is checked to fit in u32 upfront"

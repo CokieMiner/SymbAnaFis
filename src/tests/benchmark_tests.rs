@@ -3,7 +3,7 @@
 //! Ensures the full pipeline works: parse → diff → simplify → compile → evaluate
 //! Uses realistic physics/ML expressions from the benchmark suite.
 
-use crate::{CompiledEvaluator, Diff, Simplify, parse, symb};
+use crate::{Diff, Simplify, VmEvaluator, parse, symb};
 use std::collections::HashSet;
 use std::f64::consts::PI;
 
@@ -178,7 +178,7 @@ fn test_compile_raw_derivatives() {
         let diff_builder = Diff::new().skip_simplification(true);
         let diff_raw = diff_builder.differentiate(&expr, &var_sym).expect(name);
 
-        let result = CompiledEvaluator::compile_auto(&diff_raw, None);
+        let result = VmEvaluator::compile_auto(&diff_raw, None);
 
         // Some expressions may have unsupported functions (like besselj)
         // We just check it doesn't panic
@@ -197,7 +197,7 @@ fn test_compile_simplified_derivatives() {
         if let Ok(ref diff_str) = diff_result {
             let parsed = parse(diff_str, &empty, &empty, None);
             if let Ok(ref expr) = parsed {
-                let compiled = CompiledEvaluator::compile_auto(expr, None);
+                let compiled = VmEvaluator::compile_auto(expr, None);
                 // Check it compiles (or fails gracefully for unsupported funcs)
                 let _unused = compiled;
             }
@@ -229,7 +229,7 @@ fn test_evaluate_compiled_derivatives() {
         eprintln!("{}: derivative = {}", name, diff_result);
 
         let parsed = parse(&diff_result, &empty, &empty, None).expect(name);
-        let compiled = CompiledEvaluator::compile_auto(&parsed, None);
+        let compiled = VmEvaluator::compile_auto(&parsed, None);
 
         if let Ok(evaluator) = compiled {
             let params = &evaluator.param_names;
@@ -285,7 +285,7 @@ fn test_full_pipeline_lorentz_factor() {
     eprintln!("Derivative: {}", diff);
 
     // Compile
-    let compiled = CompiledEvaluator::compile_auto(&diff, None).unwrap();
+    let compiled = VmEvaluator::compile_auto(&diff, None).unwrap();
     eprintln!("Params: {:?}", compiled.param_names);
 
     // Evaluate at v=0
@@ -312,7 +312,7 @@ fn test_full_pipeline_damped_oscillator() {
     let diff = Diff::new().differentiate(&expr, &t).unwrap();
 
     // Compile
-    let compiled = CompiledEvaluator::compile_auto(&diff, None).unwrap();
+    let compiled = VmEvaluator::compile_auto(&diff, None).unwrap();
 
     // Evaluate at t=0
     let param_count = compiled.param_count;
@@ -331,7 +331,7 @@ fn test_batch_evaluation_1000_points() {
     let expr = parse(expr_str, &empty, &empty, None).unwrap();
     let x = symb("x");
     let diff = Diff::new().differentiate(&expr, &x).unwrap();
-    let compiled = CompiledEvaluator::compile_auto(&diff, None).unwrap();
+    let compiled = VmEvaluator::compile_auto(&diff, None).unwrap();
 
     // Evaluate at 1000 points
     let mut sum = 0.0_f64;
@@ -405,7 +405,7 @@ fn test_all_benchmarks_produce_valid_results() {
         }
         let expr = parsed_expr.unwrap();
 
-        let compiled = CompiledEvaluator::compile_auto(&expr, None);
+        let compiled = VmEvaluator::compile_auto(&expr, None);
         if compiled.is_err() {
             failed.push(format!("{}: compile failed - {:?}", name, compiled.err()));
             continue;
@@ -455,7 +455,7 @@ fn test_eval_batch_single_var() {
 
     let diff_str = crate::diff(expr_str, var, &[], None).unwrap();
     let parsed = parse(&diff_str, &empty, &empty, None).unwrap();
-    let evaluator = CompiledEvaluator::compile(&parsed, &[var], None).unwrap();
+    let evaluator = VmEvaluator::compile(&parsed, &[var], None).unwrap();
 
     // Generate test points in valid domain (|v| < 1)
     let test_points: Vec<f64> = (0..100).map(|i| 0.01 + 0.98 * (i as f64 / 100.0)).collect();
@@ -503,7 +503,7 @@ fn test_eval_scaling() {
 
     let diff_str = crate::diff(expr_str, var, &[], None).unwrap();
     let parsed = parse(&diff_str, &empty, &empty, None).unwrap();
-    let evaluator = CompiledEvaluator::compile(&parsed, &[var], None).unwrap();
+    let evaluator = VmEvaluator::compile(&parsed, &[var], None).unwrap();
 
     for n in [100, 1000, 10000] {
         let test_points: Vec<f64> = (0..n)
@@ -543,7 +543,7 @@ fn test_multi_expression_batch() {
     for (name, expr_str, var, range) in &expressions {
         let diff_str = crate::diff(expr_str, var, &[], None).expect(name);
         let parsed = parse(&diff_str, &empty, &empty, None).expect(name);
-        let evaluator = CompiledEvaluator::compile(&parsed, &[var], None).expect(name);
+        let evaluator = VmEvaluator::compile(&parsed, &[var], None).expect(name);
 
         // Generate test data in valid domain
         let start = range.start;
@@ -635,7 +635,7 @@ fn test_large_expr_eval_50() {
     let parsed = parse(&expr_str, &empty, &empty, None).unwrap();
     let diff = Diff::new().differentiate(&parsed, &x).unwrap();
 
-    let compiled = CompiledEvaluator::compile_auto(&diff, None);
+    let compiled = VmEvaluator::compile_auto(&diff, None);
     if let Ok(evaluator) = compiled {
         // Evaluate at x=2.0 (safe for log(x + i))
         let result = evaluator.evaluate(&[2.0]);

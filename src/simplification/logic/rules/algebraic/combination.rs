@@ -137,19 +137,16 @@ rule_arc!(
             let mut factor_groups: FxHashMap<Arc<Expr>, Vec<Arc<Expr>>> = FxHashMap::default();
 
             for factor in factors {
-                match &factor.kind {
-                    ExprKind::Pow(base, exp) => {
-                        factor_groups
-                            .entry(Arc::clone(base))
-                            .or_default()
-                            .push(Arc::clone(exp));
-                    }
-                    _ => {
-                        factor_groups
-                            .entry(Arc::clone(factor))
-                            .or_default()
-                            .push(arc_number(1.0));
-                    }
+                if let ExprKind::Pow(base, exp) = &factor.kind {
+                    factor_groups
+                        .entry(Arc::clone(base))
+                        .or_default()
+                        .push(Arc::clone(exp));
+                } else {
+                    factor_groups
+                        .entry(Arc::clone(factor))
+                        .or_default()
+                        .push(arc_number(1.0));
                 }
             }
 
@@ -178,12 +175,7 @@ rule_arc!(
             if combined_factors.len() == factors_len {
                 None
             } else if combined_factors.len() == 1 {
-                Some(
-                    combined_factors
-                        .into_iter()
-                        .next()
-                        .expect("Iterator guaranteed to have one element"),
-                )
+                Some(combined_factors.remove(0))
             } else {
                 Some(Arc::new(Expr::product_from_arcs(combined_factors)))
             }
@@ -201,7 +193,7 @@ fn extract_product_with_sum(expr: &Expr) -> Option<(Expr, Vec<Expr>)> {
         for (i, factor) in factors.iter().enumerate() {
             if let ExprKind::Sum(addends) = &factor.kind {
                 // Collect all other factors
-                let other_factors: Vec<Expr> = factors
+                let mut other_factors: Vec<Expr> = factors
                     .iter()
                     .enumerate()
                     .filter(|(j, _)| *j != i)
@@ -211,10 +203,7 @@ fn extract_product_with_sum(expr: &Expr) -> Option<(Expr, Vec<Expr>)> {
                 let combined_factor = if other_factors.is_empty() {
                     Expr::number(1.0)
                 } else if other_factors.len() == 1 {
-                    other_factors
-                        .into_iter()
-                        .next()
-                        .expect("Iterator guaranteed to have one element")
+                    other_factors.remove(0)
                 } else {
                     Expr::product(other_factors)
                 };
@@ -249,16 +238,16 @@ fn contains_variable(expr: &Expr) -> bool {
 // x -> (x, 1.0), x^n -> (x, n)
 /// Extracts the base and numeric exponent from an expression.
 fn extract_base_and_exp(expr: &Expr) -> Option<(Expr, f64)> {
-    match &expr.kind {
-        ExprKind::Symbol(_) => Some((expr.clone(), 1.0)),
-        ExprKind::Pow(base, exp) => {
-            if let ExprKind::Number(n) = &exp.kind {
-                Some((base.as_ref().clone(), *n))
-            } else {
-                None // Non-numeric exponent, can't combine
-            }
+    if let ExprKind::Symbol(_) = &expr.kind {
+        Some((expr.clone(), 1.0))
+    } else if let ExprKind::Pow(base, exp) = &expr.kind {
+        if let ExprKind::Number(n) = &exp.kind {
+            Some((base.as_ref().clone(), *n))
+        } else {
+            None
         }
-        _ => None,
+    } else {
+        None
     }
 }
 

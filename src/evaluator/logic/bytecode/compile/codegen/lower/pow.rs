@@ -141,6 +141,12 @@ impl VirGenerator {
         if n == 1 {
             return x;
         }
+        if n == 2 {
+            let dest = self.alloc_vreg();
+            self.emit(VInstruction::Square { dest, src: x });
+            powers.insert(2, dest);
+            return dest;
+        }
         if let Some(&cached) = powers.get(&n) {
             return cached;
         }
@@ -175,8 +181,17 @@ impl VirGenerator {
     pub(super) fn is_const_zero(&self, vreg: VReg) -> bool {
         match vreg {
             VReg::Const(idx) => self.constants[idx as usize] == 0.0,
-            _ => false,
+            VReg::Param(_) | VReg::Temp(_) => false,
         }
+    }
+
+    pub(super) fn compile_poly_node(
+        &mut self,
+        poly: &Polynomial,
+        node_map: &FxHashMap<*const Expr, NodeData>,
+    ) -> Result<VReg, DiffError> {
+        let base_v = Self::vreg_from_map(node_map, poly.base().as_ref())?;
+        Ok(self.compile_polynomial_with_base(poly, base_v))
     }
 
     #[allow(
@@ -190,10 +205,11 @@ impl VirGenerator {
         node_map: &FxHashMap<*const Expr, NodeData>,
     ) -> Result<VReg, DiffError> {
         if let Some(n_val) = const_from_map(node_map, exp) {
-            let is_integer = (n_val - n_val.round()).abs() < EPSILON;
+            let rounded = n_val.round();
+            let is_integer = (n_val - rounded).abs() < EPSILON;
             if is_integer {
                 #[allow(clippy::cast_possible_truncation, reason = "Integer powers fit in i64")]
-                let n_int = n_val.round() as i64;
+                let n_int = rounded as i64;
                 if n_int == 0 {
                     let idx = self.add_const(1.0);
                     return Ok(VReg::Const(idx));

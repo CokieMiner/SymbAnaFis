@@ -475,10 +475,58 @@ impl Operator {
             Self::Ynm => 4,
 
             // All other functions require 1 argument
-            _ if self.is_function() => 1,
+            Self::Sin
+            | Self::Cos
+            | Self::Tan
+            | Self::Cot
+            | Self::Sec
+            | Self::Csc
+            | Self::Asin
+            | Self::Acos
+            | Self::Atan
+            | Self::Acot
+            | Self::Asec
+            | Self::Acsc
+            | Self::Ln
+            | Self::Exp
+            | Self::Sinh
+            | Self::Cosh
+            | Self::Tanh
+            | Self::Coth
+            | Self::Sech
+            | Self::Csch
+            | Self::Asinh
+            | Self::Acosh
+            | Self::Atanh
+            | Self::Acoth
+            | Self::Asech
+            | Self::Acsch
+            | Self::Sqrt
+            | Self::Cbrt
+            | Self::Log
+            | Self::Log10
+            | Self::Log2
+            | Self::Sinc
+            | Self::ExpPolar
+            | Self::Abs
+            | Self::Signum
+            | Self::Floor
+            | Self::Ceil
+            | Self::Round
+            | Self::Erf
+            | Self::Erfc
+            | Self::Gamma
+            | Self::Lgamma
+            | Self::Digamma
+            | Self::Trigamma
+            | Self::Tetragamma
+            | Self::Zeta
+            | Self::LambertW
+            | Self::EllipticE
+            | Self::EllipticK => 1,
 
             // Arithmetic operators - not applicable
-            _ => 0,
+            Self::Add | Self::Sub | Self::Mul | Self::Div | Self::Pow => 0,
         }
     }
 }

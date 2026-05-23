@@ -3,7 +3,8 @@
     clippy::unwrap_used,
     clippy::print_stdout,
     clippy::use_debug,
-    reason = "Demo script: unwrap for setup, stdout for output, debug for examples"
+    clippy::wildcard_enum_match_arm,
+    reason = "Demo script: unwrap for setup, stdout for output, debug for examples, wildcard for concise pattern matching"
 )]
 //! View API Demo - Pattern Matching on Expression Structure
 //!
@@ -160,13 +161,11 @@ fn main() {
     println!("{}", "-".repeat(70));
     let trig = x.sin().pow(2.0) + x.cos().pow(2.0);
     println!("Expression: {trig}");
-    println!(
-        "View kind: {:?}",
-        match trig.view() {
-            ExprView::Sum(_) => "Sum",
-            _ => "Other",
-        }
-    );
+    let kind = match trig.view() {
+        ExprView::Sum(_) => "Sum",
+        _ => "Other",
+    };
+    println!("View kind: {kind:?}");
     println!("\nStructure:");
     print_structure(&trig, 0);
 
@@ -175,13 +174,11 @@ fn main() {
     println!("{}", "-".repeat(70));
     let rational = (x.to_expr() + 1.0) / (x.to_expr() - 1.0);
     println!("Expression: {rational}");
-    println!(
-        "View kind: {:?}",
-        match rational.view() {
-            ExprView::Div(_, _) => "Div",
-            _ => "Other",
-        }
-    );
+    let kind2 = match rational.view() {
+        ExprView::Div(_, _) => "Div",
+        _ => "Other",
+    };
+    println!("View kind: {kind2:?}");
     println!("\nStructure:");
     print_structure(&rational, 0);
 
@@ -192,13 +189,11 @@ fn main() {
     let view4 = expr4.view();
 
     println!("Expression: {expr4}");
-    println!(
-        "Kind:       {:?}",
-        match &view4 {
-            ExprView::Sum(_) => "Sum",
-            _ => "Other",
-        }
-    );
+    let kind3 = match &view4 {
+        ExprView::Sum(_) => "Sum",
+        _ => "Other",
+    };
+    println!("Kind:       {kind3:?}");
 
     if let ExprView::Sum(terms) = &view4 {
         println!("Is Sum:     true");
@@ -223,13 +218,11 @@ fn main() {
     let view6 = expr6.view();
 
     println!("Expression:   {expr6}");
-    println!(
-        "View kind:    {:?}",
-        match &view6 {
-            ExprView::Sum(_) => "Sum",
-            _ => "Other",
-        }
-    );
+    let kind4 = match &view6 {
+        ExprView::Sum(_) => "Sum",
+        _ => "Other",
+    };
+    println!("View kind:    {kind4:?}");
 
     if let ExprView::Sum(terms) = &view6 {
         println!("# Children:   {}", terms.len());

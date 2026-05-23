@@ -165,7 +165,7 @@ pub enum DiffError {
     /// The expression exceeded the maximum allowed node count.
     MaxNodesExceeded,
 
-    // Compilation errors (for CompiledEvaluator)
+    // Compilation errors (for VmEvaluator)
     /// Expression contains unsupported constructs for numeric evaluation.
     UnsupportedExpression(String),
     /// Function not supported in compiled evaluation.
@@ -206,6 +206,8 @@ pub enum DiffError {
         /// Maximum allowed arity.
         max_arity: usize,
     },
+    /// Register index or parameter index overflowed u32.
+    RegisterOverflow,
 }
 
 impl DiffError {
@@ -374,6 +376,9 @@ impl Display for DiffError {
                     f,
                     "Partial derivative index {index} exceeds maximum arity {max_arity}"
                 )
+            }
+            Self::RegisterOverflow => {
+                write!(f, "Register index or parameter index overflowed u32 limit")
             }
         }
     }

@@ -115,7 +115,7 @@ pub mod parallel_impl {
 
         // Use the hint-based version to skip double-scan
         let results: Vec<Vec<EvalResult>> =
-            evaluate_parallel_with_hint(exprs, vars, converted_values, Some(is_fully_numeric))?;
+            evaluate_parallel_with_hint(exprs, &vars, &converted_values, Some(&is_fully_numeric))?;
 
         // Convert Rust results to Python objects
         results

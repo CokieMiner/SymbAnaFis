@@ -305,6 +305,20 @@ impl VirGenerator {
             // Case 3: Mixed sum (pos - neg)
             (p_pair, n_pair) => {
                 match (p_pair, n_pair) {
+                    // pa*pb - na*nb with no extra terms → MulSub (2 inst instead of 3)
+                    (Some((pa, pb)), Some((na, nb)))
+                        if pos_vregs.is_empty() && neg_vregs.is_empty() =>
+                    {
+                        let neg_mul = self.emit_mul_two(na, nb);
+                        let dest = self.alloc_vreg();
+                        self.emit(VInstruction::MulSub {
+                            dest,
+                            a: pa,
+                            b: pb,
+                            c: neg_mul,
+                        });
+                        dest
+                    }
                     // Sub-case: pos_prod - neg_sum -> MulSub
                     (Some((pa, pb)), None) if pos_vregs.is_empty() => {
                         let neg_v = self.emit_add_vregs(neg_vregs);
@@ -374,13 +388,6 @@ impl VirGenerator {
         } else {
             self.emit(VInstruction::Neg { dest, src: b });
         }
-        dest
-    }
-
-    /// Helper to emit Mul2
-    fn emit_mul_two(&mut self, a: VReg, b: VReg) -> VReg {
-        let dest = self.alloc_vreg();
-        self.emit(VInstruction::Mul2 { dest, a, b });
         dest
     }
 }

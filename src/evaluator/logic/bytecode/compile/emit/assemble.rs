@@ -67,6 +67,11 @@ pub fn assemble_flat_bytecode(instructions: &[Instruction]) -> Vec<u32> {
                 cos_dest,
                 arg,
             } => bc.extend_from_slice(&[op, sin_dest, cos_dest, arg]),
+            Instruction::AsinAcos {
+                asin_dest,
+                acos_dest,
+                arg,
+            } => bc.extend_from_slice(&[op, asin_dest, acos_dest, arg]),
             Instruction::Div { dest, num, den } => bc.extend_from_slice(&[op, dest, num, den]),
             Instruction::Pow { dest, base, exp } => bc.extend_from_slice(&[op, dest, base, exp]),
             Instruction::Powi { dest, src, n } => bc.extend_from_slice(&[op, dest, src, n as u32]),
@@ -74,20 +79,20 @@ pub fn assemble_flat_bytecode(instructions: &[Instruction]) -> Vec<u32> {
                 dest,
                 op: func_op,
                 arg,
-            } => bc.extend_from_slice(&[op, dest, func_op as u32, arg]),
+            } => bc.extend_from_slice(&[op, dest, u32::from(func_op as u8), arg]),
             Instruction::Builtin2 {
                 dest,
                 op: func_op,
                 arg1,
                 arg2,
-            } => bc.extend_from_slice(&[op, dest, func_op as u32, arg1, arg2]),
+            } => bc.extend_from_slice(&[op, dest, u32::from(func_op as u8), arg1, arg2]),
             Instruction::Builtin3 {
                 dest,
                 op: func_op,
                 arg1,
                 arg2,
                 arg3,
-            } => bc.extend_from_slice(&[op, dest, func_op as u32, arg1, arg2, arg3]),
+            } => bc.extend_from_slice(&[op, dest, u32::from(func_op as u8), arg1, arg2, arg3]),
             Instruction::Builtin4 {
                 dest,
                 op: func_op,
@@ -95,7 +100,9 @@ pub fn assemble_flat_bytecode(instructions: &[Instruction]) -> Vec<u32> {
                 arg2,
                 arg3,
                 arg4,
-            } => bc.extend_from_slice(&[op, dest, func_op as u32, arg1, arg2, arg3, arg4]),
+            } => {
+                bc.extend_from_slice(&[op, dest, u32::from(func_op as u8), arg1, arg2, arg3, arg4]);
+            }
         }
     }
     bc.push(0); // End opcode to terminate execution loop without pointer length checks

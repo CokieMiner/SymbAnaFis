@@ -31,24 +31,23 @@ rule!(
             let new_exp = Expr::div_expr(exp.as_ref().clone(), Expr::number(2.0));
 
             // Simplify the division immediately
-            let simplified_exp = match &new_exp.kind {
-                ExprKind::Div(u, v) => {
-                    if let (ExprKind::Number(a), ExprKind::Number(b)) = (&u.kind, &v.kind) {
-                        if *b == 0.0 {
-                            new_exp
-                        } else {
-                            let result = a / b;
-                            if (result - result.round()).abs() < EPSILON {
-                                Expr::number(result.round())
-                            } else {
-                                new_exp
-                            }
-                        }
-                    } else {
+            let simplified_exp = if let ExprKind::Div(u, v) = &new_exp.kind {
+                if let (ExprKind::Number(a), ExprKind::Number(b)) = (&u.kind, &v.kind) {
+                    if *b == 0.0 {
                         new_exp
+                    } else {
+                        let result = a / b;
+                        if (result - result.round()).abs() < EPSILON {
+                            Expr::number(result.round())
+                        } else {
+                            new_exp
+                        }
                     }
+                } else {
+                    new_exp
                 }
-                _ => new_exp,
+            } else {
+                new_exp
             };
 
             // If exponent simplified to 1, return base directly
@@ -82,24 +81,23 @@ rule!(
             let new_exp = Expr::div_expr(exp.as_ref().clone(), Expr::number(3.0));
 
             // Simplify the division immediately
-            let simplified_exp = match &new_exp.kind {
-                ExprKind::Div(u, v) => {
-                    if let (ExprKind::Number(a), ExprKind::Number(b)) = (&u.kind, &v.kind) {
-                        if *b == 0.0 {
-                            new_exp
-                        } else {
-                            let result = a / b;
-                            if (result - result.round()).abs() < EPSILON {
-                                Expr::number(result.round())
-                            } else {
-                                new_exp
-                            }
-                        }
-                    } else {
+            let simplified_exp = if let ExprKind::Div(u, v) = &new_exp.kind {
+                if let (ExprKind::Number(a), ExprKind::Number(b)) = (&u.kind, &v.kind) {
+                    if *b == 0.0 {
                         new_exp
+                    } else {
+                        let result = a / b;
+                        if (result - result.round()).abs() < EPSILON {
+                            Expr::number(result.round())
+                        } else {
+                            new_exp
+                        }
                     }
+                } else {
+                    new_exp
                 }
-                _ => new_exp,
+            } else {
+                new_exp
             };
 
             // If exponent simplified to 1, return base directly

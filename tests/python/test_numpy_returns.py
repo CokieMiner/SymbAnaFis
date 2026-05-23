@@ -78,9 +78,9 @@ def test_eval_f64_with_python_lists():
     assert results[0] == [2.0, 4.0, 6.0]
 
 def test_compiled_evaluator_hybrid_returns():
-    """Verify CompiledEvaluator.eval_batch respects input types."""
+    """Verify VmEvaluator.eval_batch respects input types."""
     expr = sa.parse("x^2")
-    evaluator = sa.CompiledEvaluator(expr, ["x"])
+    evaluator = sa.VmEvaluator(expr, ["x"])
     
     # CASE 1: NumPy Input -> NumPy Output
     x_np = np.array([1.0, 2.0, 3.0], dtype=np.float64)
@@ -95,9 +95,9 @@ def test_compiled_evaluator_hybrid_returns():
     assert res_list == [1.0, 4.0, 9.0]
 
 def test_compiled_evaluator_eval_batch_consistency():
-    """Verify CompiledEvaluator.eval_batch still returns correct NumPy array."""
+    """Verify VmEvaluator.eval_batch still returns correct NumPy array."""
     expr = sa.parse("sin(x)")
-    evaluator = sa.CompiledEvaluator(expr, ["x"])
+    evaluator = sa.VmEvaluator(expr, ["x"])
     
     x = np.array([0.0, np.pi/2, np.pi], dtype=np.float64)
     result = evaluator.eval_batch([x])

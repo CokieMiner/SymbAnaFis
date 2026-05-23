@@ -2,6 +2,7 @@
 #[allow(
     clippy::unwrap_used,
     clippy::items_after_statements,
+    clippy::wildcard_enum_match_arm,
     reason = "Standard test relaxations"
 )]
 mod api_tests {
@@ -101,6 +102,7 @@ mod api_tests {
     clippy::items_after_statements,
     clippy::let_underscore_must_use,
     clippy::no_effect_underscore_binding,
+    clippy::wildcard_enum_match_arm,
     reason = "Standard test relaxations"
 )]
 mod engine_tests {

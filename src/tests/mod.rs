@@ -50,6 +50,8 @@ mod simplification_tests;
 mod stress_tests;
 mod test_abs_function;
 mod test_algebraic_extensions;
+#[cfg(feature = "parallel")]
+mod test_batch_eval_edge_cases;
 mod test_bessel;
 mod test_canonical_ordering;
 mod test_equality_regressions;

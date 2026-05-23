@@ -35,22 +35,19 @@ impl VirGenerator {
         let compile_pos_product = |compiler: &mut Self, factors: &[Arc<Expr>]| -> Option<VReg> {
             let mut const_total = 1.0_f64;
             let mut has_const = false;
+            let mut vregs_local: Vec<VReg> = Vec::with_capacity(factors.len());
             for f in factors {
                 if let Some(c) = const_from_map(node_map, (*f).as_ref()) {
                     const_total *= c;
                     has_const = true;
+                } else {
+                    vregs_local.push(node_map.get(&Arc::as_ptr(f)).map(|data| data.vreg())?);
                 }
             }
             if !has_const || const_total >= 0.0 || !const_total.is_finite() {
                 return None;
             }
             let pos_c = -const_total;
-            let mut vregs_local: Vec<VReg> = Vec::new();
-            for f in factors {
-                if const_from_map(node_map, (*f).as_ref()).is_none() {
-                    vregs_local.push(node_map.get(&Arc::as_ptr(f)).map(|data| data.vreg())?);
-                }
-            }
             if (pos_c - 1.0).abs() > EPSILON {
                 let idx = compiler.add_const(pos_c);
                 vregs_local.push(VReg::Const(idx));
@@ -103,7 +100,13 @@ impl VirGenerator {
                 }
                 None
             }
-            _ => None,
+            ExprKind::Number(_)
+            | ExprKind::Symbol(_)
+            | ExprKind::FunctionCall { .. }
+            | ExprKind::Sum(_)
+            | ExprKind::Pow(..)
+            | ExprKind::Derivative { .. }
+            | ExprKind::Poly(_) => None,
         }
     }
 }

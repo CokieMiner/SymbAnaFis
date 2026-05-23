@@ -27,12 +27,15 @@ The `VirGenerator` manages the compilation state, including virtual register all
 
 ### E. Optimization Passes (`compile/optimize/`)
 The pipeline follows a **Transform > Clean > Fuse > Polish** strategy:
-`GVN > Strength > Power > Schedule > DCE > Fusion > DCE > Compact`.
+`GVN > Division > VIR Fusion > Schedule > VIR DCE > RegAlloc > Strength > Power > DCE > Fusion > DCE > Compact`.
 
+*   **`vir_div_to_recip.rs` (Division Optimization)**: Identifies redundant divisions sharing the same denominator and converts them into a single reciprocal instruction followed by multiplications.
+*   **`vir_fusion.rs` (Pre-scheduling Fusion)**: Light fusion pass for VIR instructions (like Mul + Add -> MulAdd) ensuring the scheduler treats them as a single unit, helping physical fusion.
 *   **`schedule.rs` (Instruction Scheduler)**: A critical performance pass that reorders instructions to **minimize peak register pressure**.
     *   **Heuristic**: Uses a Sethi-Ullman-inspired greedy topological sort.
     *   **Weights**: Prioritizes instructions that "kill" the most active registers (reducing live ranges).
     *   **Representation**: Uses a high-performance **Compressed Sparse Row (CSR)** graph layout to represent the dependency DAG with zero-allocation overhead during construction.
+*   **`vir_dce.rs` (VIR Dead Code Elimination)**: Eliminates dead code at the Virtual IR level prior to register allocation.
 *   **`fusion.rs` (Peephole Optimizer)**: Fuses instructions into specialized opcodes.
     *   **N-ary Fusion**: Detects patterns like `Mul(A, B) + C + D` and fuses them into native `Add3(Mul(A, B), C, D)` or `Add4` variants.
     *   **FMA Extraction**: Actively extracts Fused-Multiply-Add (`MulAdd`) and Fused-Multiply-Subtract patterns.

@@ -1,6 +1,6 @@
 //! Internal batch helpers for compiled evaluator execution.
 
-use super::{CompiledEvaluator, ToParamName};
+use super::{ToParamName, VmEvaluator};
 use crate::core::{DiffError, Expr};
 use rayon::prelude::*;
 use wide::f64x4;
@@ -25,7 +25,7 @@ pub fn eval_single_expr_chunked<V: ToParamName>(
         return Ok(Vec::new());
     }
 
-    let evaluator = CompiledEvaluator::compile(expr, vars, None).map_err(|e| {
+    let evaluator = VmEvaluator::compile(expr, vars, None).map_err(|e| {
         DiffError::invalid_syntax(format!("Failed to compile expression {expr_idx}: {e}"))
     })?;
 
@@ -35,7 +35,7 @@ pub fn eval_single_expr_chunked<V: ToParamName>(
 }
 
 pub fn run_chunked_evaluator(
-    evaluator: &CompiledEvaluator,
+    evaluator: &VmEvaluator,
     columns: &[&[f64]],
     output: &mut [f64],
 ) -> Result<(), DiffError> {

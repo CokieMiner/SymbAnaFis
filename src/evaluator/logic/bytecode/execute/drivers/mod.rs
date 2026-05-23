@@ -16,7 +16,7 @@ pub use parallel::{EvalResult, ExprInput, SKIP, Value, VarInput, evaluate_parall
 pub use parallel::evaluate_parallel_with_hint;
 
 #[cfg(feature = "parallel")]
-pub use super::{CompiledEvaluator, ToParamName};
+pub use super::{ToParamName, VmEvaluator};
 
 #[cfg(all(test, feature = "parallel"))]
 mod tests;

@@ -48,7 +48,7 @@
 //! |-----------|------------|---------------|-------------|
 //! | **Differentiation** | `diff("x^2 + sin(x)", "x", &[], None)` | `Diff::new().differentiate(&expr, &x)` | `Diff::new().domain_safe(true).differentiate(&expr, &x)` |
 //! | **Simplification** | `simplify("x + x + x", &[], None)` | Use `Simplify::new().simplify(&expr)` | `Simplify::new().max_iterations(100).simplify(&expr)` |
-//! | **Evaluation** | `evaluate_str("x^2", &[("x", 2.0)])` | `expr.evaluate(&vars, &custom_evals)` | `CompiledEvaluator::compile(&expr, &["x"], None)` |
+//! | **Evaluation** | `evaluate_str("x^2", &[("x", 2.0)])` | `expr.evaluate(&vars, &custom_evals)` | `VmEvaluator::compile(&expr, &["x"], None)` |
 //!
 //! ## Examples by Use Case
 //!
@@ -79,12 +79,12 @@
 //!
 //! ### High-Performance Evaluation
 //! ```rust
-//! # use symb_anafis::{symb, CompiledEvaluator};
+//! # use symb_anafis::{symb, VmEvaluator};
 //! let x = symb("x");
 //! let expr = x.sin() * x.cos() + x.pow(2.0);
 //!
 //! // Compile once, evaluate many times
-//! let evaluator = CompiledEvaluator::compile(&expr, &[&x], None).unwrap();
+//! let evaluator = VmEvaluator::compile(&expr, &[&x], None).unwrap();
 //!
 //! // Fast numerical evaluation
 //! let result = evaluator.evaluate(&[0.5]); // ~0.479...
@@ -134,33 +134,6 @@
 //!   - Type-safe integration with `NumPy` arrays
 //!   - Automatic GIL management for performance
 //!   - See `symb-anafis-python` crate for usage
-
-//! ## Architecture Overview
-//!
-//! `SymbAnaFis` is built with a layered architecture for performance and maintainability:
-//!
-//! ```text
-//! ┌─ PUBLIC APIs ─────────────────────────────────────────────┐
-//! │                                                           │
-//! │  String API      Type-safe API      Builder API           │
-//! │  -----------     --------------      -----------          │
-//! │  diff()          x.pow(2)           Diff::new()           │
-//! │  simplify()      expr + expr        Simplify::new()       │
-//! │                                                           │
-//! ├─ CORE ENGINE ─────────────────────────────────────────────┤
-//! │                                                           │
-//! │  Parser          Differentiator     Simplifier            │
-//! │  -------         --------------     ----------            │
-//! │  "x^2" → AST     AST → AST          AST → AST             │
-//! │                                                           │
-//! ├─ EVALUATION ──────────────────────────────────────────────┤
-//! │                                                           │
-//! │  Interpreter     Compiler           SIMD Evaluator        │
-//! │  -----------     --------           ---------------       │
-//! │  AST → f64       AST → Bytecode     Bytecode → [f64; N]   │
-//! │                                                           │
-//! └───────────────────────────────────────────────────────────┘
-//! ```
 //!
 //! ### Module Organization
 //!
@@ -182,7 +155,7 @@
 //!
 //! ## Performance Notes
 //!
-//! - **Compilation**: Use `CompiledEvaluator` for repeated numeric evaluation
+//! - **Compilation**: Use `VmEvaluator` for repeated numeric evaluation
 //! - **Batch operations**: Enable `parallel` feature for SIMD and multi-threading  
 //! - **Memory efficiency**: Expressions use `Arc` sharing for common subexpressions
 //! - **Simplification**: Automatic during differentiation, manual via `simplify()`
@@ -296,7 +269,7 @@ pub use core::ExprView;
 // === 5. High-Performance Evaluation ===
 
 /// High-performance compiled evaluator for repeated numeric computations.
-pub use evaluator::{CompiledEvaluator, EvaluatorBuilder, ToParamName, VarLookup};
+pub use evaluator::{ToParamName, VarLookup, VmEvaluator};
 
 /// High-performance parallel evaluation (requires `parallel` feature).
 /// Enables automatic chunked parallel execution with SIMD vectorization.

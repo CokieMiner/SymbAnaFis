@@ -35,6 +35,14 @@ impl VirGenerator {
         }
     }
 
+    /// Emits a two-operand multiplication, returning a single [`VReg`] with the result.
+    /// Avoids the `Vec` allocation that `emit_mul_vregs(vec![a, b])` would incur.
+    pub(super) fn emit_mul_two(&mut self, a: VReg, b: VReg) -> VReg {
+        let dest = self.alloc_vreg();
+        self.emit(VInstruction::Mul2 { dest, a, b });
+        dest
+    }
+
     /// Emits a multiplication of `vregs`, returning a single [`VReg`] with the result.
     ///
     /// Handles the special cases:

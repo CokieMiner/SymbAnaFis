@@ -1,3 +1,12 @@
+/// L1-cache optimized execution loop for the register-based evaluator.
+///
+/// # Safety
+///
+/// The caller must ensure that:
+/// 1. `bytecode` is a well-formed stream of instructions terminated by a 0 (End) opcode.
+/// 2. `pc` arithmetic stays within the bounds of the bytecode slice.
+/// 3. All register indices in the bytecode are within the range `0..workspace_size`.
+/// 4. The `arg_pool` contains valid indices for N-ary instructions.
 macro_rules! dispatch_loop {
     ($bytecode:ident, $regs:ident, $arg_pool:ident, $mode:tt, $one:ident, $b1:ident, $b2:ident, $b3:ident, $b4:ident) => {
         let mut pc = $bytecode.as_ptr();
@@ -30,6 +39,16 @@ macro_rules! dispatch_loop {
                     *($regs.add(sin_dest)) = s;
                     *($regs.add(cos_dest)) = c;
                 }
+                42 /* AsinAcos */ => {
+                    let asin_dest = *pc as usize;
+                    let acos_dest = *pc.add(1) as usize;
+                    let arg = *pc.add(2) as usize;
+                    pc = pc.add(3);
+                    let v = *($regs.add(arg));
+                    let (s, c) = dispatch_loop!(@asinacos v, $mode);
+                    *($regs.add(asin_dest)) = s;
+                    *($regs.add(acos_dest)) = c;
+                }
                 4 /* Add */ => {
                     let dest = *pc as usize;
                     let a = *pc.add(1) as usize;
@@ -60,9 +79,12 @@ macro_rules! dispatch_loop {
                     let start_idx = *pc.add(1) as usize;
                     let count = *pc.add(2) as usize;
                     pc = pc.add(3);
-                    let mut sum = *($regs.add(*$arg_pool.get_unchecked(start_idx) as usize));
-                    for i in 1..count {
-                        sum += *($regs.add(*$arg_pool.get_unchecked(start_idx + i) as usize));
+                    let mut pool_ptr = $arg_pool.as_ptr().add(start_idx);
+                    let mut sum = *($regs.add(*pool_ptr as usize));
+                    pool_ptr = pool_ptr.add(1);
+                    for _ in 1..count {
+                        sum += *($regs.add(*pool_ptr as usize));
+                        pool_ptr = pool_ptr.add(1);
                     }
                     *($regs.add(dest)) = sum;
                 }
@@ -96,9 +118,12 @@ macro_rules! dispatch_loop {
                     let start_idx = *pc.add(1) as usize;
                     let count = *pc.add(2) as usize;
                     pc = pc.add(3);
-                    let mut prod = *($regs.add(*$arg_pool.get_unchecked(start_idx) as usize));
-                    for i in 1..count {
-                        prod *= *($regs.add(*$arg_pool.get_unchecked(start_idx + i) as usize));
+                    let mut pool_ptr = $arg_pool.as_ptr().add(start_idx);
+                    let mut prod = *($regs.add(*pool_ptr as usize));
+                    pool_ptr = pool_ptr.add(1);
+                    for _ in 1..count {
+                        prod *= *($regs.add(*pool_ptr as usize));
+                        pool_ptr = pool_ptr.add(1);
                     }
                     *($regs.add(dest)) = prod;
                 }
@@ -308,14 +333,14 @@ macro_rules! dispatch_loop {
                 }
                 38 /* Builtin1 */ => {
                     let dest = *pc as usize;
-                    let op = unsafe { std::mem::transmute_copy::<u32, FnOp>(&*pc.add(1)) };
+                    let op: FnOp = unsafe { std::mem::transmute(*pc.add(1) as u8) };
                     let arg = *pc.add(2) as usize;
                     pc = pc.add(3);
                     *($regs.add(dest)) = $b1(op, *($regs.add(arg)));
                 }
                 39 /* Builtin2 */ => {
                     let dest = *pc as usize;
-                    let op = unsafe { std::mem::transmute_copy::<u32, FnOp>(&*pc.add(1)) };
+                    let op: FnOp = unsafe { std::mem::transmute(*pc.add(1) as u8) };
                     let arg1 = *pc.add(2) as usize;
                     let arg2 = *pc.add(3) as usize;
                     pc = pc.add(4);
@@ -323,7 +348,7 @@ macro_rules! dispatch_loop {
                 }
                 40 /* Builtin3 */ => {
                     let dest = *pc as usize;
-                    let op = unsafe { std::mem::transmute_copy::<u32, FnOp>(&*pc.add(1)) };
+                    let op: FnOp = unsafe { std::mem::transmute(*pc.add(1) as u8) };
                     let arg1 = *pc.add(2) as usize;
                     let arg2 = *pc.add(3) as usize;
                     let arg3 = *pc.add(4) as usize;
@@ -337,7 +362,7 @@ macro_rules! dispatch_loop {
                 }
                 41 /* Builtin4 */ => {
                     let dest = *pc as usize;
-                    let op = unsafe { std::mem::transmute_copy::<u32, FnOp>(&*pc.add(1)) };
+                    let op: FnOp = unsafe { std::mem::transmute(*pc.add(1) as u8) };
                     let arg1 = *pc.add(2) as usize;
                     let arg2 = *pc.add(3) as usize;
                     let arg3 = *pc.add(4) as usize;
@@ -351,64 +376,49 @@ macro_rules! dispatch_loop {
                         *($regs.add(arg4)),
                     );
                 }
-                _ => unsafe { std::hint::unreachable_unchecked() },
+                _ => {
+                    debug_assert!(false, "invalid opcode {opcode}");
+                    unsafe { std::hint::unreachable_unchecked() }
+                },
             }
         }
     };
 
     // Internal Pow dispatch
     (@pow $b:ident, $e:ident, scalar) => { $b.powf($e) };
-    (@pow $b:ident, $e:ident, simd) => {
-        {
-            let arr_b = $b.to_array();
-            let arr_e = $e.to_array();
-            f64x4::from([
-                arr_b[0].powf(arr_e[0]),
-                arr_b[1].powf(arr_e[1]),
-                arr_b[2].powf(arr_e[2]),
-                arr_b[3].powf(arr_e[3]),
-            ])
-        }
-    };
+    (@pow $b:ident, $e:ident, simd) => { $b.pow_f64x4($e) };
 
     (@powi $v:ident, $n:ident, scalar) => { $v.powi($n) };
-    (@powi $v:ident, $n:ident, simd) => { f64x4::from($v.to_array().map(|v| v.powi($n))) };
+    (@powi $v:ident, $n:ident, simd) => {{
+        let arr = $v.to_array();
+        f64x4::new([arr[0].powi($n), arr[1].powi($n), arr[2].powi($n), arr[3].powi($n)])
+    }};
 
+    // recip_expm1(x) = 1 / (exp(x) - 1) = 1 / expm1(x)
     (@recip_expm1 $v:ident, scalar, $one:ident) => { $one / $v.exp_m1() };
-    (@recip_expm1 $v:ident, simd, $one:ident) => { $one / f64x4::from($v.to_array().map(f64::exp_m1)) };
+    (@recip_expm1 $v:ident, simd, $one:ident) => {{
+        let arr = $v.to_array();
+        $one / f64x4::new([arr[0].exp_m1(), arr[1].exp_m1(), arr[2].exp_m1(), arr[3].exp_m1()])
+    }};
 
-    (@exp_sqr $v:ident, scalar) => { ($v * $v).exp() };
-    (@exp_sqr $v:ident, simd) => { f64x4::from(($v * $v).to_array().map(f64::exp)) };
+    (@exp_sqr $v:ident, $mode:tt) => { ($v * $v).exp() };
 
-    (@exp_sqr_neg $v:ident, scalar) => { ( -($v * $v) ).exp() };
-    (@exp_sqr_neg $v:ident, simd) => { f64x4::from((-($v * $v)).to_array().map(f64::exp)) };
+    (@exp_sqr_neg $v:ident, $mode:tt) => { ( -($v * $v) ).exp() };
 
-    (@sincos $v:ident, scalar) => { $v.sin_cos() };
-    (@sincos $v:ident, simd) => {
-        {
-            let arr = $v.to_array();
-            let (s0, c0) = arr[0].sin_cos();
-            let (s1, c1) = arr[1].sin_cos();
-            let (s2, c2) = arr[2].sin_cos();
-            let (s3, c3) = arr[3].sin_cos();
-            (f64x4::from([s0, s1, s2, s3]), f64x4::from([c0, c1, c2, c3]))
-        }
-    };
+    (@sincos $v:ident, $mode:tt) => { $v.sin_cos() };
 
-    (@sin $v:ident, scalar) => { $v.sin() };
-    (@sin $v:ident, simd) => { f64x4::from($v.to_array().map(f64::sin)) };
+    (@asinacos $v:ident, scalar) => { ($v.asin(), $v.acos()) };
+    (@asinacos $v:ident, simd) => { $v.asin_acos() };
 
-    (@cos $v:ident, scalar) => { $v.cos() };
-    (@cos $v:ident, simd) => { f64x4::from($v.to_array().map(f64::cos)) };
+    (@sin $v:ident, $mode:tt) => { $v.sin() };
 
-    (@exp $v:ident, scalar) => { $v.exp() };
-    (@exp $v:ident, simd) => { f64x4::from($v.to_array().map(f64::exp)) };
+    (@cos $v:ident, $mode:tt) => { $v.cos() };
 
-    (@ln $v:ident, scalar) => { $v.ln() };
-    (@ln $v:ident, simd) => { f64x4::from($v.to_array().map(f64::ln)) };
+    (@exp $v:ident, $mode:tt) => { $v.exp() };
 
-    (@sqrt $v:ident, scalar) => { $v.sqrt() };
-    (@sqrt $v:ident, simd) => { $v.sqrt() };
+    (@ln $v:ident, $mode:tt) => { $v.ln() };
+
+    (@sqrt $v:ident, $mode:tt) => { $v.sqrt() };
 }
 
 /// Macro to handle the dispatch staircase for stack-allocated register files.

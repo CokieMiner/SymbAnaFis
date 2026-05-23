@@ -38,7 +38,13 @@ impl Expr {
                 match t.into_kind() {
                     ExprKind::Sum(inner) => flat.extend(inner),
                     ExprKind::Number(n) => numeric_sum += n,
-                    _ => {}
+                    ExprKind::Symbol(_)
+                    | ExprKind::FunctionCall { .. }
+                    | ExprKind::Product(_)
+                    | ExprKind::Div(..)
+                    | ExprKind::Pow(..)
+                    | ExprKind::Derivative { .. }
+                    | ExprKind::Poly(_) => {}
                 }
             } else {
                 flat.push(Arc::new(t));
@@ -253,7 +259,13 @@ impl Expr {
                     }
                     numeric_prod *= *n;
                 }
-                _ => flat.push(f),
+                ExprKind::Symbol(_)
+                | ExprKind::FunctionCall { .. }
+                | ExprKind::Sum(_)
+                | ExprKind::Div(..)
+                | ExprKind::Pow(..)
+                | ExprKind::Derivative { .. }
+                | ExprKind::Poly(_) => flat.push(f),
             }
         }
 
@@ -418,20 +430,31 @@ fn get_poly_base_hash(expr: &Expr) -> Option<u64> {
                         }
                         return None;
                     }
-                    _ => return None,
+                    ExprKind::Sum(_)
+                    | ExprKind::Product(_)
+                    | ExprKind::Div(..)
+                    | ExprKind::Derivative { .. }
+                    | ExprKind::Poly(_) => return None,
                 }
             }
             base_hash
         }
         ExprKind::Number(_) => Some(0),
-        _ => None,
+        ExprKind::Sum(_) | ExprKind::Div(..) | ExprKind::Derivative { .. } => None,
     }
 }
 
 fn get_factor_base_and_exponent(expr: &Arc<Expr>) -> (Arc<Expr>, Expr) {
     match &expr.kind {
         ExprKind::Pow(base, exp) => (Arc::clone(base), (**exp).clone()),
-        _ => (Arc::clone(expr), Expr::number(1.0)),
+        ExprKind::Number(_)
+        | ExprKind::Symbol(_)
+        | ExprKind::FunctionCall { .. }
+        | ExprKind::Sum(_)
+        | ExprKind::Product(_)
+        | ExprKind::Div(..)
+        | ExprKind::Derivative { .. }
+        | ExprKind::Poly(_) => (Arc::clone(expr), Expr::number(1.0)),
     }
 }
 
@@ -439,7 +462,13 @@ fn get_product_base_hash(expr: &Expr) -> Option<u64> {
     match &expr.kind {
         ExprKind::Number(_) => None,
         ExprKind::Pow(base, _) => Some(base.structural_hash()),
-        _ => Some(expr.structural_hash()),
+        ExprKind::Symbol(_)
+        | ExprKind::FunctionCall { .. }
+        | ExprKind::Sum(_)
+        | ExprKind::Product(_)
+        | ExprKind::Div(..)
+        | ExprKind::Derivative { .. }
+        | ExprKind::Poly(_) => Some(expr.structural_hash()),
     }
 }
 

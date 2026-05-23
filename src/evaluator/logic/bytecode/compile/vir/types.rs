@@ -62,6 +62,11 @@ pub enum VInstruction {
         dest: VReg,
         src: VReg,
     },
+    NegMul {
+        dest: VReg,
+        a: VReg,
+        b: VReg,
+    },
     BuiltinFun {
         dest: VReg,
         op: FnOp,
@@ -137,6 +142,12 @@ pub enum VInstruction {
         b: VReg,
         c: VReg,
     },
+    NegMulSub {
+        dest: VReg,
+        a: VReg,
+        b: VReg,
+        c: VReg,
+    },
 
     RecipExpm1 {
         dest: VReg,
@@ -164,6 +175,7 @@ impl VInstruction {
             | Self::Div { dest, .. }
             | Self::Pow { dest, .. }
             | Self::Neg { dest, .. }
+            | Self::NegMul { dest, .. }
             | Self::BuiltinFun { dest, .. }
             | Self::Builtin1 { dest, .. }
             | Self::Builtin2 { dest, .. }
@@ -180,6 +192,7 @@ impl VInstruction {
             | Self::MulAdd { dest, .. }
             | Self::MulSub { dest, .. }
             | Self::NegMulAdd { dest, .. }
+            | Self::NegMulSub { dest, .. }
             | Self::RecipExpm1 { dest, .. }
             | Self::ExpSqr { dest, .. }
             | Self::ExpSqrNeg { dest, .. } => *dest,
@@ -200,7 +213,8 @@ impl VInstruction {
             | Self::Div { num: a, den: b, .. }
             | Self::Pow {
                 base: a, exp: b, ..
-            } => {
+            }
+            | Self::NegMul { a, b, .. } => {
                 f(*a);
                 f(*b);
             }
@@ -216,7 +230,8 @@ impl VInstruction {
             }
             Self::MulAdd { a, b, c, .. }
             | Self::MulSub { a, b, c, .. }
-            | Self::NegMulAdd { a, b, c, .. } => {
+            | Self::NegMulAdd { a, b, c, .. }
+            | Self::NegMulSub { a, b, c, .. } => {
                 f(*a);
                 f(*b);
                 f(*c);
@@ -249,6 +264,7 @@ impl VInstruction {
             | Self::Div { dest, .. }
             | Self::Pow { dest, .. }
             | Self::Neg { dest, .. }
+            | Self::NegMul { dest, .. }
             | Self::BuiltinFun { dest, .. }
             | Self::Builtin1 { dest, .. }
             | Self::Builtin2 { dest, .. }
@@ -265,6 +281,7 @@ impl VInstruction {
             | Self::MulAdd { dest, .. }
             | Self::MulSub { dest, .. }
             | Self::NegMulAdd { dest, .. }
+            | Self::NegMulSub { dest, .. }
             | Self::RecipExpm1 { dest, .. }
             | Self::ExpSqr { dest, .. }
             | Self::ExpSqrNeg { dest, .. } => *dest = new_dest,
@@ -285,7 +302,8 @@ impl VInstruction {
             | Self::Div { num: a, den: b, .. }
             | Self::Pow {
                 base: a, exp: b, ..
-            } => {
+            }
+            | Self::NegMul { a, b, .. } => {
                 f(a);
                 f(b);
             }
@@ -301,7 +319,8 @@ impl VInstruction {
             }
             Self::MulAdd { a, b, c, .. }
             | Self::MulSub { a, b, c, .. }
-            | Self::NegMulAdd { a, b, c, .. } => {
+            | Self::NegMulAdd { a, b, c, .. }
+            | Self::NegMulSub { a, b, c, .. } => {
                 f(a);
                 f(b);
                 f(c);
@@ -326,11 +345,13 @@ impl VInstruction {
     /// Sorts operands for commutative operations to canonicalize layout for GVN hashing.
     pub fn sort_operands(&mut self) {
         match self {
-            #[allow(
-                clippy::collapsible_match,
-                reason = "Pattern guards cannot be used with mutable bindings"
-            )]
-            Self::Add2 { a, b, .. } | Self::Mul2 { a, b, .. } => {
+            Self::Add2 { a, b, .. }
+            | Self::Mul2 { a, b, .. }
+            | Self::NegMul { a, b, .. }
+            | Self::MulAdd { a, b, .. }
+            | Self::MulSub { a, b, .. }
+            | Self::NegMulAdd { a, b, .. }
+            | Self::NegMulSub { a, b, .. } => {
                 if a > b {
                     swap(a, b);
                 }
@@ -338,7 +359,26 @@ impl VInstruction {
             Self::Add { srcs, .. } | Self::Mul { srcs, .. } => {
                 srcs.sort_unstable();
             }
-            _ => {}
+            Self::Sub { .. }
+            | Self::Div { .. }
+            | Self::Pow { .. }
+            | Self::Neg { .. }
+            | Self::BuiltinFun { .. }
+            | Self::Builtin1 { .. }
+            | Self::Builtin2 { .. }
+            | Self::Square { .. }
+            | Self::Cube { .. }
+            | Self::Pow4 { .. }
+            | Self::Pow3_2 { .. }
+            | Self::InvPow3_2 { .. }
+            | Self::InvSqrt { .. }
+            | Self::InvSquare { .. }
+            | Self::InvCube { .. }
+            | Self::Recip { .. }
+            | Self::Powi { .. }
+            | Self::RecipExpm1 { .. }
+            | Self::ExpSqr { .. }
+            | Self::ExpSqrNeg { .. } => {}
         }
     }
 }

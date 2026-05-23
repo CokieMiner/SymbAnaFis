@@ -7,7 +7,7 @@ try:
 except ImportError:
     np = None
 
-from symb_anafis import Expr, eval_f64, CompiledEvaluator, parse
+from symb_anafis import Expr, eval_f64, VmEvaluator, parse
 
 class TestNumpyIntegration(unittest.TestCase):
     def setUp(self):
@@ -15,9 +15,9 @@ class TestNumpyIntegration(unittest.TestCase):
             self.skipTest("NumPy not installed")
 
     def test_eval_batch_numpy(self):
-        """Test CompiledEvaluator.eval_batch with NumPy array."""
+        """Test VmEvaluator.eval_batch with NumPy array."""
         expr = parse("x^2 + 1")
-        compiled = CompiledEvaluator(expr, ["x"])
+        compiled = VmEvaluator(expr, ["x"])
         
         # Create array
         x = np.array([0.0, 1.0, 2.0, 3.0], dtype=np.float64)
@@ -67,9 +67,9 @@ class TestNumpyIntegration(unittest.TestCase):
         np.testing.assert_array_almost_equal(results[1], expected_prod)
 
     def test_eval_batch_multivar(self):
-        """Test CompiledEvaluator with multiple columns."""
+        """Test VmEvaluator with multiple columns."""
         expr = parse("x * y")
-        compiled = CompiledEvaluator(expr, ["x", "y"])
+        compiled = VmEvaluator(expr, ["x", "y"])
         
         x = np.array([1.0, 2.0], dtype=np.float64)
         y = np.array([3.0, 4.0], dtype=np.float64)
@@ -82,7 +82,7 @@ class TestNumpyIntegration(unittest.TestCase):
     def test_eval_batch_mixed_strides(self):
         """Test with sliced/strided arrays to verify generic array support."""
         expr = parse("x")
-        compiled = CompiledEvaluator(expr, ["x"])
+        compiled = VmEvaluator(expr, ["x"])
         
         # Create strided array (slice)
         full = np.array([0.0, 1.0, 2.0, 3.0, 4.0], dtype=np.float64)
@@ -94,9 +94,9 @@ class TestNumpyIntegration(unittest.TestCase):
              compiled.eval_batch([x])
 
     def test_eval_batch_list_fallback(self):
-        """Test CompiledEvaluator.eval_batch with Python Lists (fallback path)."""
+        """Test VmEvaluator.eval_batch with Python Lists (fallback path)."""
         expr = parse("x^2")
-        compiled = CompiledEvaluator(expr, ["x"])
+        compiled = VmEvaluator(expr, ["x"])
         
         # Pass Python list
         data = [1.0, 2.0, 3.0, 4.0]
@@ -107,10 +107,10 @@ class TestNumpyIntegration(unittest.TestCase):
         self.assertEqual(results, [1.0, 4.0, 9.0, 16.0])
 
     def test_evaluate_single_point_numpy(self):
-        """Test CompiledEvaluator.evaluate with NumPy array (Zero-Copy)."""
+        """Test VmEvaluator.evaluate with NumPy array (Zero-Copy)."""
         # x + y
         expr = parse("x") + parse("y")
-        compiled = CompiledEvaluator(expr, ["x", "y"])
+        compiled = VmEvaluator(expr, ["x", "y"])
         
         # NumPy array input
         point = np.array([1.0, 2.0])

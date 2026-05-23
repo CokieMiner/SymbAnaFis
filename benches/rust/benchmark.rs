@@ -17,7 +17,7 @@ use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use expressions::ALL_EXPRESSIONS;
 use std::collections::HashSet;
 use std::hint::black_box;
-use symb_anafis::{CompiledEvaluator, Diff, Simplify, parse, symb};
+use symb_anafis::{Diff, Simplify, VmEvaluator, parse, symb};
 
 // =============================================================================
 // Parsing Benchmarks
@@ -148,7 +148,7 @@ fn bench_compile(c: &mut Criterion) {
 
         // Benchmark: compile raw
         group.bench_with_input(BenchmarkId::new("raw", name), &diff_raw, |b, raw_expr| {
-            b.iter(|| CompiledEvaluator::compile(black_box(raw_expr), &params, None));
+            b.iter(|| VmEvaluator::compile(black_box(raw_expr), &params, None));
         });
 
         // Benchmark: compile simplified
@@ -156,7 +156,7 @@ fn bench_compile(c: &mut Criterion) {
             BenchmarkId::new("simplified", name),
             &diff_simplified,
             |b, simplified_expr| {
-                b.iter(|| CompiledEvaluator::compile(black_box(simplified_expr), &params, None));
+                b.iter(|| VmEvaluator::compile(black_box(simplified_expr), &params, None));
             },
         );
     }
@@ -193,8 +193,8 @@ fn bench_eval(c: &mut Criterion) {
         params.sort();
 
         // Compile both versions
-        let compiled_raw = CompiledEvaluator::compile(&diff_raw, &params, None);
-        let compiled_simplified = CompiledEvaluator::compile(&diff_simplified, &params, None);
+        let compiled_raw = VmEvaluator::compile(&diff_raw, &params, None);
+        let compiled_simplified = VmEvaluator::compile(&diff_simplified, &params, None);
 
         // Benchmark: evaluate compiled (raw)
         if let Ok(ref evaluator) = compiled_raw {
@@ -279,7 +279,7 @@ fn bench_full_pipeline(c: &mut Criterion) {
                     params.extend(fixed.iter());
                     params.sort();
 
-                    let compiled = CompiledEvaluator::compile(&diff_expr, &params, None).unwrap();
+                    let compiled = VmEvaluator::compile(&diff_expr, &params, None).unwrap();
 
                     // Evaluate at 1000 points
                     let param_count = compiled.param_count();
@@ -334,7 +334,7 @@ fn bench_full_pipeline_no_simp(c: &mut Criterion) {
                     params.extend(fixed.iter());
                     params.sort();
 
-                    let compiled = CompiledEvaluator::compile(&diff_expr, &params, None).unwrap();
+                    let compiled = VmEvaluator::compile(&diff_expr, &params, None).unwrap();
 
                     // Evaluate at 1000 points
                     let param_count = compiled.param_count();

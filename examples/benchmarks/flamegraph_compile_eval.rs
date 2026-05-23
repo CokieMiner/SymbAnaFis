@@ -14,7 +14,7 @@ use std::fs;
 use std::hint::black_box;
 use std::time::Instant;
 
-use symb_anafis::{CompiledEvaluator, Diff, parse, symb};
+use symb_anafis::{Diff, VmEvaluator, parse, symb};
 
 #[allow(clippy::too_many_lines, reason = "profiling harness kept in one place")]
 fn main() {
@@ -56,8 +56,7 @@ fn main() {
     let t0 = Instant::now();
     let mut evaluator = None;
     for _ in 0..compile_iters {
-        let ev = CompiledEvaluator::compile(black_box(&expr), &params_str, None)
-            .expect("compile failed");
+        let ev = VmEvaluator::compile(black_box(&expr), &params_str, None).expect("compile failed");
         evaluator = Some(ev);
     }
     let compile_time = t0.elapsed();
@@ -71,8 +70,8 @@ fn main() {
     let t1 = Instant::now();
     let mut eval_raw = None;
     for _ in 0..compile_iters {
-        let ev = CompiledEvaluator::compile(black_box(&diff_expr), &params_str, None)
-            .expect("compile failed");
+        let ev =
+            VmEvaluator::compile(black_box(&diff_expr), &params_str, None).expect("compile failed");
         eval_raw = Some(ev);
     }
     let compile_raw_time = t1.elapsed();

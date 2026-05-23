@@ -61,7 +61,13 @@ fn get_base(e: &Expr) -> &Expr {
             get_base(&factors[1])
         }
         ExprKind::Poly(p) => p.base(),
-        _ => e,
+        ExprKind::Number(_)
+        | ExprKind::Symbol(_)
+        | ExprKind::Sum(_)
+        | ExprKind::Product(_)
+        | ExprKind::Div(..)
+        | ExprKind::FunctionCall { .. }
+        | ExprKind::Derivative { .. } => e,
     }
 }
 
@@ -77,7 +83,14 @@ fn get_exponent(e: &Expr) -> &Expr {
         {
             get_exponent(&factors[1])
         }
-        _ => &EXPR_ONE,
+        ExprKind::Number(_)
+        | ExprKind::Symbol(_)
+        | ExprKind::Sum(_)
+        | ExprKind::Product(_)
+        | ExprKind::Div(..)
+        | ExprKind::FunctionCall { .. }
+        | ExprKind::Derivative { .. }
+        | ExprKind::Poly(_) => &EXPR_ONE,
     }
 }
 
@@ -94,7 +107,15 @@ fn get_coeff(e: &Expr) -> f64 {
                 1.0
             }
         }
-        _ => 1.0,
+        ExprKind::Number(_)
+        | ExprKind::Symbol(_)
+        | ExprKind::Sum(_)
+        | ExprKind::Product(_)
+        | ExprKind::Div(..)
+        | ExprKind::Pow(..)
+        | ExprKind::FunctionCall { .. }
+        | ExprKind::Derivative { .. }
+        | ExprKind::Poly(_) => 1.0,
     }
 }
 
@@ -131,7 +152,7 @@ pub fn expr_cmp_type_strict(a: &Expr, b: &Expr) -> Ordering {
             for (x, y) in t1.iter().zip(t2.iter()) {
                 match expr_cmp(x, y) {
                     Ordering::Equal => {}
-                    other => return other,
+                    other @ (Ordering::Less | Ordering::Greater) => return other,
                 }
             }
             Ordering::Equal
@@ -145,7 +166,7 @@ pub fn expr_cmp_type_strict(a: &Expr, b: &Expr) -> Ordering {
                 for (x, y) in a1.iter().zip(a2.iter()) {
                     match expr_cmp(x, y) {
                         Ordering::Equal => {}
-                        other => return other,
+                        other @ (Ordering::Less | Ordering::Greater) => return other,
                     }
                 }
                 a1.len().cmp(&a2.len())
@@ -169,7 +190,7 @@ pub fn expr_cmp_type_strict(a: &Expr, b: &Expr) -> Ordering {
             for (x, y) in f1.iter().zip(f2.iter()) {
                 match expr_cmp(x, y) {
                     Ordering::Equal => {}
-                    other => return other,
+                    other @ (Ordering::Less | Ordering::Greater) => return other,
                 }
             }
             Ordering::Equal

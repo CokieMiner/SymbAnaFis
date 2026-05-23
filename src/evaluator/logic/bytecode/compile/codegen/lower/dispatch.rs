@@ -27,7 +27,7 @@ impl VirGenerator {
             }
             ExprKind::Poly(poly) => self.compile_poly_node(poly, node_map),
             ExprKind::Derivative { .. } => Err(DiffError::UnsupportedExpression(
-                "Derivatives cannot be numerically evaluated - simplify first".to_owned(),
+                "Derivatives cannot be numerically evaluated - they must be expanded via expand_user_functions() or simplified to a symbolic form first".to_owned(),
             )),
         }
     }

@@ -3,7 +3,6 @@
 //! This module decouples the VM execution loop from the implementation details
 //! of each mathematical operation, improving modularity and maintainability.
 
-use super::helpers::{eval_sinc, round_to_i32};
 use crate::evaluator::logic::bytecode::FnOp;
 use crate::math::{
     bessel_i, bessel_j, bessel_k, bessel_y, eval_assoc_legendre, eval_beta, eval_digamma,
@@ -18,24 +17,61 @@ use std::f64::consts::FRAC_PI_2;
 #[cfg(feature = "parallel")]
 use wide::f64x4;
 
-#[cold]
-#[inline(never)]
-fn unreachable_builtin(arity: usize, op: FnOp) -> f64 {
-    debug_assert!(false, "Reached unreachable Builtin{arity} op: {op:?}");
-    f64::NAN
+/// Compute sinc function with removable singularity handling.
+///
+/// `sinc(x) = sin(x)/x` with `sinc(0) = 1`
+#[inline]
+pub(super) fn eval_sinc(x: f64) -> f64 {
+    if x == 0.0 { 1.0 } else { x.sin() / x }
 }
 
+/// Round a float to i32, returning None if out of range or NaN.
+#[inline]
+pub(super) fn round_to_i32(x: f64) -> Option<i32> {
+    let rounded = x.round();
+    if !(rounded >= f64::from(i32::MIN) && rounded <= f64::from(i32::MAX)) {
+        return None;
+    }
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "Range checked above before casting"
+    )]
+    Some(rounded as i32)
+}
+
+/// Trait for returning a NaN value, abstracting over scalar and SIMD types.
+trait Nan {
+    fn nan() -> Self;
+}
+impl Nan for f64 {
+    #[inline]
+    fn nan() -> Self {
+        Self::NAN
+    }
+}
 #[cfg(feature = "parallel")]
+impl Nan for f64x4 {
+    #[inline]
+    fn nan() -> Self {
+        Self::splat(f64::NAN)
+    }
+}
+
 #[cold]
 #[inline(never)]
-fn unreachable_simd_builtin(arity: usize, op: FnOp) -> f64x4 {
-    debug_assert!(false, "Reached unreachable SIMD Builtin{arity} op: {op:?}");
-    f64x4::splat(f64::NAN)
+fn unreachable_builtin<T: Nan>(arity: usize, op: FnOp) -> T {
+    debug_assert!(false, "Reached unreachable Builtin{arity} op: {op:?}");
+    T::nan()
 }
 
 /// Dispatches a 1-argument builtin function for scalar evaluation.
 #[inline]
+#[must_use]
 pub fn eval_builtin1(op: FnOp, x: f64) -> f64 {
+    #[allow(
+        clippy::wildcard_enum_match_arm,
+        reason = "Unreachable dispatch fallback"
+    )]
     match op {
         FnOp::Tan => x.tan(),
         FnOp::Cot => 1.0 / x.tan(),
@@ -87,7 +123,12 @@ pub fn eval_builtin1(op: FnOp, x: f64) -> f64 {
 
 /// Dispatches a 2-argument builtin function for scalar evaluation.
 #[inline]
+#[must_use]
 pub fn eval_builtin2(op: FnOp, x1: f64, x2: f64) -> f64 {
+    #[allow(
+        clippy::wildcard_enum_match_arm,
+        reason = "Unreachable dispatch fallback"
+    )]
     match op {
         FnOp::Atan2 => x1.atan2(x2),
         FnOp::Log =>
@@ -116,7 +157,12 @@ pub fn eval_builtin2(op: FnOp, x1: f64, x2: f64) -> f64 {
 
 /// Dispatches a 3-argument builtin function for scalar evaluation.
 #[inline]
+#[must_use]
 pub fn eval_builtin3(op: FnOp, x1: f64, x2: f64, x3: f64) -> f64 {
+    #[allow(
+        clippy::wildcard_enum_match_arm,
+        reason = "Unreachable dispatch fallback"
+    )]
     match op {
         FnOp::AssocLegendre => match (round_to_i32(x1), round_to_i32(x2)) {
             (Some(l), Some(m)) => eval_assoc_legendre(l, m, x3),
@@ -128,7 +174,12 @@ pub fn eval_builtin3(op: FnOp, x1: f64, x2: f64, x3: f64) -> f64 {
 
 /// Dispatches a 4-argument builtin function for scalar evaluation.
 #[inline]
+#[must_use]
 pub fn eval_builtin4(op: FnOp, x1: f64, x2: f64, x3: f64, x4: f64) -> f64 {
+    #[allow(
+        clippy::wildcard_enum_match_arm,
+        reason = "Unreachable dispatch fallback"
+    )]
     match op {
         FnOp::SphericalHarmonic => match (round_to_i32(x1), round_to_i32(x2)) {
             (Some(l), Some(m)) => eval_spherical_harmonic(l, m, x3, x4),
@@ -140,28 +191,51 @@ pub fn eval_builtin4(op: FnOp, x1: f64, x2: f64, x3: f64, x4: f64) -> f64 {
 
 /// Dispatches a 1-argument builtin function for SIMD evaluation.
 ///
-/// SIMD speedup is achieved for arithmetic operations (Add, Mul, etc.) via vectorized dispatch macros.
-/// Transcendental functions (sin, exp, gamma, etc.) are evaluated lane-by-lane in scalar code,
-/// as there are no portable SIMD intrinsics for these or their vectorized equivalents don't do proper NaN propagation.
+/// Arithmetic operations and transcendental functions with native f64x4 support
+/// (sin, cos, tan, exp, ln, sqrt, asin, acos, atan, atan2, signum, abs, round, floor, ceil)
+/// are evaluated via vectorized implementations.
+/// Functions without portable SIMD equivalents (sinh, cosh, tanh, cbrt, expm1, log1p, etc.)
+/// are evaluated lane-by-lane in scalar code.
 #[cfg(feature = "parallel")]
 #[inline]
+#[must_use]
+#[allow(
+    clippy::too_many_lines,
+    reason = "VM hot path — keeps SIMD fast path and scalar fallback in one function"
+)]
 pub fn eval_builtin1_simd(op: FnOp, x: f64x4) -> f64x4 {
-    if op == FnOp::Abs {
-        return x.abs();
+    #[allow(
+        clippy::wildcard_enum_match_arm,
+        reason = "Unreachable dispatch fallback"
+    )]
+    match op {
+        FnOp::Sin => return x.sin(),
+        FnOp::Cos => return x.cos(),
+        FnOp::Abs => return x.abs(),
+        FnOp::Asin => return x.asin(),
+        FnOp::Acos => return x.acos(),
+        FnOp::Atan => return x.atan(),
+        FnOp::Floor => return x.floor(),
+        FnOp::Ceil => return x.ceil(),
+        FnOp::Round => return x.round(),
+        FnOp::Signum => return x.signum(),
+        FnOp::Tan => return x.tan(),
+        FnOp::Cot => return f64x4::splat(1.0) / x.tan(),
+        FnOp::Sec => return f64x4::splat(1.0) / x.cos(),
+        FnOp::Csc => return f64x4::splat(1.0) / x.sin(),
+        FnOp::Acot => return f64x4::splat(FRAC_PI_2) - x.atan(),
+        FnOp::Asec => return (f64x4::splat(1.0) / x).acos(),
+        FnOp::Acsc => return (f64x4::splat(1.0) / x).asin(),
+        FnOp::ExpNeg => return (-x).exp(),
+        _ => {}
     }
 
     let arr = x.to_array();
+    #[allow(
+        clippy::wildcard_enum_match_arm,
+        reason = "Unreachable dispatch fallback"
+    )]
     match op {
-        FnOp::Tan => f64x4::new(arr.map(f64::tan)),
-        FnOp::Cot => f64x4::splat(1.0) / f64x4::new(arr.map(f64::tan)),
-        FnOp::Sec => f64x4::splat(1.0) / f64x4::new(arr.map(f64::cos)),
-        FnOp::Csc => f64x4::splat(1.0) / f64x4::new(arr.map(f64::sin)),
-        FnOp::Asin => f64x4::new(arr.map(f64::asin)),
-        FnOp::Acos => f64x4::new(arr.map(f64::acos)),
-        FnOp::Atan => f64x4::new(arr.map(f64::atan)),
-        FnOp::Acot => f64x4::splat(FRAC_PI_2) - f64x4::from(arr.map(f64::atan)),
-        FnOp::Asec => f64x4::new((f64x4::splat(1.0) / x).to_array().map(f64::acos)),
-        FnOp::Acsc => f64x4::new((f64x4::splat(1.0) / x).to_array().map(f64::asin)),
         FnOp::Sinh => f64x4::new(arr.map(f64::sinh)),
         FnOp::Cosh => f64x4::new(arr.map(f64::cosh)),
         FnOp::Tanh => f64x4::new(arr.map(f64::tanh)),
@@ -175,13 +249,8 @@ pub fn eval_builtin1_simd(op: FnOp, x: f64x4) -> f64x4 {
         FnOp::Acsch => f64x4::new((f64x4::splat(1.0) / x).to_array().map(f64::asinh)),
         FnOp::Asech => f64x4::new((f64x4::splat(1.0) / x).to_array().map(f64::acosh)),
         FnOp::Expm1 => f64x4::new(arr.map(f64::exp_m1)),
-        FnOp::ExpNeg => f64x4::new((-x).to_array().map(f64::exp)),
         FnOp::Log1p => f64x4::new(arr.map(f64::ln_1p)),
         FnOp::Cbrt => f64x4::new(arr.map(f64::cbrt)),
-        FnOp::Signum => f64x4::new(arr.map(f64::signum)),
-        FnOp::Floor => f64x4::new(arr.map(f64::floor)),
-        FnOp::Ceil => f64x4::new(arr.map(f64::ceil)),
-        FnOp::Round => f64x4::new(arr.map(f64::round)),
         FnOp::Erf => f64x4::new(arr.map(eval_erf)),
         FnOp::Erfc => f64x4::new(arr.map(eval_erfc)),
         FnOp::Gamma => f64x4::new(arr.map(eval_gamma)),
@@ -195,23 +264,31 @@ pub fn eval_builtin1_simd(op: FnOp, x: f64x4) -> f64x4 {
         FnOp::EllipticE => f64x4::new(arr.map(eval_elliptic_e)),
         FnOp::Zeta => f64x4::new(arr.map(eval_zeta)),
         FnOp::ExpPolar => f64x4::new(arr.map(eval_exp_polar)),
-        _ => unreachable_simd_builtin(1, op),
+        _ => unreachable_builtin(1, op),
     }
 }
 
 /// Dispatches a 2-argument builtin function for SIMD evaluation.
 #[cfg(feature = "parallel")]
 #[inline]
+#[must_use]
 pub fn eval_builtin2_simd(op: FnOp, x1: f64x4, x2: f64x4) -> f64x4 {
+    if op == FnOp::Atan2 {
+        return x1.atan2(x2);
+    }
+
     let arr1 = x1.to_array();
     let arr2 = x2.to_array();
+    #[allow(
+        clippy::wildcard_enum_match_arm,
+        reason = "Unreachable dispatch fallback"
+    )]
     match op {
-        FnOp::Atan2 => f64x4::new(from_fn(|i| arr1[i].atan2(arr2[i]))),
         FnOp::Log => {
             let l = |base: f64, val: f64| {
                 #[allow(
                     clippy::float_cmp,
-                    reason = "Exact comparison with 0.0 and 1.0 is intentional for mathematical domain boundaries"
+                    reason = "Exact comparison with 0.0 and 1.0 is intentional"
                 )]
                 if base <= 0.0 || base == 1.0 || val < 0.0 {
                     f64::NAN
@@ -238,33 +315,34 @@ pub fn eval_builtin2_simd(op: FnOp, x1: f64x4, x2: f64x4) -> f64x4 {
             f64x4::new(from_fn(|i| f(arr1[i], arr2[i])))
         }
         FnOp::Polygamma => {
-            let f =
-                |n_f: f64, val: f64| round_to_i32(n_f).map_or(f64::NAN, |n| eval_polygamma(n, val));
+            let f = |n_f, val| round_to_i32(n_f).map_or(f64::NAN, |n| eval_polygamma(n, val));
             f64x4::new(from_fn(|i| f(arr1[i], arr2[i])))
         }
         FnOp::Beta => f64x4::new(from_fn(|i| eval_beta(arr1[i], arr2[i]))),
         FnOp::ZetaDeriv => {
-            let f = |n_f: f64, val: f64| {
-                round_to_i32(n_f).map_or(f64::NAN, |n| eval_zeta_deriv(n, val))
-            };
+            let f = |n_f, val| round_to_i32(n_f).map_or(f64::NAN, |n| eval_zeta_deriv(n, val));
             f64x4::new(from_fn(|i| f(arr1[i], arr2[i])))
         }
         FnOp::Hermite => {
-            let f =
-                |n_f: f64, val: f64| round_to_i32(n_f).map_or(f64::NAN, |n| eval_hermite(n, val));
+            let f = |n_f, val| round_to_i32(n_f).map_or(f64::NAN, |n| eval_hermite(n, val));
             f64x4::new(from_fn(|i| f(arr1[i], arr2[i])))
         }
-        _ => unreachable_simd_builtin(2, op),
+        _ => unreachable_builtin(2, op),
     }
 }
 
 /// Dispatches a 3-argument builtin function for SIMD evaluation.
 #[cfg(feature = "parallel")]
 #[inline]
+#[must_use]
 pub fn eval_builtin3_simd(op: FnOp, x1: f64x4, x2: f64x4, x3: f64x4) -> f64x4 {
     let arr1 = x1.to_array();
     let arr2 = x2.to_array();
     let arr3 = x3.to_array();
+    #[allow(
+        clippy::wildcard_enum_match_arm,
+        reason = "Unreachable dispatch fallback"
+    )]
     match op {
         FnOp::AssocLegendre => {
             let f = |l_f: f64, m_f: f64, val: f64| match (round_to_i32(l_f), round_to_i32(m_f)) {
@@ -273,18 +351,23 @@ pub fn eval_builtin3_simd(op: FnOp, x1: f64x4, x2: f64x4, x3: f64x4) -> f64x4 {
             };
             f64x4::new(from_fn(|i| f(arr1[i], arr2[i], arr3[i])))
         }
-        _ => unreachable_simd_builtin(3, op),
+        _ => unreachable_builtin(3, op),
     }
 }
 
 /// Dispatches a 4-argument builtin function for SIMD evaluation.
 #[cfg(feature = "parallel")]
 #[inline]
+#[must_use]
 pub fn eval_builtin4_simd(op: FnOp, x1: f64x4, x2: f64x4, x3: f64x4, x4: f64x4) -> f64x4 {
     let arr1 = x1.to_array();
     let arr2 = x2.to_array();
     let arr3 = x3.to_array();
     let arr4 = x4.to_array();
+    #[allow(
+        clippy::wildcard_enum_match_arm,
+        reason = "Unreachable dispatch fallback"
+    )]
     match op {
         FnOp::SphericalHarmonic => {
             let f =
@@ -294,6 +377,6 @@ pub fn eval_builtin4_simd(op: FnOp, x1: f64x4, x2: f64x4, x3: f64x4, x4: f64x4) 
                 };
             f64x4::new(from_fn(|i| f(arr1[i], arr2[i], arr3[i], arr4[i])))
         }
-        _ => unreachable_simd_builtin(4, op),
+        _ => unreachable_builtin(4, op),
     }
 }

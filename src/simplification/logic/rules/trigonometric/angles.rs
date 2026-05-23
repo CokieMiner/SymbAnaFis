@@ -355,33 +355,26 @@ rule_arc!(
             let mut other_factors: Vec<Arc<Expr>> = Vec::new();
 
             for f in factors {
-                match &f.kind {
-                    ExprKind::Number(n) => {
-                        coeff *= n;
-                    }
-                    ExprKind::FunctionCall { name, args }
-                        if name.id() == KS.sin && args.len() == 1 =>
-                    {
+                if let ExprKind::Number(n) = &f.kind {
+                    coeff *= n;
+                } else if let ExprKind::FunctionCall { name, args } = &f.kind {
+                    if name.id() == KS.sin && args.len() == 1 {
                         if sin_arg.is_some() {
-                            // Multiple sin factors - don't handle
                             other_factors.push(Arc::clone(f));
                         } else {
                             sin_arg = Some(Arc::clone(&args[0]));
                         }
-                    }
-                    ExprKind::FunctionCall { name, args }
-                        if name.id() == KS.cos && args.len() == 1 =>
-                    {
+                    } else if name.id() == KS.cos && args.len() == 1 {
                         if cos_arg.is_some() {
-                            // Multiple cos factors - don't handle
                             other_factors.push(Arc::clone(f));
                         } else {
                             cos_arg = Some(Arc::clone(&args[0]));
                         }
-                    }
-                    _ => {
+                    } else {
                         other_factors.push(Arc::clone(f));
                     }
+                } else {
+                    other_factors.push(Arc::clone(f));
                 }
             }
 

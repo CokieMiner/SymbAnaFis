@@ -46,7 +46,7 @@ impl RegAllocator {
                 VReg::Temp(t) => {
                     last_use[t as usize] = Some(idx);
                 }
-                _ => {
+                VReg::Param(_) | VReg::Const(_) => {
                     if Some(src) == phys_0_vreg {
                         last_phys_0_read = Some(idx);
                     }
@@ -56,8 +56,7 @@ impl RegAllocator {
 
         // Ensure the final result register is kept alive until the very end
         // so its physical register is not overwritten by intermediate computations.
-        if let Some(VReg::Temp(t)) = final_vreg {
-            let last_idx = vinstrs.len().saturating_sub(1);
+        if let (Some(VReg::Temp(t)), Some(last_idx)) = (final_vreg, vinstrs.len().checked_sub(1)) {
             if let Some(lu) = last_use[t as usize] {
                 last_use[t as usize] = Some(lu.max(last_idx));
             } else {
@@ -137,306 +136,7 @@ impl RegAllocator {
                 }
             };
 
-            // Inlined macro for mapping VReg to physical register to avoid closure overhead
-            // and ensure direct inlining at each call site.
-            macro_rules! map_vreg_to_phys {
-                ($vreg:expr) => {
-                    match $vreg {
-                        VReg::Param(p) => p,
-                        VReg::Const(c) => self.param_count + c,
-                        VReg::Temp(t) => temp_to_phys[t as usize],
-                    }
-                };
-            }
-            match instr {
-                VInstruction::Add { srcs, .. } => {
-                    debug_assert!(
-                        srcs.len() >= 2,
-                        "1-element Add should be simplified in VIR lowering"
-                    );
-                    if srcs.len() == 2 {
-                        self.emit_add2(
-                            dest_phys,
-                            srcs[0],
-                            srcs[1],
-                            &temp_to_phys,
-                            &mut instructions,
-                        );
-                    } else if srcs.len() == 3 {
-                        instructions.push(Instruction::Add3 {
-                            dest: dest_phys,
-                            a: map_vreg_to_phys!(srcs[0]),
-                            b: map_vreg_to_phys!(srcs[1]),
-                            c: map_vreg_to_phys!(srcs[2]),
-                        });
-                    } else if srcs.len() == 4 {
-                        instructions.push(Instruction::Add4 {
-                            dest: dest_phys,
-                            a: map_vreg_to_phys!(srcs[0]),
-                            b: map_vreg_to_phys!(srcs[1]),
-                            c: map_vreg_to_phys!(srcs[2]),
-                            d: map_vreg_to_phys!(srcs[3]),
-                        });
-                    } else {
-                        self.arg_pool.reserve(srcs.len());
-                        let start_idx = u32::try_from(self.arg_pool.len())
-                            .expect("Arg pool too large for u32 index");
-                        for &s in &srcs {
-                            self.arg_pool.push(map_vreg_to_phys!(s));
-                        }
-                        instructions.push(Instruction::AddN {
-                            dest: dest_phys,
-                            start_idx,
-                            count: u32::try_from(srcs.len()).expect("Too many sources for AddN"),
-                        });
-                    }
-                }
-                VInstruction::Add2 { a, b, .. } => {
-                    self.emit_add2(dest_phys, a, b, &temp_to_phys, &mut instructions);
-                }
-                VInstruction::Mul { srcs, .. } => {
-                    debug_assert!(
-                        srcs.len() >= 2,
-                        "1-element Mul should be simplified in VIR lowering"
-                    );
-                    if srcs.len() == 2 {
-                        self.emit_mul2(
-                            dest_phys,
-                            srcs[0],
-                            srcs[1],
-                            &temp_to_phys,
-                            &mut instructions,
-                        );
-                    } else if srcs.len() == 3 {
-                        instructions.push(Instruction::Mul3 {
-                            dest: dest_phys,
-                            a: map_vreg_to_phys!(srcs[0]),
-                            b: map_vreg_to_phys!(srcs[1]),
-                            c: map_vreg_to_phys!(srcs[2]),
-                        });
-                    } else if srcs.len() == 4 {
-                        instructions.push(Instruction::Mul4 {
-                            dest: dest_phys,
-                            a: map_vreg_to_phys!(srcs[0]),
-                            b: map_vreg_to_phys!(srcs[1]),
-                            c: map_vreg_to_phys!(srcs[2]),
-                            d: map_vreg_to_phys!(srcs[3]),
-                        });
-                    } else {
-                        self.arg_pool.reserve(srcs.len());
-                        let start_idx = u32::try_from(self.arg_pool.len())
-                            .expect("Arg pool too large for u32 index");
-                        for &s in &srcs {
-                            self.arg_pool.push(map_vreg_to_phys!(s));
-                        }
-                        instructions.push(Instruction::MulN {
-                            dest: dest_phys,
-                            start_idx,
-                            count: u32::try_from(srcs.len()).expect("Too many sources for MulN"),
-                        });
-                    }
-                }
-                VInstruction::Mul2 { a, b, .. } => {
-                    self.emit_mul2(dest_phys, a, b, &temp_to_phys, &mut instructions);
-                }
-                VInstruction::Sub { a, b, .. } => instructions.push(Instruction::Sub {
-                    dest: dest_phys,
-                    a: map_vreg_to_phys!(a),
-                    b: map_vreg_to_phys!(b),
-                }),
-                VInstruction::Div { num, den, .. } => instructions.push(Instruction::Div {
-                    dest: dest_phys,
-                    num: map_vreg_to_phys!(num),
-                    den: map_vreg_to_phys!(den),
-                }),
-                VInstruction::Pow { base, exp, .. } => instructions.push(Instruction::Pow {
-                    dest: dest_phys,
-                    base: map_vreg_to_phys!(base),
-                    exp: map_vreg_to_phys!(exp),
-                }),
-                VInstruction::Neg { src, .. } => instructions.push(Instruction::Neg {
-                    dest: dest_phys,
-                    src: map_vreg_to_phys!(src),
-                }),
-                VInstruction::BuiltinFun { op, args, .. } => match args.len() {
-                    1 => match op {
-                        FnOp::Sin => instructions.push(Instruction::Sin {
-                            dest: dest_phys,
-                            arg: map_vreg_to_phys!(args[0]),
-                        }),
-                        FnOp::Cos => instructions.push(Instruction::Cos {
-                            dest: dest_phys,
-                            arg: map_vreg_to_phys!(args[0]),
-                        }),
-                        FnOp::Exp => instructions.push(Instruction::Exp {
-                            dest: dest_phys,
-                            arg: map_vreg_to_phys!(args[0]),
-                        }),
-                        FnOp::Ln => instructions.push(Instruction::Ln {
-                            dest: dest_phys,
-                            arg: map_vreg_to_phys!(args[0]),
-                        }),
-                        FnOp::Sqrt => instructions.push(Instruction::Sqrt {
-                            dest: dest_phys,
-                            arg: map_vreg_to_phys!(args[0]),
-                        }),
-                        _ => instructions.push(Instruction::Builtin1 {
-                            dest: dest_phys,
-                            op,
-                            arg: map_vreg_to_phys!(args[0]),
-                        }),
-                    },
-                    2 => instructions.push(Instruction::Builtin2 {
-                        dest: dest_phys,
-                        op,
-                        arg1: map_vreg_to_phys!(args[0]),
-                        arg2: map_vreg_to_phys!(args[1]),
-                    }),
-                    _ => {
-                        if args.len() == 3 {
-                            instructions.push(Instruction::Builtin3 {
-                                dest: dest_phys,
-                                op,
-                                arg1: map_vreg_to_phys!(args[0]),
-                                arg2: map_vreg_to_phys!(args[1]),
-                                arg3: map_vreg_to_phys!(args[2]),
-                            });
-                        } else if args.len() == 4 {
-                            instructions.push(Instruction::Builtin4 {
-                                dest: dest_phys,
-                                op,
-                                arg1: map_vreg_to_phys!(args[0]),
-                                arg2: map_vreg_to_phys!(args[1]),
-                                arg3: map_vreg_to_phys!(args[2]),
-                                arg4: map_vreg_to_phys!(args[3]),
-                            });
-                        } else {
-                            #[allow(
-                                clippy::unreachable,
-                                reason = "Functions in FnOp only have up to 4 arguments; parser rejects others."
-                            )]
-                            {
-                                unreachable!("No builtin functions with more than 4 arguments");
-                            }
-                        }
-                    }
-                },
-                VInstruction::Builtin1 { op, arg, .. } => match op {
-                    FnOp::Sin => instructions.push(Instruction::Sin {
-                        dest: dest_phys,
-                        arg: map_vreg_to_phys!(arg),
-                    }),
-                    FnOp::Cos => instructions.push(Instruction::Cos {
-                        dest: dest_phys,
-                        arg: map_vreg_to_phys!(arg),
-                    }),
-                    FnOp::Exp => instructions.push(Instruction::Exp {
-                        dest: dest_phys,
-                        arg: map_vreg_to_phys!(arg),
-                    }),
-                    FnOp::Ln => instructions.push(Instruction::Ln {
-                        dest: dest_phys,
-                        arg: map_vreg_to_phys!(arg),
-                    }),
-                    FnOp::Sqrt => instructions.push(Instruction::Sqrt {
-                        dest: dest_phys,
-                        arg: map_vreg_to_phys!(arg),
-                    }),
-                    _ => instructions.push(Instruction::Builtin1 {
-                        dest: dest_phys,
-                        op,
-                        arg: map_vreg_to_phys!(arg),
-                    }),
-                },
-                VInstruction::Builtin2 { op, arg1, arg2, .. } => {
-                    instructions.push(Instruction::Builtin2 {
-                        dest: dest_phys,
-                        op,
-                        arg1: map_vreg_to_phys!(arg1),
-                        arg2: map_vreg_to_phys!(arg2),
-                    });
-                }
-                VInstruction::Square { src, .. } => instructions.push(Instruction::Square {
-                    dest: dest_phys,
-                    src: map_vreg_to_phys!(src),
-                }),
-                VInstruction::Cube { src, .. } => instructions.push(Instruction::Cube {
-                    dest: dest_phys,
-                    src: map_vreg_to_phys!(src),
-                }),
-                VInstruction::Pow4 { src, .. } => instructions.push(Instruction::Pow4 {
-                    dest: dest_phys,
-                    src: map_vreg_to_phys!(src),
-                }),
-                VInstruction::Pow3_2 { src, .. } => instructions.push(Instruction::Pow3_2 {
-                    dest: dest_phys,
-                    src: map_vreg_to_phys!(src),
-                }),
-                VInstruction::InvPow3_2 { src, .. } => instructions.push(Instruction::InvPow3_2 {
-                    dest: dest_phys,
-                    src: map_vreg_to_phys!(src),
-                }),
-                VInstruction::InvSqrt { src, .. } => instructions.push(Instruction::InvSqrt {
-                    dest: dest_phys,
-                    src: map_vreg_to_phys!(src),
-                }),
-                VInstruction::InvSquare { src, .. } => instructions.push(Instruction::InvSquare {
-                    dest: dest_phys,
-                    src: map_vreg_to_phys!(src),
-                }),
-                VInstruction::InvCube { src, .. } => instructions.push(Instruction::InvCube {
-                    dest: dest_phys,
-                    src: map_vreg_to_phys!(src),
-                }),
-                VInstruction::Recip { src, .. } => instructions.push(Instruction::Recip {
-                    dest: dest_phys,
-                    src: map_vreg_to_phys!(src),
-                }),
-                VInstruction::Powi { src, n, .. } => instructions.push(Instruction::Powi {
-                    dest: dest_phys,
-                    src: map_vreg_to_phys!(src),
-                    n,
-                }),
-                VInstruction::MulAdd { a, b, c, .. } => {
-                    instructions.push(Instruction::MulAdd {
-                        dest: dest_phys,
-                        a: map_vreg_to_phys!(a),
-                        b: map_vreg_to_phys!(b),
-                        c: map_vreg_to_phys!(c),
-                    });
-                }
-                VInstruction::MulSub { a, b, c, .. } => {
-                    instructions.push(Instruction::MulSub {
-                        dest: dest_phys,
-                        a: map_vreg_to_phys!(a),
-                        b: map_vreg_to_phys!(b),
-                        c: map_vreg_to_phys!(c),
-                    });
-                }
-                VInstruction::NegMulAdd { a, b, c, .. } => {
-                    instructions.push(Instruction::NegMulAdd {
-                        dest: dest_phys,
-                        a: map_vreg_to_phys!(a),
-                        b: map_vreg_to_phys!(b),
-                        c: map_vreg_to_phys!(c),
-                    });
-                }
-
-                VInstruction::RecipExpm1 { src, .. } => {
-                    instructions.push(Instruction::RecipExpm1 {
-                        dest: dest_phys,
-                        src: map_vreg_to_phys!(src),
-                    });
-                }
-                VInstruction::ExpSqr { src, .. } => instructions.push(Instruction::ExpSqr {
-                    dest: dest_phys,
-                    src: map_vreg_to_phys!(src),
-                }),
-                VInstruction::ExpSqrNeg { src, .. } => instructions.push(Instruction::ExpSqrNeg {
-                    dest: dest_phys,
-                    src: map_vreg_to_phys!(src),
-                }),
-            }
+            self.emit_instruction(instr, dest_phys, &temp_to_phys, &mut instructions);
 
             let mut curr_death = self.death_heads[idx];
             while curr_death != u32::MAX {
@@ -456,12 +156,456 @@ impl RegAllocator {
                 VReg::Temp(t) => temp_to_phys[t as usize],
             }
         } else {
-            // No result produced (e.g. empty program), use default zero (first constant)
-            // In the unified layout, constant 0 (0.0) is at param_count + 0.
             self.param_count
         };
 
         (instructions, self.arg_pool, max_phys as usize, result_phys)
+    }
+
+    fn map(&self, v: VReg, temp_to_phys: &[u32]) -> u32 {
+        map_vreg(v, self.param_count, temp_to_phys)
+    }
+
+    fn emit_instruction(
+        &mut self,
+        instr: VInstruction,
+        dest_phys: u32,
+        temp_to_phys: &[u32],
+        instructions: &mut Vec<Instruction>,
+    ) {
+        match instr {
+            VInstruction::Add { srcs, .. } => {
+                self.emit_add_nary(dest_phys, &srcs, temp_to_phys, instructions);
+            }
+            VInstruction::Add2 { a, b, .. } => {
+                self.emit_add2(dest_phys, a, b, temp_to_phys, instructions);
+            }
+            VInstruction::Mul { srcs, .. } => {
+                self.emit_mul_nary(dest_phys, &srcs, temp_to_phys, instructions);
+            }
+            VInstruction::Mul2 { a, b, .. } => {
+                self.emit_mul2(dest_phys, a, b, temp_to_phys, instructions);
+            }
+            VInstruction::Sub { a, b, .. } => instructions.push(Instruction::Sub {
+                dest: dest_phys,
+                a: map_vreg(a, self.param_count, temp_to_phys),
+                b: map_vreg(b, self.param_count, temp_to_phys),
+            }),
+            VInstruction::Div { num, den, .. } => instructions.push(Instruction::Div {
+                dest: dest_phys,
+                num: map_vreg(num, self.param_count, temp_to_phys),
+                den: map_vreg(den, self.param_count, temp_to_phys),
+            }),
+            VInstruction::Pow { base, exp, .. } => instructions.push(Instruction::Pow {
+                dest: dest_phys,
+                base: map_vreg(base, self.param_count, temp_to_phys),
+                exp: map_vreg(exp, self.param_count, temp_to_phys),
+            }),
+            VInstruction::Neg { src, .. } => instructions.push(Instruction::Neg {
+                dest: dest_phys,
+                src: map_vreg(src, self.param_count, temp_to_phys),
+            }),
+            VInstruction::NegMul { a, b, .. } => instructions.push(Instruction::NegMul {
+                dest: dest_phys,
+                a: map_vreg(a, self.param_count, temp_to_phys),
+                b: map_vreg(b, self.param_count, temp_to_phys),
+            }),
+            VInstruction::BuiltinFun { op, args, .. } => {
+                self.emit_builtin_fun(dest_phys, op, &args, temp_to_phys, instructions);
+            }
+            VInstruction::Builtin1 { op, arg, .. } => {
+                self.emit_builtin_unary(dest_phys, op, arg, temp_to_phys, instructions);
+            }
+            VInstruction::Builtin2 { op, arg1, arg2, .. } => {
+                instructions.push(Instruction::Builtin2 {
+                    dest: dest_phys,
+                    op,
+                    arg1: map_vreg(arg1, self.param_count, temp_to_phys),
+                    arg2: map_vreg(arg2, self.param_count, temp_to_phys),
+                });
+            }
+            VInstruction::Square { .. }
+            | VInstruction::Cube { .. }
+            | VInstruction::Pow4 { .. }
+            | VInstruction::Pow3_2 { .. }
+            | VInstruction::InvPow3_2 { .. }
+            | VInstruction::InvSqrt { .. }
+            | VInstruction::InvSquare { .. }
+            | VInstruction::InvCube { .. }
+            | VInstruction::Recip { .. } => {
+                self.emit_power_unary(&instr, dest_phys, temp_to_phys, instructions);
+            }
+            VInstruction::Powi { src, n, .. } => instructions.push(Instruction::Powi {
+                dest: dest_phys,
+                src: map_vreg(src, self.param_count, temp_to_phys),
+                n,
+            }),
+            VInstruction::MulAdd { .. }
+            | VInstruction::MulSub { .. }
+            | VInstruction::NegMulAdd { .. }
+            | VInstruction::NegMulSub { .. } => {
+                self.emit_mul_add_family(&instr, dest_phys, temp_to_phys, instructions);
+            }
+
+            VInstruction::RecipExpm1 { src, .. } => {
+                instructions.push(Instruction::RecipExpm1 {
+                    dest: dest_phys,
+                    src: map_vreg(src, self.param_count, temp_to_phys),
+                });
+            }
+            VInstruction::ExpSqr { src, .. } => instructions.push(Instruction::ExpSqr {
+                dest: dest_phys,
+                src: map_vreg(src, self.param_count, temp_to_phys),
+            }),
+            VInstruction::ExpSqrNeg { src, .. } => instructions.push(Instruction::ExpSqrNeg {
+                dest: dest_phys,
+                src: map_vreg(src, self.param_count, temp_to_phys),
+            }),
+        }
+    }
+
+    fn emit_power_unary(
+        &self,
+        instr: &VInstruction,
+        dest_phys: u32,
+        temp_to_phys: &[u32],
+        instructions: &mut Vec<Instruction>,
+    ) {
+        match instr {
+            VInstruction::Square { src, .. } => instructions.push(Instruction::Square {
+                dest: dest_phys,
+                src: self.map(*src, temp_to_phys),
+            }),
+            VInstruction::Cube { src, .. } => instructions.push(Instruction::Cube {
+                dest: dest_phys,
+                src: self.map(*src, temp_to_phys),
+            }),
+            VInstruction::Pow4 { src, .. } => instructions.push(Instruction::Pow4 {
+                dest: dest_phys,
+                src: self.map(*src, temp_to_phys),
+            }),
+            VInstruction::Pow3_2 { src, .. } => instructions.push(Instruction::Pow3_2 {
+                dest: dest_phys,
+                src: self.map(*src, temp_to_phys),
+            }),
+            VInstruction::InvPow3_2 { src, .. } => instructions.push(Instruction::InvPow3_2 {
+                dest: dest_phys,
+                src: self.map(*src, temp_to_phys),
+            }),
+            VInstruction::InvSqrt { src, .. } => instructions.push(Instruction::InvSqrt {
+                dest: dest_phys,
+                src: self.map(*src, temp_to_phys),
+            }),
+            VInstruction::InvSquare { src, .. } => instructions.push(Instruction::InvSquare {
+                dest: dest_phys,
+                src: self.map(*src, temp_to_phys),
+            }),
+            VInstruction::InvCube { src, .. } => instructions.push(Instruction::InvCube {
+                dest: dest_phys,
+                src: self.map(*src, temp_to_phys),
+            }),
+            VInstruction::Recip { src, .. } => instructions.push(Instruction::Recip {
+                dest: dest_phys,
+                src: self.map(*src, temp_to_phys),
+            }),
+            VInstruction::Add { .. }
+            | VInstruction::Add2 { .. }
+            | VInstruction::Mul { .. }
+            | VInstruction::Mul2 { .. }
+            | VInstruction::Sub { .. }
+            | VInstruction::Div { .. }
+            | VInstruction::Pow { .. }
+            | VInstruction::Neg { .. }
+            | VInstruction::NegMul { .. }
+            | VInstruction::BuiltinFun { .. }
+            | VInstruction::Builtin1 { .. }
+            | VInstruction::Builtin2 { .. }
+            | VInstruction::Powi { .. }
+            | VInstruction::MulAdd { .. }
+            | VInstruction::MulSub { .. }
+            | VInstruction::NegMulAdd { .. }
+            | VInstruction::NegMulSub { .. }
+            | VInstruction::RecipExpm1 { .. }
+            | VInstruction::ExpSqr { .. }
+            | VInstruction::ExpSqrNeg { .. } => {}
+        }
+    }
+
+    fn emit_mul_add_family(
+        &self,
+        instr: &VInstruction,
+        dest_phys: u32,
+        temp_to_phys: &[u32],
+        instructions: &mut Vec<Instruction>,
+    ) {
+        match instr {
+            VInstruction::MulAdd { a, b, c, .. } => {
+                instructions.push(Instruction::MulAdd {
+                    dest: dest_phys,
+                    a: self.map(*a, temp_to_phys),
+                    b: self.map(*b, temp_to_phys),
+                    c: self.map(*c, temp_to_phys),
+                });
+            }
+            VInstruction::MulSub { a, b, c, .. } => {
+                instructions.push(Instruction::MulSub {
+                    dest: dest_phys,
+                    a: self.map(*a, temp_to_phys),
+                    b: self.map(*b, temp_to_phys),
+                    c: self.map(*c, temp_to_phys),
+                });
+            }
+            VInstruction::NegMulAdd { a, b, c, .. } => {
+                instructions.push(Instruction::NegMulAdd {
+                    dest: dest_phys,
+                    a: self.map(*a, temp_to_phys),
+                    b: self.map(*b, temp_to_phys),
+                    c: self.map(*c, temp_to_phys),
+                });
+            }
+            VInstruction::NegMulSub { a, b, c, .. } => {
+                instructions.push(Instruction::NegMulSub {
+                    dest: dest_phys,
+                    a: self.map(*a, temp_to_phys),
+                    b: self.map(*b, temp_to_phys),
+                    c: self.map(*c, temp_to_phys),
+                });
+            }
+            VInstruction::Add { .. }
+            | VInstruction::Add2 { .. }
+            | VInstruction::Mul { .. }
+            | VInstruction::Mul2 { .. }
+            | VInstruction::Sub { .. }
+            | VInstruction::Div { .. }
+            | VInstruction::Pow { .. }
+            | VInstruction::Neg { .. }
+            | VInstruction::NegMul { .. }
+            | VInstruction::BuiltinFun { .. }
+            | VInstruction::Builtin1 { .. }
+            | VInstruction::Builtin2 { .. }
+            | VInstruction::Square { .. }
+            | VInstruction::Cube { .. }
+            | VInstruction::Pow4 { .. }
+            | VInstruction::Pow3_2 { .. }
+            | VInstruction::InvPow3_2 { .. }
+            | VInstruction::InvSqrt { .. }
+            | VInstruction::InvSquare { .. }
+            | VInstruction::InvCube { .. }
+            | VInstruction::Recip { .. }
+            | VInstruction::Powi { .. }
+            | VInstruction::RecipExpm1 { .. }
+            | VInstruction::ExpSqr { .. }
+            | VInstruction::ExpSqrNeg { .. } => {}
+        }
+    }
+
+    fn emit_add_nary(
+        &mut self,
+        dest_phys: u32,
+        srcs: &[VReg],
+        temp_to_phys: &[u32],
+        instructions: &mut Vec<Instruction>,
+    ) {
+        if srcs.len() == 2 {
+            self.emit_add2(dest_phys, srcs[0], srcs[1], temp_to_phys, instructions);
+        } else if srcs.len() == 3 {
+            instructions.push(Instruction::Add3 {
+                dest: dest_phys,
+                a: map_vreg(srcs[0], self.param_count, temp_to_phys),
+                b: map_vreg(srcs[1], self.param_count, temp_to_phys),
+                c: map_vreg(srcs[2], self.param_count, temp_to_phys),
+            });
+        } else if srcs.len() == 4 {
+            instructions.push(Instruction::Add4 {
+                dest: dest_phys,
+                a: map_vreg(srcs[0], self.param_count, temp_to_phys),
+                b: map_vreg(srcs[1], self.param_count, temp_to_phys),
+                c: map_vreg(srcs[2], self.param_count, temp_to_phys),
+                d: map_vreg(srcs[3], self.param_count, temp_to_phys),
+            });
+        } else {
+            self.arg_pool.reserve(srcs.len());
+            let start_idx =
+                u32::try_from(self.arg_pool.len()).expect("Arg pool too large for u32 index");
+            for &s in srcs {
+                self.arg_pool
+                    .push(map_vreg(s, self.param_count, temp_to_phys));
+            }
+            instructions.push(Instruction::AddN {
+                dest: dest_phys,
+                start_idx,
+                count: u32::try_from(srcs.len()).expect("Too many sources for AddN"),
+            });
+        }
+    }
+
+    fn emit_mul_nary(
+        &mut self,
+        dest_phys: u32,
+        srcs: &[VReg],
+        temp_to_phys: &[u32],
+        instructions: &mut Vec<Instruction>,
+    ) {
+        if srcs.len() == 2 {
+            self.emit_mul2(dest_phys, srcs[0], srcs[1], temp_to_phys, instructions);
+        } else if srcs.len() == 3 {
+            instructions.push(Instruction::Mul3 {
+                dest: dest_phys,
+                a: map_vreg(srcs[0], self.param_count, temp_to_phys),
+                b: map_vreg(srcs[1], self.param_count, temp_to_phys),
+                c: map_vreg(srcs[2], self.param_count, temp_to_phys),
+            });
+        } else if srcs.len() == 4 {
+            instructions.push(Instruction::Mul4 {
+                dest: dest_phys,
+                a: map_vreg(srcs[0], self.param_count, temp_to_phys),
+                b: map_vreg(srcs[1], self.param_count, temp_to_phys),
+                c: map_vreg(srcs[2], self.param_count, temp_to_phys),
+                d: map_vreg(srcs[3], self.param_count, temp_to_phys),
+            });
+        } else {
+            self.arg_pool.reserve(srcs.len());
+            let start_idx =
+                u32::try_from(self.arg_pool.len()).expect("Arg pool too large for u32 index");
+            for &s in srcs {
+                self.arg_pool
+                    .push(map_vreg(s, self.param_count, temp_to_phys));
+            }
+            instructions.push(Instruction::MulN {
+                dest: dest_phys,
+                start_idx,
+                count: u32::try_from(srcs.len()).expect("Too many sources for MulN"),
+            });
+        }
+    }
+
+    fn emit_builtin_fun(
+        &self,
+        dest_phys: u32,
+        op: FnOp,
+        args: &[VReg],
+        temp_to_phys: &[u32],
+        instructions: &mut Vec<Instruction>,
+    ) {
+        match args.len() {
+            1 => self.emit_builtin_unary(dest_phys, op, args[0], temp_to_phys, instructions),
+            2 => instructions.push(Instruction::Builtin2 {
+                dest: dest_phys,
+                op,
+                arg1: map_vreg(args[0], self.param_count, temp_to_phys),
+                arg2: map_vreg(args[1], self.param_count, temp_to_phys),
+            }),
+            3 => instructions.push(Instruction::Builtin3 {
+                dest: dest_phys,
+                op,
+                arg1: map_vreg(args[0], self.param_count, temp_to_phys),
+                arg2: map_vreg(args[1], self.param_count, temp_to_phys),
+                arg3: map_vreg(args[2], self.param_count, temp_to_phys),
+            }),
+            4 => instructions.push(Instruction::Builtin4 {
+                dest: dest_phys,
+                op,
+                arg1: map_vreg(args[0], self.param_count, temp_to_phys),
+                arg2: map_vreg(args[1], self.param_count, temp_to_phys),
+                arg3: map_vreg(args[2], self.param_count, temp_to_phys),
+                arg4: map_vreg(args[3], self.param_count, temp_to_phys),
+            }),
+            _ => {}
+        }
+    }
+
+    fn emit_builtin_unary(
+        &self,
+        dest_phys: u32,
+        op: FnOp,
+        arg: VReg,
+        temp_to_phys: &[u32],
+        instructions: &mut Vec<Instruction>,
+    ) {
+        match op {
+            FnOp::Sin => instructions.push(Instruction::Sin {
+                dest: dest_phys,
+                arg: map_vreg(arg, self.param_count, temp_to_phys),
+            }),
+            FnOp::Cos => instructions.push(Instruction::Cos {
+                dest: dest_phys,
+                arg: map_vreg(arg, self.param_count, temp_to_phys),
+            }),
+            FnOp::Exp => instructions.push(Instruction::Exp {
+                dest: dest_phys,
+                arg: map_vreg(arg, self.param_count, temp_to_phys),
+            }),
+            FnOp::Ln => instructions.push(Instruction::Ln {
+                dest: dest_phys,
+                arg: map_vreg(arg, self.param_count, temp_to_phys),
+            }),
+            FnOp::Sqrt => instructions.push(Instruction::Sqrt {
+                dest: dest_phys,
+                arg: map_vreg(arg, self.param_count, temp_to_phys),
+            }),
+            FnOp::Tan
+            | FnOp::Cot
+            | FnOp::Sec
+            | FnOp::Csc
+            | FnOp::Asin
+            | FnOp::Acos
+            | FnOp::Atan
+            | FnOp::Acot
+            | FnOp::Asec
+            | FnOp::Acsc
+            | FnOp::Sinh
+            | FnOp::Cosh
+            | FnOp::Tanh
+            | FnOp::Coth
+            | FnOp::Sech
+            | FnOp::Csch
+            | FnOp::Asinh
+            | FnOp::Acosh
+            | FnOp::Atanh
+            | FnOp::Acoth
+            | FnOp::Acsch
+            | FnOp::Asech
+            | FnOp::Expm1
+            | FnOp::ExpNeg
+            | FnOp::Log1p
+            | FnOp::Cbrt
+            | FnOp::Abs
+            | FnOp::Signum
+            | FnOp::Floor
+            | FnOp::Ceil
+            | FnOp::Round
+            | FnOp::Erf
+            | FnOp::Erfc
+            | FnOp::Gamma
+            | FnOp::Lgamma
+            | FnOp::Digamma
+            | FnOp::Trigamma
+            | FnOp::Tetragamma
+            | FnOp::Sinc
+            | FnOp::LambertW
+            | FnOp::EllipticK
+            | FnOp::EllipticE
+            | FnOp::Zeta
+            | FnOp::ExpPolar
+            | FnOp::Atan2
+            | FnOp::Log
+            | FnOp::BesselJ
+            | FnOp::BesselY
+            | FnOp::BesselI
+            | FnOp::BesselK
+            | FnOp::Polygamma
+            | FnOp::Beta
+            | FnOp::ZetaDeriv
+            | FnOp::Hermite
+            | FnOp::AssocLegendre
+            | FnOp::SphericalHarmonic => {
+                instructions.push(Instruction::Builtin1 {
+                    dest: dest_phys,
+                    op,
+                    arg: map_vreg(arg, self.param_count, temp_to_phys),
+                });
+            }
+        }
     }
 
     fn emit_add2(

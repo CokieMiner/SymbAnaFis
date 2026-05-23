@@ -24,7 +24,7 @@ use std::env;
 use std::fs;
 use std::time::{Duration, Instant};
 
-use symb_anafis::{CompiledEvaluator, Diff, Simplify, parse, symb};
+use symb_anafis::{Diff, Expr, Simplify, VmEvaluator, parse, symb};
 use symbolica::{
     LicenseManager,
     atom::{Atom, AtomCore, Indeterminate},
@@ -85,6 +85,7 @@ fn main() {
         (e, t.elapsed())
     };
     eprintln!("  SymbAnaFis:  {saf_parse:?}");
+    eprintln!("  SymbAnaFis DAG size: {}", dag_size(&saf_expr));
 
     let (sym_expr, sym_parse) = {
         let t = Instant::now();
@@ -102,7 +103,7 @@ fn main() {
     // ── SymbAnaFis: compile the parsed expression (raw) ──
     let (saf_parsed_evaluator, saf_parsed_compile, saf_parsed_params) = {
         let t = Instant::now();
-        let evaluator = CompiledEvaluator::compile(&saf_expr, &params_str, None)
+        let evaluator = VmEvaluator::compile(&saf_expr, &params_str, None)
             .expect("SymbAnaFis compile (parsed) failed");
         (evaluator, t.elapsed(), initial_values.clone())
     };
@@ -129,7 +130,7 @@ fn main() {
         let simplify_time = t_simp.elapsed();
 
         let t_comp = Instant::now();
-        let evaluator = CompiledEvaluator::compile(&simplified, &params_str, None)
+        let evaluator = VmEvaluator::compile(&simplified, &params_str, None)
             .expect("SymbAnaFis compile (parsed simplified) failed");
         let compile_time = t_comp.elapsed();
 
@@ -250,7 +251,7 @@ fn main() {
         let simplify_time = t_simp.elapsed();
 
         let t_comp = Instant::now();
-        let evaluator = CompiledEvaluator::compile(&simplified, &params_str, None)
+        let evaluator = VmEvaluator::compile(&simplified, &params_str, None)
             .expect("SymbAnaFis compile (simplified) failed");
         let compile_time = t_comp.elapsed();
 
@@ -278,7 +279,7 @@ fn main() {
     // ── SymbAnaFis: compile raw (no simplification) ──
     let (saf_evaluator_raw, saf_compile_raw_time, saf_params_raw) = {
         let t = Instant::now();
-        let evaluator = CompiledEvaluator::compile(&saf_diff_raw, &params_str, None)
+        let evaluator = VmEvaluator::compile(&saf_diff_raw, &params_str, None)
             .expect("SymbAnaFis compile (raw) failed");
         (evaluator, t.elapsed(), initial_values.clone())
     };
@@ -418,7 +419,7 @@ fn main() {
 }
 
 /// Benchmark evaluation for a `SymbAnaFis` compiled evaluator.
-fn bench_eval_saf(evaluator: &CompiledEvaluator, params: &[f64]) -> (Duration, f64) {
+fn bench_eval_saf(evaluator: &VmEvaluator, params: &[f64]) -> (Duration, f64) {
     let mut last = 0.0;
     let t = Instant::now();
     for _ in 0..EVAL_ITERATIONS {
@@ -450,4 +451,13 @@ fn fmt_dur(d: Duration) -> String {
     } else {
         format!("{:.3}s", d.as_secs_f64())
     }
+}
+
+/// Calculate the DAG size (number of unique nodes) of an expression.
+fn dag_size(expr: &Expr) -> usize {
+    let visited = expr.fold(HashSet::new(), |mut acc: HashSet<*const Expr>, node| {
+        acc.insert(std::ptr::from_ref::<Expr>(node));
+        acc
+    });
+    visited.len()
 }

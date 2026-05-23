@@ -39,7 +39,7 @@ slotmap = { version = "1.1.1" }
 numpy = { version = "0.28.0", optional = true }
 pyo3 = { version = "0.28.2", features = ["extension-module"], optional = true }
 rayon = { version = "1.12.0", optional = true }
-wide = { version = "1.3.0", optional = true }
+wide = { version = "1.4.0", optional = true }
 
 [dev-dependencies]
 ahash = "0.8.12"
@@ -47,7 +47,7 @@ criterion = "0.8.2"
 dotenvy = "0.15.7"
 quickcheck = "1.1.0"
 rand = "0.10.1"
-symbolica = "1.5.0"
+symbolica = "1.5.1"
 
 [features]
 default = []
@@ -138,7 +138,9 @@ nursery = { level = "deny", priority = -1 }
 # CODE QUALITY & STYLE (RESTRICTION)
 # =============================================================================
 allow_attributes_without_reason = "deny" # Require explicit reasons for allow attributes
+# as_conversions = "deny"                 # Safer type casting (TryFrom/From)
 clone_on_ref_ptr = "deny"                # Avoid double indirection performance hit
+cognitive_complexity = "deny"           # Keep code maintainable
 create_dir = "deny"                      # Force error handling for filesystem ops
 dbg_macro = "deny"                       # No debug artifacts in production (upgraded)
 empty_drop = "deny"                      # Detect accidentally empty Drop implementations
@@ -201,10 +203,18 @@ try_err = "deny"                    # Use ? operator consistently
 undocumented_unsafe_blocks = "deny" # All unsafe must be documented
 unimplemented = "deny"              # No unfinished implementations
 unreachable = "deny"                # All code paths must be explicitly handled
+unwrap_in_result = "deny"           # No unwraps in functions returning Result
 unwrap_used = "deny"                # No unwraps - use expect with context
+wildcard_enum_match_arm = "deny"    # Exhaustive enum matching
 
 # =============================================================================
 # MATH PRECISION & CORRECTNESS
 # =============================================================================
 imprecise_flops = "deny"            # Mathematical precision critical (upgraded)
 suspicious_xor_used_as_pow = "deny" # Catch common XOR/pow confusion
+
+# =============================================================================
+# CARGO & PROJECT STRUCTURE
+# =============================================================================
+cargo_common_metadata = "deny"      # Ensure project metadata is complete
+wildcard_dependencies = "deny"      # Prevent non-deterministic builds

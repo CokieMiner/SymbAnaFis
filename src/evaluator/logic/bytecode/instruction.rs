@@ -34,12 +34,9 @@ macro_rules! define_isa {
             /// Returns the u32 opcode for this instruction.
             #[inline]
             pub const fn opcode(&self) -> u32 {
-                #[allow(
-                    unsafe_code,
-                    reason = "High-performance opcode extraction via pointer cast is safe for repr(u8) enums"
-                )]
-                // SAFETY: Instruction is repr(u8), ensuring the discriminant is the first byte.
-                unsafe { *std::ptr::from_ref::<Self>(self).cast::<u8>() as u32 }
+                match self {
+                    $( Self::$name { .. } => define_isa!(@opcode $name), )*
+                }
             }
 
             /// Range in the arg-pool used by this instruction, if any.
@@ -270,21 +267,57 @@ macro_rules! define_isa {
         Ok(())
     }};
 
-    (@is_dest @dest) => { true };
-    (@is_dest $(@$tag:ident)?) => { false };
-
     (@primary_dest_helper $field:ident, $res:ident, @dest) => { if $res.is_none() { $res = Some(*$field); } };
     (@primary_dest_helper $field:ident, $res:ident $(, @$tag:ident)?) => { };
-
-    (@is_pool_start @pool_start) => { true };
-    (@is_pool_start $(@$tag:ident)?) => { false };
-
-    (@is_pool_start @pool_count) => { true };
-    (@is_pool_start $(@$tag:ident)?) => { false };
 
     (@map_any_field $field:ident, $mapper:ident, @dest) => { *$field = $mapper(*$field); };
     (@map_any_field $field:ident, $mapper:ident, @read) => { *$field = $mapper(*$field); };
     (@map_any_field $field:ident, $mapper:ident $(, @$tag:ident)?) => { };
+
+    // --- Helpers for opcode ---
+    (@opcode End) => { 0 };
+    (@opcode Copy) => { 1 };
+    (@opcode Neg) => { 2 };
+    (@opcode SinCos) => { 3 };
+    (@opcode Add) => { 4 };
+    (@opcode Add3) => { 5 };
+    (@opcode Add4) => { 6 };
+    (@opcode AddN) => { 7 };
+    (@opcode Mul) => { 8 };
+    (@opcode Mul3) => { 9 };
+    (@opcode Mul4) => { 10 };
+    (@opcode MulN) => { 11 };
+    (@opcode Sub) => { 12 };
+    (@opcode Div) => { 13 };
+    (@opcode Pow) => { 14 };
+    (@opcode MulAdd) => { 15 };
+    (@opcode MulSub) => { 16 };
+    (@opcode NegMul) => { 17 };
+    (@opcode NegMulAdd) => { 18 };
+    (@opcode NegMulSub) => { 19 };
+    (@opcode Square) => { 20 };
+    (@opcode Cube) => { 21 };
+    (@opcode Pow4) => { 22 };
+    (@opcode Pow3_2) => { 23 };
+    (@opcode InvPow3_2) => { 24 };
+    (@opcode InvSqrt) => { 25 };
+    (@opcode InvSquare) => { 26 };
+    (@opcode InvCube) => { 27 };
+    (@opcode Recip) => { 28 };
+    (@opcode Powi) => { 29 };
+    (@opcode Sin) => { 30 };
+    (@opcode Cos) => { 31 };
+    (@opcode Exp) => { 32 };
+    (@opcode Ln) => { 33 };
+    (@opcode Sqrt) => { 34 };
+    (@opcode RecipExpm1) => { 35 };
+    (@opcode ExpSqr) => { 36 };
+    (@opcode ExpSqrNeg) => { 37 };
+    (@opcode Builtin1) => { 38 };
+    (@opcode Builtin2) => { 39 };
+    (@opcode Builtin3) => { 40 };
+    (@opcode Builtin4) => { 41 };
+    (@opcode AsinAcos) => { 42 };
 
     // --- Helpers for arg_pool_range ---
     (@pool_fields $field:ident, $start:ident, $count:ident, @pool_start) => { $start = Some(*$field); };
@@ -304,6 +337,9 @@ define_isa! {
 
     /// Fused Sine and Cosine: `(sin_dest, cos_dest) = sincos(arg)`
     SinCos { sin_dest: u32, @dest, cos_dest: u32, @dest, arg: u32, @read } => ("(R{}, R{}) = sincos(R{})", sin_dest, cos_dest, arg),
+
+    /// Fused Arcsine and Arccosine: `(asin_dest, acos_dest) = asinacos(arg)`
+    AsinAcos { asin_dest: u32, @dest, acos_dest: u32, @dest, arg: u32, @read } => ("(R{}, R{}) = asinacos(R{})", asin_dest, acos_dest, arg),
 
     /// Addition: `dest = a + b`
     Add { dest: u32, @dest, a: u32, @read, b: u32, @read } => ("R{} = R{} + R{}", dest, a, b),

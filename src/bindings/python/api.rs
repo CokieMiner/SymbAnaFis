@@ -1,11 +1,11 @@
 //! Python module registration and API surface mapping.
 
 use super::{
-    PyCompiledEvaluator, PyContext, PyDiff, PyDual, PyExpr, PyExprView, PyFunctionContext,
-    PySimplify, PySymbol, diff, evaluate, evaluate_str, gradient, gradient_str, hessian,
-    hessian_str, jacobian, jacobian_str, parse, py_clear_symbols, py_remove_symbol, py_symb,
-    py_symb_get, py_symb_new, py_symbol_count, py_symbol_exists, py_symbol_names,
-    relative_uncertainty_py, simplify, uncertainty_propagation_py,
+    PyContext, PyDiff, PyDual, PyExpr, PyExprView, PyFunctionContext, PySimplify, PySymbol,
+    PyVmEvaluator, diff, evaluate, evaluate_str, gradient, gradient_str, hessian, hessian_str,
+    jacobian, jacobian_str, parse, py_clear_symbols, py_remove_symbol, py_symb, py_symb_get,
+    py_symb_new, py_symbol_count, py_symbol_exists, py_symbol_names, relative_uncertainty_py,
+    simplify, uncertainty_propagation_py,
 };
 #[cfg(feature = "parallel")]
 use super::{eval_f64, evaluate_parallel};
@@ -17,7 +17,7 @@ fn symb_anafis(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Add classes
     m.add_class::<PyExpr>()?;
     m.add_class::<PySymbol>()?;
-    m.add_class::<PyCompiledEvaluator>()?;
+    m.add_class::<PyVmEvaluator>()?;
     m.add_class::<PyContext>()?;
     m.add_class::<PyFunctionContext>()?;
     m.add_class::<PyDual>()?;

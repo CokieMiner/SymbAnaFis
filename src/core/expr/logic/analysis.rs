@@ -11,7 +11,7 @@ use crate::core::ExprView;
 use crate::core::symb;
 use crate::core::{symb_get, symb_interned};
 use crate::diff::Diff;
-use crate::evaluator::{CompiledEvaluator, ToParamName};
+use crate::evaluator::{ToParamName, VmEvaluator};
 use crate::simplification::Simplify;
 
 use super::{Expr, ExprKind};
@@ -182,7 +182,15 @@ impl Expr {
             match &node.kind {
                 ExprKind::Symbol(s) if s.id() == var_id => return true,
                 ExprKind::Derivative { var: v, .. } if v.id() == var_id => return true,
-                _ => {}
+                ExprKind::Number(_)
+                | ExprKind::FunctionCall { .. }
+                | ExprKind::Sum(_)
+                | ExprKind::Product(_)
+                | ExprKind::Div(..)
+                | ExprKind::Pow(..)
+                | ExprKind::Derivative { .. }
+                | ExprKind::Poly(_)
+                | ExprKind::Symbol(_) => {}
             }
             Self::push_children(node, &mut stack);
         }
@@ -210,7 +218,15 @@ impl Expr {
             match &node.kind {
                 ExprKind::Symbol(s) if s.as_str() == var => return true,
                 ExprKind::Derivative { var: v, .. } if v.as_str() == var => return true,
-                _ => {}
+                ExprKind::Number(_)
+                | ExprKind::FunctionCall { .. }
+                | ExprKind::Sum(_)
+                | ExprKind::Product(_)
+                | ExprKind::Div(..)
+                | ExprKind::Pow(..)
+                | ExprKind::Derivative { .. }
+                | ExprKind::Poly(_)
+                | ExprKind::Symbol(_) => {}
             }
             Self::push_children(node, &mut stack);
         }
@@ -227,7 +243,15 @@ impl Expr {
                 ExprKind::Derivative { var, .. } if !excluded.contains(var.as_str()) => {
                     return true;
                 }
-                _ => {}
+                ExprKind::Number(_)
+                | ExprKind::FunctionCall { .. }
+                | ExprKind::Sum(_)
+                | ExprKind::Product(_)
+                | ExprKind::Div(..)
+                | ExprKind::Pow(..)
+                | ExprKind::Derivative { .. }
+                | ExprKind::Poly(_)
+                | ExprKind::Symbol(_) => {}
             }
             Self::push_children(node, &mut stack);
         }
@@ -305,7 +329,13 @@ impl Expr {
                 ExprKind::Derivative { var, .. } => {
                     vars.insert(var.as_str().to_owned());
                 }
-                _ => {}
+                ExprKind::Number(_)
+                | ExprKind::FunctionCall { .. }
+                | ExprKind::Sum(_)
+                | ExprKind::Product(_)
+                | ExprKind::Div(..)
+                | ExprKind::Pow(..)
+                | ExprKind::Poly(_) => {}
             }
             Self::push_children(node, &mut stack);
         }
@@ -381,7 +411,7 @@ impl Expr {
     /// use symb_anafis::{Expr, parse};
     /// use std::collections::HashSet;
     /// let expr = parse("x^2 + 2*x", &HashSet::new(), &HashSet::new(), None).expect("Should parse");
-    /// let evaluator = expr.compile().expect("Should compile");
+    /// let evaluator = expr.vm_auto().expect("Should compile");
     ///
     /// // Fast evaluation at multiple points
     /// let result_at_3 = evaluator.evaluate(&[3.0]); // 3^2 + 2*3 = 15
@@ -390,8 +420,8 @@ impl Expr {
     ///
     /// # Errors
     /// Returns `DiffError` if the expression cannot be compiled.
-    pub fn compile(&self) -> Result<CompiledEvaluator, DiffError> {
-        CompiledEvaluator::compile_auto(self, None)
+    pub fn vm_auto(&self) -> Result<VmEvaluator, DiffError> {
+        VmEvaluator::compile_auto(self, None)
     }
 
     /// Compile this expression with explicit parameter ordering
@@ -407,19 +437,16 @@ impl Expr {
     /// let expr = x.pow(2.0) + y;
     ///
     /// // Using strings
-    /// let compiled = expr.compile_with_params(&["x", "y"]).expect("Should compile");
+    /// let compiled = expr.vm(&["x", "y"]).expect("Should compile");
     ///
     /// // Using symbols
-    /// let compiled = expr.compile_with_params(&[&x, &y]).expect("Should compile");
+    /// let compiled = expr.vm(&[&x, &y]).expect("Should compile");
     /// ```
     ///
     /// # Errors
     /// Returns `DiffError` if the expression cannot be compiled.
-    pub fn compile_with_params<P: ToParamName>(
-        &self,
-        param_order: &[P],
-    ) -> Result<CompiledEvaluator, DiffError> {
-        CompiledEvaluator::compile(self, param_order, None)
+    pub fn vm<P: ToParamName>(&self, param_order: &[P]) -> Result<VmEvaluator, DiffError> {
+        VmEvaluator::compile(self, param_order, None)
     }
 
     /// Fold over the expression tree (pre-order)

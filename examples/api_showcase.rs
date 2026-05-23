@@ -21,8 +21,8 @@ use std::sync::Arc;
 
 #[allow(unused_imports, reason = "Unused imports for API demonstration")]
 use symb_anafis::{
-    CompiledEvaluator, Context, CovEntry, CovarianceMatrix, Diff, Dual, Expr, Simplify, Symbol,
-    UserFunction, diff, evaluate_str, gradient, gradient_str, hessian, hessian_str, jacobian,
+    Context, CovEntry, CovarianceMatrix, Diff, Dual, Expr, Simplify, Symbol, UserFunction,
+    VmEvaluator, diff, evaluate_str, gradient, gradient_str, hessian, hessian_str, jacobian,
     jacobian_str, parse, relative_uncertainty, simplify, symb, uncertainty_propagation,
 };
 
@@ -111,21 +111,28 @@ fn section_symbol_management() {
 
     let x1 = ctx1.symb("x");
     let x2 = ctx2.symb("x");
+    let z1 = ctx1.symb("z");
+    let z2 = ctx2.symb("z");
 
     println!("      let ctx1 = Context::new();");
     println!("      let ctx2 = Context::new();");
     println!("      let x1 = ctx1.symb(\"x\");");
     println!("      let x2 = ctx2.symb(\"x\");");
+    println!("      let z1 = ctx1.symb(\"z\");");
+    println!("      let z2 = ctx2.symb(\"z\");");
     println!("      ctx1.symb(\"x\").id() = {}", x1.id());
-    println!("      ctx2.symb(\"x\").id() = {} (different!)\n", x2.id());
+    println!("      ctx2.symb(\"x\").id() = {} (shared/global)", x2.id());
+    println!("      ctx1.symb(\"z\").id() = {}", z1.id());
+    println!("      ctx2.symb(\"z\").id() = {} (different!)\n", z2.id());
 
     // 2.3 Context API Methods
     println!("  2.3 Context API Methods");
     println!("      ctx1.is_empty(): {}", ctx1.is_empty());
     println!("      ctx1.symbol_names(): {:?}", ctx1.symbol_names());
+    println!("      ctx1.contains_symbol(\"x\"): {}", ctx1.contains_symbol("x"));
     println!(
-        "      ctx1.contains_symbol(\"x\"): {}\n",
-        ctx1.contains_symbol("x")
+        "      ctx1.contains_symbol(\"z\"): {}\n",
+        ctx1.contains_symbol("z")
     );
 
     // 2.4 Registry Management (Global)
@@ -133,6 +140,10 @@ fn section_symbol_management() {
     println!(
         "      symbol_exists(\"x\"): {}",
         symb_anafis::symbol_exists("x")
+    );
+    println!(
+        "      symbol_exists(\"z\"): {}",
+        symb_anafis::symbol_exists("z")
     );
     println!("      symbol_count(): {}", symb_anafis::symbol_count());
     println!("      symbol_names(): {:?}\n", symb_anafis::symbol_names());
@@ -246,15 +257,15 @@ fn section_expression_output() {
     println!("  5.1 LaTeX Output: to_latex()");
     let expr1 = x.pow(2.0) / y;
     let expr2 = x.sin() * y;
-    println!("      x=/y      = {}", expr1.to_latex());
-    println!("      sin(x)=y = {}\n", expr2.to_latex());
+    println!("      x²/y      = {}", expr1.to_latex());
+    println!("      sin(x)*y = {}\n", expr2.to_latex());
 
     // 5.2 Unicode Output
     println!("  5.2 Unicode Output: to_unicode()");
     let pi_expr = symb("pi");
     let omega = symb("omega");
     let expr3 = pi_expr + omega.pow(2.0);
-    println!("      = + == = {}\n", expr3.to_unicode());
+    println!("      π + ω² = {}\n", expr3.to_unicode());
 
     // 5.3 Standard Display
     println!("  5.3 Standard Display: Display trait");
@@ -269,7 +280,7 @@ fn section_expression_output() {
 fn section_uncertainty_propagation() {
     println!("================================================================");
     println!("6. UNCERTAINTY PROPAGATION");
-    println!("   =_f = =(== == (=f/=x=)(=f/=x=) Cov(x=, x=))");
+    println!("   sigma_f = sqrt(Σᵢ Σⱼ (∂f/∂xᵢ)(∂f/∂xⱼ) Cov(xᵢ, xⱼ))");
     println!("================================================================\n");
 
     // 6.1 Basic Uncertainty (symbolic)
@@ -279,7 +290,7 @@ fn section_uncertainty_propagation() {
     let expr = x + y;
     println!("      f = x + y");
     match uncertainty_propagation(&expr, &["x", "y"], None) {
-        Ok(sigma) => println!("      =_f = {sigma}\n"),
+        Ok(sigma) => println!("      sigma_f = {sigma}\n"),
         Err(e) => println!("      Error: {e:?}\n"),
     }
 
@@ -288,28 +299,28 @@ fn section_uncertainty_propagation() {
     let expr2 = x * y;
     println!("      f = x * y");
     match uncertainty_propagation(&expr2, &["x", "y"], None) {
-        Ok(sigma) => println!("      =_f = {sigma}\n"),
+        Ok(sigma) => println!("      sigma_f = {sigma}\n"),
         Err(e) => println!("      Error: {e:?}\n"),
     }
 
     // 6.3 Numeric Covariance
     println!("  6.3 Numeric Uncertainty Values");
-    println!("      f = x * y with =_x = 0.1, =_y = 0.2");
+    println!("      f = x * y with sigma_x = 0.1, sigma_y = 0.2");
     let cov = CovarianceMatrix::diagonal(vec![
         CovEntry::Num(0.01), // σ_x² = 0.01 (σ_x = 0.1)
         CovEntry::Num(0.04), // σ_y² = 0.04 (σ_y = 0.2)
     ]);
     match uncertainty_propagation(&expr2, &["x", "y"], Some(&cov)) {
-        Ok(sigma) => println!("      =_f = {sigma}\n"),
+        Ok(sigma) => println!("      sigma_f = {sigma}\n"),
         Err(e) => println!("      Error: {e:?}\n"),
     }
 
     // 6.4 Relative Uncertainty
     println!("  6.4 Relative Uncertainty");
     let expr3 = x.pow(2.0);
-    println!("      f = x=");
+    println!("      f = x²");
     match relative_uncertainty(&expr3, &["x"], None) {
-        Ok(rel) => println!("      =_f/|f| = {rel}\n"),
+        Ok(rel) => println!("      sigma_f/|f| = {rel}\n"),
         Err(e) => println!("      Error: {e:?}\n"),
     }
 }
@@ -340,12 +351,12 @@ fn section_custom_functions() {
 
     // Test the custom derivative
     let result = custom_diff.diff_str("my_func(x^2)", "x", &[]).unwrap();
-    println!("      d/dx[my_func(x=)] = {result}");
-    println!("      Chain rule: 2u = u' = 2(x=) = 2x = 4x=\n");
+    println!("      d/dx[my_func(x²)] = {result}");
+    println!("      Chain rule: 2u = u' = 2(x²) = 2x = 4x³\n");
 
     // 7.2 Custom Function with Body (for evaluation)
     println!("  7.2 Custom Function with Body");
-    println!("      Define: sq(u) = u= with derivative 2u");
+    println!("      Define: sq(u) = u² with derivative 2u");
 
     let sq_fn = UserFunction::new(1..=1)
         .body(|args| Expr::from(&args[0]).pow(2.0))
@@ -407,14 +418,14 @@ fn section_vector_calculus() {
     // 9.1 Gradient
     println!("  9.1 Gradient: =f = [=f/=x, =f/=y, ...]");
     let grad = gradient_str("x^2*y + y^3", &["x", "y"]).unwrap();
-    println!("      f(x,y) = x=y + y=");
+    println!("      f(x,y) = x²y + y³");
     println!("      =f/=x = {}", grad[0]);
     println!("      =f/=y = {}\n", grad[1]);
 
     // 9.2 Hessian Matrix
     println!("  9.2 Hessian Matrix: H[i][j] = ==f/=x==x=");
     let hess = hessian_str("x^2*y + y^3", &["x", "y"]).unwrap();
-    println!("      f = x=y + y=");
+    println!("      f = x²y + y³");
     println!("      H = | {} {} |", hess[0][0], hess[0][1]);
     println!("          | {} {} |\n", hess[1][0], hess[1][1]);
 
@@ -433,12 +444,12 @@ fn section_vector_calculus() {
 fn section_automatic_differentiation() {
     println!("================================================================");
     println!("10. AUTOMATIC DIFFERENTIATION");
-    println!("    Dual Numbers: a + b= where == = 0");
+    println!("    Dual Numbers: a + beps where eps² = 0");
     println!("================================================================\n");
 
     // 10.1 Basic Usage
     println!("  10.1 Basic Usage");
-    println!("      f(x) = x= + 3x + 1, find f(2) and f'(2)");
+    println!("      f(x) = x² + 3x + 1, find f(2) and f'(2)");
 
     // x = 2, x' = 1
     let x = Dual::new(2.0, 1.0);
@@ -461,7 +472,7 @@ fn section_automatic_differentiation() {
 
     // 10.3 Chain Rule (Automatic)
     println!("  10.3 Chain Rule (Automatic)");
-    println!("      f(x) = sin(x= + 1), f'(x) = cos(x= + 1) * 2x");
+    println!("      f(x) = sin(x² + 1), f'(x) = cos(x² + 1) * 2x");
 
     let x3 = Dual::new(1.5, 1.0);
     let inner = x3 * x3 + Dual::new(1.0, 0.0); // x² + 1
@@ -503,7 +514,7 @@ fn section_parallel_evaluation() {
 fn section_compilation_and_performance() {
     println!("================================================================");
     println!("12. COMPILATION & PERFORMANCE");
-    println!("    CompiledEvaluator for high-performance repeated evaluation");
+    println!("    VmEvaluator for high-performance repeated evaluation");
     println!("================================================================\n");
 
     // 12.1 Compile Expression
@@ -512,7 +523,7 @@ fn section_compilation_and_performance() {
     let expr = x.sin() * x.pow(2.0) + Expr::number(1.0);
     println!("      Expression: {expr}");
 
-    let compiled = CompiledEvaluator::compile(&expr, &["x"], None).unwrap();
+    let compiled = VmEvaluator::compile(&expr, &["x"], None).unwrap();
 
     let val = 2.0;
     let result = compiled.evaluate(&[val]);
@@ -542,7 +553,7 @@ fn section_compilation_and_performance() {
     let expr_custom = Expr::func("my_sq", x.to_expr()) + Expr::number(5.0);
     println!("      Expression: {expr_custom}");
 
-    let compiled_ctx = CompiledEvaluator::compile(&expr_custom, &["x"], Some(&ctx))
+    let compiled_ctx = VmEvaluator::compile(&expr_custom, &["x"], Some(&ctx))
         .expect("Compilation with context failed");
 
     let res = compiled_ctx.evaluate(&[3.0]);

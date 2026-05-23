@@ -286,6 +286,29 @@ let id = expr.id();
 let hash = expr.structural_hash();
 ```
 
+### Expression Pattern Matching (`ExprView`)
+
+Because the internal representation of `Expr` is heavily optimized (e.g., using `Polynomial` structures that collapse sums and products), direct pattern matching on the AST is not possible.
+
+Instead, use `Expr::view()` to get an `ExprView` which presents a stable, pattern-matchable representation of the expression:
+
+```rust
+use symb_anafis::{symb, ExprView};
+
+let expr = symb("x") * symb("y") + 2.0;
+
+match expr.view() {
+    ExprView::Sum(terms) => println!("It's a sum with {} terms", terms.len()),
+    ExprView::Product(factors) => println!("It's a product"),
+    ExprView::Number(n) => println!("Just a number: {}", n),
+    ExprView::Symbol(name) => println!("Variable: {}", name),
+    _ => println!("Something else"),
+}
+```
+
+> [!TIP]
+> **Python API:** The `ExprView` API is fully exposed in Python. You can call `expr.view()` to get a `PyExprView` object, which has properties like `kind`, `children`, `value`, and `name`.
+
 ---
 
 ## Expression Output
@@ -1063,13 +1086,15 @@ results = eval_f64(
 
 ## Compilation & Performance
 
-For tight loops or massive repeated evaluation, use the `CompiledEvaluator`. It compiles the expression tree into a flat bytecode that is executed by a high-performance **register-based virtual machine**, avoiding tree traversal overhead and enabling SIMD optimizations.
+For tight loops or massive repeated evaluation, use the `VmEvaluator`. It compiles the expression tree into a flat bytecode that is executed by a high-performance **register-based virtual machine**, avoiding tree traversal overhead and enabling SIMD optimizations.
 
 ### Optimization Pipeline
 
 | Phase | Description |
 | :--- | :--- |
 | **Global Value Numbering (GVN)** | Automatically detects and caches repeated subexpressions using 64-bit structural hashing and commutative normalization. Repeated terms are computed once and stored in a temporary register for reuse. |
+| **Division Optimization** | Identifies redundant divisions sharing the same denominator and converts them into a single reciprocal instruction followed by multiplications. |
+| **Dead Code Elimination** | Removes virtual instructions whose results are never read, optimizing away unnecessary intermediate computations. |
 | **Register Allocation** | Analyzes the liveness of intermediate results to minimize the number of required registers, improving cache locality and reducing memory footprint. |
 | **Peephole Fusion** | Scans bytecode for patterns (like `Mul` followed by `Add`) and fuses them into high-performance instructions (like `MulAdd` or `InvSquare`). |
 | **Unsafe Hot Path** | The execution engine uses `get_unchecked` for register access, achieving near-native speed by eliminating redundant bounds checks. |
@@ -1084,7 +1109,7 @@ The compiler automatically fuses many instruction sequences into optimized forms
 *   **Inverse Power**: `1 / x^4` → `Square(x) + InvSquare(t)`
 *   **Exp-Neg**: `exp(-x)` → `ExpNeg(x)`
 
-### `CompiledEvaluator`
+### `VmEvaluator`
 
 ```rust
 use symb_anafis::{Expr, symb};
@@ -1093,11 +1118,11 @@ use symb_anafis::{Expr, symb};
 let expr = symb("x").sin() * symb("x").pow(2.0);
 
 // Compile with auto-detected variables
-let compiled = expr.compile()?;
+let compiled = expr.vm_auto()?;
 
 // Or compile with explicit parameter order (strings or symbols)
-let compiled = expr.compile_with_params(&["x"])?;
-let compiled = expr.compile_with_params(&[&x])?;  // Also works with symbols!
+let compiled = expr.vm(&["x"])?;
+let compiled = expr.vm(&[&x])?;  // Also works with symbols!
 
 // Evaluate repeatedly (up to 40x faster than expr.evaluate)
 let result = compiled.evaluate(&[0.5]); // Result at x=0.5
@@ -1107,30 +1132,54 @@ let result = compiled.evaluate(&[0.5]); // Result at x=0.5
 
 | Method                                                | Description                                       |
 | ----------------------------------------------------- | ------------------------------------------------- |
-| `CompiledEvaluator::compile(&expr, &params, context)` | Compile with explicit params (strings or symbols) |
-| `CompiledEvaluator::compile_auto(&expr, context)`     | Compile, auto-detecting variables                 |
-| `expr.compile()`                                      | Convenience method, auto-detects variables        |
-| `expr.compile_with_params(&params)`                   | Convenience method with explicit params           |
+| `VmEvaluator::compile(&expr, &params, context)`       | Compile with explicit params (strings or symbols) |
+| `VmEvaluator::compile_auto(&expr, context)`         | Compile, auto-detecting variables                 |
+| `expr.vm_auto()`                                      | Convenience method, auto-detects variables        |
+| `expr.vm(&params)`                                  | Convenience method with explicit params           |
 | `evaluate(&values)`                                   | Evaluate at a single point                        |
 | `eval_batch(&columns, &mut output)`                   | Batch evaluate (SIMD optimized)                   |
 | `disassemble()`                                       | Get a human-readable bytecode dump                |
 
-### Using Symbols or Strings
+### `EvaluatorBuilder`
 
-You can pass either strings or symbols to `compile`:
+For fine-grained control over the compilation process, use the `EvaluatorBuilder`:
 
 ```rust
-use symb_anafis::{symb, CompiledEvaluator};
+use symb_anafis::{Context, EvaluatorBuilder, symb};
+
+let ctx = Context::new();
+let x = symb("x");
+let y = symb("y");
+let expr = x.pow(2.0) + y;
+
+// Compile with specific parameter ordering and custom context
+let evaluator = EvaluatorBuilder::new(&expr)
+    .context(&ctx)
+    .params(&["y", "x"]) // Force 'y' to be the first parameter
+    .vm()?;
+
+let result = evaluator.evaluate(&[10.0, 2.0]); // y=10.0, x=2.0 -> result: 14.0
+```
+
+> [!TIP]
+> **Python API:** Use `EvaluatorBuilder(expr).context(ctx).params(["y", "x"]).vm()` to achieve the exact same behavior in Python.
+
+### `VarLookup` and `ToParamName` Traits
+
+The evaluator APIs use `ToParamName` and `VarLookup` traits to provide an ergonomic interface that accepts both string slices (`&str`) and symbols (`&Symbol`). You can pass either strings or symbols to `compile` and `eval_f64`:
+
+```rust
+use symb_anafis::{symb, VmEvaluator};
 
 let x = symb("x");
 let y = symb("y");
 let expr = x.pow(2.0) + y;
 
 // Using strings
-let c1 = CompiledEvaluator::compile(&expr, &["x", "y"], None)?;
+let c1 = VmEvaluator::compile(&expr, &["x", "y"], None)?;
 
 // Using symbols (preferred - faster lookup)
-let c2 = CompiledEvaluator::compile(&expr, &[&x, &y], None)?;
+let c2 = VmEvaluator::compile(&expr, &[&x, &y], None)?;
 ```
 
 ### Using `Context` with Compiler
@@ -1138,7 +1187,7 @@ let c2 = CompiledEvaluator::compile(&expr, &[&x, &y], None)?;
 To use custom functions within compiled expressions, register them in a `Context` with a body definition.
 
 ```rust
-use symb_anafis::{Context, UserFunction, CompiledEvaluator, Expr, symb};
+use symb_anafis::{Context, UserFunction, VmEvaluator, Expr, symb};
 
 // 1. Create a context with a function body
 let ctx = Context::new()
@@ -1150,7 +1199,7 @@ let x = symb("x");
 let expr = Expr::func("my_sq", x.to_expr());
 
 // 3. Compile with context (using symbols)
-let compiled = CompiledEvaluator::compile(&expr, &[&x], Some(&ctx))?;
+let compiled = VmEvaluator::compile(&expr, &[&x], Some(&ctx))?;
 
 let result = compiled.evaluate(&[3.0]); // 9.0
 
@@ -1160,15 +1209,15 @@ println!("{}", compiled.disassemble());
 
 ### Python API
 
-Python bindings provide a high-performance `CompiledEvaluator` class that releases the GIL during heavy computations, enabling true parallelism.
+Python bindings provide a high-performance `VmEvaluator` class that releases the GIL during heavy computations, enabling true parallelism.
 
 ```python
-from symb_anafis import CompiledEvaluator, Context, parse
+from symb_anafis import VmEvaluator, Context, parse
 
 # 1. Basic Compilation
 expr = parse("x^2 + sin(x)")
 # compile(expr, params_list)
-compiled = CompiledEvaluator(expr, ["x"])
+compiled = VmEvaluator(expr, ["x"])
 
 val = 2.0
 result = compiled.evaluate([val])
@@ -1182,7 +1231,7 @@ ctx = Context().with_function("my_sq", 1, my_sq, [])
 expr_custom = parse("my_sq(x) + 5", custom_functions=["my_sq"])
 
 # Pass context to constructor
-compiled_ctx = CompiledEvaluator(expr_custom, ["x"], ctx)
+compiled_ctx = VmEvaluator(expr_custom, ["x"], ctx)
 res = compiled_ctx.evaluate([3.0])  # 14.0
 ```
 
@@ -1272,7 +1321,7 @@ All functions return `Result<T, DiffError>`:
 use symb_anafis::{Diff, DiffError};
 
 let diff = Diff::new();
-match diff.diff_str("invalid syntax ((", "x")) {
+match diff.diff_str("invalid syntax ((", "x") {
     Ok(result) => println!("Result: {}", result),
     Err(DiffError::InvalidSyntax { msg, .. }) => println!("Parse error: {}", msg),
     Err(e) => println!("Other error: {:?}", e),

@@ -4,7 +4,7 @@ use std::collections::HashSet;
 use std::fmt::Write;
 use std::fs::File;
 use std::io::Write as IoWrite;
-use symb_anafis::{CompiledEvaluator, Diff, symb};
+use symb_anafis::{Diff, VmEvaluator, symb};
 
 /// Generates a complex mixed expression with N terms
 fn generate_mixed_complex(n: usize) -> String {
@@ -57,8 +57,7 @@ fn main() {
         .differentiate(&parsed, &x_symb)
         .expect("Failed to differentiate"); // By default does simplify
 
-    let evaluator =
-        CompiledEvaluator::compile_auto(&diffed, None).expect("Failed to compile evaluator");
+    let evaluator = VmEvaluator::compile_auto(&diffed, None).expect("Failed to compile evaluator");
 
     let bytecode = evaluator.disassemble();
     let mut file1 = File::create("generated_bytecode.txt").expect("Failed to create file");
@@ -71,8 +70,8 @@ fn main() {
         .expect("Failed to parse big expression");
 
     // Just compile the expression itself
-    let evaluator_big = CompiledEvaluator::compile_auto(&parsed_big, None)
-        .expect("Failed to compile big evaluator");
+    let evaluator_big =
+        VmEvaluator::compile_auto(&parsed_big, None).expect("Failed to compile big evaluator");
 
     let bytecode_big = evaluator_big.disassemble();
     let mut file2 = File::create("big_expr_bytecode.txt").expect("Failed to create file");

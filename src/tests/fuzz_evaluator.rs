@@ -10,7 +10,7 @@
 
 #[cfg(feature = "parallel")]
 use crate::evaluator::eval_f64;
-use crate::{CompiledEvaluator, Expr, Symbol, symb};
+use crate::{Expr, Symbol, VmEvaluator, symb};
 use rand::prelude::*;
 use rand::rngs::StdRng;
 use std::collections::{HashMap, HashSet};
@@ -292,7 +292,7 @@ fn fuzz_simd_instruction_surface_differential() {
 
     for (expr_str, vars) in &corpus {
         let expr = parse_expr_or_panic(expr_str);
-        let _compiled = CompiledEvaluator::compile(&expr, vars, None)
+        let _compiled = VmEvaluator::compile(&expr, vars, None)
             .unwrap_or_else(|e| panic!("Compilation failed (seed {seed}) for {expr_str}: {e}"));
 
         let n_points = 16;
@@ -367,7 +367,7 @@ fn fuzz_comprehensive_evaluator_impl() {
         let ground_truth = ground_truth_expr.as_number().unwrap_or(f64::NAN);
 
         // 2. Compile
-        let compiled = match CompiledEvaluator::compile(&expr, &var_strs, None) {
+        let compiled = match VmEvaluator::compile(&expr, &var_strs, None) {
             Ok(c) => c,
             Err(e) => {
                 // Compilation error (e.g. unknown function) - skip if valid error, fail otherwise

@@ -82,7 +82,28 @@ mod error_tests {
         let err5 = DiffError::invalid_syntax("msg");
         match err5 {
             DiffError::InvalidSyntax { msg, span: None } => assert_eq!(msg, "msg"),
-            _ => panic!("Wrong error type"),
+            DiffError::EmptyFormula
+            | DiffError::InvalidNumber { .. }
+            | DiffError::InvalidToken { .. }
+            | DiffError::UnexpectedToken { .. }
+            | DiffError::UnexpectedEndOfInput
+            | DiffError::InvalidFunctionCall { .. }
+            | DiffError::VariableInBothFixedAndDiff { .. }
+            | DiffError::NameCollision { .. }
+            | DiffError::UnsupportedOperation(_)
+            | DiffError::AmbiguousSequence { .. }
+            | DiffError::MaxDepthExceeded
+            | DiffError::MaxNodesExceeded
+            | DiffError::UnsupportedExpression(_)
+            | DiffError::UnsupportedFunction(_)
+            | DiffError::UnboundVariable(_)
+            | DiffError::StackOverflow { .. }
+            | DiffError::EvalColumnMismatch { .. }
+            | DiffError::EvalColumnLengthMismatch
+            | DiffError::EvalOutputTooSmall { .. }
+            | DiffError::InvalidPartialIndex { .. }
+            | DiffError::RegisterOverflow
+            | DiffError::InvalidSyntax { span: Some(_), .. } => panic!("Wrong error type"),
         }
 
         let err6 = DiffError::invalid_syntax_at("msg", Span::at(5));
@@ -94,7 +115,28 @@ mod error_tests {
                 assert_eq!(msg, "msg");
                 assert_eq!(span.start(), 5);
             }
-            _ => panic!("Wrong error type"),
+            DiffError::EmptyFormula
+            | DiffError::InvalidSyntax { span: None, .. }
+            | DiffError::InvalidNumber { .. }
+            | DiffError::InvalidToken { .. }
+            | DiffError::UnexpectedToken { .. }
+            | DiffError::UnexpectedEndOfInput
+            | DiffError::InvalidFunctionCall { .. }
+            | DiffError::VariableInBothFixedAndDiff { .. }
+            | DiffError::NameCollision { .. }
+            | DiffError::UnsupportedOperation(_)
+            | DiffError::AmbiguousSequence { .. }
+            | DiffError::MaxDepthExceeded
+            | DiffError::MaxNodesExceeded
+            | DiffError::UnsupportedExpression(_)
+            | DiffError::UnsupportedFunction(_)
+            | DiffError::UnboundVariable(_)
+            | DiffError::StackOverflow { .. }
+            | DiffError::EvalColumnMismatch { .. }
+            | DiffError::EvalColumnLengthMismatch
+            | DiffError::EvalOutputTooSmall { .. }
+            | DiffError::InvalidPartialIndex { .. }
+            | DiffError::RegisterOverflow => panic!("Wrong error type"),
         }
     }
 }

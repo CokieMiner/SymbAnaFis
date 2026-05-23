@@ -412,17 +412,17 @@ class TestSpecialFunctionProperties:
                 f"floor({x})={floor_x}, ceil({x})={ceil_x}"
 
 
-class TestCompiledEvaluatorProperties:
-    """Test CompiledEvaluator consistency properties."""
+class TestVmEvaluatorProperties:
+    """Test VmEvaluator consistency properties."""
 
     def test_compiled_matches_string_eval(self):
         """Compiled evaluation should match string evaluation."""
-        from symb_anafis import CompiledEvaluator, parse
+        from symb_anafis import VmEvaluator, parse
 
         expressions = ["x^2", "sin(x)", "x + 2*x", "exp(x)", "ln(x)"]
         for expr_str in expressions:
             expr = parse(expr_str)
-            compiled = CompiledEvaluator(expr, ["x"])
+            compiled = VmEvaluator(expr, ["x"])
             for _ in range(10):
                 x = random.uniform(0.1, 10)
                 compiled_val = compiled.evaluate([x])
@@ -432,10 +432,10 @@ class TestCompiledEvaluatorProperties:
 
     def test_compiled_deterministic(self):
         """Multiple evaluations with same input should give same result."""
-        from symb_anafis import CompiledEvaluator, parse
+        from symb_anafis import VmEvaluator, parse
 
         expr = parse("sin(x) + cos(x)")
-        compiled = CompiledEvaluator(expr, ["x"])
+        compiled = VmEvaluator(expr, ["x"])
         for _ in range(10):
             x = random.uniform(-10, 10)
             results = [compiled.evaluate([x]) for _ in range(5)]
@@ -444,11 +444,11 @@ class TestCompiledEvaluatorProperties:
 
     def test_compiled_batch_vs_single(self):
         """Batch evaluation should match single evaluations."""
-        from symb_anafis import CompiledEvaluator, parse
+        from symb_anafis import VmEvaluator, parse
         import numpy as np
 
         expr = parse("x^2 + 2*x + 1")
-        compiled = CompiledEvaluator(expr, ["x"])
+        compiled = VmEvaluator(expr, ["x"])
         x_values = np.array([random.uniform(-10, 10) for _ in range(20)])
 
         # eval_batch expects columnar data: one array per variable

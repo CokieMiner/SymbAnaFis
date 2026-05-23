@@ -7,7 +7,7 @@ Hermite polynomials, and other special mathematical functions.
 
 import pytest
 import math
-from symb_anafis import evaluate_str, CompiledEvaluator, parse, Expr
+from symb_anafis import evaluate_str, VmEvaluator, parse, Expr
 
 EPSILON = 1e-6
 LOOSE_EPSILON = 1e-3

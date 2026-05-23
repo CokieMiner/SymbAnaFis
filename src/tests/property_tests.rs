@@ -1627,7 +1627,7 @@ mod special_function_property_tests {
 #[cfg(test)]
 mod compiled_evaluator_property_tests {
     use super::*;
-    use crate::CompiledEvaluator;
+    use crate::VmEvaluator;
     use std::collections::HashMap;
 
     const EPSILON: f64 = 1e-10;
@@ -1660,7 +1660,7 @@ mod compiled_evaluator_property_tests {
                 Err(_) => return TestResult::discard(),
             };
 
-            let compiled = match CompiledEvaluator::compile(&expr, &["x"], None) {
+            let compiled = match VmEvaluator::compile(&expr, &["x"], None) {
                 Ok(c) => c,
                 Err(_) => return TestResult::discard(),
             };
@@ -1697,7 +1697,7 @@ mod compiled_evaluator_property_tests {
                 Err(_) => return TestResult::discard(),
             };
 
-            let compiled = match CompiledEvaluator::compile(&expr, &["x"], None) {
+            let compiled = match VmEvaluator::compile(&expr, &["x"], None) {
                 Ok(c) => c,
                 Err(_) => return TestResult::discard(),
             };
@@ -1730,11 +1730,11 @@ mod compiled_evaluator_property_tests {
             };
 
             // Compile multiple times
-            let compiled1 = match CompiledEvaluator::compile(&expr, &["x"], None) {
+            let compiled1 = match VmEvaluator::compile(&expr, &["x"], None) {
                 Ok(c) => c,
                 Err(_) => return TestResult::discard(),
             };
-            let compiled2 = match CompiledEvaluator::compile(&expr, &["x"], None) {
+            let compiled2 = match VmEvaluator::compile(&expr, &["x"], None) {
                 Ok(c) => c,
                 Err(_) => return TestResult::discard(),
             };

@@ -3,9 +3,8 @@
 //! [`NodeData`] and [`NodeValue`] track per-node information (virtual register,
 //! constant value if known) during the iterative compilation walk.
 
-use super::registry::CONST_FOLD_MAP;
+use super::registry::FN_MAP;
 use super::types::VReg;
-use crate::core::known_symbols::KS;
 use crate::core::known_symbols::get_constant_value_by_id;
 use crate::core::{Expr, ExprKind};
 use rustc_hash::FxHashMap;
@@ -68,10 +67,7 @@ pub fn const_from_map(node_map: &FxHashMap<*const Expr, NodeData>, expr: &Expr) 
 }
 
 /// Returns true if the expression node should be considered for Common Subexpression Elimination.
-pub const fn compute_is_cse_candidate(
-    expr: &Expr,
-    _node_map: &FxHashMap<*const Expr, NodeData>,
-) -> bool {
+pub const fn compute_is_cse_candidate(expr: &Expr) -> bool {
     // Any node that maps to an instruction is considered eligible for CSE.
     // Symbols and Numbers simply map to Param/Const virtual registers without emitting instructions.
     !matches!(expr.kind, ExprKind::Number(_) | ExprKind::Symbol(_))
@@ -105,26 +101,14 @@ pub fn compute_const_from_children(
         ExprKind::Pow(base, exp) => Some(
             const_from_map(node_map, base.as_ref())?.powf(const_from_map(node_map, exp.as_ref())?),
         ),
-        ExprKind::FunctionCall { name, args } => match args.len() {
-            1 => {
-                let x = const_from_map(node_map, args[0].as_ref())?;
-                CONST_FOLD_MAP.get(&name.id()).map(|f| f(x))
-            }
-            2 => {
-                let a = const_from_map(node_map, args[0].as_ref())?;
-                let b = const_from_map(node_map, args[1].as_ref())?;
-                let id = name.id();
-                let ks = &*KS;
-                if id == ks.atan2 {
-                    Some(a.atan2(b))
-                } else if id == ks.log {
-                    Some(b.log(a))
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        },
-        _ => None,
+        ExprKind::FunctionCall { name, args } => {
+            let c_args: Vec<f64> = args
+                .iter()
+                .map(|arg| const_from_map(node_map, arg.as_ref()))
+                .collect::<Option<Vec<_>>>()?;
+
+            FN_MAP.get(&name.id()).and_then(|op| op.fold_n(&c_args))
+        }
+        ExprKind::Derivative { .. } | ExprKind::Poly(_) => None,
     }
 }

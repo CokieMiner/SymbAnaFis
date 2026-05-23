@@ -5,80 +5,92 @@ edition = "2024"
 authors = ["CokieMiner"]
 description = "Numeric core types for SymbAnaFis"
 license = "Apache-2.0"
+repository = "https://github.com/CokieMiner/SymbAnaFis"
+readme = "README.md"
+keywords = ["symbolic", "mathematics", "numerics", "traits"]
+categories = ["mathematics", "science"]
 
 [features]
+python = ["dep:pyo3", "std"]
 default = ["backend64"]
-backend32 = []
-backend64 = []
-backend_big_astro = ["dep:num-bigint", "dep:num-traits", "dep:astro-float"]
-backend_big_rug = ["dep:num-bigint", "dep:num-traits", "dep:rug"]
+backend32 = ["dep:num-rational", "dep:num-integer"]
+backend64 = ["dep:num-rational", "dep:num-integer"]
+backendrug = ["dep:rug"]
+std = []
+serde = ["dep:serde"]
 
 [dependencies]
-astro-float = { version = "0.9.5", optional = true }
-num-bigint = { version = "0.4.6", optional = true }
-num-traits = { version = "0.2.19", optional = true }
+pyo3 = { version = "0.28.3", features = ["extension-module"], optional = true }
+libm = "0.2"
+num-traits = { version = "0.2.19" }
+num-integer = { version = "0.1.46", optional = true }
+num-rational = { version = "0.4.2", optional = true }
 rug = { version = "1.29.0", optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
 
 [lib]
 name = "num_anafis"
+crate-type = ["cdylib", "rlib"]
 path = "src/lib.rs"
-
 
 # ============================================================================
 # Lints Configuration (applies to lib, tests, examples, benches)
 # ============================================================================
 [lints.rust]
-# SAFETY & DOCUMENTATION
 unsafe_code = "deny"
 missing_docs = "deny"
 let_underscore_drop = "deny"
-
+missing_copy_implementations = "deny"
+missing_debug_implementations = "deny"
+unused_results = "deny"
+variant_size_differences = "deny"
+trivial_casts = "deny"
+trivial_numeric_casts = "deny"
 
 [lints.rustdoc]
 broken_intra_doc_links = "deny"
 
 [lints.clippy]
-# Base: Ativa todos os avisos standard
 all = { level = "deny", priority = -1 }
-
-# =============================================================================
-# QUALITY & STYLE (PEDANTIC)
-# =============================================================================
 pedantic = { level = "deny", priority = -1 }
-
-# =============================================================================
-# NURSERY (EXPERIMENTAL BUT VALUABLE)
-# =============================================================================
 nursery = { level = "deny", priority = -1 }
-
 # =============================================================================
 # CODE QUALITY & STYLE (RESTRICTION)
 # =============================================================================
+alloc_instead_of_core = "deny"           # Use core for better portability
 allow_attributes_without_reason = "deny" # Require explicit reasons for allow attributes
+# arithmetic_side_effects = "deny"          # Force handling of overflows/div-by-zero
+# as_conversions = "deny"                  # Prevent silent truncations (prefer try_into)
 clone_on_ref_ptr = "deny"                # Avoid double indirection performance hit
+cognitive_complexity = "deny"            # Keep simplification logic readable
 create_dir = "deny"                      # Force error handling for filesystem ops
 dbg_macro = "deny"                       # No debug artifacts in production (upgraded)
 empty_drop = "deny"                      # Detect accidentally empty Drop implementations
 empty_structs_with_brackets = "deny"     # Consistent struct syntax
 exit = "deny"                            # No hard exits in library code
 filetype_is_file = "deny"                # More robust file type checking
+float_cmp_const = "deny"                 # Safe float comparisons
 fn_to_numeric_cast = "deny"              # Prevent function pointer casting bugs
 format_push_string = "deny"              # Performance: use write! instead of format!
 get_unwrap = "deny"                      # Use [] indexing instead of get().unwrap()
 if_then_some_else_none = "deny"          # Use bool::then_some for clarity
+indexing_slicing = "deny"                # Prevent panics on indexing
 inline_asm_x86_att_syntax = "deny"       # Consistent ASM syntax if used
-inline_asm_x86_intel_syntax = "deny"    # Consistent ASM syntax
+inline_asm_x86_intel_syntax = "deny"     # Consistent ASM syntax
 integer_division = "deny"                # Force explicit float division
 large_include_file = "deny"              # No embedding huge files
 let_underscore_must_use = "deny"         # Don't ignore important return values
 lossy_float_literal = "deny"             # Stricter float precision (upgraded)
 map_err_ignore = "deny"                  # Don't lose error context
 mem_forget = "deny"                      # No memory leaks
+missing_assert_message = "deny"          # Require messages in asserts
+# missing_trait_methods = "deny"           # Force explicit implementation of all trait methods
 mixed_read_write_in_expression = "deny"  # Avoid subtle bugs
 mutex_atomic = "deny"                    # Performance critical (upgraded)
 non_ascii_literal = "deny"               # Keep code portable
 panic_in_result_fn = "deny"              # No panics in Result-returning functions
 partial_pub_fields = "deny"              # Consistent field visibility
+pattern_type_mismatch = "deny"           # Catch subtle match-type confusion
 print_stderr = "deny"                    # No side effects to stderr
 print_stdout = "deny"                    # No side effects to stdout (upgraded)
 pub_without_shorthand = "deny"           # Consistent pub syntax
@@ -89,13 +101,21 @@ rest_pat_in_fully_bound_structs = "deny" # Explicit field handling
 same_name_method = "deny"                # Avoid confusing method names
 self_named_module_files = "deny"         # Consistent module naming
 semicolon_inside_block = "deny"          # Consistent semicolon style
+shadow_reuse = "deny"                    # Prevent accidental variable reuse
+std_instead_of_alloc = "deny"            # Use alloc for better portability 
+std_instead_of_core = "deny"             # Use core for better portability
 shadow_unrelated = "deny"                # Prevent confusing variable shadowing
 single_char_lifetime_names = "deny"      # Descriptive lifetime names
+host_endian_bytes = "deny"               # Prevent endianness bugs
+exhaustive_enums = "deny"                # Force non-exhaustive enums
+exhaustive_structs = "deny"               # Force non-exhaustive structs
 unnecessary_self_imports = "deny"        # Clean imports
 unneeded_field_pattern = "deny"          # Clean pattern matching
+unwrap_in_result = "deny"                # No unwrap inside Result functions
 unseparated_literal_suffix = "deny"      # Readable numeric literals
 use_debug = "deny"                       # No Debug in production formatting
 verbose_file_reads = "deny"              # Use fs::read_to_string when appropriate
+wildcard_enum_match_arm = "deny"         # Mandatory exhaustive matches
 
 # =============================================================================
 # PERFORMANCE (HPC FOCUSED)

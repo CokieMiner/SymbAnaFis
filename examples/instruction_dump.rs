@@ -12,7 +12,7 @@
 //! Run with: cargo run --example `instruction_dump`
 
 use std::collections::HashSet;
-use symb_anafis::{CompiledEvaluator, Diff, parse, symb};
+use symb_anafis::{Diff, VmEvaluator, parse, symb};
 
 // Benchmark expressions (copied from benches/rust/expressions.rs)
 /// Array of benchmark expressions with names, formulas, differentiation variables, and parameters
@@ -98,9 +98,9 @@ fn main() {
         params.sort_unstable();
 
         // Compile Raw
-        let compiled_raw = CompiledEvaluator::compile(&derivative_raw, &params, None).unwrap();
+        let compiled_raw = VmEvaluator::compile(&derivative_raw, &params, None).unwrap();
         // Compile Simplified
-        let compiled_simp = CompiledEvaluator::compile(&derivative_simp, &params, None).unwrap();
+        let compiled_simp = VmEvaluator::compile(&derivative_simp, &params, None).unwrap();
 
         println!("Raw Instructions: {} ", compiled_raw.disassemble());
         println!("Simplified Instructions: {}", compiled_simp.disassemble());

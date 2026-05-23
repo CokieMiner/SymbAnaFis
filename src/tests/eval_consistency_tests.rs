@@ -212,7 +212,7 @@ fn test_consistency_second_derivative() {
 
 #[test]
 fn test_compiled_vs_tree_walking() {
-    use crate::evaluator::CompiledEvaluator;
+    use crate::evaluator::VmEvaluator;
 
     let expressions = [
         "x^2 + 2*x + 1",
@@ -226,7 +226,7 @@ fn test_compiled_vs_tree_walking() {
 
     for expr_str in expressions {
         let expr = parser_parse(expr_str, &HashSet::new(), &HashSet::new(), None).unwrap();
-        let compiled = CompiledEvaluator::compile(&expr, &["x"], None).unwrap();
+        let compiled = VmEvaluator::compile(&expr, &["x"], None).unwrap();
 
         for &x in &test_points {
             let vars: HashMap<&str, f64> = [("x", x)].into_iter().collect();

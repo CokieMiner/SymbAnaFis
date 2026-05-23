@@ -5,26 +5,37 @@
 
 use super::node::{NodeData, const_from_map};
 use super::types::VReg;
-use crate::EPSILON;
 use crate::core::known_symbols::KS;
 use crate::core::{Expr, ExprKind};
 use rustc_hash::FxHashMap;
 use std::ptr::from_ref;
 use std::sync::Arc;
 
-/// Returns true if the expression is a constant approximately equal to -1.0.
+/// Returns true if the expression is a constant exactly equal to -1.0.
+#[allow(
+    clippy::float_cmp,
+    reason = "Constant pool values are bit-exact IEEE 754; exact comparison is intentional"
+)]
 #[inline]
 pub fn is_const_neg_one(node_map: &FxHashMap<*const Expr, NodeData>, expr: &Expr) -> bool {
-    const_from_map(node_map, expr).is_some_and(|n| (n + 1.0).abs() < EPSILON)
+    const_from_map(node_map, expr).is_some_and(|n| n == -1.0)
 }
 
-/// Returns true if the expression is a constant approximately equal to 2.0.
+/// Returns true if the expression is a constant exactly equal to 2.0.
+#[allow(
+    clippy::float_cmp,
+    reason = "Constant pool values are bit-exact IEEE 754; exact comparison is intentional"
+)]
 #[inline]
 pub fn is_const_two(node_map: &FxHashMap<*const Expr, NodeData>, expr: &Expr) -> bool {
-    const_from_map(node_map, expr).is_some_and(|n| (n - 2.0).abs() < EPSILON)
+    const_from_map(node_map, expr).is_some_and(|n| n == 2.0)
 }
 
 /// Identifies a product of two virtual registers: `a * b`.
+#[allow(
+    clippy::float_cmp,
+    reason = "Constant pool values are bit-exact IEEE 754"
+)]
 pub fn product_two_vregs(
     term: &Expr,
     node_map: &FxHashMap<*const Expr, NodeData>,
@@ -35,9 +46,7 @@ pub fn product_two_vregs(
         let d0 = node_map.get(&Arc::as_ptr(&factors[0]))?;
         let d1 = node_map.get(&Arc::as_ptr(&factors[1]))?;
 
-        if is_const_neg_one(node_map, factors[0].as_ref())
-            || is_const_neg_one(node_map, factors[1].as_ref())
-        {
+        if d0.const_val().is_some_and(|n| n == -1.0) || d1.const_val().is_some_and(|n| n == -1.0) {
             return None;
         }
 
@@ -47,6 +56,10 @@ pub fn product_two_vregs(
 }
 
 /// Identifies a negated product of two virtual registers: `-1 * a * b`.
+#[allow(
+    clippy::float_cmp,
+    reason = "Constant pool values are bit-exact IEEE 754"
+)]
 pub fn negated_product_two_vregs(
     term: &Expr,
     node_map: &FxHashMap<*const Expr, NodeData>,
@@ -63,9 +76,8 @@ pub fn negated_product_two_vregs(
     let d2 = node_map.get(&Arc::as_ptr(&factors[2]))?;
 
     let mut neg_idx = None;
-    let data = [d0, d1, d2];
-    for (i, _d) in data.iter().enumerate() {
-        if is_const_neg_one(node_map, factors[i].as_ref()) {
+    for (i, d) in [d0, d1, d2].iter().enumerate() {
+        if d.const_val().is_some_and(|n| n == -1.0) {
             if neg_idx.is_some() {
                 return None;
             }
@@ -74,6 +86,7 @@ pub fn negated_product_two_vregs(
     }
 
     let neg_idx = neg_idx?;
+    let data = [d0, d1, d2];
     let mut iter = data
         .iter()
         .enumerate()

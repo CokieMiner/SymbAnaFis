@@ -28,16 +28,6 @@ pub(super) fn compact_constants(
         output_reg,
     );
 
-    // If all constants are used, just return the current state
-    if all_used_indices.iter().all(|&used| used) {
-        let final_max_reg = max_register_index(&out, arg_pool);
-        return (
-            out,
-            (final_max_reg as usize + 1).max(param_count + old_const_count),
-            output_reg,
-        );
-    }
-
     // Compact the constant vector and create a map from old register index to new register index
     let index_map = compact_constant_pool(constants, &all_used_indices, param_count_u32);
 
@@ -94,20 +84,19 @@ fn compact_constant_pool(
     used_indices: &[bool],
     param_count_u32: u32,
 ) -> Vec<Option<u32>> {
-    let mut new_constants = Vec::with_capacity(used_indices.len());
     let mut index_map = vec![None; used_indices.len()];
-
+    let mut write = 0;
     for (old_rel_idx, &used) in used_indices.iter().enumerate() {
         if used {
-            index_map[old_rel_idx] = Some(
-                param_count_u32
-                    + u32::try_from(new_constants.len()).expect("Constant index overflow"),
-            );
-            new_constants.push(constants[old_rel_idx]);
+            index_map[old_rel_idx] =
+                Some(param_count_u32 + u32::try_from(write).expect("Constant index overflow"));
+            if old_rel_idx != write {
+                constants.swap(old_rel_idx, write);
+            }
+            write += 1;
         }
     }
-
-    *constants = new_constants;
+    constants.truncate(write);
     index_map
 }
 
@@ -136,8 +125,8 @@ fn remap_after_constant_compaction(
             let old_rel_idx = reg_idx - param_count_u32;
             index_map[old_rel_idx as usize].expect("Constant index missing in map during remapping")
         } else {
-            // This is a temporary register, densely pack it in first-encounter order
-            *temp_map.borrow_mut().entry(reg_idx).or_insert_with(|| {
+            let mut map = temp_map.borrow_mut();
+            *map.entry(reg_idx).or_insert_with(|| {
                 let mut p = next_temp.borrow_mut();
                 let v = *p;
                 *p += 1;

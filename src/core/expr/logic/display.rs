@@ -178,7 +178,13 @@ fn analyze_negative(expr: &Expr) -> NegativeExtraction<'_> {
                 };
             }
         }
-        _ => {}
+        ExprKind::Number(_)
+        | ExprKind::Symbol(_)
+        | ExprKind::FunctionCall { .. }
+        | ExprKind::Sum(_)
+        | ExprKind::Div(..)
+        | ExprKind::Pow(..)
+        | ExprKind::Derivative { .. } => {}
     }
     NegativeExtraction {
         is_negative: false,
@@ -194,7 +200,10 @@ fn needs_parens_as_base(expr: &Expr) -> bool {
     match &expr.kind {
         ExprKind::Sum(_) | ExprKind::Product(_) | ExprKind::Div(_, _) | ExprKind::Poly(_) => true,
         ExprKind::Number(n) => *n < 0.0, // Negative numbers need parens: (-1)^x not -1^x
-        _ => false,
+        ExprKind::Symbol(_)
+        | ExprKind::FunctionCall { .. }
+        | ExprKind::Pow(..)
+        | ExprKind::Derivative { .. } => false,
     }
 }
 
@@ -505,7 +514,13 @@ fn format_div_expr(
     let numerator_needs_parens = match &u.kind {
         ExprKind::Sum(_) => true,
         ExprKind::Poly(p) => p.term_count() > 1,
-        _ => false,
+        ExprKind::Number(_)
+        | ExprKind::Symbol(_)
+        | ExprKind::FunctionCall { .. }
+        | ExprKind::Product(_)
+        | ExprKind::Div(..)
+        | ExprKind::Pow(..)
+        | ExprKind::Derivative { .. } => false,
     };
 
     if numerator_needs_parens {

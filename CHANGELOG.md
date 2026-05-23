@@ -39,6 +39,11 @@ All notable changes to symb_anafis will be documented in this file.
 
 ### Breaking Changes
 
+- **Evaluator API Renames**:
+  - `CompiledEvaluator` has been renamed to `VmEvaluator` to better reflect its register-based virtual machine architecture.
+  - `EvaluatorBuilder::build()` has been renamed to `EvaluatorBuilder::vm()` to leave room for future execution engines (e.g. `.jit()`).
+  - `Expr::compile_with_params()` and `Expr::compile()` have been renamed to `Expr::vm()` and `Expr::vm_auto()` respectively to match the builder API.
+
 - **Builder API Renames**:
   - `Diff::with_context()` has been renamed to `Diff::context()`.
   - `Simplify::with_context()` has been renamed to `Simplify::context()`.
@@ -55,7 +60,7 @@ All notable changes to symb_anafis will be documented in this file.
 
 ### Added
 
-- **Bytecode Disassembler**: Added `CompiledEvaluator::disassemble()` to provide a human-readable dump of the compiled bytecode, including instruction frequency statistics for performance profiling. Exposed to Python as `CompiledEvaluator.disassemble()`.
+- **Bytecode Disassembler**: Added `VmEvaluator::disassemble()` to provide a human-readable dump of the compiled bytecode, including instruction frequency statistics for performance profiling. Exposed to Python as `VmEvaluator.disassemble()`.
 - **Large Expression Tooling**: Added `examples/dump_large_expr.rs` for stress-testing and auditing bytecode generation for expressions with millions of nodes.
 - **Compiler Architecture Spec**: Added `src/evaluator/logic/bytecode/ARCHITECTURE.md` documenting the full lifecycle and optimization pipeline of the register-based VM.
 - **Global Value Numbering (GVN)**: Implemented a forward-iteration Global Value Numbering pass on Virtual IR. Commutative operations (`Add`, `Mul`) now have their operands sorted before hashing, enabling the deduplication of algebraically equivalent expressions (e.g., `a+b` vs `b+a`) that escape AST-level caches.

@@ -1,1138 +1,1069 @@
 #![allow(
-    clippy::trivially_copy_pass_by_ref,
-    reason = "Maintain abstraction for non-Copy high-precision types"
+    clippy::pattern_type_mismatch,
+    reason = "Match ergonomics on &self.0 are intentional; explicit & + ref conflicts with other clippy lints for Copy backends"
 )]
-#![allow(clippy::option_if_let_else, reason = "if let is more readable here")]
-#![allow(
-    clippy::same_name_method,
-    reason = "Trait and inherent methods deliberately share the same name for ergonomics"
-)]
-use super::float_ops::{
-    FloatRepr, float_abs, float_add, float_atan, float_cbrt, float_clone, float_cmp, float_cos,
-    float_div, float_exp, float_fract, float_from_f64, float_from_i64, float_from_int,
-    float_is_finite, float_is_integer, float_is_neg_one, float_is_negative, float_is_one,
-    float_is_positive, float_is_zero, float_ln, float_mul, float_neg, float_pow, float_round,
-    float_sin, float_sqrt, float_sub, float_to_f64, float_to_i64_exact,
-};
-use super::int_math::{
-    IntRepr, int_checked_abs, int_checked_add, int_checked_mul, int_checked_neg, int_clone,
-    int_cmp, int_div_exact, int_from_i64_exact, int_from_i128_exact, int_from_u64_exact,
-    int_from_u128_exact, int_gcd, int_is_even, int_is_neg_one, int_is_negative, int_is_one,
-    int_is_positive, int_is_zero, int_mod, int_perfect_cube, int_perfect_square, int_to_f64_lossy,
-    int_to_i64_exact, int_zero,
-};
+use super::float_ops::{self, FloatRepr, from_int, to_int};
+use super::int_math::{self, IntRepr};
+use super::rational_math::{self, RationalRepr, is_integer, to_integer};
+use super::traits::Number;
 use core::cmp::Ordering;
-use core::fmt::{Debug, Display, Formatter, Result as FmtResult};
-use core::hash::{Hash, Hasher};
+use core::fmt::{Debug, Display, Formatter, Result};
 use core::ops::{Add, Div, Mul, Neg, Sub};
 
-#[derive(Debug, Clone)]
-enum NumberRepr {
+/// The internal representation of a Scalar.
+/// We use a three-tier system: Int -> Rational -> Float
+/// Operations that are exact stay in Int/Rational. Operations that lose precision
+/// (like sin, exp, sqrt of non-perfect squares) promote to Float.
+#[derive(Clone, Debug)]
+pub(in crate::number) enum ScalarRepr {
     Int(IntRepr),
-    Rational { num: IntRepr, den: IntRepr },
+    Rational(RationalRepr),
     Float(FloatRepr),
 }
 
-/// Core scalar number used by symbolic expressions.
+/// A mathematical scalar that automatically manages its representation
+/// (Integer, Rational, or Float) to maximize precision based on the active backend.
 #[derive(Clone)]
-pub struct Number(NumberRepr);
+pub struct Scalar(pub(in crate::number) ScalarRepr);
 
-impl Number {
-    fn from_float_repr(value: FloatRepr) -> Self {
-        if !float_is_finite(&value) {
-            return Self(NumberRepr::Float(value));
-        }
-
-        if let Some(i64_value) = float_to_i64_exact(&value)
-            && let Some(int_value) = int_from_i64_exact(i64_value)
-        {
-            return Self(NumberRepr::Int(int_value));
-        }
-
-        Self(NumberRepr::Float(value))
+impl Scalar {
+    /// Create a new Scalar from an integer representation (internal).
+    #[inline]
+    #[must_use]
+    pub(in crate::number) const fn from_int(value: IntRepr) -> Self {
+        Self(ScalarRepr::Int(value))
     }
 
-    #[cfg(test)]
-    pub(in crate::number::logic) const fn from_backend_float_unchecked(value: FloatRepr) -> Self {
-        Self(NumberRepr::Float(value))
-    }
-
-    fn int_to_float_repr(value: &IntRepr) -> FloatRepr {
-        float_from_int(value)
-    }
-
-    fn to_float_repr(&self) -> FloatRepr {
-        match &self.0 {
-            NumberRepr::Int(value) => Self::int_to_float_repr(value),
-            NumberRepr::Rational { num, den } => {
-                float_div(&Self::int_to_float_repr(num), &Self::int_to_float_repr(den))
-            }
-            NumberRepr::Float(value) => float_clone(value),
-        }
-    }
-
-    fn from_i64_internal(value: i64) -> Self {
-        if let Some(int_value) = int_from_i64_exact(value) {
-            Self(NumberRepr::Int(int_value))
+    /// Create a new Scalar from a rational representation (internal).
+    #[inline]
+    #[must_use]
+    pub(in crate::number) fn from_rational(value: RationalRepr) -> Self {
+        if rational_math::is_integer(&value) {
+            Self(ScalarRepr::Int(rational_math::to_integer(&value)))
         } else {
-            Self::from_float_repr(float_from_i64(value))
+            Self(ScalarRepr::Rational(value))
         }
     }
 
-    /// Construct an integer value.
+    /// Create a new Scalar from a float representation (internal).
+    #[inline]
     #[must_use]
-    pub fn int(value: i64) -> Self {
-        Self::from_i64_internal(value)
+    pub(in crate::number) fn from_float(value: FloatRepr) -> Self {
+        if let Some(int_repr) = float_ops::to_int(&value) {
+            return Self::from_int(int_repr);
+        }
+        if let Some(rat_repr) = float_ops::to_rational(&value) {
+            return Self::from_rational(rat_repr);
+        }
+        Self(ScalarRepr::Float(value))
     }
 
-    fn int_eq_i64(value: &IntRepr, expected: i64) -> bool {
-        int_from_i64_exact(expected)
-            .is_some_and(|target| int_cmp(value, &target) == Ordering::Equal)
-    }
-
-    fn rational_from_int(num: IntRepr, den: IntRepr) -> Self {
-        if int_is_zero(&den) {
-            return Self::from_float_repr(float_from_f64(f64::NAN));
-        }
-
-        let mut num = num;
-        let mut den = den;
-
-        if int_is_negative(&den) {
-            let Some(next_num) = int_checked_neg(&num) else {
-                return Self::from_float_repr(float_div(
-                    &float_from_int(&num),
-                    &float_from_int(&den),
-                ));
-            };
-            let Some(next_den) = int_checked_neg(&den) else {
-                return Self::from_float_repr(float_div(
-                    &float_from_int(&num),
-                    &float_from_int(&den),
-                ));
-            };
-            num = next_num;
-            den = next_den;
-        }
-
-        let gcd = int_gcd(&num, &den);
-        let num = int_div_exact(&num, &gcd);
-        let den = int_div_exact(&den, &gcd);
-
-        if int_is_one(&den) {
-            Self(NumberRepr::Int(num))
-        } else {
-            Self(NumberRepr::Rational { num, den })
-        }
-    }
-
-    /// Construct a normalized rational number from `i64` inputs.
+    /// Wrap a float value directly, without normalization (internal — used by
+    /// math operations whose results are inherently approximate).
+    #[inline]
     #[must_use]
-    pub fn rational(num: i64, den: i64) -> Self {
-        match (int_from_i64_exact(num), int_from_i64_exact(den)) {
-            (Some(num), Some(den)) => Self::rational_from_int(num, den),
-            _ if den == 0 => Self::from_float_repr(float_from_f64(f64::NAN)),
-            _ => {
-                let n = float_from_i64(num);
-                let d = float_from_i64(den);
-                Self::from_float_repr(float_div(&n, &d))
+    pub(crate) const fn from_float_raw(value: FloatRepr) -> Self {
+        Self(ScalarRepr::Float(value))
+    }
+
+    /// Wrap float, promote to Int if exact integer. Used for `sqrt`/`cbrt`/
+    /// `round`/`floor`/`ceil` where integer results are plausible.
+    #[inline]
+    #[must_use]
+    pub(crate) fn from_float_maybe_int(value: FloatRepr) -> Self {
+        if let Some(i) = float_ops::to_int(&value) {
+            return Self::from_int(i);
+        }
+        Self(ScalarRepr::Float(value))
+    }
+
+    /// Convert to the highest-precision float representation (internal).
+    #[must_use]
+    pub(in crate::number) fn to_float_repr(&self) -> FloatRepr {
+        match &self.0 {
+            ScalarRepr::Int(i) => from_int(i),
+            ScalarRepr::Rational(r) => {
+                let num = from_int(&rational_math::numer(r));
+                let den = from_int(&rational_math::denom(r));
+                float_ops::div(&num, &den)
             }
+            ScalarRepr::Float(f) => float_ops::clone(f),
         }
     }
 
-    /// Construct a floating value.
+    /// Set working precision for arbitrary-precision backends (e.g. rug).
+    /// Returns `true` on success. Fixed backends (f32/f64) return `false`.
     #[must_use]
-    pub fn float(value: f64) -> Self {
-        Self::from_float_repr(float_from_f64(value))
+    pub fn set_precision(bits: u32) -> bool {
+        float_ops::set_precision(bits)
     }
 
-    /// Return a lossy `f64` approximation.
+    /// Get current working precision in bits.
+    /// Fixed backends return their mantissa width (53 for f64, 24 for f32).
     #[must_use]
-    pub fn to_f64_lossy(&self) -> f64 {
-        match &self.0 {
-            NumberRepr::Int(value) => int_to_f64_lossy(value),
-            NumberRepr::Rational { num, den } => int_to_f64_lossy(num) / int_to_f64_lossy(den),
-            NumberRepr::Float(value) => float_to_f64(value),
-        }
+    pub fn get_precision() -> u32 {
+        float_ops::get_precision()
     }
 
-    /// Return the absolute value, preserving exact representation when possible.
+    /// Returns `Some(IntRepr)` if this value is exactly an integer, `None` otherwise.
     #[must_use]
-    pub fn abs(&self) -> Self {
+    pub fn to_int(&self) -> Option<IntRepr> {
         match &self.0 {
-            NumberRepr::Int(value) => {
-                if let Some(abs) = int_checked_abs(value) {
-                    Self(NumberRepr::Int(abs))
-                } else {
-                    Self::from_float_repr(float_abs(&self.to_float_repr()))
-                }
+            ScalarRepr::Int(i) => Some(int_math::clone(i)),
+            ScalarRepr::Rational(r) => {
+                rational_math::is_integer(r).then(|| rational_math::to_integer(r))
             }
-            NumberRepr::Rational { num, den } => {
-                if let Some(abs) = int_checked_abs(num) {
-                    Self(NumberRepr::Rational {
-                        num: abs,
-                        den: int_clone(den),
-                    })
-                } else {
-                    Self::from_float_repr(float_abs(&self.to_float_repr()))
-                }
-            }
-            NumberRepr::Float(value) => Self::from_float_repr(float_abs(value)),
+            ScalarRepr::Float(f) => float_ops::to_int(f),
         }
     }
 
-    /// Return the fractional component.
+    /// Greatest common divisor of `self` and `other`.
+    /// Only valid when both values are integers. Returns [`Scalar`].
     #[must_use]
-    pub fn fract(&self) -> Self {
-        match &self.0 {
-            NumberRepr::Int(_) => Self(NumberRepr::Int(int_zero())),
-            NumberRepr::Rational { num, den } => {
-                Self::rational_from_int(int_mod(num, den), int_clone(den))
-            }
-            NumberRepr::Float(value) => Self::from_float_repr(float_fract(value)),
-        }
-    }
-
-    /// Check whether the value is mathematically an integer.
-    #[must_use]
-    pub fn is_integer(&self) -> bool {
-        match &self.0 {
-            NumberRepr::Int(_) => true,
-            NumberRepr::Rational { den, .. } => int_is_one(den),
-            NumberRepr::Float(value) => float_is_integer(value),
-        }
-    }
-
-    /// Return an exact `i64` if representable.
-    #[must_use]
-    pub fn to_i64_exact(&self) -> Option<i64> {
-        match &self.0 {
-            NumberRepr::Int(value) => int_to_i64_exact(value),
-            NumberRepr::Rational { num, den } if int_is_one(den) => int_to_i64_exact(num),
-            NumberRepr::Float(value) => float_to_i64_exact(value),
-            NumberRepr::Rational { .. } => None,
-        }
-    }
-
-    /// Return an exact `u32` if representable.
-    #[must_use]
-    pub fn to_u32_exact(&self) -> Option<u32> {
-        self.to_i64_exact()
-            .and_then(|value| u32::try_from(value).ok())
-    }
-
-    /// Check whether this value is numerically zero.
-    #[must_use]
-    pub fn is_zero(&self) -> bool {
-        match &self.0 {
-            NumberRepr::Int(value) => int_is_zero(value),
-            NumberRepr::Rational { num, .. } => int_is_zero(num),
-            NumberRepr::Float(value) => float_is_zero(value),
-        }
-    }
-
-    /// Check whether this value is numerically one.
-    #[must_use]
-    pub fn is_one(&self) -> bool {
-        match &self.0 {
-            NumberRepr::Int(value) => int_is_one(value),
-            NumberRepr::Rational { num, den } => int_is_one(num) && int_is_one(den),
-            NumberRepr::Float(value) => float_is_one(value),
-        }
-    }
-
-    /// Check whether this value is numerically negative one.
-    #[must_use]
-    pub fn is_neg_one(&self) -> bool {
-        match &self.0 {
-            NumberRepr::Int(value) => int_is_neg_one(value),
-            NumberRepr::Rational { num, den } => int_is_neg_one(num) && int_is_one(den),
-            NumberRepr::Float(value) => float_is_neg_one(value),
-        }
-    }
-
-    /// Check whether this value is negative.
-    #[must_use]
-    pub fn is_negative(&self) -> bool {
-        match &self.0 {
-            NumberRepr::Int(value) => int_is_negative(value),
-            NumberRepr::Rational { num, .. } => int_is_negative(num),
-            NumberRepr::Float(value) => float_is_negative(value),
-        }
-    }
-
-    /// Check whether this value is positive.
-    #[must_use]
-    pub fn is_positive(&self) -> bool {
-        match &self.0 {
-            NumberRepr::Int(value) => int_is_positive(value),
-            NumberRepr::Rational { num, .. } => int_is_positive(num),
-            NumberRepr::Float(value) => float_is_positive(value),
-        }
-    }
-
-    /// Check exact integer equality.
-    #[must_use]
-    pub fn is_exact_i64(&self, value: i64) -> bool {
-        let Some(expected) = int_from_i64_exact(value) else {
-            return false;
-        };
-
-        match &self.0 {
-            NumberRepr::Int(current) => int_cmp(current, &expected) == Ordering::Equal,
-            NumberRepr::Rational { num, den } => {
-                int_cmp(num, &expected) == Ordering::Equal && int_is_one(den)
-            }
-            NumberRepr::Float(_) => false,
-        }
-    }
-
-    /// Check exact rational equality.
-    #[must_use]
-    pub fn is_exact_rational(&self, num: i64, den: i64) -> bool {
-        match (int_from_i64_exact(num), int_from_i64_exact(den)) {
-            (Some(num), Some(den)) => self == &Self::rational_from_int(num, den),
-            _ => false,
-        }
-    }
-
-    /// Check whether this value is an even integer.
-    #[must_use]
-    pub fn is_even_integer(&self) -> bool {
-        match &self.0 {
-            NumberRepr::Int(value) => int_is_even(value),
-            NumberRepr::Rational { num, den } if int_is_one(den) => int_is_even(num),
-            NumberRepr::Rational { .. } => false,
-            NumberRepr::Float(_) => self.to_i64_exact().is_some_and(|value| value % 2 == 0),
-        }
-    }
-
-    /// Check whether this value is divisible by another integer-valued number.
-    #[must_use]
-    pub fn is_divisible_by(&self, other: &Self) -> bool {
-        let lhs = match &self.0 {
-            NumberRepr::Int(value) => Some(int_clone(value)),
-            NumberRepr::Rational { num, den } if int_is_one(den) => Some(int_clone(num)),
-            _ => None,
-        };
-        let rhs = match &other.0 {
-            NumberRepr::Int(value) => Some(int_clone(value)),
-            NumberRepr::Rational { num, den } if int_is_one(den) => Some(int_clone(num)),
-            _ => None,
-        };
-
-        match (lhs, rhs) {
-            (Some(_), Some(rhs)) if int_is_zero(&rhs) => false,
-            (Some(lhs), Some(rhs)) => int_is_zero(&int_mod(&lhs, &rhs)),
-            _ => false,
-        }
-    }
-
-    /// Approximate comparison against a plain `f64`.
-    #[must_use]
-    pub fn approx_eq_f64(&self, other: f64, tolerance: f64) -> bool {
-        let other = float_from_f64(other);
-        let tolerance = float_from_f64(tolerance);
-        self.approx_eq_float_values(&other, &tolerance)
-    }
-
-    /// Approximate comparison against another [`Number`] with explicit tolerance.
-    ///
-    /// Returns `false` when `tolerance` is negative.
-    #[must_use]
-    pub fn approx_eq_number(&self, other: &Self, tolerance: &Self) -> bool {
-        self.approx_eq_float_values(&other.to_float_repr(), &tolerance.to_float_repr())
-    }
-
-    /// Check floating finiteness.
-    #[must_use]
-    pub fn is_finite(&self) -> bool {
-        match &self.0 {
-            NumberRepr::Int(_) | NumberRepr::Rational { .. } => true,
-            NumberRepr::Float(value) => float_is_finite(value),
-        }
-    }
-
-    /// Add two numbers while preserving exactness when possible.
-    #[must_use]
-    pub fn add(&self, other: &Self) -> Self {
+    pub fn gcd(&self, other: &Self) -> Self {
         match (&self.0, &other.0) {
-            (NumberRepr::Int(a), NumberRepr::Int(b)) => int_checked_add(a, b).map_or_else(
-                || Self::from_float_repr(float_add(&self.to_float_repr(), &other.to_float_repr())),
-                |sum| Self(NumberRepr::Int(sum)),
-            ),
-            (NumberRepr::Int(a), NumberRepr::Rational { num, den })
-            | (NumberRepr::Rational { num, den }, NumberRepr::Int(a)) => {
-                if let Some(p) = int_checked_mul(a, den)
-                    && let Some(sum) = int_checked_add(&p, num)
-                {
-                    Self::rational_from_int(sum, int_clone(den))
-                } else {
-                    Self::from_float_repr(float_add(&self.to_float_repr(), &other.to_float_repr()))
-                }
-            }
-            (
-                NumberRepr::Rational {
-                    num: a_num,
-                    den: a_den,
-                },
-                NumberRepr::Rational {
-                    num: b_num,
-                    den: b_den,
-                },
-            ) => {
-                if let Some(t1) = int_checked_mul(a_num, b_den)
-                    && let Some(t2) = int_checked_mul(b_num, a_den)
-                    && let Some(n) = int_checked_add(&t1, &t2)
-                    && let Some(d) = int_checked_mul(a_den, b_den)
-                {
-                    Self::rational_from_int(n, d)
-                } else {
-                    Self::from_float_repr(float_add(&self.to_float_repr(), &other.to_float_repr()))
-                }
-            }
-            _ => Self::from_float_repr(float_add(&self.to_float_repr(), &other.to_float_repr())),
+            (ScalarRepr::Int(a), ScalarRepr::Int(b)) => Self::from_int(int_math::gcd(a, b)),
+            _ => Self::from_int(int_math::zero()),
         }
     }
 
-    /// Multiply two numbers while preserving exactness when possible.
+    /// Returns `true` if this value is an integer and even.
     #[must_use]
-    pub fn mul(&self, other: &Self) -> Self {
-        match (&self.0, &other.0) {
-            (NumberRepr::Int(a), NumberRepr::Int(b)) => int_checked_mul(a, b).map_or_else(
-                || Self::from_float_repr(float_mul(&self.to_float_repr(), &other.to_float_repr())),
-                |prod| Self(NumberRepr::Int(prod)),
-            ),
-            (NumberRepr::Int(a), NumberRepr::Rational { num, den })
-            | (NumberRepr::Rational { num, den }, NumberRepr::Int(a)) => int_checked_mul(a, num)
-                .map_or_else(
-                    || {
-                        Self::from_float_repr(float_mul(
-                            &self.to_float_repr(),
-                            &other.to_float_repr(),
-                        ))
-                    },
-                    |n| Self::rational_from_int(n, int_clone(den)),
-                ),
-            (
-                NumberRepr::Rational {
-                    num: a_num,
-                    den: a_den,
-                },
-                NumberRepr::Rational {
-                    num: b_num,
-                    den: b_den,
-                },
-            ) => {
-                if let Some(n) = int_checked_mul(a_num, b_num)
-                    && let Some(d) = int_checked_mul(a_den, b_den)
-                {
-                    Self::rational_from_int(n, d)
-                } else {
-                    Self::from_float_repr(float_mul(&self.to_float_repr(), &other.to_float_repr()))
-                }
-            }
-            _ => Self::from_float_repr(float_mul(&self.to_float_repr(), &other.to_float_repr())),
-        }
-    }
-
-    /// Divide two numbers while preserving exactness when possible.
-    ///
-    /// Returns `None` for division by zero. Prefer this method when callers
-    /// need explicit error handling.
-    #[must_use]
-    pub fn div(&self, other: &Self) -> Option<Self> {
-        if other.is_zero() {
-            return None;
-        }
-
-        Some(match (&self.0, &other.0) {
-            (NumberRepr::Int(a), NumberRepr::Int(b)) => {
-                Self::rational_from_int(int_clone(a), int_clone(b))
-            }
-            (NumberRepr::Int(a), NumberRepr::Rational { num, den }) => int_checked_mul(a, den)
-                .map_or_else(
-                    || {
-                        Self::from_float_repr(float_div(
-                            &self.to_float_repr(),
-                            &other.to_float_repr(),
-                        ))
-                    },
-                    |n| Self::rational_from_int(n, int_clone(num)),
-                ),
-            (NumberRepr::Rational { num, den }, NumberRepr::Int(b)) => int_checked_mul(den, b)
-                .map_or_else(
-                    || {
-                        Self::from_float_repr(float_div(
-                            &self.to_float_repr(),
-                            &other.to_float_repr(),
-                        ))
-                    },
-                    |d| Self::rational_from_int(int_clone(num), d),
-                ),
-            (
-                NumberRepr::Rational {
-                    num: a_num,
-                    den: a_den,
-                },
-                NumberRepr::Rational {
-                    num: b_num,
-                    den: b_den,
-                },
-            ) => {
-                if let Some(n) = int_checked_mul(a_num, b_den)
-                    && let Some(d) = int_checked_mul(a_den, b_num)
-                {
-                    Self::rational_from_int(n, d)
-                } else {
-                    Self::from_float_repr(float_div(&self.to_float_repr(), &other.to_float_repr()))
-                }
-            }
-            _ => Self::from_float_repr(float_div(&self.to_float_repr(), &other.to_float_repr())),
-        })
-    }
-
-    /// Raise to an integer power with exponentiation by squaring.
-    #[must_use]
-    pub fn pow_i64(&self, exp: i64) -> Option<Self> {
-        if exp == 0 {
-            return Some(Self::from(1_i64));
-        }
-
-        if exp < 0 {
-            let positive = self.pow_i64(exp.checked_neg()?)?;
-            return Self::div(&Self::from(1_i64), &positive);
-        }
-
-        let mut base = self.clone();
-        let mut exp = exp;
-        let mut result = Self::from(1_i64);
-
-        while exp > 0 {
-            if exp % 2 == 1 {
-                result = Self::mul(&result, &base);
-            }
-            if exp > 1 {
-                base = Self::mul(&base, &base);
-            }
-            exp /= 2;
-        }
-
-        Some(result)
-    }
-
-    /// Return the exact square root for perfect squares.
-    #[must_use]
-    pub fn perfect_square_root(&self) -> Option<Self> {
+    pub fn is_even(&self) -> bool {
         match &self.0 {
-            NumberRepr::Int(value) if !int_is_negative(value) => {
-                int_perfect_square(value).map(|root| Self(NumberRepr::Int(root)))
-            }
-            NumberRepr::Rational { num, den } if !int_is_negative(num) => {
-                let n_root = int_perfect_square(num)?;
-                let d_root = int_perfect_square(den)?;
-                Some(Self::rational_from_int(n_root, d_root))
-            }
-            NumberRepr::Int(_) | NumberRepr::Rational { .. } | NumberRepr::Float(_) => None,
+            ScalarRepr::Int(i) => int_math::is_even(i),
+            ScalarRepr::Rational(_) | ScalarRepr::Float(_) => false,
         }
     }
 
-    /// Return the exact cube root for perfect cubes.
+    /// Returns `true` if this value is an integer and odd.
     #[must_use]
-    pub fn perfect_cube_root(&self) -> Option<Self> {
+    pub fn is_odd(&self) -> bool {
         match &self.0 {
-            NumberRepr::Int(value) => {
-                int_perfect_cube(value).map(|root| Self(NumberRepr::Int(root)))
-            }
-            NumberRepr::Rational { num, den } => {
-                let n_root = int_perfect_cube(num)?;
-                let d_root = int_perfect_cube(den)?;
-                Some(Self::rational_from_int(n_root, d_root))
-            }
-            NumberRepr::Float(_) => None,
+            ScalarRepr::Int(i) => !int_math::is_even(i),
+            ScalarRepr::Rational(_) | ScalarRepr::Float(_) => false,
         }
     }
 
-    /// Square root with exact fast path.
-    #[must_use]
-    pub fn sqrt(&self) -> Self {
-        self.perfect_square_root()
-            .unwrap_or_else(|| Self::from_float_repr(float_sqrt(&self.to_float_repr())))
-    }
-
-    /// Cube root with exact fast path.
-    #[must_use]
-    pub fn cbrt(&self) -> Self {
-        self.perfect_cube_root()
-            .unwrap_or_else(|| Self::from_float_repr(float_cbrt(&self.to_float_repr())))
-    }
-
-    /// Round to nearest integer using backend rounding mode.
-    #[must_use]
-    pub fn round(&self) -> Self {
-        match &self.0 {
-            NumberRepr::Int(_) => self.clone(),
-            NumberRepr::Rational { den, .. } if int_is_one(den) => self.clone(),
-            _ => Self::from_float_repr(float_round(&self.to_float_repr())),
-        }
-    }
-
-    /// Sine of this number.
-    #[must_use]
-    pub fn sin(&self) -> Self {
-        Self::from_float_repr(float_sin(&self.to_float_repr()))
-    }
-
-    /// Cosine of this number.
-    #[must_use]
-    pub fn cos(&self) -> Self {
-        Self::from_float_repr(float_cos(&self.to_float_repr()))
-    }
-
-    /// Exponential of this number.
-    #[must_use]
-    pub fn exp(&self) -> Self {
-        Self::from_float_repr(float_exp(&self.to_float_repr()))
-    }
-
-    /// Natural logarithm of this number.
-    #[must_use]
-    pub fn ln(&self) -> Self {
-        Self::from_float_repr(float_ln(&self.to_float_repr()))
-    }
-
-    /// Arctangent of this number.
-    ///
-    /// This operation is evaluated in the floating domain; there is no exact
-    /// rational/integer fast path.
-    #[must_use]
-    pub fn atan(&self) -> Self {
-        Self::from_float_repr(float_atan(&self.to_float_repr()))
-    }
-
-    /// Quadrant-correct arctangent of y/x with high-precision backend arithmetic.
-    ///
-    /// This operation is evaluated in the floating domain; there is no exact
-    /// rational/integer fast path.
-    #[must_use]
-    pub fn atan2(&self, x: &Self) -> Self {
-        let y = self;
-
-        if x.is_positive() {
-            return (y / x).atan();
-        }
-
-        let pi = Self::from(4_i64) * Self::from(1_i64).atan();
-
-        if x.is_negative() {
-            let base = (y / x).atan();
-            if y.is_negative() {
-                return base - pi;
-            }
-            return base + pi;
-        }
-
-        let half_pi = pi / Self::from(2_i64);
-        if y.is_positive() {
-            return half_pi;
-        }
-        if y.is_negative() {
-            return -half_pi;
-        }
-
-        Self::float(f64::NAN)
-    }
-
-    /// Power operation with exact fast paths.
-    #[must_use]
-    pub fn pow(&self, exp: &Self) -> Self {
-        if let Some(i) = exp.to_i64_exact()
-            && let Some(exact) = self.pow_i64(i)
-        {
-            return exact;
-        }
-
-        if let NumberRepr::Rational { num, den } = &exp.0 {
-            if int_is_one(num)
-                && Self::int_eq_i64(den, 2)
-                && let Some(exact_sqrt) = self.perfect_square_root()
-            {
-                return exact_sqrt;
-            }
-            if int_is_one(num)
-                && Self::int_eq_i64(den, 3)
-                && let Some(exact_cbrt) = self.perfect_cube_root()
-            {
-                return exact_cbrt;
-            }
-        }
-
-        Self::from_float_repr(float_pow(&self.to_float_repr(), &exp.to_float_repr()))
-    }
-
-    /// Negate this number.
-    #[must_use]
-    pub fn negate(&self) -> Self {
-        match &self.0 {
-            NumberRepr::Int(value) => {
-                if let Some(neg) = int_checked_neg(value) {
-                    Self(NumberRepr::Int(neg))
-                } else {
-                    Self::from_float_repr(float_neg(&self.to_float_repr()))
-                }
-            }
-            NumberRepr::Rational { num, den } => {
-                if let Some(neg) = int_checked_neg(num) {
-                    Self(NumberRepr::Rational {
-                        num: neg,
-                        den: int_clone(den),
-                    })
-                } else {
-                    Self::from_float_repr(float_neg(&self.to_float_repr()))
-                }
-            }
-            NumberRepr::Float(value) => Self::from_float_repr(float_neg(value)),
-        }
-    }
-
-    fn approx_eq_float_values(&self, other: &FloatRepr, tolerance: &FloatRepr) -> bool {
-        if float_is_negative(tolerance) {
-            return false;
-        }
-
-        let diff = float_abs(&float_sub(&self.to_float_repr(), other));
-        float_cmp(&diff, tolerance).is_some_and(|ordering| ordering != Ordering::Greater)
-    }
-
-    fn float_is_nan(value: &FloatRepr) -> bool {
-        float_cmp(value, value).is_none()
-    }
-
-    fn compare_float_total(lhs: &FloatRepr, rhs: &FloatRepr) -> Ordering {
-        match (Self::float_is_nan(lhs), Self::float_is_nan(rhs)) {
-            (true, true) => Ordering::Equal,
-            (true, false) => Ordering::Greater,
-            (false, true) => Ordering::Less,
-            (false, false) => float_cmp(lhs, rhs).unwrap_or(Ordering::Equal),
-        }
-    }
-
-    const fn variant_rank(&self) -> u8 {
-        match &self.0 {
-            NumberRepr::Int(_) => 0,
-            NumberRepr::Rational { .. } => 1,
-            NumberRepr::Float(_) => 2,
-        }
-    }
-
-    fn compare_total(&self, other: &Self) -> Ordering {
-        // Total-order convention for canonical ordering:
-        // NaN compares greater than any non-NaN value.
-        let ordering = match (&self.0, &other.0) {
-            (NumberRepr::Int(a), NumberRepr::Int(b)) => int_cmp(a, b),
-            (NumberRepr::Int(a), NumberRepr::Rational { num, den }) => int_checked_mul(a, den)
-                .map_or_else(
-                    || Self::compare_float_total(&self.to_float_repr(), &other.to_float_repr()),
-                    |a_den| int_cmp(&a_den, num),
-                ),
-            (NumberRepr::Rational { num, den }, NumberRepr::Int(b)) => int_checked_mul(b, den)
-                .map_or_else(
-                    || Self::compare_float_total(&self.to_float_repr(), &other.to_float_repr()),
-                    |b_den| int_cmp(num, &b_den),
-                ),
-            (
-                NumberRepr::Rational {
-                    num: a_num,
-                    den: a_den,
-                },
-                NumberRepr::Rational {
-                    num: b_num,
-                    den: b_den,
-                },
-            ) => {
-                if let (Some(a_num_b_den), Some(b_num_a_den)) =
-                    (int_checked_mul(a_num, b_den), int_checked_mul(b_num, a_den))
-                {
-                    int_cmp(&a_num_b_den, &b_num_a_den)
-                } else {
-                    Self::compare_float_total(&self.to_float_repr(), &other.to_float_repr())
-                }
-            }
-            _ => Self::compare_float_total(&self.to_float_repr(), &other.to_float_repr()),
-        };
-
-        if ordering == Ordering::Equal {
-            self.variant_rank().cmp(&other.variant_rank())
+    pub(in crate::number) fn is_nan_internal(&self) -> bool {
+        if let ScalarRepr::Float(f) = &self.0 {
+            float_ops::is_nan(f)
         } else {
-            ordering
+            false
         }
     }
-}
 
-impl From<f64> for Number {
-    fn from(value: f64) -> Self {
-        Self::float(value)
-    }
-}
-
-impl From<f32> for Number {
-    fn from(value: f32) -> Self {
-        Self::float(f64::from(value))
-    }
-}
-
-impl From<i64> for Number {
-    fn from(value: i64) -> Self {
-        Self::from_i64_internal(value)
-    }
-}
-
-impl From<i32> for Number {
-    fn from(value: i32) -> Self {
-        Self::from_i64_internal(i64::from(value))
-    }
-}
-
-impl From<i16> for Number {
-    fn from(value: i16) -> Self {
-        Self::from_i64_internal(i64::from(value))
-    }
-}
-
-impl From<i8> for Number {
-    fn from(value: i8) -> Self {
-        Self::from_i64_internal(i64::from(value))
-    }
-}
-
-impl From<u32> for Number {
-    fn from(value: u32) -> Self {
-        Self::from_i64_internal(i64::from(value))
-    }
-}
-
-impl From<u16> for Number {
-    fn from(value: u16) -> Self {
-        Self::from_i64_internal(i64::from(value))
-    }
-}
-
-impl From<u8> for Number {
-    fn from(value: u8) -> Self {
-        Self::from_i64_internal(i64::from(value))
-    }
-}
-
-fn u64_to_f64_lossy(value: u64) -> f64 {
-    // Build an approximation without lossy integer casts to keep clippy pedantic clean.
-    let Ok(high) = u32::try_from(value >> 32) else {
-        return f64::INFINITY;
-    };
-    let Ok(low) = u32::try_from(value & 0xFFFF_FFFF) else {
-        return f64::INFINITY;
-    };
-
-    f64::from(high).mul_add(4_294_967_296.0, f64::from(low))
-}
-
-fn u128_to_f64_lossy(value: u128) -> f64 {
-    let Ok(part3) = u32::try_from(value >> 96) else {
-        return f64::INFINITY;
-    };
-    let Ok(part2) = u32::try_from((value >> 64) & 0xFFFF_FFFF) else {
-        return f64::INFINITY;
-    };
-    let Ok(part1) = u32::try_from((value >> 32) & 0xFFFF_FFFF) else {
-        return f64::INFINITY;
-    };
-    let Ok(part0) = u32::try_from(value & 0xFFFF_FFFF) else {
-        return f64::INFINITY;
-    };
-
-    f64::from(part3)
-        .mul_add(4_294_967_296.0, f64::from(part2))
-        .mul_add(4_294_967_296.0, f64::from(part1))
-        .mul_add(4_294_967_296.0, f64::from(part0))
-}
-
-impl From<u64> for Number {
-    fn from(value: u64) -> Self {
-        if let Some(value_int) = int_from_u64_exact(value) {
-            Self(NumberRepr::Int(value_int))
-        } else {
-            Self::from_float_repr(float_from_f64(u64_to_f64_lossy(value)))
-        }
-    }
-}
-
-impl From<usize> for Number {
-    fn from(value: usize) -> Self {
-        match u64::try_from(value) {
-            Ok(as_u64) => Self::from(as_u64),
-            Err(_) => Self::from_float_repr(float_from_f64(f64::INFINITY)),
-        }
-    }
-}
-
-impl From<i128> for Number {
-    fn from(value: i128) -> Self {
-        if let Some(value_int) = int_from_i128_exact(value) {
-            Self(NumberRepr::Int(value_int))
-        } else {
-            let magnitude = u128_to_f64_lossy(value.unsigned_abs());
-            let approx = if value.is_negative() {
-                -magnitude
-            } else {
-                magnitude
-            };
-            Self::from_float_repr(float_from_f64(approx))
-        }
-    }
-}
-
-impl From<u128> for Number {
-    fn from(value: u128) -> Self {
-        if let Some(value_int) = int_from_u128_exact(value) {
-            Self(NumberRepr::Int(value_int))
-        } else {
-            Self::from_float_repr(float_from_f64(u128_to_f64_lossy(value)))
-        }
-    }
-}
-
-impl From<Number> for f64 {
-    fn from(value: Number) -> Self {
-        value.to_f64_lossy()
-    }
-}
-
-impl Add for Number {
-    type Output = Self;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        Self::add(&self, &rhs)
-    }
-}
-
-impl Add<&Self> for Number {
-    type Output = Self;
-
-    fn add(self, rhs: &Self) -> Self::Output {
-        Self::add(&self, rhs)
-    }
-}
-
-impl Add<Number> for &Number {
-    type Output = Number;
-
-    fn add(self, rhs: Number) -> Self::Output {
-        Number::add(self, &rhs)
-    }
-}
-
-impl Add<&Number> for &Number {
-    type Output = Number;
-
-    fn add(self, rhs: &Number) -> Self::Output {
-        Number::add(self, rhs)
-    }
-}
-
-impl Sub for Number {
-    type Output = Self;
-
-    fn sub(self, rhs: Self) -> Self::Output {
-        Self::add(&self, &rhs.negate())
-    }
-}
-
-impl Sub<&Self> for Number {
-    type Output = Self;
-
-    fn sub(self, rhs: &Self) -> Self::Output {
-        Self::add(&self, &rhs.negate())
-    }
-}
-
-impl Sub<Number> for &Number {
-    type Output = Number;
-
-    fn sub(self, rhs: Number) -> Self::Output {
-        Number::add(self, &rhs.negate())
-    }
-}
-
-impl Sub<&Number> for &Number {
-    type Output = Number;
-
-    fn sub(self, rhs: &Number) -> Self::Output {
-        Number::add(self, &rhs.negate())
-    }
-}
-
-impl Mul for Number {
-    type Output = Self;
-
-    fn mul(self, rhs: Self) -> Self::Output {
-        Self::mul(&self, &rhs)
-    }
-}
-
-impl Mul<&Self> for Number {
-    type Output = Self;
-
-    fn mul(self, rhs: &Self) -> Self::Output {
-        Self::mul(&self, rhs)
-    }
-}
-
-impl Mul<Number> for &Number {
-    type Output = Number;
-
-    fn mul(self, rhs: Number) -> Self::Output {
-        Number::mul(self, &rhs)
-    }
-}
-
-impl Mul<&Number> for &Number {
-    type Output = Number;
-
-    fn mul(self, rhs: &Number) -> Self::Output {
-        Number::mul(self, rhs)
-    }
-}
-
-impl Div for Number {
-    type Output = Self;
-
-    fn div(self, rhs: Self) -> Self::Output {
-        Self::div(&self, &rhs).unwrap_or_else(|| Self::from_float_repr(float_from_f64(f64::NAN)))
-    }
-}
-
-impl Div<&Self> for Number {
-    type Output = Self;
-
-    fn div(self, rhs: &Self) -> Self::Output {
-        Self::div(&self, rhs).unwrap_or_else(|| Self::from_float_repr(float_from_f64(f64::NAN)))
-    }
-}
-
-impl Div<Number> for &Number {
-    type Output = Number;
-
-    fn div(self, rhs: Number) -> Self::Output {
-        Number::div(self, &rhs).unwrap_or_else(|| Number::from_float_repr(float_from_f64(f64::NAN)))
-    }
-}
-
-impl Div<&Number> for &Number {
-    type Output = Number;
-
-    fn div(self, rhs: &Number) -> Self::Output {
-        Number::div(self, rhs).unwrap_or_else(|| Number::from_float_repr(float_from_f64(f64::NAN)))
-    }
-}
-
-impl Neg for Number {
-    type Output = Self;
-
-    fn neg(self) -> Self::Output {
-        self.negate()
-    }
-}
-
-impl Neg for &Number {
-    type Output = Number;
-
-    fn neg(self) -> Self::Output {
-        self.negate()
-    }
-}
-
-impl Display for Number {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+    fn round_toward(&self, toward_neg_inf: bool) -> Self {
         match &self.0 {
-            NumberRepr::Int(value) => write!(f, "{value}"),
-            NumberRepr::Rational { num, den } => write!(f, "{num}/{den}"),
-            NumberRepr::Float(value) => write!(f, "{value}"),
+            ScalarRepr::Int(_) => self.clone(),
+            ScalarRepr::Rational(r) => {
+                let int_part = to_integer(r);
+                if is_integer(r) {
+                    return Self::from_int(int_part);
+                }
+                let zero = rational_math::from_integer(int_math::zero());
+                let is_neg = rational_math::cmp(r, &zero) == Ordering::Less;
+                if toward_neg_inf == is_neg {
+                    let one = int_math::from_i64(1).expect("1 fits");
+                    let adjusted = if toward_neg_inf {
+                        int_math::sub(&int_part, &one)
+                    } else {
+                        int_math::add(&int_part, &one)
+                    };
+                    adjusted.map_or_else(
+                        || {
+                            let f = self.to_float_repr();
+                            if toward_neg_inf {
+                                Self::from_float_maybe_int(float_ops::floor(&f))
+                            } else {
+                                Self::from_float_maybe_int(float_ops::ceil(&f))
+                            }
+                        },
+                        Self::from_int,
+                    )
+                } else {
+                    Self::from_int(int_part)
+                }
+            }
+            ScalarRepr::Float(f) => {
+                if toward_neg_inf {
+                    Self::from_float_maybe_int(float_ops::floor(f))
+                } else {
+                    Self::from_float_maybe_int(float_ops::ceil(f))
+                }
+            }
         }
     }
 }
 
-impl Debug for Number {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        Display::fmt(self, f)
+// ============================================================================
+// Core Trait Implementations
+// ============================================================================
+
+impl Debug for Scalar {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        match &self.0 {
+            ScalarRepr::Int(i) => write!(f, "Int({})", int_math::to_string(i)),
+            ScalarRepr::Rational(r) => write!(f, "Rational({})", rational_math::to_string(r)),
+            ScalarRepr::Float(fl) => write!(f, "Float({})", float_ops::to_string(fl)),
+        }
     }
 }
 
-impl PartialOrd for Number {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
+impl Display for Scalar {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        match &self.0 {
+            ScalarRepr::Int(i) => write!(f, "{}", int_math::to_string(i)),
+            ScalarRepr::Rational(r) => write!(f, "{}", rational_math::to_string(r)),
+            ScalarRepr::Float(fl) => write!(f, "{}", float_ops::to_string(fl)),
+        }
     }
 }
 
-impl PartialEq for Number {
+impl PartialEq for Scalar {
     fn eq(&self, other: &Self) -> bool {
         match (&self.0, &other.0) {
-            (NumberRepr::Int(lhs), NumberRepr::Int(rhs)) => int_cmp(lhs, rhs) == Ordering::Equal,
-            (
-                NumberRepr::Rational {
-                    num: lhs_num,
-                    den: lhs_den,
-                },
-                NumberRepr::Rational {
-                    num: rhs_num,
-                    den: rhs_den,
-                },
-            ) => {
-                int_cmp(lhs_num, rhs_num) == Ordering::Equal
-                    && int_cmp(lhs_den, rhs_den) == Ordering::Equal
+            (ScalarRepr::Int(a), ScalarRepr::Int(b)) => int_math::cmp(a, b) == Ordering::Equal,
+            (ScalarRepr::Rational(a), ScalarRepr::Rational(b)) => {
+                rational_math::cmp(a, b) == Ordering::Equal
             }
-            (NumberRepr::Float(lhs), NumberRepr::Float(rhs)) => {
-                if Self::float_is_nan(lhs) && Self::float_is_nan(rhs) {
-                    true
-                } else {
-                    Self::compare_float_total(lhs, rhs) == Ordering::Equal
-                }
+            (ScalarRepr::Int(a), ScalarRepr::Rational(b)) => {
+                rational_math::cmp(&rational_math::from_integer(int_math::clone(a)), b)
+                    == Ordering::Equal
             }
-            _ => false,
+            (ScalarRepr::Rational(a), ScalarRepr::Int(b)) => {
+                rational_math::cmp(a, &rational_math::from_integer(int_math::clone(b)))
+                    == Ordering::Equal
+            }
+            _ => {
+                // IEEE 754: NaN != NaN
+                let fl = self.to_float_repr();
+                let fr = other.to_float_repr();
+                float_ops::cmp(&fl, &fr) == Some(Ordering::Equal)
+            }
         }
     }
 }
 
-impl Ord for Number {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.compare_total(other)
+impl Eq for Scalar {}
+
+impl PartialOrd for Scalar {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.total_cmp(other))
+    }
+
+    fn lt(&self, other: &Self) -> bool {
+        self.total_cmp(other) == Ordering::Less
+    }
+
+    fn le(&self, other: &Self) -> bool {
+        self.total_cmp(other) != Ordering::Greater
+    }
+
+    fn gt(&self, other: &Self) -> bool {
+        self.total_cmp(other) == Ordering::Greater
+    }
+
+    fn ge(&self, other: &Self) -> bool {
+        self.total_cmp(other) != Ordering::Less
     }
 }
 
-impl Eq for Number {}
+// ============================================================================
+// Comparison helpers — explicit methods with total-order semantics.
+// ============================================================================
 
-impl Hash for Number {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        match &self.0 {
-            NumberRepr::Int(value) => {
-                0_u8.hash(state);
-                value.hash(state);
-            }
-            NumberRepr::Rational { num, den } => {
+impl Scalar {
+    /// Total-order maximum. NaN > everything.
+    #[must_use]
+    pub fn max(self, other: Self) -> Self {
+        if self.total_cmp(&other) == Ordering::Less {
+            other
+        } else {
+            self
+        }
+    }
+
+    /// Total-order minimum. NaN > everything.
+    #[must_use]
+    pub fn min(self, other: Self) -> Self {
+        if self.total_cmp(&other) == Ordering::Greater {
+            other
+        } else {
+            self
+        }
+    }
+
+    /// Clamp to [lo, hi] using total ordering.
+    #[must_use]
+    pub fn clamp(self, lo: Self, hi: Self) -> Self {
+        if self.total_cmp(&lo) == Ordering::Less {
+            lo
+        } else if self.total_cmp(&hi) == Ordering::Greater {
+            hi
+        } else {
+            self
+        }
+    }
+}
+
+impl core::hash::Hash for Scalar {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        if let Some(i) = self.to_int() {
+            0_u8.hash(state);
+            i.hash(state);
+        } else if let ScalarRepr::Rational(r) = &self.0 {
+            1_u8.hash(state);
+            r.hash(state);
+        } else if let ScalarRepr::Float(f) = &self.0 {
+            if let Some(r) = float_ops::to_rational(f) {
                 1_u8.hash(state);
-                num.hash(state);
-                den.hash(state);
-            }
-            NumberRepr::Float(value) => {
+                r.hash(state);
+            } else {
                 2_u8.hash(state);
+                float_ops::to_string(f).hash(state);
+            }
+        }
+    }
 
-                if Self::float_is_nan(value) {
-                    0_u8.hash(state);
-                } else if float_is_zero(value) {
-                    1_u8.hash(state);
+    fn hash_slice<H: core::hash::Hasher>(data: &[Self], state: &mut H) {
+        for item in data {
+            item.hash(state);
+        }
+    }
+}
+
+// ============================================================================
+// Arithmetic Implementations
+// ============================================================================
+
+impl Add<&Scalar> for &Scalar {
+    type Output = Scalar;
+    fn add(self, rhs: &Scalar) -> Scalar {
+        match (&self.0, &rhs.0) {
+            (ScalarRepr::Int(a), ScalarRepr::Int(b)) => int_math::add(a, b).map_or_else(
+                || {
+                    Scalar::from_float_raw(float_ops::add(
+                        &self.to_float_repr(),
+                        &rhs.to_float_repr(),
+                    ))
+                },
+                Scalar::from_int,
+            ),
+            (ScalarRepr::Rational(a), ScalarRepr::Rational(b)) => {
+                Scalar::from_rational(rational_math::add(a, b))
+            }
+            (ScalarRepr::Int(a), ScalarRepr::Rational(b)) => Scalar::from_rational(
+                rational_math::add(&rational_math::from_integer(int_math::clone(a)), b),
+            ),
+            (ScalarRepr::Rational(a), ScalarRepr::Int(b)) => Scalar::from_rational(
+                rational_math::add(a, &rational_math::from_integer(int_math::clone(b))),
+            ),
+            _ => {
+                Scalar::from_float_raw(float_ops::add(&self.to_float_repr(), &rhs.to_float_repr()))
+            }
+        }
+    }
+}
+
+impl Sub<&Scalar> for &Scalar {
+    type Output = Scalar;
+    fn sub(self, rhs: &Scalar) -> Scalar {
+        match (&self.0, &rhs.0) {
+            (ScalarRepr::Int(a), ScalarRepr::Int(b)) => int_math::sub(a, b).map_or_else(
+                || {
+                    Scalar::from_float_raw(float_ops::sub(
+                        &self.to_float_repr(),
+                        &rhs.to_float_repr(),
+                    ))
+                },
+                Scalar::from_int,
+            ),
+            (ScalarRepr::Rational(a), ScalarRepr::Rational(b)) => {
+                Scalar::from_rational(rational_math::sub(a, b))
+            }
+            (ScalarRepr::Int(a), ScalarRepr::Rational(b)) => Scalar::from_rational(
+                rational_math::sub(&rational_math::from_integer(int_math::clone(a)), b),
+            ),
+            (ScalarRepr::Rational(a), ScalarRepr::Int(b)) => Scalar::from_rational(
+                rational_math::sub(a, &rational_math::from_integer(int_math::clone(b))),
+            ),
+            _ => {
+                Scalar::from_float_raw(float_ops::sub(&self.to_float_repr(), &rhs.to_float_repr()))
+            }
+        }
+    }
+}
+
+impl Mul<&Scalar> for &Scalar {
+    type Output = Scalar;
+    fn mul(self, rhs: &Scalar) -> Scalar {
+        match (&self.0, &rhs.0) {
+            (ScalarRepr::Int(a), ScalarRepr::Int(b)) => int_math::mul(a, b).map_or_else(
+                || {
+                    Scalar::from_float_raw(float_ops::mul(
+                        &self.to_float_repr(),
+                        &rhs.to_float_repr(),
+                    ))
+                },
+                Scalar::from_int,
+            ),
+            (ScalarRepr::Rational(a), ScalarRepr::Rational(b)) => {
+                Scalar::from_rational(rational_math::mul(a, b))
+            }
+            (ScalarRepr::Int(a), ScalarRepr::Rational(b)) => Scalar::from_rational(
+                rational_math::mul(&rational_math::from_integer(int_math::clone(a)), b),
+            ),
+            (ScalarRepr::Rational(a), ScalarRepr::Int(b)) => Scalar::from_rational(
+                rational_math::mul(a, &rational_math::from_integer(int_math::clone(b))),
+            ),
+            _ => {
+                Scalar::from_float_raw(float_ops::mul(&self.to_float_repr(), &rhs.to_float_repr()))
+            }
+        }
+    }
+}
+
+impl Div<&Scalar> for &Scalar {
+    type Output = Scalar;
+    fn div(self, rhs: &Scalar) -> Scalar {
+        if rhs.is_zero() {
+            // NaN for division by zero
+            return Scalar::from_float_raw(float_ops::nan());
+        }
+        match (&self.0, &rhs.0) {
+            (ScalarRepr::Int(a), ScalarRepr::Int(b)) => {
+                if int_math::modulo(a, b) == int_math::zero() {
+                    Scalar::from_int(int_math::div_exact(a, b))
                 } else {
-                    2_u8.hash(state);
-                    float_to_f64(value).to_bits().hash(state);
+                    Scalar::from_rational(rational_math::new(
+                        int_math::clone(a),
+                        int_math::clone(b),
+                    ))
                 }
             }
+            (ScalarRepr::Rational(a), ScalarRepr::Rational(b)) => {
+                Scalar::from_rational(rational_math::div(a, b))
+            }
+            (ScalarRepr::Int(a), ScalarRepr::Rational(b)) => Scalar::from_rational(
+                rational_math::div(&rational_math::from_integer(int_math::clone(a)), b),
+            ),
+            (ScalarRepr::Rational(a), ScalarRepr::Int(b)) => Scalar::from_rational(
+                rational_math::div(a, &rational_math::from_integer(int_math::clone(b))),
+            ),
+            _ => {
+                Scalar::from_float_raw(float_ops::div(&self.to_float_repr(), &rhs.to_float_repr()))
+            }
+        }
+    }
+}
+
+impl Neg for &Scalar {
+    type Output = Scalar;
+    fn neg(self) -> Scalar {
+        match &self.0 {
+            ScalarRepr::Int(i) => int_math::neg(i).map_or_else(
+                || Scalar::from_float_raw(float_ops::neg(&self.to_float_repr())),
+                Scalar::from_int,
+            ),
+            ScalarRepr::Rational(r) => Scalar::from_rational(rational_math::neg(r)),
+            ScalarRepr::Float(f) => Scalar::from_float_raw(float_ops::neg(f)),
+        }
+    }
+}
+
+// Forward value-based ops to ref-based ops
+impl Add for Scalar {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self {
+        &self + &rhs
+    }
+}
+impl Sub for Scalar {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self {
+        &self - &rhs
+    }
+}
+impl Mul for Scalar {
+    type Output = Self;
+    fn mul(self, rhs: Self) -> Self {
+        &self * &rhs
+    }
+}
+impl Div for Scalar {
+    type Output = Self;
+    fn div(self, rhs: Self) -> Self {
+        &self / &rhs
+    }
+}
+impl Neg for Scalar {
+    type Output = Self;
+    fn neg(self) -> Self {
+        -&self
+    }
+}
+impl Add<&Self> for Scalar {
+    type Output = Self;
+    fn add(self, rhs: &Self) -> Self {
+        &self + rhs
+    }
+}
+impl Sub<&Self> for Scalar {
+    type Output = Self;
+    fn sub(self, rhs: &Self) -> Self {
+        &self - rhs
+    }
+}
+impl Mul<&Self> for Scalar {
+    type Output = Self;
+    fn mul(self, rhs: &Self) -> Self {
+        &self * rhs
+    }
+}
+impl Div<&Self> for Scalar {
+    type Output = Self;
+    fn div(self, rhs: &Self) -> Self {
+        &self / rhs
+    }
+}
+
+// ============================================================================
+// Number Trait Helpers
+// ============================================================================
+
+/// Extract an `IntRepr` from a [`Scalar`] used as an integer order parameter.
+/// Returns None if extraction fails (e.g., Float that doesn't round to int).
+fn extract_int_order(s: &Scalar) -> Option<IntRepr> {
+    match &s.0 {
+        ScalarRepr::Int(n) => Some(int_math::clone(n)),
+        ScalarRepr::Rational(r) => Some(to_integer(r)),
+        ScalarRepr::Float(f) => to_int(&float_ops::round(f)),
+    }
+}
+
+macro_rules! impl_special_with_int_order_fn {
+    ($name:ident, $float_fn:path) => {
+        fn $name(&self, order: &Self) -> Self {
+            let Some(n) = extract_int_order(order) else {
+                return Self::from_float_raw(float_ops::nan());
+            };
+            Self::from_float_raw($float_fn(&n, &self.to_float_repr()))
+        }
+    };
+}
+
+// ============================================================================
+// Number Trait Implementation
+// ============================================================================
+
+impl Number for Scalar {
+    // Basic math
+    fn abs(&self) -> Self {
+        match &self.0 {
+            ScalarRepr::Int(i) => int_math::abs(i).map_or_else(
+                || Self::from_float_raw(float_ops::abs(&self.to_float_repr())),
+                Self::from_int,
+            ),
+            ScalarRepr::Rational(r) => {
+                if rational_math::cmp(r, &rational_math::from_integer(int_math::zero()))
+                    == Ordering::Less
+                {
+                    Self::from_rational(rational_math::neg(r))
+                } else {
+                    self.clone()
+                }
+            }
+            ScalarRepr::Float(f) => Self::from_float_raw(float_ops::abs(f)),
+        }
+    }
+
+    fn signum(&self) -> Self {
+        match &self.0 {
+            ScalarRepr::Int(i) => {
+                if int_math::is_zero(i) {
+                    Self::from_int(int_math::zero())
+                } else if int_math::is_negative(i) {
+                    Self::from_int(int_math::from_i64(-1).expect("constant -1 always fits"))
+                } else {
+                    Self::from_int(int_math::from_i64(1).expect("constant 1 always fits"))
+                }
+            }
+            ScalarRepr::Rational(r) => {
+                let zero_r = rational_math::from_integer(int_math::zero());
+                match rational_math::cmp(r, &zero_r) {
+                    Ordering::Less => {
+                        Self::from_int(int_math::from_i64(-1).expect("constant -1 always fits"))
+                    }
+                    Ordering::Equal => Self::from_int(int_math::zero()),
+                    Ordering::Greater => {
+                        Self::from_int(int_math::from_i64(1).expect("constant 1 always fits"))
+                    }
+                }
+            }
+            ScalarRepr::Float(f) => Self::from_float_raw(float_ops::signum(f)),
+        }
+    }
+
+    fn floor(&self) -> Self {
+        self.round_toward(true)
+    }
+
+    fn ceil(&self) -> Self {
+        self.round_toward(false)
+    }
+
+    fn round(&self) -> Self {
+        Self::from_float_maybe_int(float_ops::round(&self.to_float_repr()))
+    }
+
+    fn fract(&self) -> Self {
+        match &self.0 {
+            ScalarRepr::Int(_) => Self::from_int(int_math::zero()),
+            ScalarRepr::Rational(_) => {
+                if self.is_integer() {
+                    Self::from_int(int_math::zero())
+                } else {
+                    self - &self.floor()
+                }
+            }
+            ScalarRepr::Float(f) => Self::from_float_raw(float_ops::fract(f)),
+        }
+    }
+
+    fn negate(&self) -> Self {
+        -self
+    }
+
+    // Roots
+    fn sqrt(&self) -> Self {
+        if let ScalarRepr::Int(i) = &self.0
+            && let Some(root) = int_math::perfect_square(i)
+        {
+            return Self::from_int(root);
+        }
+        Self::from_float_maybe_int(float_ops::sqrt(&self.to_float_repr()))
+    }
+
+    fn cbrt(&self) -> Self {
+        if let ScalarRepr::Int(i) = &self.0
+            && let Some(root) = int_math::perfect_cube(i)
+        {
+            return Self::from_int(root);
+        }
+        Self::from_float_maybe_int(float_ops::cbrt(&self.to_float_repr()))
+    }
+
+    // Delegation to float backend for transcendentals
+    fn sin(&self) -> Self {
+        Self::from_float_raw(float_ops::sin(&self.to_float_repr()))
+    }
+    fn cos(&self) -> Self {
+        Self::from_float_raw(float_ops::cos(&self.to_float_repr()))
+    }
+    fn tan(&self) -> Self {
+        Self::from_float_raw(float_ops::tan(&self.to_float_repr()))
+    }
+    fn cot(&self) -> Self {
+        Self::from_float_raw(float_ops::div(
+            &float_ops::from_f64(1.0),
+            &float_ops::tan(&self.to_float_repr()),
+        ))
+    }
+    fn sec(&self) -> Self {
+        Self::from_float_raw(float_ops::div(
+            &float_ops::from_f64(1.0),
+            &float_ops::cos(&self.to_float_repr()),
+        ))
+    }
+    fn csc(&self) -> Self {
+        Self::from_float_raw(float_ops::div(
+            &float_ops::from_f64(1.0),
+            &float_ops::sin(&self.to_float_repr()),
+        ))
+    }
+
+    fn asin(&self) -> Self {
+        Self::from_float_raw(float_ops::asin(&self.to_float_repr()))
+    }
+    fn acos(&self) -> Self {
+        Self::from_float_raw(float_ops::acos(&self.to_float_repr()))
+    }
+    fn atan(&self) -> Self {
+        Self::from_float_raw(float_ops::atan(&self.to_float_repr()))
+    }
+    fn acot(&self) -> Self {
+        Self::from_float_raw(float_ops::atan(&float_ops::div(
+            &float_ops::from_f64(1.0),
+            &self.to_float_repr(),
+        )))
+    }
+    fn asec(&self) -> Self {
+        Self::from_float_raw(float_ops::acos(&float_ops::div(
+            &float_ops::from_f64(1.0),
+            &self.to_float_repr(),
+        )))
+    }
+    fn acsc(&self) -> Self {
+        Self::from_float_raw(float_ops::asin(&float_ops::div(
+            &float_ops::from_f64(1.0),
+            &self.to_float_repr(),
+        )))
+    }
+
+    fn sinh(&self) -> Self {
+        Self::from_float_raw(float_ops::sinh(&self.to_float_repr()))
+    }
+    fn cosh(&self) -> Self {
+        Self::from_float_raw(float_ops::cosh(&self.to_float_repr()))
+    }
+    fn tanh(&self) -> Self {
+        Self::from_float_raw(float_ops::tanh(&self.to_float_repr()))
+    }
+    fn coth(&self) -> Self {
+        Self::from_float_raw(float_ops::div(
+            &float_ops::from_f64(1.0),
+            &float_ops::tanh(&self.to_float_repr()),
+        ))
+    }
+    fn sech(&self) -> Self {
+        Self::from_float_raw(float_ops::div(
+            &float_ops::from_f64(1.0),
+            &float_ops::cosh(&self.to_float_repr()),
+        ))
+    }
+    fn csch(&self) -> Self {
+        Self::from_float_raw(float_ops::div(
+            &float_ops::from_f64(1.0),
+            &float_ops::sinh(&self.to_float_repr()),
+        ))
+    }
+
+    fn asinh(&self) -> Self {
+        Self::from_float_raw(float_ops::asinh(&self.to_float_repr()))
+    }
+    fn acosh(&self) -> Self {
+        Self::from_float_raw(float_ops::acosh(&self.to_float_repr()))
+    }
+    fn atanh(&self) -> Self {
+        Self::from_float_raw(float_ops::atanh(&self.to_float_repr()))
+    }
+    fn acoth(&self) -> Self {
+        Self::from_float_raw(float_ops::atanh(&float_ops::div(
+            &float_ops::from_f64(1.0),
+            &self.to_float_repr(),
+        )))
+    }
+    fn asech(&self) -> Self {
+        Self::from_float_raw(float_ops::acosh(&float_ops::div(
+            &float_ops::from_f64(1.0),
+            &self.to_float_repr(),
+        )))
+    }
+    fn acsch(&self) -> Self {
+        Self::from_float_raw(float_ops::asinh(&float_ops::div(
+            &float_ops::from_f64(1.0),
+            &self.to_float_repr(),
+        )))
+    }
+
+    fn exp(&self) -> Self {
+        Self::from_float_raw(float_ops::exp(&self.to_float_repr()))
+    }
+    fn expm1(&self) -> Self {
+        Self::from_float_raw(float_ops::expm1(&self.to_float_repr()))
+    }
+    fn exp_neg(&self) -> Self {
+        Self::from_float_raw(float_ops::exp(&float_ops::neg(&self.to_float_repr())))
+    }
+    fn ln(&self) -> Self {
+        Self::from_float_raw(float_ops::ln(&self.to_float_repr()))
+    }
+    fn log1p(&self) -> Self {
+        Self::from_float_raw(float_ops::log1p(&self.to_float_repr()))
+    }
+
+    // Special functions — delegate to the `special` module via SpecFloat generics
+    fn erf(&self) -> Self {
+        Self::from_float_raw(float_ops::erf(&self.to_float_repr()))
+    }
+    fn erfc(&self) -> Self {
+        Self::from_float_raw(float_ops::erfc(&self.to_float_repr()))
+    }
+    fn gamma(&self) -> Self {
+        // Exact factorial for positive integers: Γ(n) = (n-1)!
+        if let Some(n) = self.to_int()
+            && int_math::is_positive(&n)
+        {
+            let mut acc = int_math::from_i64(1).expect("1 always fits");
+            let mut k = int_math::from_i64(1).expect("1 always fits");
+            let one = int_math::clone(&k);
+            while int_math::cmp(&k, &n) == core::cmp::Ordering::Less {
+                if let Some(next) = int_math::mul(&acc, &k) {
+                    acc = next;
+                } else {
+                    return Self::from_float_raw(float_ops::gamma(&self.to_float_repr()));
+                }
+                if let Some(next) = int_math::add(&k, &one) {
+                    k = next;
+                } else {
+                    return Self::from_float_raw(float_ops::gamma(&self.to_float_repr()));
+                }
+            }
+            return Self::from_int(acc);
+        }
+        Self::from_float_raw(float_ops::gamma(&self.to_float_repr()))
+    }
+    fn lgamma(&self) -> Self {
+        Self::from_float_raw(float_ops::lgamma(&self.to_float_repr()))
+    }
+    fn digamma(&self) -> Self {
+        Self::from_float_raw(float_ops::digamma(&self.to_float_repr()))
+    }
+    fn trigamma(&self) -> Self {
+        Self::from_float_raw(float_ops::trigamma(&self.to_float_repr()))
+    }
+    fn tetragamma(&self) -> Self {
+        Self::from_float_raw(float_ops::tetragamma(&self.to_float_repr()))
+    }
+    fn sinc(&self) -> Self {
+        // sinc(x) = sin(x)/x, sinc(0) = 1
+        if self.is_zero() {
+            return Self::from_int(int_math::from_i64(1).expect("constant 1 always fits"));
+        }
+        &self.sin() / self
+    }
+    fn lambert_w(&self) -> Self {
+        Self::from_float_raw(float_ops::lambert_w(&self.to_float_repr()))
+    }
+    fn lambert_wm1(&self) -> Self {
+        Self::from_float_raw(float_ops::lambert_wm1(&self.to_float_repr()))
+    }
+    fn elliptic_k(&self) -> Self {
+        Self::from_float_raw(float_ops::elliptic_k(&self.to_float_repr()))
+    }
+    fn elliptic_e(&self) -> Self {
+        Self::from_float_raw(float_ops::elliptic_e(&self.to_float_repr()))
+    }
+    fn zeta(&self) -> Self {
+        Self::from_float_raw(float_ops::zeta(&self.to_float_repr()))
+    }
+    fn exp_polar(&self) -> Self {
+        // Real scalar: exp_polar(r) = e^r (polar form with zero angle).
+        // Full complex polar form exp(r + i*theta) = e^r * (cos(theta) + i*sin(theta))
+        // requires a Complex type, which is not yet implemented.
+        self.exp()
+    }
+
+    // Binary / multi-arg
+    fn atan2(&self, x: &Self) -> Self {
+        Self::from_float_raw(float_ops::atan2(&self.to_float_repr(), &x.to_float_repr()))
+    }
+    fn log_base(&self, base: &Self) -> Self {
+        &self.ln() / &base.ln()
+    }
+    fn pow(&self, exp: &Self) -> Self {
+        // Integer exponent — preserve Int/Rational via exponentiation by squaring
+        if let ScalarRepr::Int(e) = &exp.0 {
+            if int_math::is_negative(e) {
+                let abs_e = int_math::abs(e).expect("abs of non-zero integer should succeed");
+                let pos = self.pow(&Self::from_int(abs_e));
+                return &Self::from_int(int_math::from_i64(1).expect("constant 1 always fits"))
+                    / &pos;
+            }
+            if int_math::is_zero(e) {
+                return Self::from_int(int_math::from_i64(1).expect("constant 1 always fits"));
+            }
+
+            let two = int_math::from_i64(2).expect("2 always fits in IntRepr");
+            let mut result = Self::from_int(int_math::from_i64(1).expect("constant 1 always fits"));
+            let mut base = self.clone();
+            let mut ec = int_math::clone(e);
+
+            while !int_math::is_zero(&ec) {
+                if int_math::modulo(&ec, &two) != int_math::zero() {
+                    result = &result * &base;
+                }
+                base = &base * &base;
+                ec = int_math::div_exact(&ec, &two);
+            }
+            return result;
+        }
+
+        // Non-integer exponent → use float pow
+        Self::from_float_raw(float_ops::pow(&self.to_float_repr(), &exp.to_float_repr()))
+    }
+    impl_special_with_int_order_fn!(bessel_j, float_ops::bessel_j);
+    impl_special_with_int_order_fn!(bessel_y, float_ops::bessel_y);
+    impl_special_with_int_order_fn!(bessel_i, float_ops::bessel_i);
+    impl_special_with_int_order_fn!(bessel_k, float_ops::bessel_k);
+    impl_special_with_int_order_fn!(polygamma, float_ops::polygamma);
+
+    fn beta(&self, other: &Self) -> Self {
+        Self::from_float_raw(float_ops::beta(
+            &self.to_float_repr(),
+            &other.to_float_repr(),
+        ))
+    }
+
+    impl_special_with_int_order_fn!(zeta_deriv, float_ops::zeta_deriv);
+    impl_special_with_int_order_fn!(hermite, float_ops::hermite);
+
+    fn assoc_legendre(&self, l: &Self, m: &Self) -> Self {
+        let (Some(li), Some(mi)) = (extract_int_order(l), extract_int_order(m)) else {
+            return Self::from_float_raw(float_ops::nan());
+        };
+        Self::from_float_raw(float_ops::assoc_legendre(&li, &mi, &self.to_float_repr()))
+    }
+
+    fn spherical_harmonic(&self, l: &Self, m: &Self, phi: &Self) -> Self {
+        let (Some(li), Some(mi)) = (extract_int_order(l), extract_int_order(m)) else {
+            return Self::from_float_raw(float_ops::nan());
+        };
+        Self::from_float_raw(float_ops::spherical_harmonic(
+            &li,
+            &mi,
+            &self.to_float_repr(),
+            &phi.to_float_repr(),
+        ))
+    }
+
+    // Core properties
+    fn is_zero(&self) -> bool {
+        match &self.0 {
+            ScalarRepr::Int(i) => int_math::is_zero(i),
+            ScalarRepr::Rational(r) => {
+                rational_math::cmp(r, &rational_math::from_integer(int_math::zero()))
+                    == Ordering::Equal
+            }
+            ScalarRepr::Float(f) => float_ops::is_zero(f),
+        }
+    }
+
+    fn is_one(&self) -> bool {
+        match &self.0 {
+            ScalarRepr::Int(i) => int_math::is_one(i),
+            ScalarRepr::Rational(r) => {
+                rational_math::cmp(
+                    r,
+                    &rational_math::from_integer(
+                        int_math::from_i64(1).expect("constant 1 always fits"),
+                    ),
+                ) == Ordering::Equal
+            }
+            ScalarRepr::Float(f) => float_ops::is_one(f),
+        }
+    }
+
+    fn is_neg_one(&self) -> bool {
+        match &self.0 {
+            ScalarRepr::Int(i) => int_math::is_neg_one(i),
+            ScalarRepr::Rational(r) => {
+                rational_math::cmp(
+                    r,
+                    &rational_math::from_integer(
+                        int_math::from_i64(-1).expect("constant -1 always fits"),
+                    ),
+                ) == Ordering::Equal
+            }
+            ScalarRepr::Float(f) => float_ops::is_neg_one(f),
+        }
+    }
+
+    fn is_integer(&self) -> bool {
+        match &self.0 {
+            ScalarRepr::Int(_) => true,
+            ScalarRepr::Rational(r) => is_integer(r),
+            ScalarRepr::Float(f) => float_ops::is_integer(f),
+        }
+    }
+
+    fn is_negative(&self) -> bool {
+        match &self.0 {
+            ScalarRepr::Int(i) => int_math::is_negative(i),
+            ScalarRepr::Rational(r) => {
+                rational_math::cmp(r, &rational_math::from_integer(int_math::zero()))
+                    == Ordering::Less
+            }
+            ScalarRepr::Float(f) => float_ops::is_negative(f),
+        }
+    }
+
+    fn is_positive(&self) -> bool {
+        match &self.0 {
+            ScalarRepr::Int(i) => int_math::is_positive(i),
+            ScalarRepr::Rational(r) => {
+                rational_math::cmp(r, &rational_math::from_integer(int_math::zero()))
+                    == Ordering::Greater
+            }
+            ScalarRepr::Float(f) => float_ops::is_positive(f),
+        }
+    }
+
+    fn is_finite(&self) -> bool {
+        match &self.0 {
+            ScalarRepr::Int(_) | ScalarRepr::Rational(_) => true,
+            ScalarRepr::Float(f) => float_ops::is_finite(f),
+        }
+    }
+
+    fn to_float(&self) -> Self {
+        Self::from_float_raw(self.to_float_repr())
+    }
+
+    fn approx_eq_number(&self, other: &Self, tolerance: &Self) -> bool {
+        let diff = (self - other).abs();
+        let scale = self.abs().max(other.abs()).max(Self::from_int(
+            int_math::from_i64(1).expect("constant 1 always fits"),
+        ));
+        diff.total_cmp(&(tolerance * &scale)) != Ordering::Greater
+    }
+
+    fn total_cmp(&self, other: &Self) -> Ordering {
+        match (&self.0, &other.0) {
+            (ScalarRepr::Int(a), ScalarRepr::Int(b)) => int_math::cmp(a, b),
+            (ScalarRepr::Rational(a), ScalarRepr::Rational(b)) => rational_math::cmp(a, b),
+            (ScalarRepr::Int(a), ScalarRepr::Rational(b)) => {
+                rational_math::cmp(&rational_math::from_integer(int_math::clone(a)), b)
+            }
+            (ScalarRepr::Rational(a), ScalarRepr::Int(b)) => {
+                rational_math::cmp(a, &rational_math::from_integer(int_math::clone(b)))
+            }
+            _ => {
+                let fl = self.to_float_repr();
+                let fr = other.to_float_repr();
+                float_ops::cmp(&fl, &fr).unwrap_or_else(|| {
+                    // One or both are NaN (since Infinity compares correctly with finite values).
+                    // Total order: NaN is greater than everything else.
+                    match (self.is_nan_internal(), other.is_nan_internal()) {
+                        (false, true) => Ordering::Less,
+                        (true, false) => Ordering::Greater,
+                        _ => Ordering::Equal, // Both NaN
+                    }
+                })
+            }
+        }
+    }
+
+    fn num_max(&self, other: &Self) -> Self {
+        if self.is_nan_internal() || other.is_nan_internal() {
+            return Self::from_float_raw(float_ops::nan());
+        }
+        if self.total_cmp(other) == Ordering::Less {
+            other.clone()
+        } else {
+            self.clone()
+        }
+    }
+
+    fn num_min(&self, other: &Self) -> Self {
+        if self.is_nan_internal() || other.is_nan_internal() {
+            return Self::from_float_raw(float_ops::nan());
+        }
+        if self.total_cmp(other) == Ordering::Greater {
+            other.clone()
+        } else {
+            self.clone()
         }
     }
 }

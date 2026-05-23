@@ -12,7 +12,7 @@
 //!
 //! Compares evaluation methods in the `parallel` feature:
 //! - `eval_f64` (high-perf batch, columnar data)
-//! - `eval_batch` (low-level `CompiledEvaluator` method)
+//! - `eval_batch` (low-level `VmEvaluator` method)
 //! - `evaluate` loop (baseline, single-point calls)
 //!
 //! Run with: cargo bench --bench `benchmark_parallel` --features parallel
@@ -23,7 +23,7 @@ use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use expressions::ALL_EXPRESSIONS;
 use std::collections::HashSet;
 use std::hint::black_box;
-use symb_anafis::{CompiledEvaluator, parse};
+use symb_anafis::{VmEvaluator, parse};
 
 // =============================================================================
 // Evaluation Method Comparison (1000 points)
@@ -48,7 +48,7 @@ fn bench_eval_methods(c: &mut Criterion) {
         params.sort();
 
         // Use compile with explicit parameters
-        let evaluator = CompiledEvaluator::compile(&diff_expr, &params, None);
+        let evaluator = VmEvaluator::compile(&diff_expr, &params, None);
         if evaluator.is_err() {
             eprintln!("Skipping {name} - compile error");
             continue;
@@ -154,7 +154,7 @@ fn bench_eval_scaling(c: &mut Criterion) {
 
     let diff_str = symb_anafis::diff(expr_str, var, no_fixed, None).unwrap();
     let diff_expr = parse(&diff_str, &empty, &empty, None).unwrap();
-    let evaluator = CompiledEvaluator::compile(&diff_expr, &[var][..], None).unwrap();
+    let evaluator = VmEvaluator::compile(&diff_expr, &[var][..], None).unwrap();
 
     let point_counts = [100, 1000, 10_000, 100_000];
 
@@ -225,7 +225,7 @@ fn bench_multi_expr(c: &mut Criterion) {
     for (_, expr_str, var) in &exprs_str {
         let diff_str = symb_anafis::diff(expr_str, var, no_fixed, None).unwrap();
         let diff_expr = parse(&diff_str, &empty, &empty, None).unwrap();
-        if let Ok(eval) = CompiledEvaluator::compile(&diff_expr, &[var][..], None) {
+        if let Ok(eval) = VmEvaluator::compile(&diff_expr, &[var][..], None) {
             diff_exprs.push(diff_expr);
             evaluators.push(eval);
             vars.push(*var);
@@ -346,7 +346,7 @@ fn bench_eval_apis(c: &mut Criterion) {
             let values: Vec<Vec<Vec<Value>>> =
                 vec![vec![test_points.iter().map(|&v| Value::Num(v)).collect()]];
 
-            let result = evaluate_parallel(exprs.clone(), var_names, values).unwrap();
+            let result = evaluate_parallel(exprs.clone(), &var_names, &values).unwrap();
             // Sum results (extract f64 from EvalResult)
             let sum: f64 = result[0]
                 .iter()

@@ -41,7 +41,8 @@ impl From<DiffError> for PyErr {
             | DiffError::UnsupportedFunction(_)
             | DiffError::UnboundVariable(_)
             | DiffError::StackOverflow { .. }
-            | DiffError::NameCollision { .. } => {
+            | DiffError::NameCollision { .. }
+            | DiffError::RegisterOverflow => {
                 Self::new::<pyo3::exceptions::PyRuntimeError, _>(err.to_string())
             }
         }

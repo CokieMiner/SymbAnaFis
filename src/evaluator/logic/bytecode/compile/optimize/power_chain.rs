@@ -1,5 +1,101 @@
 use super::Instruction;
+use super::helper::ConstantPool;
 use rustc_hash::FxHashMap;
+
+/// Performs strength reduction on physical instructions.
+///
+/// Only handles patterns that the VIR-level GVN pass cannot catch:
+/// - `Mul{a, a}` → `Square{a}` (redundant with GVN's `Mul2(a,a)→Square` but kept
+///   as defense-in-depth since N-ary product lowering may reintroduce the pattern)
+/// - `Mul{x, 2.0}` → `Add{x, x}`
+/// - `Powi{n}` → specialized opcodes (`Square`, `Cube`, `Pow4`, `Recip`, `InvSquare`, `InvCube`)
+///
+/// All other constant folding and identity simplifications (e.g. `x + 0 → x`,
+/// `x * 1 → x`, `Div{x, c} → Mul{x, 1/c}`) are already performed by the VIR GVN
+/// pass and will never reach the physical instruction stream.
+#[allow(
+    clippy::float_cmp,
+    reason = "Exact floating point comparison is necessary for identifying algebraic identities (e.g. x * 2.0)"
+)]
+pub(super) fn reduce_strength(instructions: &mut [Instruction], pool: &mut ConstantPool<'_>) {
+    for instr in instructions {
+        match *instr {
+            Instruction::Mul { dest, a, b } if a == b => {
+                if pool.is_constant(a) {
+                    let v = pool.get(a);
+                    let sq = pool.get_or_insert(v * v);
+                    *instr = Instruction::Copy { dest, src: sq };
+                } else {
+                    *instr = Instruction::Square { dest, src: a };
+                }
+            }
+            Instruction::Mul { dest, a, b } => {
+                // x * 2.0 → Add(x, x)
+                if pool.is_constant(b) && pool.get(b) == 2.0 {
+                    *instr = Instruction::Add { dest, a, b: a };
+                } else if pool.is_constant(a) && pool.get(a) == 2.0 {
+                    *instr = Instruction::Add { dest, a: b, b };
+                }
+            }
+            Instruction::Powi {
+                dest,
+                src,
+                n: pow_n,
+            } => match pow_n {
+                2 => *instr = Instruction::Square { dest, src },
+                3 => *instr = Instruction::Cube { dest, src },
+                4 => *instr = Instruction::Pow4 { dest, src },
+                -1 => *instr = Instruction::Recip { dest, src },
+                -2 => *instr = Instruction::InvSquare { dest, src },
+                -3 => *instr = Instruction::InvCube { dest, src },
+                _ => {}
+            },
+            Instruction::End {}
+            | Instruction::SinCos { .. }
+            | Instruction::AsinAcos { .. }
+            | Instruction::Add { .. }
+            | Instruction::Sub { .. }
+            | Instruction::Div { .. }
+            | Instruction::Pow { .. }
+            | Instruction::Neg { .. }
+            | Instruction::Copy { .. }
+            | Instruction::Sin { .. }
+            | Instruction::Cos { .. }
+            | Instruction::Exp { .. }
+            | Instruction::Ln { .. }
+            | Instruction::Sqrt { .. }
+            | Instruction::Square { .. }
+            | Instruction::Cube { .. }
+            | Instruction::Pow4 { .. }
+            | Instruction::Pow3_2 { .. }
+            | Instruction::InvPow3_2 { .. }
+            | Instruction::InvSqrt { .. }
+            | Instruction::Recip { .. }
+            | Instruction::InvSquare { .. }
+            | Instruction::InvCube { .. }
+            | Instruction::ExpSqr { .. }
+            | Instruction::ExpSqrNeg { .. }
+            | Instruction::RecipExpm1 { .. }
+            | Instruction::Add3 { .. }
+            | Instruction::Add4 { .. }
+            | Instruction::AddN { .. }
+            | Instruction::Mul3 { .. }
+            | Instruction::Mul4 { .. }
+            | Instruction::MulN { .. }
+            | Instruction::Builtin1 { .. }
+            | Instruction::Builtin2 { .. }
+            | Instruction::Builtin3 { .. }
+            | Instruction::Builtin4 { .. }
+            | Instruction::MulAdd { .. }
+            | Instruction::MulSub { .. }
+            | Instruction::NegMul { .. }
+            | Instruction::NegMulAdd { .. }
+            | Instruction::NegMulSub { .. } => {}
+        }
+    }
+}
+
+// ── Power-chain optimization ──────────────────────────────────────────────
 
 /// Optimization pass that rewires independent power instructions sharing the same base into chains.
 ///
@@ -50,60 +146,7 @@ pub(super) fn optimize_power_chains(instructions: &mut [Instruction]) {
     let mut dest_to_base: FxHashMap<u32, u32> = FxHashMap::default();
 
     for instr in instructions.iter_mut() {
-        let power_info = match *instr {
-            Instruction::Square { src, dest }
-            | Instruction::Cube { src, dest }
-            | Instruction::Pow4 { src, dest }
-            | Instruction::Powi { src, dest, .. }
-            | Instruction::Recip { src, dest }
-            | Instruction::InvSquare { src, dest }
-            | Instruction::InvCube { src, dest } => {
-                let base_src = dest_to_base.get(&src).copied();
-                let exp_src = base_src.map_or(1, |b| {
-                    available_by_base
-                        .get(&b)
-                        .and_then(|v| v.iter().find(|&&(_, r)| r == src))
-                        .map_or(1, |&(e, _)| e)
-                });
-
-                let multiplier = match *instr {
-                    Instruction::Square { .. } => 2,
-                    Instruction::Cube { .. } => 3,
-                    Instruction::Pow4 { .. } => 4,
-                    Instruction::Powi { n, .. } => n,
-                    Instruction::Recip { .. } => -1,
-                    Instruction::InvSquare { .. } => -2,
-                    Instruction::InvCube { .. } => -3,
-                    _ => 1, // Fallback for safety, though should be covered by outer match
-                };
-
-                Some((base_src.unwrap_or(src), exp_src * multiplier, dest))
-            }
-            Instruction::Mul { a, b, dest } => {
-                let base_a = dest_to_base.get(&a).copied();
-                let base_b = dest_to_base.get(&b).copied();
-
-                let exp_a = base_a.map_or(1, |base_reg| {
-                    available_by_base
-                        .get(&base_reg)
-                        .and_then(|v| v.iter().find(|&&(_, r)| r == a))
-                        .map_or(1, |&(e, _)| e)
-                });
-                let exp_b = base_b.map_or(1, |base_reg| {
-                    available_by_base
-                        .get(&base_reg)
-                        .and_then(|v| v.iter().find(|&&(_, r)| r == b))
-                        .map_or(1, |&(e, _)| e)
-                });
-
-                let effective_base_a = base_a.unwrap_or(a);
-                let effective_base_b = base_b.unwrap_or(b);
-
-                (effective_base_a == effective_base_b)
-                    .then(|| (effective_base_a, exp_a + exp_b, dest))
-            }
-            _ => None,
-        };
+        let power_info = get_power_info(instr, &available_by_base, &dest_to_base);
 
         if let Some((base, exp, dest)) = power_info {
             if let Some(replacement) = available_by_base
@@ -252,4 +295,139 @@ fn find_cheap_combo(
     }
 
     None
+}
+
+const fn instruction_multiplier(instr: &Instruction) -> i32 {
+    match *instr {
+        Instruction::Square { .. } => 2,
+        Instruction::Cube { .. } => 3,
+        Instruction::Pow4 { .. } => 4,
+        Instruction::Powi { n, .. } => n,
+        Instruction::Recip { .. } => -1,
+        Instruction::InvSquare { .. } => -2,
+        Instruction::InvCube { .. } => -3,
+        Instruction::End { .. }
+        | Instruction::Copy { .. }
+        | Instruction::Neg { .. }
+        | Instruction::SinCos { .. }
+        | Instruction::AsinAcos { .. }
+        | Instruction::Add { .. }
+        | Instruction::Add3 { .. }
+        | Instruction::Add4 { .. }
+        | Instruction::AddN { .. }
+        | Instruction::Mul { .. }
+        | Instruction::Mul3 { .. }
+        | Instruction::Mul4 { .. }
+        | Instruction::MulN { .. }
+        | Instruction::Sub { .. }
+        | Instruction::Div { .. }
+        | Instruction::Pow { .. }
+        | Instruction::MulAdd { .. }
+        | Instruction::MulSub { .. }
+        | Instruction::NegMul { .. }
+        | Instruction::NegMulAdd { .. }
+        | Instruction::NegMulSub { .. }
+        | Instruction::Pow3_2 { .. }
+        | Instruction::InvPow3_2 { .. }
+        | Instruction::InvSqrt { .. }
+        | Instruction::Sin { .. }
+        | Instruction::Cos { .. }
+        | Instruction::Exp { .. }
+        | Instruction::Ln { .. }
+        | Instruction::Sqrt { .. }
+        | Instruction::RecipExpm1 { .. }
+        | Instruction::ExpSqr { .. }
+        | Instruction::ExpSqrNeg { .. }
+        | Instruction::Builtin1 { .. }
+        | Instruction::Builtin2 { .. }
+        | Instruction::Builtin3 { .. }
+        | Instruction::Builtin4 { .. } => 1,
+    }
+}
+
+fn get_power_info(
+    instr: &Instruction,
+    available_by_base: &FxHashMap<u32, Vec<(i32, u32)>>,
+    dest_to_base: &FxHashMap<u32, u32>,
+) -> Option<(u32, i32, u32)> {
+    match *instr {
+        Instruction::Square { src, dest }
+        | Instruction::Cube { src, dest }
+        | Instruction::Pow4 { src, dest }
+        | Instruction::Powi { src, dest, .. }
+        | Instruction::Recip { src, dest }
+        | Instruction::InvSquare { src, dest }
+        | Instruction::InvCube { src, dest } => {
+            let base_src = dest_to_base.get(&src).copied();
+            let exp_src = base_src.map_or(1, |b| {
+                available_by_base
+                    .get(&b)
+                    .and_then(|v| v.iter().find(|&&(_, r)| r == src))
+                    .map_or(1, |&(e, _)| e)
+            });
+
+            Some((
+                base_src.unwrap_or(src),
+                exp_src.saturating_mul(instruction_multiplier(instr)),
+                dest,
+            ))
+        }
+        Instruction::Mul { a, b, dest } => {
+            let base_a = dest_to_base.get(&a).copied();
+            let base_b = dest_to_base.get(&b).copied();
+
+            let exp_a = base_a.map_or(1, |base_reg| {
+                available_by_base
+                    .get(&base_reg)
+                    .and_then(|v| v.iter().find(|&&(_, r)| r == a))
+                    .map_or(1, |&(e, _)| e)
+            });
+            let exp_b = base_b.map_or(1, |base_reg| {
+                available_by_base
+                    .get(&base_reg)
+                    .and_then(|v| v.iter().find(|&&(_, r)| r == b))
+                    .map_or(1, |&(e, _)| e)
+            });
+
+            let effective_base_a = base_a.unwrap_or(a);
+            let effective_base_b = base_b.unwrap_or(b);
+
+            (effective_base_a == effective_base_b).then(|| (effective_base_a, exp_a + exp_b, dest))
+        }
+        Instruction::End { .. }
+        | Instruction::Copy { .. }
+        | Instruction::Neg { .. }
+        | Instruction::SinCos { .. }
+        | Instruction::AsinAcos { .. }
+        | Instruction::Add { .. }
+        | Instruction::Add3 { .. }
+        | Instruction::Add4 { .. }
+        | Instruction::AddN { .. }
+        | Instruction::Mul3 { .. }
+        | Instruction::Mul4 { .. }
+        | Instruction::MulN { .. }
+        | Instruction::Sub { .. }
+        | Instruction::Div { .. }
+        | Instruction::Pow { .. }
+        | Instruction::MulAdd { .. }
+        | Instruction::MulSub { .. }
+        | Instruction::NegMul { .. }
+        | Instruction::NegMulAdd { .. }
+        | Instruction::NegMulSub { .. }
+        | Instruction::Pow3_2 { .. }
+        | Instruction::InvPow3_2 { .. }
+        | Instruction::InvSqrt { .. }
+        | Instruction::Sin { .. }
+        | Instruction::Cos { .. }
+        | Instruction::Exp { .. }
+        | Instruction::Ln { .. }
+        | Instruction::Sqrt { .. }
+        | Instruction::RecipExpm1 { .. }
+        | Instruction::ExpSqr { .. }
+        | Instruction::ExpSqrNeg { .. }
+        | Instruction::Builtin1 { .. }
+        | Instruction::Builtin2 { .. }
+        | Instruction::Builtin3 { .. }
+        | Instruction::Builtin4 { .. } => None,
+    }
 }

@@ -1,6 +1,11 @@
 #[allow(
     clippy::unwrap_used,
     clippy::items_after_statements,
+    clippy::arithmetic_side_effects,
+    clippy::as_conversions,
+    clippy::indexing_slicing,
+    clippy::single_call_fn,
+    clippy::wildcard_enum_match_arm,
     reason = "Standard test relaxations"
 )]
 mod rule_registry_tests {
@@ -96,6 +101,11 @@ mod rule_registry_tests {
 #[allow(
     clippy::unwrap_used,
     clippy::items_after_statements,
+    clippy::arithmetic_side_effects,
+    clippy::as_conversions,
+    clippy::indexing_slicing,
+    clippy::single_call_fn,
+    clippy::wildcard_enum_match_arm,
     reason = "Standard test relaxations"
 )]
 mod debug_factoring_logic_tests {

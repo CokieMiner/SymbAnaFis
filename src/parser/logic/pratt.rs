@@ -59,7 +59,13 @@ impl<'src> Parser<'_, 'src> {
         while let Some(token) = self.current() {
             let precedence = match token {
                 Token::Operator(op) if !op.is_function() => op.precedence(),
-                _ => break,
+                Token::Number(_)
+                | Token::Identifier(_)
+                | Token::Operator(_)
+                | Token::LeftParen
+                | Token::RightParen
+                | Token::Comma
+                | Token::Derivative { .. } => break,
             };
 
             if precedence < min_precedence {
@@ -324,7 +330,9 @@ impl<'src> Parser<'_, 'src> {
                 Ok(Expr::derivative(inner_expr, var, *order))
             }
 
-            _ => Err(DiffError::invalid_token(token.to_user_string())),
+            Token::Operator(_) | Token::RightParen | Token::Comma => {
+                Err(DiffError::invalid_token(token.to_user_string()))
+            }
         }
     }
 
@@ -354,7 +362,66 @@ impl<'src> Parser<'_, 'src> {
                     Operator::Mul => Expr::mul_expr(left, right),
                     Operator::Div => Expr::div_expr(left, right),
                     Operator::Pow => Expr::pow_static(left, right),
-                    _ => {
+                    Operator::Sin
+                    | Operator::Cos
+                    | Operator::Tan
+                    | Operator::Cot
+                    | Operator::Sec
+                    | Operator::Csc
+                    | Operator::Asin
+                    | Operator::Acos
+                    | Operator::Atan
+                    | Operator::Atan2
+                    | Operator::Acot
+                    | Operator::Asec
+                    | Operator::Acsc
+                    | Operator::Ln
+                    | Operator::Exp
+                    | Operator::Sinh
+                    | Operator::Cosh
+                    | Operator::Tanh
+                    | Operator::Coth
+                    | Operator::Sech
+                    | Operator::Csch
+                    | Operator::Asinh
+                    | Operator::Acosh
+                    | Operator::Atanh
+                    | Operator::Acoth
+                    | Operator::Asech
+                    | Operator::Acsch
+                    | Operator::Sqrt
+                    | Operator::Cbrt
+                    | Operator::Log
+                    | Operator::Log10
+                    | Operator::Log2
+                    | Operator::Sinc
+                    | Operator::ExpPolar
+                    | Operator::Abs
+                    | Operator::Signum
+                    | Operator::Floor
+                    | Operator::Ceil
+                    | Operator::Round
+                    | Operator::Erf
+                    | Operator::Erfc
+                    | Operator::Gamma
+                    | Operator::Lgamma
+                    | Operator::Digamma
+                    | Operator::Trigamma
+                    | Operator::Tetragamma
+                    | Operator::Polygamma
+                    | Operator::Beta
+                    | Operator::Zeta
+                    | Operator::ZetaDeriv
+                    | Operator::BesselJ
+                    | Operator::BesselY
+                    | Operator::BesselI
+                    | Operator::BesselK
+                    | Operator::LambertW
+                    | Operator::Ynm
+                    | Operator::AssocLegendre
+                    | Operator::Hermite
+                    | Operator::EllipticE
+                    | Operator::EllipticK => {
                         return Err(DiffError::invalid_token(format!(
                             "operator '{}'",
                             op.to_name()
@@ -365,7 +432,12 @@ impl<'src> Parser<'_, 'src> {
                 Ok(result)
             }
 
-            _ => Err(DiffError::invalid_token(token.to_user_string())),
+            Token::Number(_)
+            | Token::Identifier(_)
+            | Token::LeftParen
+            | Token::RightParen
+            | Token::Comma
+            | Token::Derivative { .. } => Err(DiffError::invalid_token(token.to_user_string())),
         }
     }
 }

@@ -1,8 +1,8 @@
 //! High-level evaluator API: types, builders, traits, and free functions.
 //!
 //! # Public Surface
-//! - [`EvaluatorBuilder`] — builder for [`CompiledEvaluator`]
-//! - [`CompiledEvaluator`] — compiled, thread-safe expression evaluator
+//! - [`EvaluatorBuilder`] — builder for [`VmEvaluator`]
+//! - [`VmEvaluator`] — compiled, thread-safe expression evaluator
 //! - [`ToParamName`] — trait for types usable as parameter names
 //! - [`eval_f64`] — parallel batch evaluation over multiple expressions (requires `parallel` feature)
 
@@ -30,84 +30,63 @@ use crate::{
 };
 
 // ============================================================================
-// EvaluatorBuilder
+// ToParamName trait
 // ============================================================================
 
-/// Builder for `CompiledEvaluator` to handle complex operations with optional parameters.
+/// Trait for types that can be used as parameter names in compile methods.
+///
+/// This allows `compile` to accept `&[&str]`, `&[&Symbol]`, or mixed types.
 ///
 /// # Example
 ///
 /// ```
-/// use symb_anafis::{symb, EvaluatorBuilder};
+/// use symb_anafis::{symb, parse, VmEvaluator};
+/// use std::collections::HashSet;
 ///
+/// let expr = parse("x + y", &HashSet::new(), &HashSet::new(), None).expect("Should parse");
 /// let x = symb("x");
 /// let y = symb("y");
-/// let expr = x.pow(2.0) + y;
 ///
-/// let compiled = EvaluatorBuilder::new(&expr)
-///     .params(&["x", "y"])
-///     .build()
-///     .expect("Should compile");
+/// // Using strings
+/// let c1 = VmEvaluator::compile(&expr, &["x", "y"], None).expect("Should compile");
+///
+/// // Using symbols
+/// let c2 = VmEvaluator::compile(&expr, &[&x, &y], None).expect("Should compile");
 /// ```
-pub struct EvaluatorBuilder<'ctx> {
-    pub(crate) expr: &'ctx Expr,
-    pub(crate) param_order: Option<Vec<String>>,
-    pub(crate) context: Option<&'ctx Context>,
+pub trait ToParamName {
+    /// Get the parameter as a symbol ID (for fast lookup) and name (for storage/error messages).
+    fn to_param_id_and_name(&self) -> (u64, String);
 }
 
-impl<'ctx> EvaluatorBuilder<'ctx> {
-    /// Create a new builder for the given expression.
-    #[inline]
-    #[must_use]
-    pub const fn new(expr: &'ctx Expr) -> Self {
-        Self {
-            expr,
-            param_order: None,
-            context: None,
-        }
+// Blanket impl for anything that can convert to &str
+impl<T: AsRef<str>> ToParamName for T {
+    fn to_param_id_and_name(&self) -> (u64, String) {
+        let s = self.as_ref();
+        let sym = symb(s);
+        (sym.id(), s.to_owned())
     }
+}
 
-    /// Set the parameter order. If not set, parameters are automatically extracted and sorted.
-    #[inline]
-    #[must_use]
-    pub fn params<I, P>(mut self, params: I) -> Self
-    where
-        I: IntoIterator<Item = P>,
-        P: ToParamName,
-    {
-        self.param_order = Some(
-            params
-                .into_iter()
-                .map(|p| p.to_param_id_and_name().1)
-                .collect(),
-        );
-        self
+impl ToParamName for Symbol {
+    fn to_param_id_and_name(&self) -> (u64, String) {
+        (
+            self.id(),
+            self.name().unwrap_or_else(|| format!("${}", self.id())),
+        )
     }
+}
 
-    /// Set the context for custom function definitions.
-    #[inline]
-    #[must_use]
-    pub const fn context(mut self, ctx: &'ctx Context) -> Self {
-        self.context = Some(ctx);
-        self
-    }
-
-    /// Build the `CompiledEvaluator`.
-    ///
-    /// # Errors
-    ///
-    /// Returns `DiffError` if compilation fails.
-    pub fn build(self) -> Result<CompiledEvaluator, DiffError> {
-        if let Some(params) = self.param_order {
-            CompiledEvaluator::compile(self.expr, &params, self.context)
-        } else {
-            CompiledEvaluator::compile_auto(self.expr, self.context)
-        }
+impl ToParamName for &Symbol {
+    fn to_param_id_and_name(&self) -> (u64, String) {
+        (
+            self.id(),
+            self.name().unwrap_or_else(|| format!("${}", self.id())),
+        )
     }
 }
 
 // ============================================================================
-// CompiledEvaluator
+// VmEvaluator
 // ============================================================================
 
 /// Compiled expression evaluator - thread-safe, reusable.
@@ -117,12 +96,12 @@ impl<'ctx> EvaluatorBuilder<'ctx> {
 ///
 /// # Thread Safety
 ///
-/// `CompiledEvaluator` is `Send + Sync` because:
+/// `VmEvaluator` is `Send + Sync` because:
 /// - All data is immutable after construction
 /// - Each evaluation uses its own stack (no shared mutable state)
 
 #[derive(Clone)]
-pub struct CompiledEvaluator {
+pub struct VmEvaluator {
     /// Bytecode instructions (immutable after compilation)
     pub(crate) instructions: Box<[Instruction]>,
     /// Flat bytecode for ultra-fast execution loop dispatch (L1 cache optimized)
@@ -141,14 +120,7 @@ pub struct CompiledEvaluator {
     pub(crate) result_reg: u32,
 }
 
-impl CompiledEvaluator {
-    /// Create a new `EvaluatorBuilder` for complex compilations.
-    #[inline]
-    #[must_use]
-    pub const fn builder(expr: &Expr) -> EvaluatorBuilder<'_> {
-        EvaluatorBuilder::new(expr)
-    }
-
+impl VmEvaluator {
     /// Get the compiled evaluator parameter names in order.
     #[inline]
     #[must_use]
@@ -183,7 +155,121 @@ impl CompiledEvaluator {
     pub fn constant_count(&self) -> usize {
         self.constants.len()
     }
+}
 
+// ============================================================================
+// Compilation entry-points (impl on VmEvaluator)
+// ============================================================================
+
+impl VmEvaluator {
+    /// Compile an expression to bytecode.
+    ///
+    /// * `param_order` — Parameters in evaluation order. Accepts `&[&str]` or `&[&Symbol]`.
+    /// * `context` — Optional context for custom function definitions.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use symb_anafis::{symb, VmEvaluator};
+    ///
+    /// let x = symb("x");
+    /// let y = symb("y");
+    /// let expr = x.pow(2.0) + y;
+    ///
+    /// let compiled = VmEvaluator::compile(&expr, &["x", "y"], None)
+    ///     .expect("Should compile");
+    ///
+    /// let compiled = VmEvaluator::compile(&expr, &[&x, &y], None)
+    ///     .expect("Should compile");
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns `DiffError` if:
+    /// - `UnboundVariable`: Symbol not in parameter list and not a known constant
+    /// - `UnsupportedFunction`: Unknown function name
+    /// - `UnsupportedExpression`: Unevaluated derivatives
+    pub fn compile<P: ToParamName>(
+        expr: &Expr,
+        param_order: &[P],
+        context: Option<&Context>,
+    ) -> Result<Self, DiffError> {
+        use super::logic::CompiledProgram;
+
+        let params: Vec<(u64, String)> = param_order
+            .iter()
+            .map(ToParamName::to_param_id_and_name)
+            .collect();
+        let (param_ids, param_names): (Vec<u64>, Vec<String>) = params.into_iter().unzip();
+
+        let expanded_expr =
+            context.map_or_else(|| expr.clone(), |ctx| expand_user_functions(expr, ctx));
+
+        let mut compiler = VirGenerator::new(&param_ids);
+        compiler.compile_expr(&expanded_expr)?;
+
+        let parts = compiler.into_parts();
+        let CompiledProgram {
+            instructions,
+            mut constants,
+            const_map,
+            mut arg_pool,
+            param_count,
+            max_phys,
+            result_reg,
+        } = parts;
+
+        let (optimized_instructions, max_stack, result_reg) = Self::optimize_instructions(
+            instructions,
+            &mut constants,
+            const_map,
+            &mut arg_pool,
+            param_count,
+            max_phys,
+            result_reg,
+        )?;
+
+        let flat_bytecode = assemble_flat_bytecode(&optimized_instructions);
+
+        Ok(Self {
+            instructions: Box::from(optimized_instructions),
+            flat_bytecode: flat_bytecode.into_boxed_slice(),
+            constants: Box::from(constants),
+            arg_pool: arg_pool.into_boxed_slice(),
+            param_names: param_names.into_boxed_slice(),
+            workspace_size: max_stack,
+            param_count,
+            result_reg,
+        })
+    }
+
+    /// Compile an expression, automatically determining parameter order from variables.
+    ///
+    /// Variables are sorted alphabetically for consistent ordering.
+    ///
+    /// # Errors
+    ///
+    /// Returns `DiffError` if compilation fails.
+    pub fn compile_auto(expr: &Expr, context: Option<&Context>) -> Result<Self, DiffError> {
+        let vars = expr.variables_ordered();
+        let mut param_order: Vec<String> = vars
+            .into_iter()
+            .filter(|v| {
+                let id = symb_interned(v.as_str()).id();
+                !is_known_constant_by_id(id)
+            })
+            .collect();
+
+        param_order.sort();
+        Self::compile(expr, &param_order, context)
+    }
+}
+
+// ============================================================================
+// Inspection and Debugging
+// ============================================================================
+
+impl VmEvaluator {
     /// Disassemble the compiled bytecode into a readable string format,
     /// including execution statistics to aid in performance analysis.
     #[must_use]
@@ -267,9 +353,9 @@ impl CompiledEvaluator {
     }
 }
 
-impl Debug for CompiledEvaluator {
+impl Debug for VmEvaluator {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let mut s = f.debug_struct("CompiledEvaluator");
+        let mut s = f.debug_struct("VmEvaluator");
         s.field("param_names", &self.param_names)
             .field("param_count", &self.param_count)
             .field("instruction_count", &self.instructions.len())
@@ -279,62 +365,6 @@ impl Debug for CompiledEvaluator {
             .field("result_reg", &self.result_reg)
             .field("constant_count", &self.constants.len());
         s.finish()
-    }
-}
-
-// ============================================================================
-// ToParamName trait
-// ============================================================================
-
-/// Trait for types that can be used as parameter names in compile methods.
-///
-/// This allows `compile` to accept `&[&str]`, `&[&Symbol]`, or mixed types.
-///
-/// # Example
-///
-/// ```
-/// use symb_anafis::{symb, parse, CompiledEvaluator};
-/// use std::collections::HashSet;
-///
-/// let expr = parse("x + y", &HashSet::new(), &HashSet::new(), None).expect("Should parse");
-/// let x = symb("x");
-/// let y = symb("y");
-///
-/// // Using strings
-/// let c1 = CompiledEvaluator::compile(&expr, &["x", "y"], None).expect("Should compile");
-///
-/// // Using symbols
-/// let c2 = CompiledEvaluator::compile(&expr, &[&x, &y], None).expect("Should compile");
-/// ```
-pub trait ToParamName {
-    /// Get the parameter as a symbol ID (for fast lookup) and name (for storage/error messages).
-    fn to_param_id_and_name(&self) -> (u64, String);
-}
-
-// Blanket impl for anything that can convert to &str
-impl<T: AsRef<str>> ToParamName for T {
-    fn to_param_id_and_name(&self) -> (u64, String) {
-        let s = self.as_ref();
-        let sym = symb(s);
-        (sym.id(), s.to_owned())
-    }
-}
-
-impl ToParamName for Symbol {
-    fn to_param_id_and_name(&self) -> (u64, String) {
-        (
-            self.id(),
-            self.name().unwrap_or_else(|| format!("${}", self.id())),
-        )
-    }
-}
-
-impl ToParamName for &Symbol {
-    fn to_param_id_and_name(&self) -> (u64, String) {
-        (
-            self.id(),
-            self.name().unwrap_or_else(|| format!("${}", self.id())),
-        )
     }
 }
 
@@ -373,101 +403,4 @@ pub fn eval_f64<V: ToParamName + Sync>(
             )
         })
         .collect()
-}
-// ============================================================================
-// Compilation entry-points (impl on CompiledEvaluator)
-// ============================================================================
-
-impl CompiledEvaluator {
-    /// Compile an expression to bytecode.
-    ///
-    /// * `param_order` — Parameters in evaluation order. Accepts `&[&str]` or `&[&Symbol]`.
-    /// * `context` — Optional context for custom function definitions.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use symb_anafis::{symb, CompiledEvaluator};
-    ///
-    /// let x = symb("x");
-    /// let y = symb("y");
-    /// let expr = x.pow(2.0) + y;
-    ///
-    /// let compiled = CompiledEvaluator::compile(&expr, &["x", "y"], None)
-    ///     .expect("Should compile");
-    ///
-    /// let compiled = CompiledEvaluator::compile(&expr, &[&x, &y], None)
-    ///     .expect("Should compile");
-    /// ```
-    ///
-    /// # Errors
-    ///
-    /// Returns `DiffError` if:
-    /// - `UnboundVariable`: Symbol not in parameter list and not a known constant
-    /// - `UnsupportedFunction`: Unknown function name
-    /// - `UnsupportedExpression`: Unevaluated derivatives
-    pub fn compile<P: ToParamName>(
-        expr: &Expr,
-        param_order: &[P],
-        context: Option<&Context>,
-    ) -> Result<Self, DiffError> {
-        let params: Vec<(u64, String)> = param_order
-            .iter()
-            .map(ToParamName::to_param_id_and_name)
-            .collect();
-        let (param_ids, param_names): (Vec<u64>, Vec<String>) = params.into_iter().unzip();
-
-        let expanded_expr =
-            context.map_or_else(|| expr.clone(), |ctx| expand_user_functions(expr, ctx));
-
-        let mut compiler = VirGenerator::new(&param_ids);
-        compiler.compile_expr(&expanded_expr)?;
-
-        let (vinstrs, mut constants, const_map, mut arg_pool, param_count, max_phys, result_reg) =
-            compiler.into_parts();
-
-        let (optimized_instructions, max_stack, result_reg) = Self::optimize_instructions(
-            vinstrs,
-            &mut constants,
-            const_map,
-            &mut arg_pool,
-            param_count,
-            max_phys,
-            result_reg,
-        )?;
-
-        let flat_bytecode = assemble_flat_bytecode(&optimized_instructions);
-
-        Ok(Self {
-            instructions: Box::from(optimized_instructions),
-            flat_bytecode: flat_bytecode.into_boxed_slice(),
-            constants: Box::from(constants),
-            arg_pool: arg_pool.into_boxed_slice(),
-            param_names: param_names.into_boxed_slice(),
-            workspace_size: max_stack,
-            param_count,
-            result_reg,
-        })
-    }
-
-    /// Compile an expression, automatically determining parameter order from variables.
-    ///
-    /// Variables are sorted alphabetically for consistent ordering.
-    ///
-    /// # Errors
-    ///
-    /// Returns `DiffError` if compilation fails.
-    pub fn compile_auto(expr: &Expr, context: Option<&Context>) -> Result<Self, DiffError> {
-        let vars = expr.variables_ordered();
-        let mut param_order: Vec<String> = vars
-            .into_iter()
-            .filter(|v| {
-                let id = symb_interned(v.as_str()).id();
-                !is_known_constant_by_id(id)
-            })
-            .collect();
-
-        param_order.sort();
-        Self::compile(expr, &param_order, context)
-    }
 }

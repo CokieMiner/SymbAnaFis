@@ -6,7 +6,7 @@
 )]
 use std::collections::HashSet;
 use std::hint::black_box;
-use symb_anafis::{CompiledEvaluator, Diff, parse, symb};
+use symb_anafis::{Diff, VmEvaluator, parse, symb};
 
 pub const NORMAL_PDF: &str = "exp(-(x - mu)^2 / (2 * sigma^2)) / sqrt(2 * pi * sigma^2)";
 pub const NORMAL_PDF_VAR: &str = "x";
@@ -123,7 +123,7 @@ fn main() {
                 .skip_simplification(true)
                 .differentiate(&expr, &var_sym)
                 .unwrap();
-            let compiled = CompiledEvaluator::compile(&diff_expr, &params, None).unwrap();
+            let compiled = VmEvaluator::compile(&diff_expr, &params, None).unwrap();
 
             let param_count = compiled.param_count();
             let mut sum = 0.0;

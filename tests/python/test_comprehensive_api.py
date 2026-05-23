@@ -7,7 +7,7 @@ Tests gradient, hessian, jacobian APIs and integrated workflows.
 import pytest
 import math
 from symb_anafis import (
-    Expr, Symbol, Diff, Simplify, CompiledEvaluator,
+    Expr, Symbol, Diff, Simplify, VmEvaluator,
     diff, simplify, parse, symb,
     gradient, gradient_str, hessian, hessian_str, jacobian, jacobian_str,
     evaluate_str
@@ -154,8 +154,8 @@ class TestExprMethods:
         expr = x.to_expr() + 1.0
         substituted = expr.substitute("x", Expr(5.0))
 
-        # Use CompiledEvaluator to get numeric result
-        compiled = CompiledEvaluator(substituted, [])
+        # Use VmEvaluator to get numeric result
+        compiled = VmEvaluator(substituted, [])
         result = compiled.evaluate([])
         assert result == 6.0
 

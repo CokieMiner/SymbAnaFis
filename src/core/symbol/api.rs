@@ -30,6 +30,8 @@ pub enum SymbolError {
     DuplicateName(String),
     /// Attempted to get a symbol that doesn't exist.
     NotFound(String),
+    /// A global registry lock was poisoned.
+    LockPoisoned,
 }
 
 impl Display for SymbolError {
@@ -46,6 +48,9 @@ impl Display for SymbolError {
                     f,
                     "Symbol '{name}' not found. Use symb() to create it first."
                 )
+            }
+            Self::LockPoisoned => {
+                write!(f, "Internal error: Symbol registry lock was poisoned.")
             }
         }
     }

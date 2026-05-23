@@ -11,6 +11,10 @@ use std::cmp::Ordering;
 use std::f64::consts::PI;
 use std::sync::Arc;
 
+use crate::core::ExprKind::{
+    Derivative, Div, FunctionCall, Number, Poly, Pow, Product, Sum, Symbol,
+};
+
 /// Floating point approximate equality used for numeric pattern matching
 /// in simplification rules. Uses epsilon tolerance for safe float comparison.
 #[inline]
@@ -53,7 +57,14 @@ pub fn is_multiple_of_two_pi(expr: &Expr) -> bool {
             match &f.kind {
                 ExprKind::Number(n) => num_coeff = Some(num_coeff.unwrap_or(1.0) * n),
                 ExprKind::Symbol(s) if s.id() == KS.pi => has_pi = true,
-                _ => return false,
+                ExprKind::Symbol(_)
+                | ExprKind::FunctionCall { .. }
+                | ExprKind::Sum(_)
+                | ExprKind::Product(_)
+                | ExprKind::Div(..)
+                | ExprKind::Pow(..)
+                | ExprKind::Derivative { .. }
+                | ExprKind::Poly(_) => return false,
             }
         }
 
@@ -129,11 +140,6 @@ pub fn is_three_pi_over_two(expr: &Expr) -> bool {
 /// Used to establish a consistent term order in sums and products
 /// for algebraic simplification rules.
 pub fn compare_expr(a: &Expr, b: &Expr) -> Ordering {
-    use crate::core::ExprKind::{
-        Derivative, Div, FunctionCall, Number, Poly, Pow, Product, Sum, Symbol,
-    };
-    use Ordering;
-
     /// Extract (`base_name`, degree) for polynomial-style ordering.
     /// Returns (`type_priority`, `base_symbol_id`, degree) - uses u64 ID to avoid String alloc
     fn get_sort_key(e: &Expr) -> (i32, u64, f64) {
@@ -179,7 +185,7 @@ pub fn compare_expr(a: &Expr, b: &Expr) -> Ordering {
     // 1. Compare by type priority (numbers first)
     match type_a.cmp(&type_b) {
         Ordering::Equal => {}
-        ord => return ord,
+        ord @ (Ordering::Less | Ordering::Greater) => return ord,
     }
 
     // 2. For numbers, compare by value
@@ -190,7 +196,7 @@ pub fn compare_expr(a: &Expr, b: &Expr) -> Ordering {
     // 3. Compare by base name (alphabetical) - keeps same base adjacent
     match base_a.cmp(&base_b) {
         Ordering::Equal => {}
-        ord => return ord,
+        ord @ (Ordering::Less | Ordering::Greater) => return ord,
     }
 
     // 4. Compare by degree (low-to-high)
@@ -202,11 +208,6 @@ pub fn compare_expr(a: &Expr, b: &Expr) -> Ordering {
 /// Compare multiplication factors for canonical ordering.
 /// Used for organizing terms in products during simplification.
 pub fn compare_mul_factors(a: &Expr, b: &Expr) -> Ordering {
-    use crate::core::ExprKind::{
-        Derivative, Div, FunctionCall, Number, Poly, Pow, Product, Sum, Symbol,
-    };
-    use Ordering;
-
     fn factor_priority(e: &Expr) -> i32 {
         match &e.kind {
             Number(_) => 0,  // Numbers first (coefficients)
@@ -234,7 +235,7 @@ pub fn compare_mul_factors(a: &Expr, b: &Expr) -> Ordering {
             // Within same priority, use compare_expr
             compare_expr(a, b)
         }
-        ord => ord,
+        ord @ (Ordering::Less | Ordering::Greater) => ord,
     }
 }
 
@@ -278,7 +279,13 @@ pub fn extract_coeff(expr: &Expr) -> (f64, Expr) {
 
             (coeff, base)
         }
-        _ => (1.0, expr.clone()),
+        ExprKind::Symbol(_)
+        | ExprKind::FunctionCall { .. }
+        | ExprKind::Sum(_)
+        | ExprKind::Div(..)
+        | ExprKind::Pow(..)
+        | ExprKind::Derivative { .. }
+        | ExprKind::Poly(_) => (1.0, expr.clone()),
     }
 }
 
@@ -322,7 +329,13 @@ pub fn extract_coeff_arc(expr: &Arc<Expr>) -> (f64, Arc<Expr>) {
 
             (coeff, base)
         }
-        _ => (1.0, Arc::clone(expr)),
+        ExprKind::Symbol(_)
+        | ExprKind::FunctionCall { .. }
+        | ExprKind::Sum(_)
+        | ExprKind::Div(..)
+        | ExprKind::Pow(..)
+        | ExprKind::Derivative { .. }
+        | ExprKind::Poly(_) => (1.0, Arc::clone(expr)),
     }
 }
 
@@ -502,7 +515,10 @@ pub fn prettify_roots(root: Expr) -> Expr {
                             results.push(orig);
                         }
                     }
-                    _ => {
+                    ExprKind::Number(_)
+                    | ExprKind::Symbol(_)
+                    | ExprKind::Derivative { .. }
+                    | ExprKind::Poly(_) => {
                         results.truncate(start);
                         results.push(orig);
                     }
@@ -540,11 +556,7 @@ pub fn is_known_non_negative(expr: &Expr) -> bool {
                 if let ExprKind::Number(n) = &exp.kind {
                     // Even positive integer exponents: x^2, x^4, etc.
                     if *n > 0.0 && n.fract() == 0.0 {
-                        #[allow(
-                            clippy::cast_possible_truncation,
-                            reason = "Checked fract() == 0.0, so cast is safe"
-                        )]
-                        let is_even = (*n as i64) % 2 == 0;
+                        let is_even = (n / 2.0).fract() == 0.0;
                         if is_even {
                             continue; // proven non-negative, no need to check base
                         }
@@ -577,7 +589,13 @@ pub fn is_known_non_negative(expr: &Expr) -> bool {
 
             // Division of non-negative by positive is non-negative (but we can't easily check "positive")
             // Be conservative here
-            _ => return false,
+            ExprKind::Div(..)
+            | ExprKind::Symbol(_)
+            | ExprKind::Derivative { .. }
+            | ExprKind::FunctionCall { .. }
+            | ExprKind::Poly(_) => {
+                return false;
+            }
         }
     }
     true
@@ -593,14 +611,7 @@ pub fn is_fractional_root_exponent(expr: &Expr) -> bool {
         ExprKind::Div(_, den) => {
             if let ExprKind::Number(d) = &den.kind {
                 // Check if denominator is an even integer
-                // Checked fract() == 0.0, so cast is safe
-                #[allow(
-                    clippy::cast_possible_truncation,
-                    reason = "Checked fract() == 0.0, so cast is safe"
-                )]
-                {
-                    d.fract() == 0.0 && (*d as i64) % 2 == 0
-                }
+                d.fract() == 0.0 && (d / 2.0).fract() == 0.0
             } else {
                 // Can't determine, be conservative
                 false
@@ -619,12 +630,19 @@ pub fn is_fractional_root_exponent(expr: &Expr) -> bool {
                 doubled.fract() == 0.0 // If 2n is integer, then n = k/2
             }
         }
-        _ => false,
+        ExprKind::Symbol(_)
+        | ExprKind::FunctionCall { .. }
+        | ExprKind::Sum(_)
+        | ExprKind::Product(_)
+        | ExprKind::Pow(..)
+        | ExprKind::Derivative { .. }
+        | ExprKind::Poly(_) => false,
     }
 }
 
 // Compute greatest common divisor using Euclid's algorithm.
 /// Used for rational number simplification in algebraic rules.
+#[allow(clippy::cast_possible_wrap, reason = "GCD of abs values fits in i64")]
 pub const fn gcd(a: i64, b: i64) -> i64 {
     let mut a = a.unsigned_abs();
     let mut b = b.unsigned_abs();
@@ -633,13 +651,7 @@ pub const fn gcd(a: i64, b: i64) -> i64 {
         b = a % b;
         a = t;
     }
-    #[allow(
-        clippy::cast_possible_wrap,
-        reason = "GCD values are typically small integers, wrap unlikely"
-    )]
-    {
-        a as i64
-    }
+    a as i64
 }
 
 // FNV-1a constants shared by both term hash entry points.
@@ -780,7 +792,10 @@ pub fn normalize_for_comparison(root: &Expr) -> Expr {
                             results.push(orig.clone());
                         }
                     }
-                    _ => {
+                    ExprKind::Number(_)
+                    | ExprKind::Symbol(_)
+                    | ExprKind::Derivative { .. }
+                    | ExprKind::Poly(_) => {
                         results.truncate(start);
                         results.push(orig.clone());
                     }

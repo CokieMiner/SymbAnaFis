@@ -17,7 +17,7 @@ use std::ptr::from_ref;
 /// Each `&Expr` appears at most once in the output (deduplication via pointer
 /// identity).
 fn postorder_walk(root: &Expr, capacity: usize) -> Vec<&Expr> {
-    let mut stack: Vec<(*const Expr, bool)> = Vec::with_capacity(1024.min(capacity));
+    let mut stack: Vec<(*const Expr, bool)> = Vec::with_capacity(capacity.max(64));
     let mut visited = FxHashSet::default();
     visited.reserve(capacity);
     let mut result = Vec::with_capacity(capacity);
@@ -72,7 +72,7 @@ impl VirGenerator {
             let ptr = from_ref(expr);
 
             let const_val = compute_const_from_children(expr, &node_map);
-            let is_cse_candidate = compute_is_cse_candidate(expr, &node_map);
+            let is_cse_candidate = compute_is_cse_candidate(expr);
 
             if is_cse_candidate && let Some(cached) = self.lookup_cse(expr) {
                 let node_data = const_val.map_or_else(

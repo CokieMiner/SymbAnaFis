@@ -2,7 +2,7 @@
 //! Implements bottom-up tree traversal, rule application with memoization,
 //! cycle detection, and configurable limits (iterations, depth).
 
-use super::rules::{RuleContext, RuleExprKind, RuleRegistry};
+use super::rules::{Rule, RuleContext, RuleExprKind, RuleRegistry};
 use crate::core::BodyFn;
 use crate::core::{Expr, ExprKind};
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -376,7 +376,10 @@ impl Simplifier {
                     self.apply_rules_to_node(expr, depth)
                 }
             }
-            _ => self.apply_rules_to_node(expr, depth),
+            ExprKind::Number(_)
+            | ExprKind::Symbol(_)
+            | ExprKind::Poly(_)
+            | ExprKind::Derivative { .. } => self.apply_rules_to_node(expr, depth),
         }
     }
 
@@ -388,51 +391,6 @@ impl Simplifier {
         // Get the expression kind once and only check rules that apply to it
         let kind = RuleExprKind::of(current.as_ref());
 
-        // Helper macro to apply a rule and update current if successful
-        macro_rules! try_apply {
-            ($rule:expr) => {
-                if self.context.domain_safe && $rule.alters_domain() {
-                    continue;
-                }
-
-                let rule_name = $rule.name();
-
-                // Check per-rule cache (hash-keyed for zero Arc clones on lookup)
-                let cache = self
-                    .rule_caches
-                    .entry(rule_name)
-                    .or_insert_with(HashKeyedCache::new);
-                if let Some(res) = cache.get(&current) {
-                    if let Some(new_expr) = res {
-                        current = Arc::clone(new_expr);
-                    }
-                    // Cached result (Some or None), skip application
-                    continue;
-                }
-
-                // Cheap structural pre-check: skip apply() without caching the failure.
-                // can_apply() is O(1) and cheaper than a cache insert + future lookup.
-                if !$rule.can_apply(&current) {
-                    continue;
-                }
-
-                // Evict old entries if the cache is too large.
-                // Generational eviction retains the most recent entries instead of
-                // wiping everything, preventing cold-start cache thrashing.
-                if cache.len() >= self.cache_capacity {
-                    cache.evict_old_generation();
-                }
-
-                if let Some(new_expr) = $rule.apply(&current, &self.context) {
-                    trace_log!("[TRACE] {} : {} => {}", rule_name, current, new_expr);
-                    cache.insert(Arc::clone(&current), Some(Arc::clone(&new_expr)));
-                    current = new_expr;
-                } else {
-                    cache.insert(Arc::clone(&current), None);
-                }
-            };
-        }
-
         if kind == RuleExprKind::Function {
             if let ExprKind::FunctionCall { name, .. } = &current.kind {
                 let registry = global_registry();
@@ -440,23 +398,63 @@ impl Simplifier {
                 let generic = registry.get_generic_func_rules();
 
                 for rule in specific {
-                    try_apply!(rule);
+                    self.apply_single_rule(rule.as_ref(), &mut current);
                 }
                 for rule in generic {
-                    try_apply!(rule);
+                    self.apply_single_rule(rule.as_ref(), &mut current);
                 }
             } else {
                 // Fallback (should not happen for kind=Function)
                 for rule in global_registry().get_rules_for_kind(kind) {
-                    try_apply!(rule);
+                    self.apply_single_rule(rule.as_ref(), &mut current);
                 }
             }
         } else {
             for rule in global_registry().get_rules_for_kind(kind) {
-                try_apply!(rule);
+                self.apply_single_rule(rule.as_ref(), &mut current);
             }
         }
 
         current
+    }
+
+    /// Apply a single rule to the current node, using cache and domain safety checks.
+    fn apply_single_rule(&mut self, rule: &dyn Rule, current: &mut Arc<Expr>) {
+        if self.context.domain_safe && rule.alters_domain() {
+            return;
+        }
+
+        let rule_name = rule.name();
+
+        // Check per-rule cache
+        let cache = self
+            .rule_caches
+            .entry(rule_name)
+            .or_insert_with(HashKeyedCache::new);
+
+        if let Some(res) = cache.get(current) {
+            if let Some(new_expr) = res {
+                *current = Arc::clone(new_expr);
+            }
+            return;
+        }
+
+        // Cheap structural pre-check
+        if !rule.can_apply(current) {
+            return;
+        }
+
+        // Evict old entries if the cache is too large
+        if cache.len() >= self.cache_capacity {
+            cache.evict_old_generation();
+        }
+
+        if let Some(new_expr) = rule.apply(current, &self.context) {
+            trace_log!("[TRACE] {} : {} => {}", rule_name, current, new_expr);
+            cache.insert(Arc::clone(current), Some(Arc::clone(&new_expr)));
+            *current = new_expr;
+        } else {
+            cache.insert(Arc::clone(current), None);
+        }
     }
 }

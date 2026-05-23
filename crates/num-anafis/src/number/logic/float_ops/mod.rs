@@ -1,15 +1,19 @@
-#[cfg(all(feature = "backend_big_astro", not(feature = "backend_big_rug")))]
-mod astro_ops;
-#[cfg(feature = "backend32")]
-mod f32_ops;
-#[cfg(all(
-    not(feature = "backend32"),
-    not(feature = "backend_big_astro"),
-    not(feature = "backend_big_rug")
-))]
+// Default: f64
+#[cfg(all(not(feature = "backend32"), not(feature = "backendrug")))]
 mod f64_ops;
-#[cfg(feature = "backend_big_rug")]
+
+// Override: rug (MPFR-based arbitrary precision)
+#[cfg(feature = "backendrug")]
 mod rug_ops;
+
+// Override: f32 (memory-optimized)
+#[cfg(all(feature = "backend32", not(feature = "backendrug")))]
+mod f32_ops;
+
+// Special function algorithms shared by f32/f64 via SpecFloat trait.
+// Rug uses native MPFR implementations instead.
+#[cfg(not(feature = "backendrug"))]
+pub(super) mod special;
 
 mod api;
 

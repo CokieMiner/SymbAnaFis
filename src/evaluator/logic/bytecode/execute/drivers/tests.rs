@@ -1,3 +1,14 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::arithmetic_side_effects,
+    clippy::as_conversions,
+    clippy::indexing_slicing,
+    clippy::single_call_fn,
+    clippy::wildcard_enum_match_arm,
+    reason = "Standard test relaxations"
+)]
+
+use super::parallel::SKIP;
 use crate::{Expr, core::ExprKind, eval_parallel, symb};
 
 const fn get_num(expr: &Expr) -> f64 {
@@ -89,7 +100,6 @@ fn test_two_vars() {
 
 #[test]
 fn test_skip_value() {
-    use super::parallel::SKIP;
     let eval_results = eval_parallel!(
         exprs: ["x * y"],
         vars: [["x", "y"]],

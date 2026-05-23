@@ -114,6 +114,25 @@ pub(super) fn eliminate_dead_code(
         }
     }
 
+    // Resolve multi-hop forwarding chains to reach immutable roots.
+    // Each iteration peels one hop off chains that end at a param/const.
+    for _ in 0..4 {
+        let mut any = false;
+        for reg in immutable_limit..u32::try_from(max_reg_len).expect("register index overflow") {
+            let forward = copy_of[reg as usize];
+            if forward >= immutable_limit {
+                let deeper = copy_of[forward as usize];
+                if deeper < immutable_limit {
+                    copy_of[reg as usize] = deeper;
+                    any = true;
+                }
+            }
+        }
+        if !any {
+            break;
+        }
+    }
+
     // Second pass: rewrite all reads through the forwarding table, then drop dead Copies
     out.retain_mut(|instr| {
         instr.map_reads(|reg_idx| copy_of[reg_idx as usize]);

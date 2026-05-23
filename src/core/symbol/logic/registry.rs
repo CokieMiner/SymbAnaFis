@@ -165,7 +165,7 @@ pub fn symb_new(name: &str) -> Result<Symbol, SymbolError> {
     let shard_lock = REGISTRY.get_shard(name);
     let mut shard = shard_lock
         .lock()
-        .expect("Global symbol registry shard poisoned");
+        .map_err(|_err| SymbolError::LockPoisoned)?;
 
     if shard.name_to_symbol_key.contains_key(name) {
         return Err(SymbolError::DuplicateName(name.to_owned()));
@@ -174,7 +174,7 @@ pub fn symb_new(name: &str) -> Result<Symbol, SymbolError> {
     let key = REGISTRY
         .id_to_data
         .write()
-        .expect("Global ID registry poisoned")
+        .map_err(|_err| SymbolError::LockPoisoned)?
         .insert_with_key(|k| InternedSymbol::new_named(name, k));
     shard.name_to_symbol_key.insert(name.to_owned(), key);
     drop(shard);
@@ -194,7 +194,7 @@ pub fn symb_get(name: &str) -> Result<Symbol, SymbolError> {
     let shard_lock = REGISTRY.get_shard(name);
     let shard = shard_lock
         .lock()
-        .expect("Global symbol registry shard poisoned");
+        .map_err(|_err| SymbolError::LockPoisoned)?;
 
     shard
         .name_to_symbol_key

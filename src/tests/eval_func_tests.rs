@@ -339,7 +339,7 @@ fn test_log10_log2_consistency() {
 // ===== Compiled evaluation of log =====
 #[test]
 fn test_eval_log_compiled() {
-    use crate::CompiledEvaluator;
+    use crate::VmEvaluator;
 
     // Test compiled evaluation of log(2, x)
     let log_expr = crate::Expr::func_multi(
@@ -347,7 +347,7 @@ fn test_eval_log_compiled() {
         vec![crate::Expr::number(2.0), crate::Expr::symbol("x")],
     );
 
-    let evaluator = CompiledEvaluator::compile(&log_expr, &["x"], None).unwrap();
+    let evaluator = VmEvaluator::compile(&log_expr, &["x"], None).unwrap();
 
     // log(2, 8) = 3
     let result = evaluator.evaluate(&[8.0]);
@@ -376,7 +376,7 @@ fn test_eval_log_compiled() {
 
 #[test]
 fn test_eval_log_compiled_variable_base() {
-    use crate::CompiledEvaluator;
+    use crate::VmEvaluator;
 
     // Test compiled evaluation of log(b, x) with variable base
     let log_expr = crate::Expr::func_multi(
@@ -384,7 +384,7 @@ fn test_eval_log_compiled_variable_base() {
         vec![crate::Expr::symbol("b"), crate::Expr::symbol("x")],
     );
 
-    let evaluator = CompiledEvaluator::compile(&log_expr, &["b", "x"], None).unwrap();
+    let evaluator = VmEvaluator::compile(&log_expr, &["b", "x"], None).unwrap();
 
     // log(10, 1000) = 3
     let result = evaluator.evaluate(&[10.0, 1000.0]);

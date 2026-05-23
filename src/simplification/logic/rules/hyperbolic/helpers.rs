@@ -73,7 +73,12 @@ impl ExpTerm {
                 }
                 None
             }
-            _ => None,
+            ExprKind::Number(_)
+            | ExprKind::Symbol(_)
+            | ExprKind::Sum(_)
+            | ExprKind::Product(_)
+            | ExprKind::Div(..)
+            | ExprKind::Derivative { .. } => None,
         }
     }
 

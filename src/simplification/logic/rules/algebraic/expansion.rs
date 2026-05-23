@@ -16,7 +16,14 @@ rule!(
             let contains_factor = |e: &Expr, factor: &Expr| -> bool {
                 match &e.kind {
                     ExprKind::Product(factors) => factors.iter().any(|f| **f == *factor),
-                    _ => e == factor,
+                    ExprKind::Number(_)
+                    | ExprKind::Symbol(_)
+                    | ExprKind::FunctionCall { .. }
+                    | ExprKind::Sum(_)
+                    | ExprKind::Div(..)
+                    | ExprKind::Pow(..)
+                    | ExprKind::Derivative { .. }
+                    | ExprKind::Poly(_) => e == factor,
                 }
             };
 
@@ -102,7 +109,12 @@ rule!(
                         (name.id() == KS.sqrt || name.id() == KS.cbrt) && *n >= 2.0
                     }
                     ExprKind::Number(_) => true,
-                    _ => false,
+                    ExprKind::Symbol(_)
+                    | ExprKind::Sum(_)
+                    | ExprKind::Product(_)
+                    | ExprKind::Div(..)
+                    | ExprKind::Derivative { .. }
+                    | ExprKind::Poly(_) => false,
                 });
 
                 if has_simplifiable {
@@ -162,9 +174,18 @@ rule!(
                                     false
                                 }
                             }
-                            _ => false,
+                            ExprKind::Symbol(_)
+                            | ExprKind::Sum(_)
+                            | ExprKind::Product(_)
+                            | ExprKind::Div(..)
+                            | ExprKind::Derivative { .. }
+                            | ExprKind::Poly(_) => false,
                         }),
-                        _ => false,
+                        ExprKind::Symbol(_)
+                        | ExprKind::Sum(_)
+                        | ExprKind::Div(..)
+                        | ExprKind::Derivative { .. }
+                        | ExprKind::Poly(_) => false,
                     }
                 };
 

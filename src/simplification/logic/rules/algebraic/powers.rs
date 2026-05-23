@@ -455,51 +455,47 @@ rule!(
         if let ExprKind::Pow(base, exp) = &expr.kind
             && let ExprKind::Div(num, den) = &base.kind
         {
-            let is_root_exponent = match &exp.kind {
-                ExprKind::Div(n, d) => {
-                    // Exact check for 1/n root exponent
-                    #[allow(
-                        clippy::float_cmp,
-                        reason = "Comparing against exact constants for root exponent"
-                    )]
-                    // Comparing against exact constants for root exponent
-                    let res = matches!((&n.kind, &d.kind), (ExprKind::Number(num_val), ExprKind::Number(den_val))
-                        if *num_val == 1.0 && *den_val >= 2.0);
-                    res
-                }
-                ExprKind::Number(n) => *n > 0.0 && *n < 1.0,
-                _ => false,
+            let is_root_exponent = if let ExprKind::Div(n, d) = &exp.kind {
+                #[allow(
+                    clippy::float_cmp,
+                    reason = "Comparing against exact constants for root exponent"
+                )]
+                let is_match = matches!((&n.kind, &d.kind), (ExprKind::Number(num_val), ExprKind::Number(den_val))
+                    if *num_val == 1.0 && *den_val >= 2.0);
+                is_match
+            } else if let ExprKind::Number(n) = &exp.kind {
+                *n > 0.0 && *n < 1.0
+            } else {
+                false
             };
 
-            let den_would_simplify = match &den.kind {
-                ExprKind::Pow(_, inner_exp) => {
-                    if let (ExprKind::Number(m), ExprKind::Div(one, n_rc)) =
-                        (&inner_exp.kind, &exp.kind)
+            let den_would_simplify = if let ExprKind::Pow(_, inner_exp) = &den.kind {
+                if let (ExprKind::Number(m), ExprKind::Div(one, n_rc)) =
+                    (&inner_exp.kind, &exp.kind)
+                {
+                    if let (ExprKind::Number(one_val), ExprKind::Number(n_val)) =
+                        (&one.kind, &n_rc.kind)
                     {
-                        if let (ExprKind::Number(one_val), ExprKind::Number(n_val)) =
-                            (&one.kind, &n_rc.kind)
-                        {
-                            // Exact check for 1/n exponent form
-                            #[allow(
-                                clippy::float_cmp,
-                                reason = "Comparing against exact constants for 1/n exponent"
-                            )]
-                            // Comparing against exact constants for 1/n exponent
-                            let matches = *one_val == 1.0 && (m / n_val).fract().abs() < EPSILON;
-                            matches
-                        } else {
-                            false
-                        }
-                    } else if let (ExprKind::Number(m), ExprKind::Number(exp_val)) =
-                        (&inner_exp.kind, &exp.kind)
-                    {
-                        (m * exp_val).fract().abs() < EPSILON
+                        #[allow(
+                            clippy::float_cmp,
+                            reason = "Comparing against exact constants for 1/n exponent"
+                        )]
+                        let is_match = *one_val == 1.0 && (m / n_val).fract().abs() < EPSILON;
+                        is_match
                     } else {
                         false
                     }
+                } else if let (ExprKind::Number(m), ExprKind::Number(exp_val)) =
+                    (&inner_exp.kind, &exp.kind)
+                {
+                    (m * exp_val).fract().abs() < EPSILON
+                } else {
+                    false
                 }
-                ExprKind::Symbol(_) | ExprKind::Number(_) => is_root_exponent,
-                _ => false,
+            } else if matches!(&den.kind, ExprKind::Symbol(_) | ExprKind::Number(_)) {
+                is_root_exponent
+            } else {
+                false
             };
 
             if is_root_exponent || den_would_simplify {

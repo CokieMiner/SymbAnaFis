@@ -1,17 +1,17 @@
-use super::CompiledEvaluator;
 use super::Instruction;
+use super::VmEvaluator;
 use super::compact::compact_constants;
 use super::dce::{DceScratch, eliminate_dead_code};
 use super::fusion::fuse_instructions;
 #[cfg(debug_assertions)]
 use super::helper::validate_program;
 use super::helper::{ConstantPool, calculate_use_count};
-use super::power_chain::optimize_power_chains;
-use super::strength_reduction::reduce_strength;
+use super::power_chain::{optimize_power_chains, reduce_strength};
 use crate::core::error::DiffError;
 use rustc_hash::FxHashMap;
+use std::cmp::max;
 
-impl CompiledEvaluator {
+impl VmEvaluator {
     /// Post-compilation optimization pass that fuses instruction patterns.
     ///
     /// Currently detects:
@@ -43,11 +43,37 @@ impl CompiledEvaluator {
             return Ok((instructions, rc, result_reg));
         }
 
-        let max_reg_idx = u32::try_from(max_phys)
-            .expect("Register index overflow")
+        let mut result_reg = result_reg;
+        let mut max_reg_idx = u32::try_from(max_phys)
+            .map_err(|_err| DiffError::RegisterOverflow)?
             .max(result_reg)
             .saturating_sub(1);
         let old_const_count = constants.len();
+
+        // Shift temporaries to reserve room for new constants introduced by
+        // post-allocation passes (fusion patterns like const_chain, logarithmic).
+        // In the unified layout [Params][Constants][Temporaries], new constants
+        // would overwrite already-allocated temporary registers without this gap.
+        let mut out = instructions;
+        let temp_boundary = u32::try_from(param_count + old_const_count)
+            .map_err(|_err| DiffError::RegisterOverflow)?;
+        let temp_shift: u32 = max(256, out.len())
+            .try_into()
+            .map_err(|_err| DiffError::RegisterOverflow)?;
+
+        for instr in &mut out {
+            instr.map_all_regs(arg_pool, |r| {
+                if r >= temp_boundary {
+                    r + temp_shift
+                } else {
+                    r
+                }
+            });
+        }
+        if result_reg >= temp_boundary {
+            result_reg += temp_shift;
+        }
+        max_reg_idx += temp_shift;
 
         // Pre-allocate use_count buffer reused across DCE and fusion passes.
         // No initial population needed — the first DCE pass recalculates internally.
@@ -57,12 +83,11 @@ impl CompiledEvaluator {
         let mut pool = ConstantPool::with_index(
             constants,
             const_map,
-            u32::try_from(param_count).expect("Param count overflow"),
+            u32::try_from(param_count).map_err(|_err| DiffError::RegisterOverflow)?,
         );
 
         // 1. Initial strength reduction and power chain analysis
         // These passes may convert neutral math to 'Copy' or rewrite power sequences.
-        let mut out = instructions;
         reduce_strength(&mut out, &mut pool);
         optimize_power_chains(&mut out);
 
@@ -75,21 +100,27 @@ impl CompiledEvaluator {
             arg_pool,
             &mut use_count,
             param_count,
-            old_const_count,
+            pool.constants_len(),
             max_reg_idx,
             result_reg,
             &mut dce_scratch,
         );
 
-        // 3. Final fusion pass: Catch FMA/Pow patterns on the cleaned instruction stream
+        // 3. Fusion pass: Catch FMA/Pow patterns on the cleaned instruction stream.
+        // Bounded: each fusion reduces instruction count or rewrites patterns into
+        // non-fusible forms, so convergence is guaranteed. The guard is retained
+        // as defense-in-depth against theoretical cycles introduced by future patterns.
+        let mut fusion_iterations = 0_u32;
         loop {
             calculate_use_count(&out, &mut use_count, &mut dce_scratch.dirty_uses, arg_pool);
             let (new_out, changed) = fuse_instructions(&out, &mut pool, &use_count, arg_pool);
             out = new_out;
-            if !changed {
+            fusion_iterations += 1;
+            if !changed || fusion_iterations >= 32 {
                 break;
             }
         }
+        debug_assert!(fusion_iterations < 32, "Fusion loop hit iteration limit");
 
         // 4. Second DCE pass: Final polish to remove orphans created by Fusion
         out = eliminate_dead_code(
@@ -97,7 +128,7 @@ impl CompiledEvaluator {
             arg_pool,
             &mut use_count,
             param_count,
-            old_const_count,
+            pool.constants_len(),
             max_reg_idx,
             result_reg,
             &mut dce_scratch,
@@ -106,13 +137,14 @@ impl CompiledEvaluator {
         // 5. Constant Compaction & Register Re-indexing
         // This is the final pass. It removes unused constants and shifts all
         // registers down to create a dense, minimal workspace.
+        let current_const_count = pool.constants_len();
         let (const_vec, _) = pool.into_parts();
         let (out, rc, result_reg) = compact_constants(
             out,
             const_vec,
             arg_pool,
             param_count,
-            old_const_count,
+            current_const_count,
             result_reg,
         );
 

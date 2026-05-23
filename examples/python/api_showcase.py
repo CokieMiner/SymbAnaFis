@@ -13,8 +13,9 @@ from symb_anafis import (
     diff, simplify, parse,
     gradient, hessian, jacobian, evaluate, evaluate_str,
     uncertainty_propagation, relative_uncertainty,
-    Context, CompiledEvaluator, Dual, Symbol, symb,
+    Context, VmEvaluator, Dual, Symbol, symb,
     gradient_str, hessian_str, jacobian_str
+    symbol_exists, symbol_count, symbol_names
 )
 
 # Try to import parallel evaluation (only available with parallel feature)
@@ -100,22 +101,29 @@ def section_symbol_management():
 
     x1 = ctx1.symb("x")
     x2 = ctx2.symb("x")
+    z1 = ctx1.symb("z")
+    z2 = ctx2.symb("z")
 
     print("      ctx1 = Context()")
     print("      ctx2 = Context()")
     print("      x1 = ctx1.symb('x')")
     print("      x2 = ctx2.symb('x')")
-    print(f"      ctx1 symbol id: {x1.id}")
-    print(f"      ctx2 symbol id: {x2.id} (different!)\n")
+    print("      z1 = ctx1.symb('z')")
+    print("      z2 = ctx2.symb('z')")
+    print(f"      ctx1 symbol id (x): {x1.id}")
+    print(f"      ctx2 symbol id (x): {x2.id} (shared/global)")
+    print(f"      ctx1 symbol id (z): {z1.id}")
+    print(f"      ctx2 symbol id (z): {z2.id} (different!)\n")
 
     print("  2.3 Context API Methods")
     print(f"      ctx1.is_empty(): {ctx1.is_empty()}")
     print(f"      ctx1.symbol_names(): {ctx1.symbol_names()}")
-    print(f"      ctx1.contains_symbol('x'): {ctx1.contains_symbol('x')}\n")
+    print(f"      ctx1.contains_symbol('x'): {ctx1.contains_symbol('x')}")
+    print(f"      ctx1.contains_symbol('z'): {ctx1.contains_symbol('z')}\n")
 
     print("  2.4 Global Symbol Registry")
-    from symb_anafis import symbol_exists, symbol_count, symbol_names
     print(f"      symbol_exists('x'): {symbol_exists('x')}")
+    print(f"      symbol_exists('z'): {symbol_exists('z')}")
     print(f"      symbol_count(): {symbol_count()}")
     print(f"      symbol_names(): {symbol_names()}\n")
 
@@ -297,17 +305,8 @@ def section_custom_functions():
     result = sq_diff.diff_str("sq(x)", "x")
     print(f"      d/dx[sq(x)] = {result}")
 
-    # 2. Numeric Evaluation (Now supported!)
-    from symb_anafis import evaluate
-    # We need to register it in a context or use evaluate with valid scope if we were evaluating purely
-    # But since Diff returns a string, we can't easily eval the result string with 'sq' unless 'sq' is in the Evaluator's context.
-    # However, we can demonstrate proper object construction if we extended the API to return Expr.
-    
-    # Let's show Context providing the function for evaluation:
     ctx = Context().with_function("sq", 1, sq_body, [sq_partial])
     expr = ctx.symb("x")
-    # This requires constructing a function call expr manually or via parser if we had it exposed attached to context
-    # For now, let's just confirm the API accepts the body callback without error.
     print(f"      (Body callback registered successfully)\n")
 
 
@@ -459,7 +458,7 @@ def section_parallel_evaluation():
 def section_compilation_and_performance():
     print("=" * 66)
     print("12. COMPILATION & PERFORMANCE")
-    print("    CompiledEvaluator for high-performance repeated evaluation")
+    print("    VmEvaluator for high-performance repeated evaluation")
     print("=" * 66 + "\n")
 
     print("  12.1 Compile Expression")
@@ -467,7 +466,7 @@ def section_compilation_and_performance():
     expr = x.sin() * x.pow(2) + 1
     print(f"      Expression: {expr}")
 
-    compiled = CompiledEvaluator(expr, ["x"])
+    compiled = VmEvaluator(expr, ["x"])
 
     val = 2.0
     result = compiled.evaluate([val])
@@ -491,12 +490,11 @@ def section_compilation_and_performance():
 
     # Create expression calling custom function
     # We rely on parse here since Expr builder for functions might not be exposed directly
-    from symb_anafis import parse
     expr_custom = parse("my_sq(x) + 5", custom_functions=["my_sq"])
     print(f"      Expression: {expr_custom}")
 
     # Compile with context (newly supported in bindings)
-    compiled_ctx = CompiledEvaluator(expr_custom, ["x"], ctx)
+    compiled_ctx = VmEvaluator(expr_custom, ["x"], ctx)
 
     res = compiled_ctx.evaluate([3.0])
     print(f"      my_sq(3) + 5 = {res} (expected: 14.0)\n")

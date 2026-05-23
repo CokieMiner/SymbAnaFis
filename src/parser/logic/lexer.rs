@@ -1,6 +1,6 @@
 //! Lexer implementation - two-pass context-aware tokenization
 //!
-//! # Robustness Improvements (2024)
+//! # Robustness Improvements
 //!
 //! This lexer has been refactored to improve maintainability and robustness:
 //!
@@ -266,18 +266,6 @@ fn scan_derivative_notation(input: &str) -> Result<&str, DiffError> {
                 if depth > 0 {
                     depth -= 1;
                 } else {
-                    // Unmatched closing paren at top level - stop here
-                    // This logic mirrors the original: break on unmatched closing paren
-                    // However, we consumed it.
-                    // "Unmatched closing paren at top level - stop here"
-                    // Original code:
-                    // seq.push(next_c); chars.next();
-                    // if depth > 0 { depth -= 1 } else { break }
-                    // So it INCLUDED the closing paren in seq, then broke loop.
-                    // Wait, if depth == 0, break.
-                    // So ")(x" -> seq includes ")".
-                    // But then it breaks.
-                    // Let's verify original behavior.
                     break;
                 }
             }

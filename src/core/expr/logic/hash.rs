@@ -59,7 +59,14 @@ fn hash_term_inner(hash: u64, kind: &ExprKind) -> u64 {
             let h = hash_term_inner(h, &base.kind);
             match &exp.kind {
                 ExprKind::Number(n) => term_hash_f64(h, *n),
-                ek => hash_term_inner(h, ek),
+                ek @ (ExprKind::Symbol(_)
+                | ExprKind::FunctionCall { .. }
+                | ExprKind::Sum(_)
+                | ExprKind::Product(_)
+                | ExprKind::Div(..)
+                | ExprKind::Pow(..)
+                | ExprKind::Derivative { .. }
+                | ExprKind::Poly(_)) => hash_term_inner(h, ek),
             }
         }
         ExprKind::FunctionCall { name, args } => {
@@ -123,6 +130,10 @@ pub fn compute_term_hash(kind: &ExprKind) -> u64 {
             }
             term_hash_u64(h, acc)
         }
-        _ => hash_term_inner(FNV_TERM_OFFSET, kind),
+        ExprKind::FunctionCall { .. }
+        | ExprKind::Div(..)
+        | ExprKind::Pow(..)
+        | ExprKind::Derivative { .. }
+        | ExprKind::Poly(_) => hash_term_inner(FNV_TERM_OFFSET, kind),
     }
 }

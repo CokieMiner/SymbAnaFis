@@ -8,17 +8,17 @@
     reason = "Internal unsafe operations allowed"
 )]
 
-use super::CompiledEvaluator;
+use super::VmEvaluator;
 use super::builtins::{
     eval_builtin1_simd, eval_builtin2_simd, eval_builtin3_simd, eval_builtin4_simd,
 };
+use super::scalar::ColumnRefs;
 use crate::evaluator::FnOp;
 use wide::f64x4;
 
-impl CompiledEvaluator {
+impl VmEvaluator {
     /// Internal SIMD execution loop.
     #[allow(
-        clippy::too_many_lines,
         clippy::cast_possible_truncation,
         clippy::inline_always,
         reason = "Unified dispatch loop"
@@ -73,7 +73,9 @@ impl CompiledEvaluator {
             // Fill provided parameter columns
             for (col_idx, out_val) in workspace[..provided_cols].iter_mut().enumerate() {
                 let col = unsafe { *columns.get_unchecked(col_idx) };
-                if i + n_lanes <= col.len() {
+                if col.is_empty() {
+                    *out_val = f64x4::splat(0.0);
+                } else if i + n_lanes <= col.len() {
                     *out_val = f64x4::from(unsafe { *(col.as_ptr().add(i).cast::<[f64; 4]>()) });
                 } else {
                     *out_val = f64x4::splat(unsafe { *col.get_unchecked(col.len() - 1) });
@@ -93,23 +95,19 @@ impl CompiledEvaluator {
             i += n_lanes;
         }
 
-        // Tail handling
+        // Tail handling — reuse the shared scalar point-evaluation method
+        // with stack-allocated or heap-allocated workspace depending on size.
         if i < n_points {
-            let tail_cols: Vec<&[f64]> = columns
-                .iter()
-                .map(|c| {
-                    if i < c.len() {
-                        &c[i..]
-                    } else if !c.is_empty() {
-                        &c[c.len() - 1..]
-                    } else {
-                        &[]
-                    }
-                })
-                .collect();
+            let col_refs = ColumnRefs::new(columns, provided_cols);
+            let (col_ptrs, col_lens) = col_refs.as_refs();
 
-            // Just use scalar for the tail without allocating a new output buffer
-            self.eval_batch_scalar(&tail_cols, &mut output[i..]);
+            if self.workspace_size <= 256 {
+                let mut local_regs = [0.0_f64; 256];
+                self.eval_points_into(col_ptrs, col_lens, &mut output[i..], &mut local_regs, i);
+            } else {
+                let mut heap_regs = vec![0.0_f64; self.workspace_size];
+                self.eval_points_into(col_ptrs, col_lens, &mut output[i..], &mut heap_regs, i);
+            }
         }
     }
 }

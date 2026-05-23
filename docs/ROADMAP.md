@@ -17,6 +17,8 @@
 - [ ] **Arbitrary Precision Backend**: Transition `Expr` from `f64` to `Number` (Integer/Rational/Float) to eliminate epsilon noise.
 - [ ] **Algebraic Simplifier Refactor**: Transition from fixed-point iteration to Goal-Oriented (Target-based) simplification. Implement explicit modes (e.g., **Force Expand** vs. **Force Factorize**) to ensure predictable, non-redundant canonical forms and prevent infinite recursive loops.
 - [ ] **JIT Compilation (`symjit`)**: Switch from interpreted bytecode to machine code via `symjit` for ultra-fast heavy evaluations.
+- [ ] **Move to no_std**: Remove the dependency on the standard library, enabling `symb_anafis` to be used in `no_std` environments.
+- [ ] Add hash-consing and reduce the size of the Expr struct.
 
 ### Symbolic Engine (`symb_anafis`)
 - [x] Pratt parser with implicit multiplication
@@ -75,6 +77,15 @@
 - [ ] airy_ai(x) e airy_bi(x): Funções de Airy
 - [ ] struve_h(v, x) e struve_l(v, x): Funções de Struve
 - [ ] dirichlet_eta(s): Função Eta de Dirichlet
+- [ ] fox_h(m, n, p, q, a_params, b_params, z): Função H de Fox
+- [ ] lerch_phi(z, s, a): Transcendente de Lerch
+- [ ] hurwitz_zeta(s, a): Função Zeta de Hurwitz
+- [ ] elliptic_f(phi, k) e elliptic_e_inc(phi, k)
+- [ ] elliptic_pi(n, phi, k)
+- [ ] jacobi_sn(u, m), jacobi_cn(u, m), jacobi_dn(u, m)
+- [ ] kelvin_ber(x) e kelvin_bei(x)
+- [ ] mathieu_c(a, q, x) e mathieu_s(a, q, x)
+
 
 ### Symbolic Solver (`symb_anafis::solver`) - MEDIUM PRIORITY
 - [ ] Linear system solver (Gaussian elimination on Expr)
@@ -270,7 +281,7 @@
 - [ ] Implicit surface utilities (normals, curvature)
 - [ ] Ray-marching with symbolic SDF
 - [ ] Parametric curve/surface tools
-- [ ] Curve fitting with symbolic gradients
+- [X] Curve fitting with symbolic gradients
 - [ ] CSG operations
 
 ---

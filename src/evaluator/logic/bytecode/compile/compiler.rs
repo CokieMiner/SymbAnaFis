@@ -5,12 +5,10 @@
 
 use super::Instruction;
 use super::analysis::{
-    GvnKey,
-    eliminate_vir_dead_code, //optimize_nary_extraction,
+    GvnKey, eliminate_vir_dead_code, fuse_vir, greedy_schedule, optimize_div_to_recip,
     optimize_vir_gvn,
 };
 use super::emit::RegAllocator;
-use super::optimize::schedule::greedy_schedule;
 use super::vir::{VInstruction, VReg};
 use crate::core::Expr;
 use crate::core::error::DiffError;
@@ -26,6 +24,18 @@ pub struct VirGenerator {
     pub(super) const_map: FxHashMap<u64, u32>,
     pub(super) next_vreg: u32,
     pub(super) final_vreg: Option<VReg>,
+}
+
+/// Decomposed output of VIR generation and optimization, ready for
+/// physical lowering.
+pub struct CompiledProgram {
+    pub instructions: Vec<Instruction>,
+    pub constants: Vec<f64>,
+    pub const_map: FxHashMap<u64, u32>,
+    pub arg_pool: Vec<u32>,
+    pub param_count: usize,
+    pub max_phys: usize,
+    pub result_reg: u32,
 }
 
 impl VirGenerator {
@@ -77,21 +87,7 @@ impl VirGenerator {
         self.vinstrs.push(instr);
     }
 
-    #[allow(
-        clippy::type_complexity,
-        reason = "Internal signature for bytecode decomposition"
-    )]
-    pub(crate) fn into_parts(
-        mut self,
-    ) -> (
-        Vec<Instruction>,
-        Vec<f64>,
-        FxHashMap<u64, u32>,
-        Vec<u32>,
-        usize,
-        usize,
-        u32,
-    ) {
+    pub(crate) fn into_parts(mut self) -> CompiledProgram {
         let param_count = u32::try_from(self.param_ids.len()).expect("Param count too large");
         optimize_vir_gvn(
             &mut self.vinstrs,
@@ -102,10 +98,13 @@ impl VirGenerator {
         );
         let const_count = u32::try_from(self.constants.len()).expect("Const count too large");
 
-        // Sub-Product Extraction for large N-ary instructions, for now to heavy so commented out,
-        // may be worth revisiting in a more simpler aproach
-        //optimize_nary_extraction(&mut self.vinstrs, &mut self.next_vreg);
+        // Convert redundant divisions into reciprocal + multiplication
+        let (div_vinstrs, next_vreg) = optimize_div_to_recip(self.vinstrs, self.next_vreg);
+        self.vinstrs = div_vinstrs;
+        self.next_vreg = next_vreg;
 
+        // Pre-scheduling VIR Fusion to keep FMA-like patterns together
+        self.vinstrs = fuse_vir(self.vinstrs, VReg::Temp(self.next_vreg));
         // Greedy Instruction Scheduling (Minimizes Register Pressure)
         self.vinstrs = greedy_schedule(self.vinstrs, self.next_vreg);
 
@@ -123,15 +122,15 @@ impl VirGenerator {
         let (instructions, arg_pool, max_phys, result_reg) =
             allocator.allocate(vinstrs, self.final_vreg);
 
-        (
+        CompiledProgram {
             instructions,
-            self.constants,
-            self.const_map,
+            constants: self.constants,
+            const_map: self.const_map,
             arg_pool,
-            param_count as usize,
+            param_count: param_count as usize,
             max_phys,
             result_reg,
-        )
+        }
     }
 
     pub(crate) fn compile_expr(&mut self, expr: &Expr) -> Result<VReg, DiffError> {

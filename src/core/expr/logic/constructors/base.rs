@@ -56,7 +56,14 @@ impl Expr {
     pub const fn as_number(&self) -> Option<f64> {
         match &self.kind {
             ExprKind::Number(n) => Some(*n),
-            _ => None,
+            ExprKind::Symbol(_)
+            | ExprKind::FunctionCall { .. }
+            | ExprKind::Sum(_)
+            | ExprKind::Product(_)
+            | ExprKind::Div(..)
+            | ExprKind::Pow(..)
+            | ExprKind::Derivative { .. }
+            | ExprKind::Poly(_) => None,
         }
     }
 

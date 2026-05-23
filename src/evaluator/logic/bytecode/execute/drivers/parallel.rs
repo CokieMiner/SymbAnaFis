@@ -34,7 +34,7 @@
     reason = "Parallel evaluator uses unsafe for guaranteed unreachable branches in the fast path"
 )]
 
-use super::CompiledEvaluator;
+use super::VmEvaluator;
 use super::batch::run_chunked_evaluator;
 use crate::core::{DiffError, Expr, Symbol, symb};
 use crate::parser::parse;
@@ -316,8 +316,8 @@ impl Display for EvalResult {
 /// - String expressions fail to parse
 pub fn evaluate_parallel(
     exprs: Vec<ExprInput>,
-    var_names: Vec<Vec<VarInput>>,
-    values: Vec<Vec<Vec<Value>>>,
+    var_names: &[Vec<VarInput>],
+    values: &[Vec<Vec<Value>>],
 ) -> Result<Vec<Vec<EvalResult>>, DiffError> {
     // Delegate to the hint-based version with no hints (will compute internally)
     evaluate_parallel_with_hint(exprs, var_names, values, None)
@@ -330,10 +330,10 @@ pub fn evaluate_parallel(
 /// for Python bindings that already scan all values during conversion.
 ///
 /// # Arguments
-/// * `exprs` - Vec of expression inputs (Expr or string)
-/// * `var_names` - 2D Vec of variable names for each expression
-/// * `values` - 3D Vec of substitution values
-/// * `is_fully_numeric` - Optional Vec of bools, one per expression. If Some(true), skips
+/// * `exprs` - Vec of expression inputs (Expr or string), consumed by-value
+/// * `var_names` - Slice of variable-name vectors for each expression
+/// * `values` - Slice of substitution-value vectors for each expression
+/// * `is_fully_numeric` - Optional slice of bools, one per expression. If Some(true), skips
 ///   the numeric check and goes directly to the SIMD fast path.
 ///
 /// # Returns
@@ -348,15 +348,14 @@ pub fn evaluate_parallel(
 // Parallel evaluation handles complex dispatch logic, length is justified
 #[allow(
     clippy::too_many_lines,
-    clippy::needless_pass_by_value,
-    reason = "Complex dispatch logic, Vec needed for multi-value per-expression"
+    reason = "Complex dispatch logic covering multiple evaluation paths"
 )]
 #[inline]
 pub fn evaluate_parallel_with_hint(
     exprs: Vec<ExprInput>,
-    var_names: Vec<Vec<VarInput>>,
-    values: Vec<Vec<Vec<Value>>>,
-    is_fully_numeric: Option<Vec<bool>>,
+    var_names: &[Vec<VarInput>],
+    values: &[Vec<Vec<Value>>],
+    is_fully_numeric: Option<&[bool]>,
 ) -> Result<Vec<Vec<EvalResult>>, DiffError> {
     let n_exprs = exprs.len();
     if var_names.len() != n_exprs || values.len() != n_exprs {
@@ -420,7 +419,7 @@ pub fn evaluate_parallel_with_hint(
 
         // We ignore all_values_numeric check here - we'll check per-point
         // We also rely on compile() to check that all variables are bound
-        let evaluator = CompiledEvaluator::compile(expr, &vars, None).ok();
+        let evaluator = VmEvaluator::compile(expr, &vars, None).ok();
 
         if let Some(evaluator) = evaluator {
             // OPTIMIZATION: Use pre-computed hint if available, otherwise compute lazily
@@ -468,8 +467,7 @@ pub fn evaluate_parallel_with_hint(
 
                 // 2. Pre-allocate output and run the dedicated f64 evaluator
                 let mut output = vec![0.0; n_points];
-                run_chunked_evaluator(&evaluator, &col_refs, &mut output)
-                    .expect("Chunked evaluation failed in parallel numeric path");
+                run_chunked_evaluator(&evaluator, &col_refs, &mut output)?;
 
                 // 3. Convert results back to the required EvalResult type
                 let results = output
@@ -758,8 +756,8 @@ macro_rules! eval_parallel {
     ) => {{
         $crate::evaluate_parallel(
             vec![$($crate::ExprInput::from($e)),*],
-            vec![$(vec![$($crate::VarInput::from($v)),*]),*],
-            vec![$(vec![$(vec![$($crate::Value::from($val)),*]),*]),*],
+            &[$(vec![$($crate::VarInput::from($v)),*]),*],
+            &[$(vec![$(vec![$($crate::Value::from($val)),*]),*]),*],
         )
     }};
 }

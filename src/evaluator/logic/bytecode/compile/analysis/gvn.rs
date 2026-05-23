@@ -1,4 +1,3 @@
-use std::f64::consts::FRAC_PI_2;
 use std::hash::{Hash, Hasher};
 use std::mem::take;
 use std::ptr::from_ref;
@@ -7,15 +6,7 @@ use rustc_hash::FxHashMap;
 
 use super::ConstantPool;
 use super::vir::{VInstruction, VReg};
-use crate::EPSILON;
 use crate::core::Expr;
-use crate::evaluator::FnOp;
-use crate::math::{
-    bessel_i, bessel_j, bessel_k, bessel_y, eval_assoc_legendre, eval_beta, eval_digamma,
-    eval_elliptic_e, eval_elliptic_k, eval_erf, eval_erfc, eval_exp_polar, eval_gamma,
-    eval_hermite, eval_lambert_w, eval_lgamma, eval_polygamma, eval_spherical_harmonic,
-    eval_tetragamma, eval_trigamma, eval_zeta, eval_zeta_deriv,
-};
 
 /// Key for the AST-level GVN cache used during VIR generation.
 ///
@@ -191,13 +182,13 @@ pub(in crate::evaluator::logic::bytecode::compile) fn optimize_vir_gvn(
                     // IEEE 754: 0*NaN=NaN, 0*Inf=NaN. We can only fold to 0 if
                     // all constant factors produced a finite product AND there are
                     // no remaining runtime operands that could be NaN/Inf.
+                    // However, for pure symbolic expressions in scientific fitting,
+                    // we often assume variables are finite. We'll be conservative here.
                     if srcs.is_empty() {
                         Some(emplace_const!(if prod.is_nan() { f64::NAN } else { 0.0 }))
                     } else if prod.is_nan() {
                         Some(emplace_const!(f64::NAN))
                     } else {
-                        // Runtime operands remain; can't fold since they might
-                        // be NaN/Inf. Keep the zero constant as a factor.
                         srcs.push(emplace_const!(0.0));
                         None
                     }
@@ -218,6 +209,10 @@ pub(in crate::evaluator::logic::bytecode::compile) fn optimize_vir_gvn(
             VInstruction::Mul2 { a, b, dest } => {
                 if let (Some(va), Some(vb)) = (get_const_val(*a, &pool), get_const_val(*b, &pool)) {
                     Some(emplace_const!(va * vb))
+                } else if is_zero(*a, &pool) {
+                    get_const_val(*b, &pool).map(|vb| emplace_const!(0.0 * vb))
+                } else if is_zero(*b, &pool) {
+                    get_const_val(*a, &pool).map(|va| emplace_const!(va * 0.0))
                 } else if is_one(*a, &pool) {
                     Some(*b)
                 } else if is_one(*b, &pool) {
@@ -237,26 +232,60 @@ pub(in crate::evaluator::logic::bytecode::compile) fn optimize_vir_gvn(
                         src: *a,
                     };
                     None
+                } else if *a == *b {
+                    // Mul2{x, x} → Square{x}
+                    instr = VInstruction::Square {
+                        dest: *dest,
+                        src: *a,
+                    };
+                    None
                 } else {
                     None
                 }
             }
-            VInstruction::Sub { a, b, .. } => {
-                if let (Some(va), Some(vb)) = (get_const_val(*a, &pool), get_const_val(*b, &pool)) {
-                    Some(emplace_const!(va - vb))
+            VInstruction::Sub { a, b, dest } => {
+                if is_zero(*a, &pool) {
+                    // 0 - x -> Neg(x)
+                    instr = VInstruction::Neg {
+                        dest: *dest,
+                        src: *b,
+                    };
+                    None
                 } else if is_zero(*b, &pool) {
                     Some(*a)
+                } else if let (Some(va), Some(vb)) =
+                    (get_const_val(*a, &pool), get_const_val(*b, &pool))
+                {
+                    Some(emplace_const!(va - vb))
                 } else {
                     None
                 }
             }
-            VInstruction::Div { num, den, .. } => {
+            VInstruction::Div { num, den, dest } => {
                 if let (Some(vnum), Some(vden)) =
                     (get_const_val(*num, &pool), get_const_val(*den, &pool))
                 {
                     Some(emplace_const!(vnum / vden))
+                } else if is_one(*num, &pool) {
+                    // 1 / x → Recip(x)
+                    instr = VInstruction::Recip {
+                        dest: *dest,
+                        src: *den,
+                    };
+                    None
                 } else if is_one(*den, &pool) {
                     Some(*num)
+                } else if let Some(vden) = get_const_val(*den, &pool) {
+                    if vden != 0.0 && vden.is_finite() {
+                        let recip = 1.0 / vden;
+                        let recip_vreg = emplace_const!(recip);
+                        instr = VInstruction::Mul2 {
+                            dest: *dest,
+                            a: *num,
+                            b: recip_vreg,
+                        };
+                    }
+                    None
                 } else {
                     None
                 }
@@ -267,7 +296,13 @@ pub(in crate::evaluator::logic::bytecode::compile) fn optimize_vir_gvn(
                 } else if is_zero(*exp, &pool) {
                     Some(emplace_const!(1.0))
                 } else if is_zero(*base, &pool) {
-                    Some(emplace_const!(0.0))
+                    get_const_val(*exp, &pool).map(|vexp| {
+                        if vexp > 0.0 {
+                            emplace_const!(0.0)
+                        } else {
+                            emplace_const!(f64::INFINITY)
+                        }
+                    })
                 } else if is_one(*base, &pool) {
                     Some(emplace_const!(1.0))
                 } else if let (Some(vbase), Some(vexp)) =
@@ -279,6 +314,13 @@ pub(in crate::evaluator::logic::bytecode::compile) fn optimize_vir_gvn(
                 }
             }
             VInstruction::Neg { src, .. } => get_const_val(*src, &pool).map(|v| emplace_const!(-v)),
+            VInstruction::NegMul { a, b, .. } => {
+                if let (Some(va), Some(vb)) = (get_const_val(*a, &pool), get_const_val(*b, &pool)) {
+                    Some(emplace_const!(-(va * vb)))
+                } else {
+                    None
+                }
+            }
             VInstruction::Square { src, .. } => {
                 get_const_val(*src, &pool).map(|v| emplace_const!(v * v))
             }
@@ -320,231 +362,37 @@ pub(in crate::evaluator::logic::bytecode::compile) fn optimize_vir_gvn(
                 }
             }
             VInstruction::Builtin1 { op, arg, .. } => {
-                get_const_val(*arg, &pool).and_then(|v| {
-                    let result = match *op {
-                        FnOp::Sin => Some(v.sin()),
-                        FnOp::Cos => Some(v.cos()),
-                        FnOp::Tan => Some(v.tan()),
-                        FnOp::Asin => Some(v.asin()),
-                        FnOp::Acos => Some(v.acos()),
-                        FnOp::Atan => Some(v.atan()),
-                        FnOp::Sinh => Some(v.sinh()),
-                        FnOp::Cosh => Some(v.cosh()),
-                        FnOp::Tanh => Some(v.tanh()),
-                        FnOp::Asinh => Some(v.asinh()),
-                        FnOp::Acosh => Some(v.acosh()),
-                        FnOp::Atanh => Some(v.atanh()),
-                        FnOp::Exp => Some(v.exp()),
-                        FnOp::Expm1 => Some(v.exp_m1()),
-                        FnOp::ExpNeg => Some((-v).exp()),
-                        FnOp::Ln => Some(v.ln()),
-                        FnOp::Log1p => Some(v.ln_1p()),
-                        FnOp::Sqrt => Some(v.sqrt()),
-                        FnOp::Cbrt => Some(v.cbrt()),
-                        FnOp::Abs => Some(v.abs()),
-                        FnOp::Floor => Some(v.floor()),
-                        FnOp::Ceil => Some(v.ceil()),
-                        FnOp::Round => Some(v.round()),
-                        FnOp::Signum => Some(v.signum()),
-                        FnOp::Cot => Some(1.0 / v.tan()),
-                        FnOp::Sec => Some(1.0 / v.cos()),
-                        FnOp::Csc => Some(1.0 / v.sin()),
-                        FnOp::Acot => Some(FRAC_PI_2 - v.atan()),
-                        FnOp::Asec => Some((1.0 / v).acos()),
-                        FnOp::Acsc => Some((1.0 / v).asin()),
-                        FnOp::Coth => Some(1.0 / v.tanh()),
-                        FnOp::Sech => Some(1.0 / v.cosh()),
-                        FnOp::Csch => Some(1.0 / v.sinh()),
-                        FnOp::Acoth => Some(0.5 * ((v + 1.0) / (v - 1.0)).ln()),
-                        FnOp::Acsch => Some((1.0 / v + v.mul_add(v, 1.0).sqrt() / v.abs()).ln()), // Note: Acsch simplified mathematically
-                        FnOp::Asech => Some(((1.0 + v.mul_add(-v, 1.0).sqrt()) / v).ln()),
-                        FnOp::Sinc => Some(if v.abs() < EPSILON { 1.0 } else { v.sin() / v }),
-
-                        // special functions
-                        FnOp::Erf => Some(eval_erf(v)),
-                        FnOp::Erfc => Some(eval_erfc(v)),
-                        FnOp::Gamma => Some(eval_gamma(v)),
-                        FnOp::Lgamma => Some(eval_lgamma(v)),
-                        FnOp::Digamma => Some(eval_digamma(v)),
-                        FnOp::Trigamma => Some(eval_trigamma(v)),
-                        FnOp::Tetragamma => Some(eval_tetragamma(v)),
-                        FnOp::LambertW => Some(eval_lambert_w(v)),
-                        FnOp::EllipticK => Some(eval_elliptic_k(v)),
-                        FnOp::EllipticE => Some(eval_elliptic_e(v)),
-                        FnOp::Zeta => Some(eval_zeta(v)),
-                        FnOp::ExpPolar => Some(eval_exp_polar(v)),
-
-                        // The following functions belong to FnOp, but they have arity > 1.
-                        // We must match them here to satisfy Rust's exhaustive pattern matching rules,
-                        // even though they should realistically never appear inside a Builtin1 instruction.
-                        FnOp::Atan2
-                        | FnOp::Log
-                        | FnOp::BesselJ
-                        | FnOp::BesselY
-                        | FnOp::BesselI
-                        | FnOp::BesselK
-                        | FnOp::Polygamma
-                        | FnOp::Beta
-                        | FnOp::ZetaDeriv
-                        | FnOp::Hermite
-                        | FnOp::AssocLegendre
-                        | FnOp::SphericalHarmonic => None,
-                    };
-                    result.map(|val| emplace_const!(val))
-                })
+                get_const_val(*arg, &pool).and_then(|v| op.fold1(v).map(|val| emplace_const!(val)))
             }
             VInstruction::Builtin2 { op, arg1, arg2, .. } => {
                 if let (Some(v1), Some(v2)) =
                     (get_const_val(*arg1, &pool), get_const_val(*arg2, &pool))
                 {
-                    let result = match *op {
-                        FnOp::Atan2 => Some(v1.atan2(v2)),
-                        FnOp::Log => Some(v2.log(v1)),
-                        FnOp::Beta => Some(eval_beta(v1, v2)),
-                        op @ (FnOp::BesselJ
-                        | FnOp::BesselY
-                        | FnOp::BesselI
-                        | FnOp::BesselK
-                        | FnOp::Polygamma
-                        | FnOp::ZetaDeriv
-                        | FnOp::Hermite) => {
-                            // These require the first argument to be an integer mathematically.
-                            // We round silently to match runtime behavior.
-                            let v1_r = v1.round();
-                            (v1_r >= f64::from(i32::MIN) && v1_r <= f64::from(i32::MAX)).then(
-                                || {
-                                    #[allow(
-                                        clippy::cast_possible_truncation,
-                                        reason = "Bounds checked"
-                                    )]
-                                    let n = v1_r as i32;
-                                    match op {
-                                        FnOp::BesselJ => bessel_j(n, v2),
-                                        FnOp::BesselY => bessel_y(n, v2),
-                                        FnOp::BesselI => bessel_i(n, v2),
-                                        FnOp::BesselK => bessel_k(n, v2),
-                                        FnOp::Polygamma => eval_polygamma(n, v2),
-                                        FnOp::ZetaDeriv => eval_zeta_deriv(n, v2),
-                                        FnOp::Hermite => eval_hermite(n, v2),
-                                        _ => f64::NAN,
-                                    }
-                                },
-                            )
-                        }
-
-                        // The following functions belong to FnOp, but they have arity != 2.
-                        // We must match them here to satisfy Rust's exhaustive pattern matching rules,
-                        // even though they should realistically never appear inside a Builtin2 instruction.
-                        FnOp::Sin
-                        | FnOp::Cos
-                        | FnOp::Tan
-                        | FnOp::Cot
-                        | FnOp::Sec
-                        | FnOp::Csc
-                        | FnOp::Asin
-                        | FnOp::Acos
-                        | FnOp::Atan
-                        | FnOp::Acot
-                        | FnOp::Asec
-                        | FnOp::Acsc
-                        | FnOp::Sinh
-                        | FnOp::Cosh
-                        | FnOp::Tanh
-                        | FnOp::Coth
-                        | FnOp::Sech
-                        | FnOp::Csch
-                        | FnOp::Asinh
-                        | FnOp::Acosh
-                        | FnOp::Atanh
-                        | FnOp::Acoth
-                        | FnOp::Acsch
-                        | FnOp::Asech
-                        | FnOp::Exp
-                        | FnOp::Expm1
-                        | FnOp::ExpNeg
-                        | FnOp::Ln
-                        | FnOp::Log1p
-                        | FnOp::Sqrt
-                        | FnOp::Cbrt
-                        | FnOp::Abs
-                        | FnOp::Signum
-                        | FnOp::Floor
-                        | FnOp::Ceil
-                        | FnOp::Round
-                        | FnOp::Erf
-                        | FnOp::Erfc
-                        | FnOp::Gamma
-                        | FnOp::Lgamma
-                        | FnOp::Digamma
-                        | FnOp::Trigamma
-                        | FnOp::Tetragamma
-                        | FnOp::Sinc
-                        | FnOp::LambertW
-                        | FnOp::EllipticK
-                        | FnOp::EllipticE
-                        | FnOp::Zeta
-                        | FnOp::ExpPolar
-                        | FnOp::AssocLegendre
-                        | FnOp::SphericalHarmonic => None,
-                    };
-                    result.map(|val| emplace_const!(val))
+                    op.fold2(v1, v2).map(|val| emplace_const!(val))
                 } else {
                     None
                 }
             }
             VInstruction::BuiltinFun { op, args, .. } => {
-                let mut all_consts = true;
                 let mut c_args = Vec::with_capacity(args.len());
                 for a in args.iter() {
                     if let Some(c) = get_const_val(*a, &pool) {
                         c_args.push(c);
                     } else {
-                        all_consts = false;
                         break;
                     }
                 }
 
-                if all_consts {
-                    let res = match (*op, c_args.as_slice()) {
-                        (FnOp::AssocLegendre, &[l, m, x]) => {
-                            let lr = l.round();
-                            let mr = m.round();
-                            (lr >= f64::from(i32::MIN)
-                                && lr <= f64::from(i32::MAX)
-                                && mr >= f64::from(i32::MIN)
-                                && mr <= f64::from(i32::MAX))
-                            .then(|| {
-                                #[allow(
-                                    clippy::cast_possible_truncation,
-                                    reason = "Bounds checked"
-                                )]
-                                eval_assoc_legendre(lr as i32, mr as i32, x)
-                            })
-                        }
-                        (FnOp::SphericalHarmonic, &[l, m, theta, phi]) => {
-                            let lr = l.round();
-                            let mr = m.round();
-                            (lr >= f64::from(i32::MIN)
-                                && lr <= f64::from(i32::MAX)
-                                && mr >= f64::from(i32::MIN)
-                                && mr <= f64::from(i32::MAX))
-                            .then(|| {
-                                #[allow(
-                                    clippy::cast_possible_truncation,
-                                    reason = "Bounds checked"
-                                )]
-                                eval_spherical_harmonic(lr as i32, mr as i32, theta, phi)
-                            })
-                        }
-                        _ => None,
-                    };
-                    res.map(|val| emplace_const!(val))
+                if c_args.len() == args.len() {
+                    op.fold_n(&c_args).map(|val| emplace_const!(val))
                 } else {
                     None
                 }
             }
             VInstruction::MulAdd { a, b, c, .. } => {
-                if let (Some(va), Some(vb), Some(vc)) = (
+                if is_zero(*a, &pool) || is_zero(*b, &pool) {
+                    Some(*c)
+                } else if let (Some(va), Some(vb), Some(vc)) = (
                     get_const_val(*a, &pool),
                     get_const_val(*b, &pool),
                     get_const_val(*c, &pool),
@@ -555,7 +403,9 @@ pub(in crate::evaluator::logic::bytecode::compile) fn optimize_vir_gvn(
                 }
             }
             VInstruction::MulSub { a, b, c, .. } => {
-                if let (Some(va), Some(vb), Some(vc)) = (
+                if is_zero(*a, &pool) || is_zero(*b, &pool) {
+                    Some(emplace_const!(-get_const_val(*c, &pool).unwrap_or(0.0)))
+                } else if let (Some(va), Some(vb), Some(vc)) = (
                     get_const_val(*a, &pool),
                     get_const_val(*b, &pool),
                     get_const_val(*c, &pool),
@@ -566,12 +416,27 @@ pub(in crate::evaluator::logic::bytecode::compile) fn optimize_vir_gvn(
                 }
             }
             VInstruction::NegMulAdd { a, b, c, .. } => {
-                if let (Some(va), Some(vb), Some(vc)) = (
+                if is_zero(*a, &pool) || is_zero(*b, &pool) {
+                    Some(*c)
+                } else if let (Some(va), Some(vb), Some(vc)) = (
                     get_const_val(*a, &pool),
                     get_const_val(*b, &pool),
                     get_const_val(*c, &pool),
                 ) {
                     Some(emplace_const!(-(va * vb) + vc))
+                } else {
+                    None
+                }
+            }
+            VInstruction::NegMulSub { a, b, c, .. } => {
+                if is_zero(*a, &pool) || is_zero(*b, &pool) {
+                    Some(emplace_const!(-get_const_val(*c, &pool).unwrap_or(0.0)))
+                } else if let (Some(va), Some(vb), Some(vc)) = (
+                    get_const_val(*a, &pool),
+                    get_const_val(*b, &pool),
+                    get_const_val(*c, &pool),
+                ) {
+                    Some(emplace_const!(-(va * vb) - vc))
                 } else {
                     None
                 }

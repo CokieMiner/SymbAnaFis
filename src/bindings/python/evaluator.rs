@@ -1,25 +1,25 @@
 //! Python bindings for compiled evaluators
 //!
-//! This module provides the `PyCompiledEvaluator` class for fast numerical
+//! This module provides the `PyVmEvaluator` class for fast numerical
 //! evaluation of symbolic expressions.
 
 use super::context::PyContext;
 use super::expr::PyExpr;
-use crate::evaluator::CompiledEvaluator as RustCompiledEvaluator;
+use crate::evaluator::VmEvaluator as RustVmEvaluator;
 #[cfg(feature = "parallel")]
 use numpy::PyArray1;
 use numpy::PyReadonlyArray1;
 use pyo3::prelude::*;
 
 /// Python wrapper for compiled evaluators
-#[pyclass(unsendable, name = "CompiledEvaluator")]
-pub struct PyCompiledEvaluator {
+#[pyclass(unsendable, name = "VmEvaluator")]
+pub struct PyVmEvaluator {
     /// The underlying Rust compiled evaluator
-    evaluator: RustCompiledEvaluator,
+    evaluator: RustVmEvaluator,
 }
 
 #[pymethods]
-impl PyCompiledEvaluator {
+impl PyVmEvaluator {
     /// Compile an expression with specified parameter order and optional context.
     // PyO3 requires owned types; if-let pattern clearer than map_or_else here
     #[allow(
@@ -39,9 +39,9 @@ impl PyCompiledEvaluator {
 
         let evaluator = if let Some(p) = &params {
             param_refs = p.iter().map(String::as_str).collect();
-            RustCompiledEvaluator::compile(&expr.0, &param_refs, rust_context)
+            RustVmEvaluator::compile(&expr.0, &param_refs, rust_context)
         } else {
-            RustCompiledEvaluator::compile_auto(&expr.0, rust_context)
+            RustVmEvaluator::compile_auto(&expr.0, rust_context)
         };
 
         evaluator.map(|e| Self { evaluator: e }).map_err(Into::into)

@@ -1,13 +1,14 @@
-#[cfg(any(feature = "backend_big_astro", feature = "backend_big_rug"))]
-mod bigint_math;
-#[cfg(feature = "backend32")]
-mod i32_math;
-#[cfg(all(
-    not(feature = "backend32"),
-    not(feature = "backend_big_astro"),
-    not(feature = "backend_big_rug")
-))]
+// Default: i64
+#[cfg(all(not(feature = "backend32"), not(feature = "backendrug")))]
 mod i64_math;
+
+// Override: rug (GMP-based arbitrary precision)
+#[cfg(feature = "backendrug")]
+mod rug_int;
+
+// Override: i32 (memory-optimized)
+#[cfg(all(feature = "backend32", not(feature = "backendrug")))]
+mod i32_math;
 
 mod api;
 

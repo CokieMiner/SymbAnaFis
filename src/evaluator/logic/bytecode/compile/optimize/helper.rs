@@ -49,6 +49,11 @@ impl<'pool> ConstantPool<'pool> {
         self.constants[rel_idx as usize]
     }
 
+    /// Returns the number of constants in the pool.
+    pub const fn constants_len(&self) -> usize {
+        self.constants.len()
+    }
+
     /// Check if a register is in the constant pool.
     #[allow(
         clippy::cast_possible_truncation,

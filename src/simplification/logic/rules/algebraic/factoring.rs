@@ -28,274 +28,255 @@ impl Rule for FractionCancellationRule {
         &[RuleExprKind::Div, RuleExprKind::Product]
     }
 
-    // Fraction cancellation handles many expression patterns, length is justified
-    #[allow(
-        clippy::too_many_lines,
-        reason = "Complex fraction simplification logic"
-    )]
     fn apply(&self, expr: &Arc<Expr>, context: &RuleContext) -> Option<Arc<Expr>> {
-        // For Product expressions, check if there's a Div nested inside
-        if let ExprKind::Product(factors) = &expr.kind {
-            // Look for a Div among the factors
-            for (i, factor) in factors.iter().enumerate() {
-                if let ExprKind::Div(num, den) = &factor.kind {
-                    // Combine all other factors with numerator
-                    let mut new_num_factors: Vec<Arc<Expr>> = factors
-                        .iter()
-                        .enumerate()
-                        .filter(|(j, _)| *j != i)
-                        .map(|(_, f)| Arc::clone(f))
-                        .collect();
-                    new_num_factors.push(Arc::clone(num));
-
-                    let combined_num = if new_num_factors.len() == 1 {
-                        new_num_factors
-                            .into_iter()
-                            .next()
-                            .expect("Vector guaranteed to have exactly one element")
-                    } else {
-                        Arc::new(Expr::product_from_arcs(new_num_factors))
-                    };
-
-                    let new_div = Expr::div_from_arcs(combined_num, Arc::clone(den));
-                    return self.apply(&Arc::new(new_div), context);
-                }
-            }
-            return None;
+        match &expr.kind {
+            ExprKind::Product(factors) => self.apply_product(factors, context),
+            ExprKind::Div(u, v) => Self::apply_div(u, v, context),
+            ExprKind::Number(_)
+            | ExprKind::Symbol(_)
+            | ExprKind::FunctionCall { .. }
+            | ExprKind::Sum(_)
+            | ExprKind::Pow(..)
+            | ExprKind::Derivative { .. }
+            | ExprKind::Poly(_) => None,
         }
+    }
+}
 
-        if let ExprKind::Div(u, v) = &expr.kind {
-            // Helper to get base and exponent
-            fn get_base_exp(e: &Arc<Expr>) -> (Arc<Expr>, Arc<Expr>) {
-                match &e.kind {
-                    ExprKind::Pow(b, exp) => (Arc::clone(b), Arc::clone(exp)),
-                    ExprKind::FunctionCall { name, args } if args.len() == 1 => {
-                        // Use ID validation via known_symbols
-                        if name.id() == KS.sqrt {
-                            (Arc::clone(&args[0]), Arc::new(Expr::number(0.5)))
-                        } else if name.id() == KS.cbrt {
-                            (
-                                Arc::clone(&args[0]),
-                                Arc::new(Expr::div_expr(Expr::number(1.0), Expr::number(3.0))),
-                            )
-                        } else {
-                            (Arc::clone(e), arc_number(1.0))
-                        }
-                    }
-                    _ => (Arc::clone(e), arc_number(1.0)),
-                }
-            }
+impl FractionCancellationRule {
+    fn apply_product(&self, factors: &[Arc<Expr>], context: &RuleContext) -> Option<Arc<Expr>> {
+        for (i, factor) in factors.iter().enumerate() {
+            if let ExprKind::Div(num, den) = &factor.kind {
+                let mut new_num_factors: Vec<Arc<Expr>> = factors
+                    .iter()
+                    .enumerate()
+                    .filter(|(j, _)| *j != i)
+                    .map(|(_, f)| Arc::clone(f))
+                    .collect();
+                new_num_factors.push(Arc::clone(num));
 
-            fn is_safe_to_cancel(base: &Expr) -> bool {
-                match &base.kind {
-                    ExprKind::Number(n) => n.abs() > EPSILON,
-                    _ => false,
-                }
-            }
-
-            // Get factors from numerator and denominator
-            let num_factors = get_factors_arcs(u);
-            let den_factors = get_factors_arcs(v);
-
-            // 1. Handle numeric coefficients (always safe - nonzero constants)
-            let mut num_coeff = 1.0;
-            let mut den_coeff = 1.0;
-            let mut new_num_factors = Vec::new();
-            let mut new_den_factors = Vec::new();
-
-            for f in num_factors {
-                if let ExprKind::Number(n) = &f.kind {
-                    num_coeff *= n;
+                let combined_num = if new_num_factors.len() == 1 {
+                    new_num_factors.into_iter().next()
                 } else {
-                    new_num_factors.push(f);
-                }
-            }
+                    Some(Arc::new(Expr::product_from_arcs(new_num_factors)))
+                }?;
 
-            for f in den_factors {
-                if let ExprKind::Number(n) = &f.kind {
-                    den_coeff *= n;
-                } else {
-                    new_den_factors.push(f);
-                }
-            }
-
-            // Simplify coefficients
-            let ratio = num_coeff / den_coeff;
-            if ratio.abs() < EPSILON {
-                return Some(Arc::new(Expr::number(0.0)));
-            }
-
-            if (ratio - ratio.round()).abs() < EPSILON {
-                num_coeff = ratio.round();
-                den_coeff = 1.0;
-            } else if (1.0 / ratio - (1.0 / ratio).round()).abs() < EPSILON {
-                let inv = (1.0 / ratio).round();
-                if inv < 0.0 {
-                    num_coeff = -1.0;
-                    den_coeff = -inv;
-                } else {
-                    num_coeff = 1.0;
-                    den_coeff = inv;
-                }
-            }
-
-            // 2. Symbolic cancellation
-            let mut i = 0;
-            while i < new_num_factors.len() {
-                let (base_i, exp_i) = get_base_exp(&new_num_factors[i]);
-                let mut matched = false;
-
-                for j in 0..new_den_factors.len() {
-                    let (base_j, exp_j) = get_base_exp(&new_den_factors[j]);
-
-                    if exprs_equivalent(&base_i, &base_j) {
-                        if context.domain_safe && !is_safe_to_cancel(&base_i) {
-                            break;
-                        }
-
-                        let simplified_exp = if let (ExprKind::Number(n1), ExprKind::Number(n2)) =
-                            (&exp_i.kind, &exp_j.kind)
-                        {
-                            Expr::number(n1 - n2)
-                        } else {
-                            Expr::sum_from_arcs(vec![
-                                Arc::clone(&exp_i),
-                                Arc::new(Expr::product_from_arcs(vec![
-                                    arc_number(-1.0),
-                                    Arc::clone(&exp_j),
-                                ])),
-                            ])
-                        };
-
-                        if let ExprKind::Number(n) = &simplified_exp.kind {
-                            let n = *n;
-                            if n == 0.0 {
-                                new_num_factors.remove(i);
-                                new_den_factors.remove(j);
-                                matched = true;
-                                break;
-                            } else if n > 0.0 {
-                                let is_one_exponent = {
-                                    // Exact check for 1.0 exponent
-                                    #[allow(
-                                        clippy::float_cmp,
-                                        reason = "Comparing against exact constant 1.0"
-                                    )]
-                                    // Comparing against exact constant 1.0
-                                    let res = n == 1.0;
-                                    res
-                                };
-                                if is_one_exponent {
-                                    new_num_factors[i] = Arc::clone(&base_i);
-                                } else {
-                                    new_num_factors[i] = Arc::new(Expr::pow_from_arcs(
-                                        Arc::clone(&base_i),
-                                        Arc::new(Expr::number(n)),
-                                    ));
-                                }
-                                new_den_factors.remove(j);
-                            } else {
-                                new_num_factors.remove(i);
-                                let pos_n = -n;
-                                let is_one_exponent = {
-                                    // Exact check for 1.0 exponent
-                                    #[allow(
-                                        clippy::float_cmp,
-                                        reason = "Comparing against exact constant 1.0"
-                                    )]
-                                    // Comparing against exact constant 1.0
-                                    let res = pos_n == 1.0;
-                                    res
-                                };
-                                if is_one_exponent {
-                                    new_den_factors[j] = Arc::clone(&base_i);
-                                } else {
-                                    new_den_factors[j] = Arc::new(Expr::pow_from_arcs(
-                                        Arc::clone(&base_i),
-                                        Arc::new(Expr::number(pos_n)),
-                                    ));
-                                }
-                            }
-                            matched = true;
-                            break;
-                        }
-                        new_num_factors[i] = Arc::new(Expr::pow_from_arcs(
-                            Arc::clone(&base_i),
-                            Arc::new(simplified_exp),
-                        ));
-                        new_den_factors.remove(j);
-                        matched = true;
-                        break;
-                    }
-                }
-
-                if !matched {
-                    i += 1;
-                }
-            }
-
-            // Add coefficients back
-            let num_not_one = {
-                // Exact check for 1.0 coefficient
-                #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
-                let res = num_coeff != 1.0;
-                res
-            };
-            if num_not_one {
-                new_num_factors.insert(0, Arc::new(Expr::number(num_coeff)));
-            }
-            let den_not_one = {
-                // Exact check for 1.0 coefficient
-                #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
-                let res = den_coeff != 1.0;
-                res
-            };
-            if den_not_one {
-                new_den_factors.insert(0, Arc::new(Expr::number(den_coeff)));
-            }
-
-            // Rebuild numerator
-            let new_num = if new_num_factors.is_empty() {
-                arc_number(1.0)
-            } else if new_num_factors.len() == 1 {
-                new_num_factors
-                    .into_iter()
-                    .next()
-                    .expect("Vector guaranteed to have exactly one element")
-            } else {
-                Arc::new(Expr::product_from_arcs(new_num_factors))
-            };
-
-            // Rebuild denominator
-            let new_den = if new_den_factors.is_empty() {
-                arc_number(1.0)
-            } else if new_den_factors.len() == 1 {
-                new_den_factors
-                    .into_iter()
-                    .next()
-                    .expect("Filtered vector guaranteed to have one element")
-            } else {
-                Arc::new(Expr::product_from_arcs(new_den_factors))
-            };
-
-            if let ExprKind::Number(n) = new_den.kind {
-                let is_one_denominator = {
-                    // Exact check for 1.0 denominator
-                    #[allow(clippy::float_cmp, reason = "Comparing against exact constant 1.0")]
-                    let res = n == 1.0;
-                    res
-                };
-                if is_one_denominator {
-                    return Some(new_num);
-                }
-            }
-
-            let res = Expr::div_from_arcs(new_num, new_den);
-            if res.id != expr.id && res != **expr {
-                return Some(Arc::new(res));
+                let new_div = Expr::div_from_arcs(combined_num, Arc::clone(den));
+                return self.apply(&Arc::new(new_div), context);
             }
         }
         None
+    }
+
+    fn apply_div(u: &Arc<Expr>, v: &Arc<Expr>, context: &RuleContext) -> Option<Arc<Expr>> {
+        let num_factors = get_factors_arcs(u);
+        let den_factors = get_factors_arcs(v);
+
+        let (mut num_coeff, mut new_num_factors) = Self::extract_numeric_coefficient(num_factors);
+        let (mut den_coeff, mut new_den_factors) = Self::extract_numeric_coefficient(den_factors);
+
+        let ratio = num_coeff / den_coeff;
+        if ratio.abs() < EPSILON {
+            return Some(Arc::new(Expr::number(0.0)));
+        }
+
+        Self::simplify_coefficients(&mut num_coeff, &mut den_coeff, ratio);
+
+        Self::cancel_symbolic_factors(&mut new_num_factors, &mut new_den_factors, context);
+
+        Self::add_coefficients_back(&mut new_num_factors, num_coeff);
+        Self::add_coefficients_back(&mut new_den_factors, den_coeff);
+
+        let new_num = Self::rebuild_product(new_num_factors)?;
+        let new_den = Self::rebuild_product(new_den_factors)?;
+
+        if let ExprKind::Number(n) = new_den.kind {
+            #[allow(
+                clippy::float_cmp,
+                reason = "Exact float comparison needed for factoring rules"
+            )]
+            if n == 1.0 {
+                return Some(new_num);
+            }
+        }
+
+        let res = Expr::div_from_arcs(new_num, new_den);
+        Some(Arc::new(res))
+    }
+
+    fn extract_numeric_coefficient(factors: Vec<Arc<Expr>>) -> (f64, Vec<Arc<Expr>>) {
+        let mut coeff = 1.0;
+        let mut non_numeric = Vec::new();
+        for f in factors {
+            if let ExprKind::Number(n) = &f.kind {
+                coeff *= n;
+            } else {
+                non_numeric.push(f);
+            }
+        }
+        (coeff, non_numeric)
+    }
+
+    fn simplify_coefficients(num: &mut f64, den: &mut f64, ratio: f64) {
+        if (ratio - ratio.round()).abs() < EPSILON {
+            *num = ratio.round();
+            *den = 1.0;
+        } else if (1.0 / ratio - (1.0 / ratio).round()).abs() < EPSILON {
+            let inv = (1.0 / ratio).round();
+            if inv < 0.0 {
+                *num = -1.0;
+                *den = -inv;
+            } else {
+                *num = 1.0;
+                *den = inv;
+            }
+        }
+    }
+
+    fn add_coefficients_back(factors: &mut Vec<Arc<Expr>>, coeff: f64) {
+        #[allow(
+            clippy::float_cmp,
+            reason = "Exact float comparison needed for factoring rules"
+        )]
+        if coeff != 1.0 {
+            factors.insert(0, Arc::new(Expr::number(coeff)));
+        }
+    }
+
+    fn rebuild_product(factors: Vec<Arc<Expr>>) -> Option<Arc<Expr>> {
+        if factors.is_empty() {
+            Some(arc_number(1.0))
+        } else if factors.len() == 1 {
+            factors.into_iter().next()
+        } else {
+            Some(Arc::new(Expr::product_from_arcs(factors)))
+        }
+    }
+
+    /// Extract base and exponent from an expression
+    fn get_base_exp(e: &Arc<Expr>) -> (Arc<Expr>, Arc<Expr>) {
+        match &e.kind {
+            ExprKind::Pow(b, exp) => (Arc::clone(b), Arc::clone(exp)),
+            ExprKind::FunctionCall { name, args } if args.len() == 1 => {
+                if name.id() == KS.sqrt {
+                    (Arc::clone(&args[0]), Arc::new(Expr::number(0.5)))
+                } else if name.id() == KS.cbrt {
+                    (
+                        Arc::clone(&args[0]),
+                        Arc::new(Expr::div_expr(Expr::number(1.0), Expr::number(3.0))),
+                    )
+                } else {
+                    (Arc::clone(e), arc_number(1.0))
+                }
+            }
+            ExprKind::Number(_)
+            | ExprKind::Symbol(_)
+            | ExprKind::FunctionCall { .. }
+            | ExprKind::Sum(_)
+            | ExprKind::Product(_)
+            | ExprKind::Div(..)
+            | ExprKind::Derivative { .. }
+            | ExprKind::Poly(_) => (Arc::clone(e), arc_number(1.0)),
+        }
+    }
+
+    /// Check if a base is safe to cancel (e.g. constant != 0)
+    fn is_safe_to_cancel(base: &Expr) -> bool {
+        match &base.kind {
+            ExprKind::Number(n) => n.abs() > EPSILON,
+            ExprKind::Symbol(_)
+            | ExprKind::FunctionCall { .. }
+            | ExprKind::Sum(_)
+            | ExprKind::Product(_)
+            | ExprKind::Div(..)
+            | ExprKind::Pow(..)
+            | ExprKind::Derivative { .. }
+            | ExprKind::Poly(_) => false,
+        }
+    }
+
+    /// Perform the heavy lifting of symbolic factor cancellation
+    fn cancel_symbolic_factors(
+        num: &mut Vec<Arc<Expr>>,
+        den: &mut Vec<Arc<Expr>>,
+        context: &RuleContext,
+    ) {
+        let mut i = 0;
+        while i < num.len() {
+            let (base_i, exp_i) = Self::get_base_exp(&num[i]);
+            let mut matched = false;
+
+            for j in 0..den.len() {
+                let (base_j, exp_j) = Self::get_base_exp(&den[j]);
+
+                if exprs_equivalent(&base_i, &base_j) {
+                    if context.domain_safe && !Self::is_safe_to_cancel(&base_i) {
+                        break;
+                    }
+
+                    let simplified_exp = if let (ExprKind::Number(n1), ExprKind::Number(n2)) =
+                        (&exp_i.kind, &exp_j.kind)
+                    {
+                        Expr::number(n1 - n2)
+                    } else {
+                        Expr::sum_from_arcs(vec![
+                            Arc::clone(&exp_i),
+                            Arc::new(Expr::product_from_arcs(vec![
+                                arc_number(-1.0),
+                                Arc::clone(&exp_j),
+                            ])),
+                        ])
+                    };
+
+                    if let ExprKind::Number(n) = &simplified_exp.kind {
+                        let n = *n;
+                        if n == 0.0 {
+                            num.remove(i);
+                            den.remove(j);
+                            matched = true;
+                            break;
+                        } else if n > 0.0 {
+                            #[allow(clippy::float_cmp, reason = "Comparing against exact 1.0")]
+                            if n == 1.0 {
+                                num[i] = Arc::clone(&base_i);
+                            } else {
+                                num[i] = Arc::new(Expr::pow_from_arcs(
+                                    Arc::clone(&base_i),
+                                    Arc::new(Expr::number(n)),
+                                ));
+                            }
+                            den.remove(j);
+                        } else {
+                            num.remove(i);
+                            let pos_n = -n;
+                            #[allow(clippy::float_cmp, reason = "Comparing against exact 1.0")]
+                            if pos_n == 1.0 {
+                                den[j] = Arc::clone(&base_i);
+                            } else {
+                                den[j] = Arc::new(Expr::pow_from_arcs(
+                                    Arc::clone(&base_i),
+                                    Arc::new(Expr::number(pos_n)),
+                                ));
+                            }
+                        }
+                        matched = true;
+                        break;
+                    }
+
+                    num[i] = Arc::new(Expr::pow_from_arcs(
+                        Arc::clone(&base_i),
+                        Arc::new(simplified_exp),
+                    ));
+                    den.remove(j);
+                    matched = true;
+                    break;
+                }
+            }
+
+            if !matched {
+                i += 1;
+            }
+        }
     }
 }
 
@@ -304,7 +285,14 @@ impl Rule for FractionCancellationRule {
 fn get_factors_arcs(expr: &Arc<Expr>) -> Vec<Arc<Expr>> {
     match &expr.kind {
         ExprKind::Product(factors) => factors.clone(),
-        _ => vec![Arc::clone(expr)],
+        ExprKind::Number(_)
+        | ExprKind::Symbol(_)
+        | ExprKind::FunctionCall { .. }
+        | ExprKind::Sum(_)
+        | ExprKind::Div(..)
+        | ExprKind::Pow(..)
+        | ExprKind::Derivative { .. }
+        | ExprKind::Poly(_) => vec![Arc::clone(expr)],
     }
 }
 
@@ -334,7 +322,13 @@ impl Rule for PerfectSquareRule {
         match &expr.kind {
             ExprKind::Sum(terms) => matches!(terms.len(), 2 | 3),
             ExprKind::Poly(p) => p.terms().len() == 3,
-            _ => false,
+            ExprKind::Number(_)
+            | ExprKind::Symbol(_)
+            | ExprKind::FunctionCall { .. }
+            | ExprKind::Product(_)
+            | ExprKind::Div(..)
+            | ExprKind::Pow(..)
+            | ExprKind::Derivative { .. } => false,
         }
     }
 
@@ -356,7 +350,13 @@ impl Rule for PerfectSquareRule {
                         (coeff, non_numeric)
                     }
                     ExprKind::Number(n) => (*n, vec![]),
-                    _ => (1.0, vec![Arc::clone(term)]),
+                    ExprKind::Symbol(_)
+                    | ExprKind::FunctionCall { .. }
+                    | ExprKind::Sum(_)
+                    | ExprKind::Div(..)
+                    | ExprKind::Pow(..)
+                    | ExprKind::Derivative { .. }
+                    | ExprKind::Poly(_) => (1.0, vec![Arc::clone(term)]),
                 }
             }
 
@@ -383,7 +383,15 @@ impl Rule for PerfectSquareRule {
                     // Convert Poly terms to Expr for analysis
                     poly.to_expr_terms().into_iter().map(Arc::new).collect()
                 }
-                _ => return None,
+                ExprKind::Number(_)
+                | ExprKind::Symbol(_)
+                | ExprKind::FunctionCall { .. }
+                | ExprKind::Sum(_)
+                | ExprKind::Product(_)
+                | ExprKind::Div(..)
+                | ExprKind::Pow(..)
+                | ExprKind::Derivative { .. }
+                | ExprKind::Poly(_) => return None,
             };
 
             let mut square_terms: Vec<(f64, Arc<Expr>)> = Vec::new();
@@ -441,7 +449,13 @@ impl Rule for PerfectSquareRule {
                             linear_terms.push((coeff, Arc::clone(term), arc_number(1.0)));
                         }
                     }
-                    _ => {
+
+                    ExprKind::Symbol(_)
+                    | ExprKind::FunctionCall { .. }
+                    | ExprKind::Sum(_)
+                    | ExprKind::Div(..)
+                    | ExprKind::Derivative { .. }
+                    | ExprKind::Poly(_) => {
                         linear_terms.push((1.0, Arc::clone(term), arc_number(1.0)));
                     }
                 }
@@ -627,114 +641,122 @@ rule_arc!(
     Algebraic,
     &[RuleExprKind::Sum],
     |expr: &Expr, _context: &RuleContext| {
-        if let ExprKind::Sum(terms) = &expr.kind {
-            let terms_vec: Vec<Arc<Expr>> = terms.clone();
+        match &expr.kind {
+            ExprKind::Sum(terms) => {
+                let terms_vec: Vec<Arc<Expr>> = terms.clone();
 
-            // Extract coefficients and variables
-            let mut coeffs_and_terms = Vec::new();
-            for term in &terms_vec {
-                match &term.kind {
-                    ExprKind::Product(factors) => {
-                        let mut coeff = 1.0;
-                        let mut non_numeric: Vec<Arc<Expr>> = Vec::new();
-                        for f in factors {
-                            if let ExprKind::Number(n) = &f.kind {
-                                coeff *= n;
-                            } else {
-                                non_numeric.push(Arc::clone(f));
+                // Extract coefficients and variables
+                let mut coeffs_and_terms = Vec::new();
+                for term in &terms_vec {
+                    match &term.kind {
+                        ExprKind::Product(factors) => {
+                            let mut coeff = 1.0;
+                            let mut non_numeric: Vec<Arc<Expr>> = Vec::new();
+                            for f in factors {
+                                if let ExprKind::Number(n) = &f.kind {
+                                    coeff *= n;
+                                } else {
+                                    non_numeric.push(Arc::clone(f));
+                                }
                             }
+                            let var_part = if non_numeric.is_empty() {
+                                arc_number(1.0)
+                            } else if non_numeric.len() == 1 {
+                                non_numeric.into_iter().next()?
+                            } else {
+                                Arc::new(Expr::product_from_arcs(non_numeric))
+                            };
+                            coeffs_and_terms.push((coeff, var_part));
                         }
-                        let var_part = if non_numeric.is_empty() {
-                            arc_number(1.0)
-                        } else if non_numeric.len() == 1 {
-                            non_numeric
-                                .into_iter()
-                                .next()
-                                .expect("Non-numeric factors guaranteed to have one element")
-                        } else {
-                            Arc::new(Expr::product_from_arcs(non_numeric))
-                        };
-                        coeffs_and_terms.push((coeff, var_part));
-                    }
-                    ExprKind::Number(n) => {
-                        coeffs_and_terms.push((*n, arc_number(1.0)));
-                    }
-                    _ => {
-                        coeffs_and_terms.push((1.0, Arc::clone(term)));
+                        ExprKind::Number(n) => {
+                            coeffs_and_terms.push((*n, arc_number(1.0)));
+                        }
+                        ExprKind::Symbol(_)
+                        | ExprKind::FunctionCall { .. }
+                        | ExprKind::Sum(_)
+                        | ExprKind::Div(..)
+                        | ExprKind::Pow(..)
+                        | ExprKind::Derivative { .. }
+                        | ExprKind::Poly(_) => {
+                            coeffs_and_terms.push((1.0, Arc::clone(term)));
+                        }
                     }
                 }
-            }
 
-            // Find GCD of coefficients
-            let coeffs: Vec<i64> = coeffs_and_terms
-                .iter()
-                .map(|(c, _)| {
-                    // GCD calculation safe for small integers, precision loss handled
-                    #[allow(
-                        clippy::cast_possible_truncation,
-                        reason = "Safe: checked fract()==0.0 before cast"
-                    )]
-                    // Safe: checked fract()==0.0 before cast
-                    (*c as i64)
-                })
-                .filter(|&c| c != 0)
-                .collect();
+                // Find GCD of coefficients
+                let coeffs: Vec<i64> = coeffs_and_terms
+                    .iter()
+                    .map(|(c, _)| {
+                        // GCD calculation safe for small integers, precision loss handled
+                        #[allow(
+                            clippy::cast_possible_truncation,
+                            reason = "Safe: checked fract()==0.0 before cast"
+                        )]
+                        // Safe: checked fract()==0.0 before cast
+                        (*c as i64)
+                    })
+                    .filter(|&c| c != 0)
+                    .collect();
 
-            if coeffs.len() <= 1 {
-                return None;
-            }
+                if coeffs.len() <= 1 {
+                    return None;
+                }
 
-            let gcd = coeffs.iter().fold(coeffs[0], |a, &b| gcd(a, b));
+                let gcd = coeffs.iter().fold(coeffs[0], |a, &b| gcd(a, b));
 
-            if gcd <= 1 {
-                return None;
-            }
+                if gcd <= 1 {
+                    return None;
+                }
 
-            // Factor out the GCD
-            // i64->f64: GCD values in symbolic math are typically small integers
-            #[allow(
-                clippy::cast_precision_loss,
-                reason = "GCD values are typically small integers"
-            )]
-            let gcd_expr = Arc::new(Expr::number(gcd as f64));
-            let mut new_terms = Vec::new();
-
-            for (coeff, term) in coeffs_and_terms {
+                // Factor out the GCD
                 // i64->f64: GCD values in symbolic math are typically small integers
                 #[allow(
                     clippy::cast_precision_loss,
                     reason = "GCD values are typically small integers"
                 )]
-                let new_coeff = coeff / (gcd as f64);
-                if (new_coeff - 1.0).abs() < EPSILON {
-                    new_terms.push(term);
-                } else if (new_coeff - (-1.0)).abs() < EPSILON {
-                    new_terms.push(Arc::new(Expr::product_from_arcs(vec![
-                        arc_number(-1.0),
-                        term,
-                    ])));
-                } else {
-                    new_terms.push(Arc::new(Expr::product_from_arcs(vec![
-                        Arc::new(Expr::number(new_coeff)),
-                        term,
-                    ])));
-                }
-            }
+                let gcd_expr = Arc::new(Expr::number(gcd as f64));
+                let mut new_terms = Vec::new();
 
-            let factored_terms = if new_terms.len() == 1 {
-                new_terms
-                    .into_iter()
-                    .next()
-                    .expect("New terms collection guaranteed to have one element")
-            } else {
-                Arc::new(Expr::sum_from_arcs(new_terms))
-            };
-            Some(Arc::new(Expr::product_from_arcs(vec![
-                gcd_expr,
-                factored_terms,
-            ])))
-        } else {
-            None
+                for (coeff, term) in coeffs_and_terms {
+                    // i64->f64: GCD values in symbolic math are typically small integers
+                    #[allow(
+                        clippy::cast_precision_loss,
+                        reason = "GCD values are typically small integers"
+                    )]
+                    let new_coeff = coeff / (gcd as f64);
+                    if (new_coeff - 1.0).abs() < EPSILON {
+                        new_terms.push(term);
+                    } else if (new_coeff - (-1.0)).abs() < EPSILON {
+                        new_terms.push(Arc::new(Expr::product_from_arcs(vec![
+                            arc_number(-1.0),
+                            term,
+                        ])));
+                    } else {
+                        new_terms.push(Arc::new(Expr::product_from_arcs(vec![
+                            Arc::new(Expr::number(new_coeff)),
+                            term,
+                        ])));
+                    }
+                }
+
+                let factored_terms = if new_terms.len() == 1 {
+                    new_terms.into_iter().next()?
+                } else {
+                    Arc::new(Expr::sum_from_arcs(new_terms))
+                };
+                Some(Arc::new(Expr::product_from_arcs(vec![
+                    gcd_expr,
+                    factored_terms,
+                ])))
+            }
+            ExprKind::Number(_)
+            | ExprKind::Symbol(_)
+            | ExprKind::FunctionCall { .. }
+            | ExprKind::Product(_)
+            | ExprKind::Div(..)
+            | ExprKind::Pow(..)
+            | ExprKind::Derivative { .. }
+            | ExprKind::Poly(_) => None,
         }
     }
 );
@@ -743,8 +765,14 @@ rule_arc!(
 fn count_factor_occurrences(expr: &Expr, factor: &Expr) -> usize {
     match &expr.kind {
         ExprKind::Product(factors) => factors.iter().filter(|f| (*f).as_ref() == factor).count(),
-        _ if expr == factor => 1,
-        _ => 0,
+        ExprKind::Number(_)
+        | ExprKind::Symbol(_)
+        | ExprKind::FunctionCall { .. }
+        | ExprKind::Sum(_)
+        | ExprKind::Div(..)
+        | ExprKind::Pow(..)
+        | ExprKind::Derivative { .. }
+        | ExprKind::Poly(_) => usize::from(expr == factor),
     }
 }
 
@@ -771,7 +799,14 @@ fn remove_factors_by_list(expr: &Expr, factors_to_remove: &[Arc<Expr>]) -> Expr 
                 _ => Expr::product_from_arcs(remaining_factors),
             }
         }
-        _ => {
+        ExprKind::Number(_)
+        | ExprKind::Symbol(_)
+        | ExprKind::FunctionCall { .. }
+        | ExprKind::Sum(_)
+        | ExprKind::Div(..)
+        | ExprKind::Pow(..)
+        | ExprKind::Derivative { .. }
+        | ExprKind::Poly(_) => {
             // If the expression is not a multiplication, check if it matches
             // any single factor in the list
             if factors_to_remove.len() == 1 && expr == factors_to_remove[0].as_ref() {
@@ -793,93 +828,108 @@ rule_arc!(
     Algebraic,
     &[RuleExprKind::Sum],
     |expr: &Expr, _context: &RuleContext| {
-        if let ExprKind::Sum(terms) = &expr.kind {
-            if terms.len() < 2 {
-                return None;
-            }
-
-            // Find common factors across all terms
-            // We need to track factor COUNTS, not just presence
-
-            // Get factors from first term with their counts
-            let first_factors: Vec<Arc<Expr>> = match &terms[0].kind {
-                ExprKind::Product(factors) => factors.clone(),
-                _ => vec![Arc::clone(&terms[0])],
-            };
-
-            // Count occurrences of each factor in first term
-            let mut first_factor_counts: Vec<(Arc<Expr>, usize)> = Vec::new();
-            for f in &first_factors {
-                if let Some(entry) = first_factor_counts
-                    .iter_mut()
-                    .find(|(e, _)| e.as_ref() == (*f).as_ref())
-                {
-                    entry.1 += 1;
-                } else {
-                    first_factor_counts.push((Arc::clone(f), 1));
+        match &expr.kind {
+            ExprKind::Sum(terms) => {
+                if terms.len() < 2 {
+                    return None;
                 }
-            }
 
-            // For each unique factor, find the minimum count across all terms
-            let mut common_factors: Vec<Arc<Expr>> = Vec::new();
+                // Find common factors across all terms
+                // We need to track factor COUNTS, not just presence
 
-            for (factor, first_count) in &first_factor_counts {
-                // Find minimum count of this factor across all other terms
-                let mut min_count = *first_count;
+                // Get factors from first term with their counts
+                let first_factors: Vec<Arc<Expr>> = match &terms[0].kind {
+                    ExprKind::Product(factors) => factors.clone(),
+                    ExprKind::Number(_)
+                    | ExprKind::Symbol(_)
+                    | ExprKind::FunctionCall { .. }
+                    | ExprKind::Sum(_)
+                    | ExprKind::Div(..)
+                    | ExprKind::Pow(..)
+                    | ExprKind::Derivative { .. }
+                    | ExprKind::Poly(_) => vec![Arc::clone(&terms[0])],
+                };
 
-                for term in &terms[1..] {
-                    let term_count = count_factor_occurrences(term, factor);
-                    min_count = min_count.min(term_count);
-                    if min_count == 0 {
-                        break;
+                // Count occurrences of each factor in first term
+                let mut first_factor_counts: Vec<(Arc<Expr>, usize)> = Vec::new();
+                for f in &first_factors {
+                    if let Some(entry) = first_factor_counts
+                        .iter_mut()
+                        .find(|(e, _)| e.as_ref() == (*f).as_ref())
+                    {
+                        entry.1 += 1;
+                    } else {
+                        first_factor_counts.push((Arc::clone(f), 1));
                     }
                 }
 
-                // Add this factor `min_count` times to common_factors
-                for _ in 0..min_count {
-                    common_factors.push(Arc::clone(factor));
+                // For each unique factor, find the minimum count across all terms
+                let mut common_factors: Vec<Arc<Expr>> = Vec::new();
+
+                for (factor, first_count) in &first_factor_counts {
+                    // Find minimum count of this factor across all other terms
+                    let mut min_count = *first_count;
+
+                    for term in &terms[1..] {
+                        let term_count = count_factor_occurrences(term, factor);
+                        min_count = min_count.min(term_count);
+                        if min_count == 0 {
+                            break;
+                        }
+                    }
+
+                    // Add this factor `min_count` times to common_factors
+                    for _ in 0..min_count {
+                        common_factors.push(Arc::clone(factor));
+                    }
                 }
+
+                if common_factors.is_empty() {
+                    return None;
+                }
+
+                // Don't factor out just -1 alone - it doesn't simplify the expression
+                // and creates less canonical form like -(a+b) instead of -a-b
+                if common_factors.len() == 1
+                    && let ExprKind::Number(n) = &common_factors[0].kind
+                    && (n + 1.0).abs() < EPSILON
+                {
+                    return None;
+                }
+
+                // Factor out common factors
+                let common_part = if common_factors.len() == 1 {
+                    Arc::clone(&common_factors[0])
+                } else {
+                    Arc::new(Expr::product_from_arcs(common_factors.clone()))
+                };
+
+                let mut remaining_terms = Vec::new();
+                for term in terms {
+                    remaining_terms.push(Arc::new(remove_factors_by_list(term, &common_factors)));
+                }
+
+                let remaining_sum = if remaining_terms.len() == 1 {
+                    remaining_terms
+                        .into_iter()
+                        .next()
+                        .expect("remaining_terms has exactly one element")
+                } else {
+                    Arc::new(Expr::sum_from_arcs(remaining_terms))
+                };
+                Some(Arc::new(Expr::product_from_arcs(vec![
+                    common_part,
+                    remaining_sum,
+                ])))
             }
-
-            if common_factors.is_empty() {
-                return None;
-            }
-
-            // Don't factor out just -1 alone - it doesn't simplify the expression
-            // and creates less canonical form like -(a+b) instead of -a-b
-            if common_factors.len() == 1
-                && let ExprKind::Number(n) = &common_factors[0].kind
-                && (n + 1.0).abs() < EPSILON
-            {
-                return None;
-            }
-
-            // Factor out common factors
-            let common_part = if common_factors.len() == 1 {
-                Arc::clone(&common_factors[0])
-            } else {
-                Arc::new(Expr::product_from_arcs(common_factors.clone()))
-            };
-
-            let mut remaining_terms = Vec::new();
-            for term in terms {
-                remaining_terms.push(Arc::new(remove_factors_by_list(term, &common_factors)));
-            }
-
-            let remaining_sum = if remaining_terms.len() == 1 {
-                remaining_terms
-                    .into_iter()
-                    .next()
-                    .expect("remaining_terms has exactly one element")
-            } else {
-                Arc::new(Expr::sum_from_arcs(remaining_terms))
-            };
-            Some(Arc::new(Expr::product_from_arcs(vec![
-                common_part,
-                remaining_sum,
-            ])))
-        } else {
-            None
+            ExprKind::Number(_)
+            | ExprKind::Symbol(_)
+            | ExprKind::FunctionCall { .. }
+            | ExprKind::Product(_)
+            | ExprKind::Div(..)
+            | ExprKind::Pow(..)
+            | ExprKind::Derivative { .. }
+            | ExprKind::Poly(_) => None,
         }
     }
 );
@@ -891,127 +941,136 @@ rule_arc!(
     Algebraic,
     &[RuleExprKind::Sum],
     |expr: &Expr, _context: &RuleContext| {
-        if let ExprKind::Sum(terms) = &expr.kind {
-            if terms.len() < 2 {
-                return None;
-            }
-
-            // Collect all (base, exponent) pairs from power terms
-            let mut base_exponents: FxHashMap<Arc<Expr>, Vec<(f64, Arc<Expr>)>> =
-                FxHashMap::default();
-
-            for term in terms {
-                let (_, base_expr_extracted) = extract_coeff(term);
-
-                if let ExprKind::Pow(base, exp) = &base_expr_extracted.kind {
-                    if let ExprKind::Number(exp_val) = &exp.kind
-                        && *exp_val > 0.0
-                        && exp_val.fract() == 0.0
-                    {
-                        base_exponents
-                            .entry(Arc::clone(base))
-                            .or_default()
-                            .push((*exp_val, Arc::clone(term)));
-                    }
-                } else if let ExprKind::Symbol(_s) = &base_expr_extracted.kind {
-                    base_exponents
-                        .entry(Arc::new(base_expr_extracted))
-                        .or_default()
-                        .push((1.0, Arc::clone(term)));
+        match &expr.kind {
+            ExprKind::Sum(terms) => {
+                if terms.len() < 2 {
+                    return None;
                 }
-            }
 
-            // Find a base that appears in ALL terms with different exponents
-            for exp_terms in base_exponents.values() {
-                if exp_terms.len() == terms.len() && exp_terms.len() >= 2 {
-                    let exponents: Vec<f64> = exp_terms.iter().map(|(e, _)| *e).collect();
-                    let min_exp = exponents.iter().copied().fold(f64::INFINITY, f64::min);
+                // Collect all (base, exponent) pairs from power terms
+                let mut base_exponents: FxHashMap<Arc<Expr>, Vec<(f64, Arc<Expr>)>> =
+                    FxHashMap::default();
 
-                    if exponents.iter().all(|e| (*e - min_exp).abs() < EPSILON) {
-                        continue;
+                for term in terms {
+                    let (_, base_expr_extracted) = extract_coeff(term);
+
+                    if let ExprKind::Pow(base, exp) = &base_expr_extracted.kind {
+                        if let ExprKind::Number(exp_val) = &exp.kind
+                            && *exp_val > 0.0
+                            && exp_val.fract() == 0.0
+                        {
+                            base_exponents
+                                .entry(Arc::clone(base))
+                                .or_default()
+                                .push((*exp_val, Arc::clone(term)));
+                        }
+                    } else if let ExprKind::Symbol(_s) = &base_expr_extracted.kind {
+                        base_exponents
+                            .entry(Arc::new(base_expr_extracted))
+                            .or_default()
+                            .push((1.0, Arc::clone(term)));
                     }
+                }
 
-                    if min_exp >= 1.0 {
-                        let sample_term = &exp_terms[0].1;
-                        let (_, sample_base) = extract_coeff(sample_term);
+                // Find a base that appears in ALL terms with different exponents
+                for exp_terms in base_exponents.values() {
+                    if exp_terms.len() == terms.len() && exp_terms.len() >= 2 {
+                        let exponents: Vec<f64> = exp_terms.iter().map(|(e, _)| *e).collect();
+                        let min_exp = exponents.iter().copied().fold(f64::INFINITY, f64::min);
 
-                        let base = if let ExprKind::Pow(b, _) = &sample_base.kind {
-                            Arc::clone(b)
-                        } else {
-                            Arc::new(sample_base)
-                        };
-
-                        let common_factor = if (min_exp - 1.0).abs() < EPSILON {
-                            Arc::clone(&base)
-                        } else {
-                            Arc::new(Expr::pow_from_arcs(
-                                Arc::clone(&base),
-                                Arc::new(Expr::number(min_exp)),
-                            ))
-                        };
-
-                        let mut remaining_terms = Vec::new();
-
-                        for term in terms {
-                            let (coeff, base_expr) = extract_coeff(term);
-
-                            let new_exp = if let ExprKind::Pow(_, exp) = &base_expr.kind {
-                                if let ExprKind::Number(e) = &exp.kind {
-                                    *e - min_exp
-                                } else {
-                                    continue;
-                                }
-                            } else {
-                                1.0 - min_exp
-                            };
-
-                            let remaining = if new_exp.abs() < EPSILON {
-                                Arc::new(Expr::number(coeff))
-                            } else if (new_exp - 1.0).abs() < EPSILON {
-                                if (coeff - 1.0).abs() < EPSILON {
-                                    Arc::clone(&base)
-                                } else {
-                                    Arc::new(Expr::product_from_arcs(vec![
-                                        Arc::new(Expr::number(coeff)),
-                                        Arc::clone(&base),
-                                    ]))
-                                }
-                            } else {
-                                let power = Arc::new(Expr::pow_from_arcs(
-                                    Arc::clone(&base),
-                                    Arc::new(Expr::number(new_exp)),
-                                ));
-                                if (coeff - 1.0).abs() < EPSILON {
-                                    power
-                                } else {
-                                    Arc::new(Expr::product_from_arcs(vec![
-                                        Arc::new(Expr::number(coeff)),
-                                        power,
-                                    ]))
-                                }
-                            };
-
-                            remaining_terms.push(remaining);
+                        if exponents.iter().all(|e| (*e - min_exp).abs() < EPSILON) {
+                            continue;
                         }
 
-                        let remaining_sum = if remaining_terms.len() == 1 {
-                            remaining_terms
-                                .into_iter()
-                                .next()
-                                .expect("remaining_terms has exactly one element")
-                        } else {
-                            Arc::new(Expr::sum_from_arcs(remaining_terms))
-                        };
-                        return Some(Arc::new(Expr::product_from_arcs(vec![
-                            common_factor,
-                            remaining_sum,
-                        ])));
+                        if min_exp >= 1.0 {
+                            let sample_term = &exp_terms[0].1;
+                            let (_, sample_base) = extract_coeff(sample_term);
+
+                            let base = if let ExprKind::Pow(b, _) = &sample_base.kind {
+                                Arc::clone(b)
+                            } else {
+                                Arc::new(sample_base)
+                            };
+
+                            let common_factor = if (min_exp - 1.0).abs() < EPSILON {
+                                Arc::clone(&base)
+                            } else {
+                                Arc::new(Expr::pow_from_arcs(
+                                    Arc::clone(&base),
+                                    Arc::new(Expr::number(min_exp)),
+                                ))
+                            };
+
+                            let mut remaining_terms = Vec::new();
+
+                            for term in terms {
+                                let (coeff, base_expr) = extract_coeff(term);
+
+                                let new_exp = if let ExprKind::Pow(_, exp) = &base_expr.kind {
+                                    if let ExprKind::Number(e) = &exp.kind {
+                                        *e - min_exp
+                                    } else {
+                                        continue;
+                                    }
+                                } else {
+                                    1.0 - min_exp
+                                };
+
+                                let remaining = if new_exp.abs() < EPSILON {
+                                    Arc::new(Expr::number(coeff))
+                                } else if (new_exp - 1.0).abs() < EPSILON {
+                                    if (coeff - 1.0).abs() < EPSILON {
+                                        Arc::clone(&base)
+                                    } else {
+                                        Arc::new(Expr::product_from_arcs(vec![
+                                            Arc::new(Expr::number(coeff)),
+                                            Arc::clone(&base),
+                                        ]))
+                                    }
+                                } else {
+                                    let power = Arc::new(Expr::pow_from_arcs(
+                                        Arc::clone(&base),
+                                        Arc::new(Expr::number(new_exp)),
+                                    ));
+                                    if (coeff - 1.0).abs() < EPSILON {
+                                        power
+                                    } else {
+                                        Arc::new(Expr::product_from_arcs(vec![
+                                            Arc::new(Expr::number(coeff)),
+                                            power,
+                                        ]))
+                                    }
+                                };
+
+                                remaining_terms.push(remaining);
+                            }
+
+                            let remaining_sum = if remaining_terms.len() == 1 {
+                                remaining_terms
+                                    .into_iter()
+                                    .next()
+                                    .expect("remaining_terms has exactly one element")
+                            } else {
+                                Arc::new(Expr::sum_from_arcs(remaining_terms))
+                            };
+                            return Some(Arc::new(Expr::product_from_arcs(vec![
+                                common_factor,
+                                remaining_sum,
+                            ])));
+                        }
                     }
                 }
+                None
             }
+            ExprKind::Number(_)
+            | ExprKind::Symbol(_)
+            | ExprKind::FunctionCall { .. }
+            | ExprKind::Product(_)
+            | ExprKind::Div(..)
+            | ExprKind::Pow(..)
+            | ExprKind::Derivative { .. }
+            | ExprKind::Poly(_) => None,
         }
-
-        None
     }
 );
 
@@ -1026,124 +1085,129 @@ rule_arc!(
         // Pattern: a^3 - 3a^2b + 3ab^2 - b^3 = (a-b)^3
         // Also: a^3 + b^3 = (a+b)(a^2 - ab + b^2) and a^3 - b^3 = (a-b)(a^2 + ab + b^2)
 
+        fn get_cube_root(e: &Arc<Expr>) -> Option<Arc<Expr>> {
+            if let ExprKind::Pow(base, exp) = &e.kind
+                && let ExprKind::Number(n) = &exp.kind
+            {
+                #[allow(clippy::float_cmp, reason = "Comparing against exact constant 3.0")]
+                let is_cube = *n == 3.0;
+                if is_cube {
+                    return Some(Arc::clone(base));
+                }
+            }
+            None
+        }
+
+        fn extract_negated(term: &Arc<Expr>) -> Option<Arc<Expr>> {
+            if let ExprKind::Product(factors) = &term.kind
+                && factors.len() == 2
+                && let ExprKind::Number(n) = &factors[0].kind
+                && (n + 1.0).abs() < EPSILON
+            {
+                return Some(Arc::clone(&factors[1]));
+            }
+            None
+        }
+
         // Extract terms from Sum or Poly
         let terms: Vec<Arc<Expr>> = match &expr.kind {
             ExprKind::Sum(ts) if ts.len() == 2 => ts.clone(),
             ExprKind::Poly(poly) if poly.terms().len() == 2 => {
                 poly.to_expr_terms().into_iter().map(Arc::new).collect()
             }
-            _ => return None,
+            ExprKind::Number(_)
+            | ExprKind::Symbol(_)
+            | ExprKind::FunctionCall { .. }
+            | ExprKind::Sum(_)
+            | ExprKind::Product(_)
+            | ExprKind::Div(..)
+            | ExprKind::Pow(..)
+            | ExprKind::Derivative { .. }
+            | ExprKind::Poly(_) => return None,
         };
 
-        // Check for sum/difference of cubes: a^3 + b^3 or a^3 - b^3
-        if terms.len() == 2 {
-            fn get_cube_root(e: &Arc<Expr>) -> Option<Arc<Expr>> {
-                if let ExprKind::Pow(base, exp) = &e.kind
-                    && let ExprKind::Number(n) = &exp.kind
-                {
-                    // Exact check for cube exponent
-                    #[allow(clippy::float_cmp, reason = "Comparing against exact constant 3.0")]
-                    let is_cube = *n == 3.0;
-                    if is_cube {
-                        return Some(Arc::clone(base));
-                    }
-                }
-                None
-            }
+        let t1 = &terms[0];
+        let t2 = &terms[1];
 
-            fn extract_negated(term: &Arc<Expr>) -> Option<Arc<Expr>> {
-                if let ExprKind::Product(factors) = &term.kind
-                    && factors.len() == 2
-                    && let ExprKind::Number(n) = &factors[0].kind
-                    && (n + 1.0).abs() < EPSILON
-                {
-                    return Some(Arc::clone(&factors[1]));
-                }
-                None
-            }
-
-            let t1 = &terms[0];
-            let t2 = &terms[1];
-
-            // a^3 + b^3 = (a+b)(a^2 - ab + b^2)
-            if let (Some(a), Some(b)) = (get_cube_root(t1), get_cube_root(t2)) {
-                let sum = Expr::sum_from_arcs(vec![Arc::clone(&a), Arc::clone(&b)]);
-                let a2 = Arc::new(Expr::pow_from_arcs(
-                    Arc::clone(&a),
-                    Arc::new(Expr::number(2.0)),
-                ));
-                let ab = Arc::new(Expr::product_from_arcs(vec![
-                    Arc::clone(&a),
-                    Arc::clone(&b),
-                ]));
-                let b2 = Arc::new(Expr::pow_from_arcs(
-                    Arc::clone(&b),
-                    Arc::new(Expr::number(2.0)),
-                ));
-                let neg_ab = Arc::new(Expr::product_from_arcs(vec![arc_number(-1.0), ab]));
-                let trinomial = Expr::sum_from_arcs(vec![a2, neg_ab, b2]);
-                return Some(Arc::new(Expr::product_from_arcs(vec![
-                    Arc::new(sum),
-                    Arc::new(trinomial),
-                ])));
-            }
-
-            // a^3 + (-b^3) = a^3 - b^3 = (a-b)(a^2 + ab + b^2)
-            if let (Some(a), Some(neg_inner)) = (get_cube_root(t1), extract_negated(t2))
-                && let Some(b) = get_cube_root(&neg_inner)
-            {
-                let neg_b = Arc::new(Expr::product_from_arcs(vec![
-                    arc_number(-1.0),
-                    Arc::clone(&b),
-                ]));
-                let diff = Expr::sum_from_arcs(vec![Arc::clone(&a), neg_b]);
-                let a2 = Arc::new(Expr::pow_from_arcs(
-                    Arc::clone(&a),
-                    Arc::new(Expr::number(2.0)),
-                ));
-                let ab = Arc::new(Expr::product_from_arcs(vec![
-                    Arc::clone(&a),
-                    Arc::clone(&b),
-                ]));
-                let b2 = Arc::new(Expr::pow_from_arcs(
-                    Arc::clone(&b),
-                    Arc::new(Expr::number(2.0)),
-                ));
-                let trinomial = Expr::sum_from_arcs(vec![a2, ab, b2]);
-                return Some(Arc::new(Expr::product_from_arcs(vec![
-                    Arc::new(diff),
-                    Arc::new(trinomial),
-                ])));
-            }
-
-            // (-b^3) + a^3 = a^3 - b^3 = (a-b)(a^2 + ab + b^2) [reversed order]
-            if let (Some(neg_inner), Some(a)) = (extract_negated(t1), get_cube_root(t2))
-                && let Some(b) = get_cube_root(&neg_inner)
-            {
-                let neg_b = Arc::new(Expr::product_from_arcs(vec![
-                    arc_number(-1.0),
-                    Arc::clone(&b),
-                ]));
-                let diff = Expr::sum_from_arcs(vec![Arc::clone(&a), neg_b]);
-                let a2 = Arc::new(Expr::pow_from_arcs(
-                    Arc::clone(&a),
-                    Arc::new(Expr::number(2.0)),
-                ));
-                let ab = Arc::new(Expr::product_from_arcs(vec![
-                    Arc::clone(&a),
-                    Arc::clone(&b),
-                ]));
-                let b2 = Arc::new(Expr::pow_from_arcs(
-                    Arc::clone(&b),
-                    Arc::new(Expr::number(2.0)),
-                ));
-                let trinomial = Expr::sum_from_arcs(vec![a2, ab, b2]);
-                return Some(Arc::new(Expr::product_from_arcs(vec![
-                    Arc::new(diff),
-                    Arc::new(trinomial),
-                ])));
-            }
+        // a^3 + b^3 = (a+b)(a^2 - ab + b^2)
+        if let (Some(a), Some(b)) = (get_cube_root(t1), get_cube_root(t2)) {
+            let sum = Expr::sum_from_arcs(vec![Arc::clone(&a), Arc::clone(&b)]);
+            let a2 = Arc::new(Expr::pow_from_arcs(
+                Arc::clone(&a),
+                Arc::new(Expr::number(2.0)),
+            ));
+            let ab = Arc::new(Expr::product_from_arcs(vec![
+                Arc::clone(&a),
+                Arc::clone(&b),
+            ]));
+            let b2 = Arc::new(Expr::pow_from_arcs(
+                Arc::clone(&b),
+                Arc::new(Expr::number(2.0)),
+            ));
+            let neg_ab = Arc::new(Expr::product_from_arcs(vec![arc_number(-1.0), ab]));
+            let trinomial = Expr::sum_from_arcs(vec![a2, neg_ab, b2]);
+            return Some(Arc::new(Expr::product_from_arcs(vec![
+                Arc::new(sum),
+                Arc::new(trinomial),
+            ])));
         }
+
+        // a^3 + (-b^3) = a^3 - b^3 = (a-b)(a^2 + ab + b^2)
+        if let (Some(a), Some(neg_inner)) = (get_cube_root(t1), extract_negated(t2))
+            && let Some(b) = get_cube_root(&neg_inner)
+        {
+            let neg_b = Arc::new(Expr::product_from_arcs(vec![
+                arc_number(-1.0),
+                Arc::clone(&b),
+            ]));
+            let diff = Expr::sum_from_arcs(vec![Arc::clone(&a), neg_b]);
+            let a2 = Arc::new(Expr::pow_from_arcs(
+                Arc::clone(&a),
+                Arc::new(Expr::number(2.0)),
+            ));
+            let ab = Arc::new(Expr::product_from_arcs(vec![
+                Arc::clone(&a),
+                Arc::clone(&b),
+            ]));
+            let b2 = Arc::new(Expr::pow_from_arcs(
+                Arc::clone(&b),
+                Arc::new(Expr::number(2.0)),
+            ));
+            let trinomial = Expr::sum_from_arcs(vec![a2, ab, b2]);
+            return Some(Arc::new(Expr::product_from_arcs(vec![
+                Arc::new(diff),
+                Arc::new(trinomial),
+            ])));
+        }
+
+        // (-b^3) + a^3 = a^3 - b^3 = (a-b)(a^2 + ab + b^2) [reversed order]
+        if let (Some(neg_inner), Some(a)) = (extract_negated(t1), get_cube_root(t2))
+            && let Some(b) = get_cube_root(&neg_inner)
+        {
+            let neg_b = Arc::new(Expr::product_from_arcs(vec![
+                arc_number(-1.0),
+                Arc::clone(&b),
+            ]));
+            let diff = Expr::sum_from_arcs(vec![Arc::clone(&a), neg_b]);
+            let a2 = Arc::new(Expr::pow_from_arcs(
+                Arc::clone(&a),
+                Arc::new(Expr::number(2.0)),
+            ));
+            let ab = Arc::new(Expr::product_from_arcs(vec![
+                Arc::clone(&a),
+                Arc::clone(&b),
+            ]));
+            let b2 = Arc::new(Expr::pow_from_arcs(
+                Arc::clone(&b),
+                Arc::new(Expr::number(2.0)),
+            ));
+            let trinomial = Expr::sum_from_arcs(vec![a2, ab, b2]);
+            return Some(Arc::new(Expr::product_from_arcs(vec![
+                Arc::new(diff),
+                Arc::new(trinomial),
+            ])));
+        }
+
         None
     }
 );
@@ -1183,45 +1247,53 @@ impl Rule for PolyGcdSimplifyRule {
     }
 
     fn apply(&self, expr: &Arc<Expr>, _context: &RuleContext) -> Option<Arc<Expr>> {
-        if let ExprKind::Div(num, den) = &expr.kind {
-            // Try to convert both numerator and denominator to polynomials
-            let num_poly = Polynomial::try_from_expr(num)?;
-            let den_poly = Polynomial::try_from_expr(den)?;
+        match &expr.kind {
+            ExprKind::Div(num, den) => {
+                // Try to convert both numerator and denominator to polynomials
+                let num_poly = Polynomial::try_from_expr(num)?;
+                let den_poly = Polynomial::try_from_expr(den)?;
 
-            // Skip if either is constant (simpler rules handle that)
-            if num_poly.is_constant() || den_poly.is_constant() {
-                return None;
+                // Skip if either is constant (simpler rules handle that)
+                if num_poly.is_constant() || den_poly.is_constant() {
+                    return None;
+                }
+
+                // Compute GCD
+                let gcd = num_poly.gcd(&den_poly)?;
+
+                // If GCD is constant (1), no simplification possible
+                if gcd.is_constant() {
+                    return None;
+                }
+
+                // Divide both by GCD
+                let (new_num, num_rem) = num_poly.div_rem(&gcd)?;
+                let (new_den, den_rem) = den_poly.div_rem(&gcd)?;
+
+                // Should divide evenly
+                if !num_rem.is_zero() || !den_rem.is_zero() {
+                    return None;
+                }
+
+                // Convert back to expressions
+                let new_num_expr = new_num.to_expr();
+                let new_den_expr = new_den.to_expr();
+
+                // If denominator is 1, just return numerator
+                if new_den_expr.is_one_num() {
+                    return Some(Arc::new(new_num_expr));
+                }
+
+                Some(Arc::new(Expr::div_expr(new_num_expr, new_den_expr)))
             }
-
-            // Compute GCD
-            let gcd = num_poly.gcd(&den_poly)?;
-
-            // If GCD is constant (1), no simplification possible
-            if gcd.is_constant() {
-                return None;
-            }
-
-            // Divide both by GCD
-            let (new_num, num_rem) = num_poly.div_rem(&gcd)?;
-            let (new_den, den_rem) = den_poly.div_rem(&gcd)?;
-
-            // Should divide evenly
-            if !num_rem.is_zero() || !den_rem.is_zero() {
-                return None;
-            }
-
-            // Convert back to expressions
-            let new_num_expr = new_num.to_expr();
-            let new_den_expr = new_den.to_expr();
-
-            // If denominator is 1, just return numerator
-            if new_den_expr.is_one_num() {
-                return Some(Arc::new(new_num_expr));
-            }
-
-            Some(Arc::new(Expr::div_expr(new_num_expr, new_den_expr)))
-        } else {
-            None
+            ExprKind::Number(_)
+            | ExprKind::Symbol(_)
+            | ExprKind::FunctionCall { .. }
+            | ExprKind::Sum(_)
+            | ExprKind::Product(_)
+            | ExprKind::Pow(..)
+            | ExprKind::Derivative { .. }
+            | ExprKind::Poly(_) => None,
         }
     }
 }

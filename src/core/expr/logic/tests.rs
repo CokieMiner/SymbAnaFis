@@ -7,6 +7,7 @@
     clippy::items_after_statements,
     clippy::let_underscore_must_use,
     clippy::no_effect_underscore_binding,
+    clippy::wildcard_enum_match_arm,
     reason = "Standard test relaxations"
 )]
 mod api_user_tests {
@@ -72,6 +73,7 @@ mod api_user_tests {
     clippy::items_after_statements,
     clippy::let_underscore_must_use,
     clippy::no_effect_underscore_binding,
+    clippy::wildcard_enum_match_arm,
     reason = "Standard test relaxations"
 )]
 mod display_tests {

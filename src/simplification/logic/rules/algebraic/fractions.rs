@@ -162,28 +162,26 @@ rule_with_helpers_arc!(FractionToEndRule, "fraction_to_end", 50, Algebraic, &[Ru
     helpers: {
         // Helper to check if expression contains any Div inside Product
         fn product_contains_div(e: &Expr) -> bool {
-            match &e.kind {
-                ExprKind::Div(_, _) => true,
-                ExprKind::Product(factors) => factors.iter().any(|f| product_contains_div(f)),
-                _ => false,
+            if let ExprKind::Div(_, _) = &e.kind {
+                true
+            } else if let ExprKind::Product(factors) = &e.kind {
+                factors.iter().any(|f| product_contains_div(f))
+            } else {
+                false
             }
         }
 
         // Helper to extract all factors from a multiplication, separating numerators and denominators
         fn extract_factors(e: &Expr, numerators: &mut Vec<Arc<Expr>>, denominators: &mut Vec<Arc<Expr>>) {
-            match &e.kind {
-                ExprKind::Product(factors) => {
-                    for f in factors {
-                        extract_factors(f, numerators, denominators);
-                    }
+            if let ExprKind::Product(factors) = &e.kind {
+                for f in factors {
+                    extract_factors(f, numerators, denominators);
                 }
-                ExprKind::Div(num, den) => {
-                    extract_factors(num, numerators, denominators);
-                    denominators.push(Arc::clone(den));
-                }
-                _ => {
-                    numerators.push(Arc::new(e.clone()));
-                }
+            } else if let ExprKind::Div(num, den) = &e.kind {
+                extract_factors(num, numerators, denominators);
+                denominators.push(Arc::clone(den));
+            } else {
+                numerators.push(Arc::new(e.clone()));
             }
         }
     },

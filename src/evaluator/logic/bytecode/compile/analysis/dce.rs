@@ -21,13 +21,11 @@ pub fn eliminate_vir_dead_code(
     let mut optimized = Vec::with_capacity(vinstrs.len());
     let mut max_temp = 0_u32;
     for instr in vinstrs.into_iter().rev() {
-        #[allow(
-            clippy::unreachable,
-            reason = "VInstruction destination is guaranteed to be VReg::Temp"
-        )]
         let keep = match instr.dest() {
             VReg::Temp(t) => live[t as usize],
-            _ => unreachable!("VInstruction dest is always VReg::Temp"),
+            // Non-Temp destinations (Param, Const) are conceptually "global" and always live
+            // for the purpose of this pass, though they should not ideally appear as dests.
+            VReg::Param(_) | VReg::Const(_) => true,
         };
 
         if keep {

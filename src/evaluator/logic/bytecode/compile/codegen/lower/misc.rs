@@ -3,7 +3,6 @@ use super::analysis::GvnKey;
 use super::vir::VReg;
 use super::vir::node::NodeData;
 use crate::core::InternedSymbol;
-use crate::core::Polynomial;
 use crate::core::error::DiffError;
 use crate::core::known_symbols::get_constant_value_by_id;
 use crate::core::{Expr, ExprKind};
@@ -15,7 +14,7 @@ impl VirGenerator {
         let sym_id = sym.id();
         if let Some(&idx) = self.param_index.get(&sym_id) {
             Ok(VReg::Param(
-                u32::try_from(idx).expect("Param index too large"),
+                u32::try_from(idx).map_err(|_err| DiffError::RegisterOverflow)?,
             ))
         } else if let Some(val) = get_constant_value_by_id(sym_id) {
             let idx = self.add_const(val);
@@ -34,15 +33,6 @@ impl VirGenerator {
             out.push(Self::vreg_from_map(node_map, arg.as_ref())?);
         }
         Ok(out)
-    }
-
-    pub(super) fn compile_poly_node(
-        &mut self,
-        poly: &Polynomial,
-        node_map: &FxHashMap<*const Expr, NodeData>,
-    ) -> Result<VReg, DiffError> {
-        let base_v = Self::vreg_from_map(node_map, poly.base().as_ref())?;
-        Ok(self.compile_polynomial_with_base(poly, base_v))
     }
 
     pub(in crate::evaluator::logic::bytecode::compile) fn lookup_cse(

@@ -27,7 +27,7 @@ use std::fmt::Write;
 use std::hint::black_box;
 use std::time::Instant;
 
-use symb_anafis::{CompiledEvaluator, Diff, parse, symb};
+use symb_anafis::{Diff, VmEvaluator, parse, symb};
 
 mod expressions {
     // Copy of the expression definitions from benches/rust/expressions.rs
@@ -206,7 +206,7 @@ fn bench_large_expr_eval_raw(n: usize) {
         .unwrap();
 
     // Compile raw derivative
-    let evaluator = CompiledEvaluator::compile(&diff_expr, &["x"], None).unwrap();
+    let evaluator = VmEvaluator::compile(&diff_expr, &["x"], None).unwrap();
 
     // Generate 1000 test points (same as benchmark)
     let test_points: Vec<f64> = (0..1000).map(|i| f64::from(i).mul_add(0.01, 0.1)).collect();
@@ -243,7 +243,7 @@ fn bench_large_expr_eval_simplified(n: usize) {
     let diff_expr = Diff::new().differentiate(&expr, &x_sym).unwrap();
 
     // Compile simplified derivative
-    let evaluator = CompiledEvaluator::compile(&diff_expr, &["x"], None).unwrap();
+    let evaluator = VmEvaluator::compile(&diff_expr, &["x"], None).unwrap();
 
     let test_points: Vec<f64> = (0..1000).map(|i| f64::from(i).mul_add(0.01, 0.1)).collect();
 
@@ -415,7 +415,7 @@ fn bench_full_pipeline_planck() {
         params.extend(fixed.iter());
         params.sort_unstable();
 
-        let compiled = CompiledEvaluator::compile(&diff_expr, &params, None).unwrap();
+        let compiled = VmEvaluator::compile(&diff_expr, &params, None).unwrap();
 
         // Evaluate at 1000 points
         let param_count = compiled.param_count();
@@ -469,7 +469,7 @@ fn bench_full_pipeline_normal() {
         params.extend(fixed.iter());
         params.sort_unstable();
 
-        let compiled = CompiledEvaluator::compile(&diff_expr, &params, None).unwrap();
+        let compiled = VmEvaluator::compile(&diff_expr, &params, None).unwrap();
 
         // Evaluate at 1000 points
         let param_count = compiled.param_count();
