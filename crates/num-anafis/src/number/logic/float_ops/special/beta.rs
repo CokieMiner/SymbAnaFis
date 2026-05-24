@@ -1,6 +1,6 @@
 //! Beta function B(x,y) = Γ(x)Γ(y)/Γ(x+y).
 //!
-//! Reference: DLMF §5.12
+//! Reference: [DLMF, §5.12]
 
 use super::SpecFloat;
 use super::gamma::{gamma, gamma_sign, lgamma};
@@ -10,7 +10,9 @@ use super::helpers::{is_non_pos_int, kahan_add};
 ///
 /// Strategy:
 /// 1. Shift arguments below 1 upward with the coupled beta recurrence.
-/// 2. For small positive args (all < 8), use direct Γ(x)Γ(y)/Γ(x+y).
+/// 2. For small positive args (all < 40), use direct Γ(x)Γ(y)/Γ(x+y).
+///    40 is a safe threshold since Γ(40) ≈ 2·10⁴⁷ fits comfortably within f64,
+///    avoiding the cancellation error intrinsic to lgamma(x)+lgamma(y)−lgamma(x+y).
 /// 3. Otherwise, use the log-gamma path on positive arguments only.
 pub fn beta<T: SpecFloat>(x: T, y: T) -> T {
     if is_non_pos_int(x) {

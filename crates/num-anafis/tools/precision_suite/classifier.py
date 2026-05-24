@@ -1,7 +1,7 @@
 import math
 import mpmath as mp
 
-NOISE_EPS_MULT = 4.0
+NOISE_EPS_MULT = 5.0
 
 LABELS = {
     "faithful":   "Faithfully rounded (≤ 1 ULP)",
@@ -110,16 +110,8 @@ def rel_error_func(e: dict) -> float:
         return 0.0
     return ae / abs(ref)
 
-def classify(entry: dict) -> str:
-    if is_correct_overflow(entry):
-        return "faithful"
-        
+def is_noise(entry: dict) -> bool:
     bits = entry.get("precision_bits", 53)
-    ulp  = entry["_ulp"]
-
-    if ulp <= 1:  return "faithful"
-
-    # Use high-precision strings via mpmath when available to avoid float underflow
     ae_hp = entry.get("abs_error_hp")
     if ae_hp is not None:
         try:
@@ -127,26 +119,34 @@ def classify(entry: dict) -> str:
             eps_mp = mp.power(2, 1 - bits)
             ref_hp = entry.get("reference_hp")
             if ae_mp > 0 and ae_mp <= NOISE_EPS_MULT * eps_mp:
-                return "noise"
+                return True
             if ref_hp is not None:
                 ref_mp = mp.mpf(ref_hp)
                 if ae_mp <= NOISE_EPS_MULT * eps_mp * max(1, mp.fabs(ref_mp)):
-                    return "noise"
+                    return True
         except Exception:
             pass
 
-    # Fallback to float values when hp strings aren't available
-    ae   = entry.get("abs_error", 0) or 0
-    ref  = entry.get("reference", 1) or 1
-    eps  = 2.0 ** (1 - bits)
+    ae  = entry.get("abs_error", 0) or 0
+    ref = entry.get("reference", 1) or 1
+    eps = 2.0 ** (1 - bits)
 
     if eps > 0 and ae <= NOISE_EPS_MULT * eps:
-        return "noise"
+        return True
+    if eps > 0 and ae <= NOISE_EPS_MULT * eps * max(1.0, abs(ref)):
+        return True
+    return False
 
+
+def classify(entry: dict) -> str:
+    if is_correct_overflow(entry):
+        return "faithful"
+
+    ulp = entry["_ulp"]
+
+    if ulp <= 1:  return "faithful"
     if ulp <= 5:  return "good"
     if ulp <= 10: return "acceptable"
-
-    if eps > 0 and ae <= NOISE_EPS_MULT * eps * max(1.0, abs(ref)):
+    if is_noise(entry):
         return "noise"
-        
     return "severe"

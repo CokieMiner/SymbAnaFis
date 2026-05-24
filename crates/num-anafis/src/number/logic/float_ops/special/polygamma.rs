@@ -1,6 +1,6 @@
 //! Digamma, trigamma, tetragamma, and general polygamma functions.
 //!
-//! Reference: DLMF §5.11, §5.15
+//! Reference: [DLMF, §5.11], [DLMF, §5.15]
 
 use alloc::vec;
 use alloc::vec::Vec;
@@ -255,6 +255,12 @@ fn polygamma_asymptotic<T: SpecFloat, I: SpecInt>(n: I, x: T) -> T {
     recurrence_sum + asym_sign * (sum + sum_comp)
 }
 
+/// Evaluates `dⁿ/dxⁿ cot(x)` as a polynomial in `cot(x)`.
+///
+/// Uses the recurrence: if `P_n(cot) = dⁿ/dxⁿ cot(x)` then
+/// `P_{n+1}(c) = −(c²+1)·P'_n(c)`. The coefficients are built by repeated
+/// differentiation: `P_0 = c`, and at each step the derivative of
+/// `c^k` gives `k·c^{k−1}·(−c²−1) = −k·c^{k+1} − k·c^{k−1}`.
 fn cot_derivative_poly<T: SpecFloat>(n: usize, cot: T) -> T {
     let mut coeffs: Vec<T> = vec![T::zero(); n + 2];
     if let Some(slot) = coeffs.get_mut(1) {
@@ -279,6 +285,7 @@ fn cot_derivative_poly<T: SpecFloat>(n: usize, cot: T) -> T {
     value
 }
 
+/// Adds `delta` to `coeffs[index]` if the index is in bounds.
 fn add_coeff<T: SpecFloat>(coeffs: &mut [T], index: usize, delta: T) {
     if let Some(slot) = coeffs.get_mut(index) {
         *slot = *slot + delta;

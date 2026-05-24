@@ -1,6 +1,6 @@
 //! Associated Legendre functions and spherical harmonics.
 //!
-//! References:
+//! References: [DLMF, §14.3], [DLMF, §14.9], [DLMF, §14.10], [DLMF, §14.30]
 //! - DLMF §14 (Legendre and associated Legendre functions)
 //! - DLMF §14.30 (spherical harmonics)
 
@@ -14,10 +14,6 @@ use super::{SpecFloat, SpecInt};
 #[allow(
     clippy::many_single_char_names,
     reason = "Standard mathematical notation: l, m, x, s, k"
-)]
-#[allow(
-    clippy::too_many_lines,
-    reason = "Recurrence logic is kept in one function for clarity"
 )]
 pub fn assoc_legendre<T: SpecFloat, I: SpecInt>(l: I, m: I, x: T) -> T {
     assoc_legendre_core(l, m, x, None)
@@ -175,7 +171,7 @@ pub fn spherical_harmonic<T: SpecFloat, I: SpecInt>(l: I, m: I, theta: T, phi: T
     // Normalization sqrt((2l+1)/(4π) · (l-|m|)!/(l+|m|)!)
     // Compute the factorial ratio directly to avoid log-space precision loss.
     // (l-|m|)!/(l+|m|)! = 1/((l-|m|+1)·(l-|m|+2)·…·(l+|m|))
-    // Reference: DLMF §14.30.1
+    // Reference: [DLMF, §14.30.1]
     let two_l_plus_1 = T::from_int(l + l + I::one());
     let four_pi = T::from_usize(4) * T::pi();
 
@@ -221,7 +217,14 @@ pub fn spherical_harmonic<T: SpecFloat, I: SpecInt>(l: I, m: I, theta: T, phi: T
 // Internal helpers
 // =========================================================================
 
-/// Factor for negative m: `P_l^{-m}(x) = (-1)^m (l-m)!/(l+m)! P_l^m(x)`.
+/// Factor for negative `m` in the associated Legendre function.
+///
+/// `P_l^{−m}(x) = (−1)^m · (l−m)!/(l+m)! · P_l^m(x)`
+///
+/// The sign `(−1)^m` comes from the Condon–Shortley phase convention.
+/// The factorial ratio is computed via [`legendre_factorial_ratio`].
+///
+/// Reference: [DLMF, §14.9.3]
 #[allow(
     clippy::many_single_char_names,
     reason = "Standard mathematical notation: l, m, x, s, k"

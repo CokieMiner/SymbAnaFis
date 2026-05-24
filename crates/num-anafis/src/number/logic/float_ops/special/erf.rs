@@ -1,6 +1,6 @@
 //! Error function erf(x) and complementary error function erfc(x).
 //!
-//! Reference: DLMF §7.6.1, §7.9
+//! Reference: [DLMF, §7.6.1], [DLMF, §7.9]
 
 use super::SpecFloat;
 

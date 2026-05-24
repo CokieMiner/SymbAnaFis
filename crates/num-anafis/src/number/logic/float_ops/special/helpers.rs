@@ -2,6 +2,9 @@
 
 use super::{SpecFloat, SpecInt};
 
+/// Returns `−1` if `δ` has a negative fractional part (or negative and
+/// integer-valued), `+1` otherwise. Used to determine the sign of pole
+/// infinities in the gamma and polygamma functions.
 #[inline]
 pub(super) fn sign_from_delta<T: SpecFloat>(delta: T) -> T {
     if delta.is_nan() {
@@ -15,6 +18,7 @@ pub(super) fn sign_from_delta<T: SpecFloat>(delta: T) -> T {
     }
 }
 
+/// Returns ±∞ according to `sign`'s sign bit.
 #[inline]
 pub(super) fn signed_infinity<T: SpecFloat>(sign: T) -> T {
     if sign.is_nan() {
@@ -27,6 +31,7 @@ pub(super) fn signed_infinity<T: SpecFloat>(sign: T) -> T {
     }
 }
 
+/// Convenience: combine [`sign_from_delta`] and [`signed_infinity`].
 #[inline]
 pub(super) fn signed_infinity_from_delta<T: SpecFloat>(delta: T) -> T {
     signed_infinity(sign_from_delta(delta))
@@ -41,11 +46,18 @@ pub(super) fn kahan_add<T: SpecFloat>(sum: &mut T, comp: &mut T, term: T) {
     *sum = t;
 }
 
+/// True when `x` is a non-positive integer (poles of `Γ(x)` and `ψ(x)`).
 #[inline]
 pub(super) fn is_non_pos_int<T: SpecFloat>(x: T) -> bool {
     x <= T::zero() && x == x.round()
 }
 
+/// Computes `(l−|m|)! / (l+|m|)!` directly or in log-space.
+///
+/// For `l+|m| < 120` the product `1 / ∏_{j=l−|m|+1}^{l+|m|} j` is evaluated
+/// directly. Beyond that the log-space path avoids underflow from repeated
+/// multiplication of tiny factors. The threshold 120 is a safe guard: the
+/// product of 120 terms at magnitude ~O(1) has no risk of underflow in f64.
 #[inline]
 pub(super) fn legendre_factorial_ratio<T: SpecFloat, I: SpecInt>(l: I, m_abs: I) -> T {
     if l + m_abs < I::from_usize(120) {
@@ -94,6 +106,11 @@ pub(super) fn pi_cot_pi_x<T: SpecFloat>(x: T) -> T {
     pi * (pi * f).cos() / (pi * f).sin()
 }
 
+/// Sign of `Γ(x)` at a non-positive integer pole, using parity of `⌊−x⌋`.
+///
+/// `Γ(−n)` has pole with sign `(−1)ⁿ` approaching from the positive side.
+/// Returns `+1` for even `n`, `−1` for odd `n`, with overflow protection
+/// for very large `|x|` via float parity fallback.
 #[inline]
 pub(super) fn gamma_pole_sign<T: SpecFloat>(x: T) -> T {
     let neg_x = -x;

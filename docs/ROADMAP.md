@@ -218,9 +218,9 @@
 - [ ] Baseline correction (asymmetric least squares)
 
 #### `regression-anafis` - Model Fitting
-- [ ] Basic ODR with known σ_x, σ_y (current `odr_anafis`)
-- [ ] Symbolic Jacobian from symb_anafis
-- [ ] Parameter uncertainty via exact Hessian
+- [x] Basic ODR with known σ_x, σ_y (current `odr_anafis`)
+- [x] Symbolic Jacobian from symb_anafis
+- [x] Parameter uncertainty via exact Hessian
 - [ ] Constrained optimization (physical bounds)
 - [ ] SINDy: sparse identification of dynamics
 - [ ] Model selection (AIC, BIC, cross-validation)
@@ -242,12 +242,6 @@
 - [ ] L-BFGS for large-scale
 - [ ] Constrained optimization (barriers, projections)
 
-#### `fit-anafis` - General Fitting
-- [ ] Nonlinear Least Squares (Levenberg-Marquardt)
-- [ ] Weighted Least Squares
-- [ ] Model builders (polynomial, exponential, power law)
-- [ ] Residual analysis and diagnostics
-- [ ] Confidence/prediction bands
 
 #### `kan-anafis` - Kolmogorov-Arnold Networks
 - [ ] Basic KAN layer (B-spline basis)
@@ -275,7 +269,7 @@
 - [ ] Sensitivity analysis (forward/adjoint)
 - [ ] Lagrangian → Euler-Lagrange derivation
 - [ ] Hamiltonian mechanics helpers
-- [ ] Noether's theorem (symmetry → conservation)
+- [ ] Noether's theorem
 
 #### `geo-anafis` - Geometry & Graphics
 - [ ] Implicit surface utilities (normals, curvature)
@@ -319,83 +313,3 @@
 - [ ] "ODR Fitting with Error Bars" - Physics lab example
 
 ---
-
-## Dependency Graph
-
-```mermaid
-graph TD
-    subgraph "Core"
-        SA[symb_anafis ✓]
-        CORE[core-anafis]
-        UTILS[utils-anafis]
-    end
-    
-    subgraph "symb_anafis Modules"
-        SA --> SOLVER[solver]
-        SA --> DOMAIN[domain]
-        SA --> JIT[jit]
-        SA --> TENSOR[tensor]
-        SA --> INTEGRATE[integrate]
-    end
-    
-    subgraph "Statistics"
-        CORE --> PROP[propagator-anafis]
-        CORE --> OUT[outliers-anafis]
-        CORE --> IMP[imputation-anafis]
-        CORE --> EXP[exploration-anafis]
-        UTILS --> CORR[correlation-anafis]
-        UTILS --> POW[power-anafis]
-    end
-    
-    subgraph "Regression & Hypothesis"
-        SA --> REG[regression-anafis]
-        CORE --> REG
-        REG --> HYP[hypothesis-anafis]
-        PROP --> HYP
-    end
-    
-    subgraph "ML & Advanced"
-        SA --> OPT[opt-anafis]
-        SA --> FIT[fit-anafis]
-        SA --> KAN[kan-anafis]
-        SA --> SYMREG[symreg-anafis]
-        SA --> PINN[pinn-anafis]
-        SA --> PHYS[phys-anafis]
-        SA --> GEO[geo-anafis]
-    end
-    
-    subgraph "Signal"
-        UTILS --> SIG[signal-anafis]
-    end
-    
-    subgraph "Frontend"
-        REG --> REPORT[reporting-anafis]
-        REPORT --> GUI[anafis-tauri]
-    end
-```
-
----
-
-## Technology Stack
-
-| Component     | Crate              | Notes                  |
-| ------------- | ------------------ | ---------------------- |
-| Core          | ndarray, arrow     | Numeric foundation     |
-| Optimization  | argmin             | LBFGS, constraints     |
-| JIT           | cranelift          | Native code generation |
-| Kernels       | kiddo              | KD-tree for KSG        |
-| Distributions | statrs             | PDFs                   |
-| FFT           | rustfft            | Spectral/wavelets      |
-| GP            | linfa-gp or custom | Imputation             |
-| Neural        | burn / candle      | MINE, PINNs, KANs      |
-| Persistence   | rusqlite           | Heavy result caching   |
-| GUI           | tauri + egui       | Desktop app            |
-
----
-
-## Contributing
-
-Priority areas:
-1. **Beta Testers**: Users applying to ML/Physics problems to report edge cases
-2. **Special Functions**: Numeric implementations for obscure physics functions
-3. **Docs**: "How-to" guides for beginners

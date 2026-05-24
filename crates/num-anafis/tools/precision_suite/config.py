@@ -16,16 +16,16 @@ except ImportError:
 
 # --- Configuration ---
 BACKENDS = {
-    # "32" : ("python,backend32", False),
-    # "64" : ("python,backend64", False),
-    "rug": ("python,backendrug", True),
+    "32" : ("python,backend32", False),
+    "64" : ("python,backend64", False),
+    # "rug": ("python,backendrug", True),
 }
 
 MPMATH_PREC = 50
 RUG_PREC_RANGE = (53, 2048)
-SAMPLES = 800
-TARGETED_SAMPLES = 200
-RUG_SAMPLES = 200
+SAMPLES = 10000
+TARGETED_SAMPLES = 2000
+RUG_SAMPLES = 800
 
 TARGETED_POLE_COUNT = 30
 TARGETED_POLE_EPS_RANGE = (1e-10, 1e-2)

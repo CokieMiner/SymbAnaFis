@@ -13,6 +13,25 @@ use super::{SpecFloat, SpecInt};
 // J_n — Bessel function of the first kind
 // =========================================================================
 
+/// Bessel function of the first kind `J_n(x)`, integer order `n`.
+///
+/// Dispatch logic:
+/// - **Power series** (`n ≠ 0` and `|x| < 1`): Direct series evaluation.
+///   `J_n(x) ≈ (x/2)ⁿ/n! · [1 − (x/2)²/(n+1) + …]` avoids Miller overflow
+///   for small `x` in f32 (where `(x/2)ⁿ/n!` may underflow in the Miller seed).
+/// - **Hankel asymptotic expansion** (`x > max(n²/2 + 20, 10)`): Uses
+///   [`bessel_j_asymptotic`] — DLMF §10.17. The offset 20 guarantees that
+///   `8x >> 4n²−1` for the series convergence criterion.
+/// - **Forward recurrence** (`x > n`): [`forward_recurrence_j`] with
+///   compensated summation — stable when `J_n` is not yet dominated by the
+///   exponentially growing `Y_n` component.
+/// - **Miller backward recurrence** (default): [`miller_backward_j`] —
+///   unconditionally stable, avoids forward-recursion blowup when `x ≤ n`.
+///
+/// # Symmetries
+/// `J_{-n}(x) = (-1)^n J_n(x)`, `J_n(-x) = (-1)^n J_n(x)`.
+///
+/// Reference: [DLMF, §10.6], [DLMF, §10.8], [DLMF, §10.17], [DLMF, §10.74]
 pub fn bessel_j<T: SpecFloat, I: SpecInt>(n: I, x: T) -> T {
     if x.is_nan() {
         return T::nan();
@@ -89,7 +108,21 @@ pub fn bessel_j<T: SpecFloat, I: SpecInt>(n: I, x: T) -> T {
 // Y_n — Bessel function of the second kind
 // =========================================================================
 
-/// Bessel `Y_n` with compensated forward recurrence.
+/// Bessel function of the second kind `Y_n(x)`, integer order `n` (x > 0).
+///
+/// Computed via compensated forward recurrence from `Y_0(x)` and `Y_1(x)`:
+/// `Y_{n+1}(x) = (2n/x)·Y_n(x) − Y_{n-1}(x)`.
+///
+/// Forward recurrence for `Y_n` is **stable** because `Y_n(x)` is the
+/// dominant solution in the forward direction (it grows relative to `J_n`
+/// as `n` increases). Rounding errors from the multiplication `(2n/x)·Y_n`
+/// are tracked via FMA residues and fed back into the next step
+/// (compensated summation of the three-term recurrence).
+///
+/// # Symmetries
+/// `Y_{-n}(x) = (-1)^n Y_n(x)`.
+///
+/// Reference: [DLMF, §10.6.1], [Cephes, yn.c]
 pub fn bessel_y<T: SpecFloat, I: SpecInt>(n: I, x: T) -> T {
     if x.is_nan() || x <= T::zero() {
         return T::nan();
@@ -155,17 +188,23 @@ pub fn bessel_y<T: SpecFloat, I: SpecInt>(n: I, x: T) -> T {
 // J_n strategies
 // =========================================================================
 
-/// Hankel asymptotic expansion for `J_n(x)` when x is large.
-///
-/// `J_n(x) ≈ sqrt(2/(πx)) · [P·cos(χ) − Q·sin(χ)]`
-/// where `χ = x − (2n+1)π/4`
-///
-/// P and Q are series in `1/(8x)` that converge when `8x >> 4n²−1`.
-/// Terms are accumulated until they start growing (divergent tail).
 #[allow(
     clippy::many_single_char_names,
     reason = "Mathematical formula uses standard notation (n, x, k, mu, chi)"
 )]
+/// Hankel asymptotic expansion for `J_n(x)` — DLMF §10.17.3.
+///
+/// `J_n(x) ≈ √(2/(πx)) · [P·cos(χ) − Q·sin(χ)]`
+/// where `χ = x − (2n+1)π/4`.
+///
+/// `P` and `Q` are series in `(4n²−1)/(8x)` computed via the term recurrence:
+/// `a_0 = 1,  a_k = a_{k-1} · (4n²−(2k−1)²) / (k·8x)`.
+/// Even-indexed `a_k` contribute to `P` (alternating sign), odd-indexed to `Q`.
+///
+/// The series is asymptotic and diverges; iteration stops when terms start
+/// growing (typically after 6–12 terms for well-conditioned `x >> n²/2`).
+/// The minimum iteration of 2 terms (`k > 2` guard) ensures at least baseline
+/// accuracy for borderline cases.
 fn bessel_j_asymptotic<T: SpecFloat, I: SpecInt>(n_abs: I, ax: T) -> T {
     let n_t = T::from_int(n_abs);
     let mu = T::from_usize(4) * n_t * n_t;
@@ -210,6 +249,20 @@ fn bessel_j_asymptotic<T: SpecFloat, I: SpecInt>(n_abs: I, ax: T) -> T {
     prefactor * (p_sum * chi.cos() - q_sum * chi.sin())
 }
 
+/// Forward recurrence for `J_n` — compensated three-term recurrence.
+///
+/// `J_{k+1}(x) = (2k/x)·J_k(x) − J_{k-1}(x)`
+///
+/// Forward recurrence for `J_n` is stable when `x > n` (the oscillatory
+/// region). When `x ≤ n`, `J_n(x)` decays exponentially and the recurrence
+/// becomes dominated by the growing `Y_n` component; Miller's algorithm is
+/// used instead.
+///
+/// Rounding errors from `(2k/x)·J_k` are tracked via FMA: the exact product
+/// `p = ratio·j_curr` has residual `ratio·j_curr − p` recorded and fed into
+/// the next iteration. This yields sub-20 ULP accuracy for typical inputs.
+///
+/// Reference: [DLMF, §10.6.1]
 fn forward_recurrence_j<T: SpecFloat, I: SpecInt>(n: I, x: T) -> T {
     let n_abs = n.abs();
     let ax = x.abs();
@@ -261,14 +314,20 @@ fn forward_recurrence_j<T: SpecFloat, I: SpecInt>(n: I, x: T) -> T {
     clippy::many_single_char_names,
     reason = "Mathematical formulas use standard single-letter notation (n, x, k, y, t)"
 )]
-// Miller's Backward Recurrence Algorithm
-//
-// Computes J_n(x) by iterating the recurrence relation backwards from a
-// dynamically computed starting index `N_start > n`. This is unconditionally
-// stable for J_n(x), unlike forward recurrence which suffers catastrophic
-// cancellation when J_n(x) < J_{n-1}(x).
-//
-// Reference: Miller, J. C. P. (1952), DLMF §10.74.
+/// Miller backward recurrence for `J_n(x)` — unconditionally stable.
+///
+/// Iterates the recurrence backwards from a starting index `N_start > n`:
+/// `J_{k-1}(x) = (2k/x)·J_k(x) − J_{k+1}(x)`.
+///
+/// The sequence is normalized using the sum identity:
+/// `1 = J_0(x) + 2 Σ_{k=1}^∞ J_{2k}(x)`.
+///
+/// Scaling: when values approach `√(T::MAX)`, they are divided by
+/// `√(T::MAX)` and the scale factor tracked via `scale_power`. When values
+/// approach `√(T::MIN_POSITIVE)`, they are multiplied back to avoid
+/// underflow. The final ratio of `result / norm` removes the scaling.
+///
+/// Reference: [Miller52], [DLMF, §10.74]
 fn miller_backward_j<T: SpecFloat, I: SpecInt>(n: I, x: T) -> T {
     let n_abs = n.abs();
     let ax = x.abs();
@@ -370,6 +429,18 @@ fn miller_backward_j<T: SpecFloat, I: SpecInt>(n: I, x: T) -> T {
 // J₀, J₁, Y₀, Y₁ — rational approximations
 // =========================================================================
 
+/// `J₀(x)` via rational-Chebyshev approximation (Cephes).
+///
+/// Piecewise strategy:
+/// - **Small** (`|x| ≤ split`): Rational approximation of `(J₀(x)−1)/x²` with
+///   factored zeros at `r₁` and `r₂`: `J₀(x) ≈ (x²−r₁)(x²−r₂)·R(x²)`.
+///   Factoring the first two zeros removes the dominant oscillations and lets
+///   a low-order (8/8) rational fit achieve full f64 precision.
+/// - **Large** (`|x| > split`): Hankel form via [`bessel_j_asymptotic`]:
+///   `J₀(x) ≈ √(2/(πx)) · [P·cos(χ) − Q·sin(χ)]` with `χ = x − π/4`.
+///   Uses Cody-Waite range reduction for the `π/4` subtraction.
+///
+/// Reference: [Cephes, j0.c], [DLMF, §10.6], [DLMF, §10.17.3]
 fn bessel_j0<T: SpecFloat>(x: T) -> T {
     if x.is_nan() {
         return T::nan();
@@ -394,6 +465,14 @@ fn bessel_j0<T: SpecFloat>(x: T) -> T {
     }
 }
 
+/// `J₁(x)` via rational-Chebyshev approximation (Cephes).
+///
+/// Piecewise strategy identical to [`bessel_j0`]:
+/// - **Small** (`|x| ≤ split`): `J₁(x) ≈ x·(x²−r₁)(x²−r₂)·R(x²)` with
+///   factored zeros at `r₁`, `r₂` and a rational fit for the smooth remainder.
+/// - **Large** (`|x| > split`): Hankel asymptotic form with `χ = x − 3π/4`.
+///
+/// Reference: [Cephes, j1.c], [DLMF, §10.6], [DLMF, §10.17.3]
 fn bessel_j1<T: SpecFloat>(x: T) -> T {
     if x.is_nan() {
         return T::nan();
@@ -421,6 +500,15 @@ fn bessel_j1<T: SpecFloat>(x: T) -> T {
     }
 }
 
+/// `Y₀(x)` via rational-Chebyshev approximation (Cephes).
+///
+/// Piecewise strategy:
+/// - **Small** (`x ≤ split`): `Y₀(x) = (2/π)·J₀(x)·ln(x) + R(x²)`
+///   where `R` separates the logarithmic singularity from the smooth part.
+/// - **Large** (`x > split`): Hankel form with `χ = x − π/4`:
+///   `Y₀(x) ≈ √(2/(πx)) · [P·sin(χ) + Q·cos(χ)]`.
+///
+/// Reference: [Cephes, y0.c], [DLMF, §10.6], [DLMF, §10.17.3]
 fn bessel_y0<T: SpecFloat>(x: T) -> T {
     if x.is_nan() || x <= T::zero() {
         return T::nan();
@@ -441,6 +529,15 @@ fn bessel_y0<T: SpecFloat>(x: T) -> T {
     }
 }
 
+/// `Y₁(x)` via rational-Chebyshev approximation (Cephes).
+///
+/// Piecewise strategy:
+/// - **Small** (`x ≤ split`): `Y₁(x) = (2/π)·[J₁(x)·ln(x) − 1/x] + x·R(x²)`.
+///   The `−1/x` term captures the leading-order pole at `x = 0`.
+/// - **Large** (`x > split`): Hankel form with `χ = x − 3π/4`:
+///   `Y₁(x) ≈ √(2/(πx)) · [P·sin(χ) + Q·cos(χ)]`.
+///
+/// Reference: [Cephes, y1.c], [DLMF, §10.6], [DLMF, §10.17.3]
 fn bessel_y1<T: SpecFloat>(x: T) -> T {
     if x.is_nan() || x <= T::zero() {
         return T::nan();
@@ -465,6 +562,11 @@ fn bessel_y1<T: SpecFloat>(x: T) -> T {
 // Shared helpers
 // =========================================================================
 
+/// Sign factor for `J_n(x)` under the symmetry relations.
+///
+/// `J_n(-x) = (-1)^n J_n(x)` and `J_{-n}(x) = (-1)^n J_n(x)`.
+/// Combined: the total sign is `(-1)^n` when `n` is odd AND `x` is negative
+/// XOR `n` is negative.
 #[inline]
 fn j_sign<T: SpecFloat, I: SpecInt>(n: I, n_abs: I, x: T) -> T {
     let n_odd = (n_abs % I::from_usize(2)) == I::one();
@@ -473,15 +575,32 @@ fn j_sign<T: SpecFloat, I: SpecInt>(n: I, n_abs: I, x: T) -> T {
     if sign_flip { -T::one() } else { T::one() }
 }
 
+/// Computes a safe starting index for Miller backward recurrence.
+///
+/// Returns `n + √(50·n) + 15`. This heuristic ensures the backward
+/// recurrence from `N_start` down to `n` has enough steps for the
+/// transient (growing) mode to decay to a fixed fraction relative to
+/// the desired (decaying) solution. The `√(50·n)` term grows sub-linearly
+/// because the transient decay per backward step is exponential in the
+/// distance from the turning point `k ≈ x`; `√(50·n)` extra terms suffice
+/// to suppress it across the relevant argument range, and `15` provides
+/// a safety margin independent of `n`.
+///
+/// Reference: [Miller52], [DLMF, §10.74]
 pub(super) fn compute_miller_start<I: SpecInt>(n: I) -> I {
     let extra = I::from_usize(approx_sqrt_max(n, 50)) + I::from_usize(15);
     n + extra
 }
 
+/// Integer `√(factor·n)` via Babylonian iteration — no floating point.
 fn approx_sqrt_max<I: SpecInt>(n: I, factor: usize) -> usize {
     approx_sqrt(factor.saturating_mul(n.to_usize()))
 }
 
+/// Integer square root via 5 iterations of Newton's method.
+///
+/// Uses a power-of-two initial guess followed by 5 Babylonian steps,
+/// which is sufficient for exact rounding for inputs up to `2¹²⁸`.
 fn approx_sqrt(x: usize) -> usize {
     let mut r = x;
     let mut s = 1_usize;
@@ -497,6 +616,7 @@ fn approx_sqrt(x: usize) -> usize {
     r
 }
 
+/// Horner's method for polynomial evaluation via FMA.
 #[inline]
 pub(super) fn horner_eval<T: SpecFloat>(x: T, coeffs: &[T]) -> T {
     let mut sum = T::zero();
@@ -506,6 +626,7 @@ pub(super) fn horner_eval<T: SpecFloat>(x: T, coeffs: &[T]) -> T {
     sum
 }
 
+/// Rational function `P(x)/Q(x)` via Horner on numerator and denominator.
 #[inline]
 pub(super) fn horner_rational<T: SpecFloat>(x: T, num: &[T], den: &[T]) -> T {
     horner_eval(x, num) / horner_eval(x, den)

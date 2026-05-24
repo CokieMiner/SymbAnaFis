@@ -1,6 +1,6 @@
 //! Gamma and log-gamma functions via Lanczos approximation.
 //!
-//! Reference: Lanczos (1964), DLMF §5.10
+//! Reference: [Lanczos64], [DLMF, §5.10]
 
 use super::SpecFloat;
 use super::helpers::{gamma_pole_sign, is_non_pos_int, kahan_add, signed_infinity, sin_pi_x};
@@ -131,7 +131,10 @@ fn stirling<T: SpecFloat>(x: T) -> T {
     (x - T::half()).mul_add(x.ln(), -x) + sqrt_2pi_ln + series * inv_x
 }
 
-/// Sign of Γ(x).
+/// Sign of `Γ(x)`: `+1` for `x > 0`, `(−1)^{⌊|x|⌋+1}` for `x < 0`.
+///
+/// For negative non‑integer `x`, `Γ(x)` alternates sign each time it crosses
+/// a pole (DLMF §5.5.3). The sign is `(−1)^{⌈|x|⌉}`.
 pub(super) fn gamma_sign<T: SpecFloat>(x: T) -> T {
     if x > T::zero() {
         T::one()

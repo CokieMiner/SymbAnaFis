@@ -14,16 +14,6 @@ pub(super) fn cadd<T: SpecFloat>(a: C<T>, b: C<T>) -> C<T> {
     (a.0 + b.0, a.1 + b.1)
 }
 
-/// Complex subtraction
-#[inline]
-#[allow(
-    dead_code,
-    reason = "Reserved for complex scalar layer / Clifford extension"
-)]
-pub(super) fn csub<T: SpecFloat>(a: C<T>, b: C<T>) -> C<T> {
-    (a.0 - b.0, a.1 - b.1)
-}
-
 /// Complex multiplication: (a+bi)(c+di) = (ac-bd) + (ad+bc)i
 #[inline]
 pub(super) fn cmul<T: SpecFloat>(a: C<T>, b: C<T>) -> C<T> {
@@ -69,33 +59,6 @@ pub(super) fn csin<T: SpecFloat>(z: C<T>) -> C<T> {
     let (sa, ca) = (z.0.sin(), z.0.cos());
     let (shb, chb) = sinh_cosh(z.1);
     (sa * chb, ca * shb)
-}
-
-/// Complex cos(a+bi) = cos(a)cosh(b) - i·sin(a)sinh(b)
-#[inline]
-#[allow(
-    dead_code,
-    reason = "Reserved for complex scalar layer / Clifford extension"
-)]
-pub(super) fn ccos<T: SpecFloat>(z: C<T>) -> C<T> {
-    let (sa, ca) = (z.0.sin(), z.0.cos());
-    let (shb, chb) = sinh_cosh(z.1);
-    (ca * chb, -(sa * shb))
-}
-
-/// Complex z^n for real n: z^n = exp(n · ln(z))
-#[inline]
-#[allow(
-    dead_code,
-    reason = "Reserved for complex scalar layer / Clifford extension"
-)]
-pub(super) fn cpow_real<T: SpecFloat>(z: C<T>, n: T) -> C<T> {
-    if z.1 == T::zero() && z.0 > T::zero() {
-        // Pure positive real — avoid unnecessary complex log
-        return (z.0.powf(n), T::zero());
-    }
-    let ln_z = clog(z);
-    cexp((n * ln_z.0, n * ln_z.1))
 }
 
 // =========================================================================

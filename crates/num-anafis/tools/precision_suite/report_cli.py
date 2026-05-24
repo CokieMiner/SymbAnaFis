@@ -4,8 +4,8 @@ import sys
 import argparse
 from collections import defaultdict
 
-from .config import JSON_PATH
-from .classifier import is_overflowed, is_correct_overflow, classify, LABELS, ulp_error
+from .config import JSON_PATH # type: ignore
+from .classifier import is_overflowed, is_correct_overflow, classify, LABELS, ulp_error # type: ignore
 
 def run_report_cli():
     parser = argparse.ArgumentParser(description="Analyze ULP results from verify_results.json")
@@ -108,8 +108,12 @@ def run_report_cli():
             sorted_items = sorted(items, key=sort_key, reverse=True)
             top_worst = sorted_items[:10]
 
-            print(f"{'Rank':<10} | {'ULP':<10} | {'Abs Err':<12} | {'Input':<35} | {'Our Value':<25} | {'Reference':<25}")
-            print("-" * 129)
+            if backend == "rug":
+                print(f"{'Rank':<10} | {'ULP':<10} | {'Prec':<6} | {'Abs Err':<12} | {'Input':<35} | {'Our Value':<25} | {'Reference':<25}")
+                print("-" * 138)
+            else:
+                print(f"{'Rank':<10} | {'ULP':<10} | {'Abs Err':<12} | {'Input':<35} | {'Our Value':<25} | {'Reference':<25}")
+                print("-" * 129)
             for i, e in enumerate(top_worst):
                 u = e["_ulp"]
                 uh_hp = e.get("exact_ulp_hp")
@@ -167,4 +171,8 @@ def run_report_cli():
                     our_str = f"{our:.{target_decimals}g}" if isinstance(our, float) else str(our)
                     ref_str = f"{ref:.{target_decimals}g}" if isinstance(ref, float) else str(ref)
 
-                print(f"{rank_str:<10} | {ulp_str:<10} | {ae_str:<12} | {inp_str:<35} | {our_str:<25} | {ref_str:<25}")
+                if backend == "rug":
+                    prec_str = str(e.get("precision_bits", "N/A"))
+                    print(f"{rank_str:<10} | {ulp_str:<10} | {prec_str:<6} | {ae_str:<12} | {inp_str:<35} | {our_str:<25} | {ref_str:<25}")
+                else:
+                    print(f"{rank_str:<10} | {ulp_str:<10} | {ae_str:<12} | {inp_str:<35} | {our_str:<25} | {ref_str:<25}")

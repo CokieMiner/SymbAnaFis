@@ -21,9 +21,11 @@ try:
 except ImportError:
     HAS_FLINT = False
 
+# pyrefly: ignore [missing-import]
 from .config import (
     WORKSPACE_ROOT, MPMATH_MAP, FLINT_MAP, RUG_PREC_RANGE, TARGETED_SAMPLES, FUNCTIONS
 )
+# pyrefly: ignore [missing-import]
 from .generators import generate_args, finalize_args, TARGETED_GENERATORS
 
 def compute_references(name: str, args: list[float], prec_bits: int) -> dict[str, float]:
@@ -244,7 +246,7 @@ def evaluate_case(
 
     return record, failed
 
-def run_tests(module, backend: str, seed: int, run_id: str, samples: int):
+def run_tests(module, backend: str, seed: int, run_id: str, samples: int, function_filter: str = None):
     results = []
     failures = Counter()
     rng = random.Random(seed)
@@ -252,7 +254,11 @@ def run_tests(module, backend: str, seed: int, run_id: str, samples: int):
     default_prec = module.get_precision() if backend != "rug" else None
     print(f"    Precision: {default_prec if default_prec else f'random {RUG_PREC_RANGE}'} bits")
 
+    filter_set = set(function_filter.split(',')) if function_filter else None
+
     for func_name, args_spec in FUNCTIONS.items():
+        if filter_set and func_name not in filter_set:
+            continue
         print(f"    Testing {func_name}...", flush=True)
         for _ in range(samples):
             args = generate_args(func_name, args_spec, rng, backend)

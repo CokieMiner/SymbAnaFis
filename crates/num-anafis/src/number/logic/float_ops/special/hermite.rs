@@ -9,7 +9,7 @@
 //! We compensate rounding errors by tracking the FMA residues at each
 //! step, which yields sub-20 ULP accuracy for typical inputs.
 //!
-//! Reference: DLMF §18.5, §18.9
+//! Reference: [DLMF, §18.5], [DLMF, §18.9]
 //!   Ogita, Rump, Oishi — Accurate Sum and Dot Product (2005)
 //!   Klee — Compensated three-term recurrence
 
