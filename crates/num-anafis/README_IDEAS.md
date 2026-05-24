@@ -15,14 +15,6 @@ Dense Clifford algebra multivector with inline fast path for small algebras.
   - Complex numbers: standard complex analysis formulas
   - Split-complex: hyperbolic variants
 
-## Vector
-
-Simple wrapper around `Vec<Scalar>` for element-wise operations.
-
-- **Operations**: element-wise add, sub, mul, div, neg
-- **Dot product**, **cross product** (3D), **norm**
-- **Should implement**: element-wise application of `Number` trait functions
-
 ## Interval
 
 Interval arithmetic `[lo, hi]` for rigorous error bounding.

@@ -18,8 +18,11 @@ use super::{SpecFloat, SpecInt};
 #[inline]
 fn two_sum<T: SpecFloat>(a: T, b: T) -> (T, T) {
     let s = a + b;
-    let bb = s - a;
-    let err = (a - (s - bb)) + (b - bb);
+    let a_prime = s - b;
+    let b_prime = s - a_prime;
+    let delta_a = a - a_prime;
+    let delta_b = b - b_prime;
+    let err = delta_a + delta_b;
     (s, err)
 }
 

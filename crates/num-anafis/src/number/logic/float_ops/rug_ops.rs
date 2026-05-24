@@ -1,9 +1,3 @@
-#![allow(
-    clippy::cast_possible_truncation,
-    clippy::manual_is_multiple_of,
-    reason = "Bessel order must be i32 for MPFR's jn/yn"
-)]
-
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::cmp::Ordering;
@@ -78,7 +72,11 @@ pub(super) fn from_i64(v: i64) -> BackingFloat {
 }
 #[inline]
 pub(super) fn to_int(value: &BackingFloat) -> Option<IntRepr> {
-    value.to_integer()
+    if value.is_integer() {
+        value.to_integer()
+    } else {
+        None
+    }
 }
 
 pub(super) fn to_rational(value: &BackingFloat) -> Option<RationalRepr> {
@@ -89,13 +87,9 @@ pub(super) fn to_rational(value: &BackingFloat) -> Option<RationalRepr> {
     value.to_rational()
 }
 
-#[allow(
-    clippy::cast_sign_loss,
-    clippy::cast_possible_truncation,
-    reason = "prec is strictly positive"
-)]
 pub(super) fn to_string(value: &BackingFloat) -> String {
-    let digits = (f64::from(value.prec()) * core::f64::consts::LOG10_2) as usize;
+    let prec = value.prec();
+    let digits = usize::try_from((prec * 30_103).div_ceil(100_000) + 2).unwrap_or(17);
     alloc::format!("{value:.digits$e}")
 }
 
@@ -293,6 +287,23 @@ pub(super) fn gamma(value: &BackingFloat) -> BackingFloat {
     value.clone().gamma()
 }
 pub(super) fn lgamma(value: &BackingFloat) -> BackingFloat {
+    if value.is_sign_negative() {
+        if value.is_integer() {
+            let prec = value.prec();
+            return Float::with_val(prec, rug::float::Special::Infinity);
+        }
+        let prec = value.prec();
+        let work_prec = prec * 2;
+        let pi = Float::with_val(work_prec, rug::float::Constant::Pi);
+        let x_work = Float::with_val(work_prec, value);
+        let sin_pi_x = with_prec_val(work_prec, &pi * &x_work).sin();
+        let term1 = pi.ln();
+        let term2 = sin_pi_x.abs().ln();
+        let one_minus_x = with_prec_val(work_prec, 1) - &x_work;
+        let term3 = one_minus_x.ln_gamma();
+        let res = with_prec_val(work_prec, with_prec_val(work_prec, term1 - term2) - term3);
+        return Float::with_val(prec, res);
+    }
     value.clone().ln_gamma()
 }
 pub(super) fn digamma(value: &BackingFloat) -> BackingFloat {
@@ -320,8 +331,6 @@ pub(super) fn bessel_y(n: &IntRepr, value: &BackingFloat) -> BackingFloat {
 // ============================================================================
 // Trigamma / Tetragamma — recurse then asymptotic (Euler-Maclaurin)
 // ============================================================================
-
-const ARG_SHIFT: i32 = 100;
 
 fn bernoulli_even_up_to(max_k: usize) -> Vec<rug::Rational> {
     let mut b = alloc::vec![rug::Rational::from((1, 1)), rug::Rational::from((-1, 2))];
@@ -376,7 +385,7 @@ pub(super) fn tetragamma(value: &BackingFloat) -> BackingFloat {
 #[allow(clippy::many_single_char_names, reason = "Standard math notation")]
 pub(super) fn polygamma(n: &IntRepr, value: &BackingFloat) -> BackingFloat {
     let ni = n;
-    if value.is_sign_negative() || value.is_zero() {
+    if value.is_zero() || (value.is_sign_negative() && value.is_integer()) {
         return nan();
     }
     if ni.is_zero() {
@@ -385,51 +394,67 @@ pub(super) fn polygamma(n: &IntRepr, value: &BackingFloat) -> BackingFloat {
 
     let neg_np1 = -Integer::from(ni + 1);
 
-    let mut x = value.clone();
-    let mut s = with_val(0);
-    let shift = with_val(ARG_SHIFT);
-    let one = with_val(1);
+    let prec = value.prec();
+    let work_prec = prec + 40;
+    let mut x = Float::with_val(work_prec, value);
+    let mut s = with_prec_val(work_prec, 0);
+    let max_k = usize::try_from(work_prec.div_euclid(8) + 10)
+        .unwrap_or(40)
+        .clamp(40, 300);
+    let shift_val = (work_prec.div_euclid(4) + 50).clamp(100, 400);
+    let shift = with_prec_val(work_prec, shift_val);
+    let one = with_prec_val(work_prec, 1);
     while x < shift {
-        s += with_val(rug::ops::Pow::pow(x.clone(), &neg_np1));
+        let term = Float::with_val(work_prec, rug::ops::Pow::pow(x.clone(), &neg_np1));
+        s += term;
         x += &one;
     }
 
-    // Factorial: (n-1)! computed as n! / n
-    let mut factorial_n = with_val(1);
+    // Factorial: (n-1)! and n! computed exactly using Integers
+    let mut factorial_n_int = Integer::from(1);
     let mut k_fact = Integer::from(2);
     while k_fact <= *ni {
-        factorial_n *= with_val(&k_fact);
+        factorial_n_int *= &k_fact;
         k_fact += 1;
     }
-    let factorial_nm1 = with_val(&factorial_n / with_val(ni));
+    let factorial_nm1_int = Integer::from(&factorial_n_int / ni);
+    let factorial_n = with_prec_val(work_prec, &factorial_n_int);
+    let factorial_nm1 = with_prec_val(work_prec, &factorial_nm1_int);
 
     // DLMF 5.15.2:  ψ⁽ⁿ⁾(z) ~ (-1)^(n-1) * [ (n-1)! / zⁿ + n!/(2·zⁿ⁺¹) + sum ]
     let n_int = Integer::from(ni);
     let n1 = Integer::from(ni + 1);
 
     // Leading: (n-1)! / xⁿ
-    let mut sum = with_val(factorial_nm1 / with_val(rug::ops::Pow::pow(x.clone(), &n_int)));
+    let pow_x_n = Float::with_val(work_prec, rug::ops::Pow::pow(x.clone(), &n_int));
+    let mut sum = with_prec_val(work_prec, &factorial_nm1 / &pow_x_n);
 
     // Second term: n! / (2 · xⁿ⁺¹)
-    let half_fact = with_val(&factorial_n / 2);
-    sum += with_val(half_fact / with_val(rug::ops::Pow::pow(x.clone(), &n1)));
+    let half_fact = with_prec_val(work_prec, &factorial_n / 2);
+    let pow_x_n1 = Float::with_val(work_prec, rug::ops::Pow::pow(x.clone(), &n1));
+    sum += with_prec_val(work_prec, &half_fact / &pow_x_n1);
 
-    let tol = precision_threshold();
-    let max_k = 40;
+    let tol = with_prec_val(work_prec, 1) >> (work_prec.saturating_sub(10));
     let b_evens = bernoulli_even_up_to(max_k);
 
-    let mut prod_n = Integer::from(ni);
-    prod_n *= Integer::from(ni + 1);
+    // prod_n initially has (n+1)! which includes the (n-1)! factor
+    let mut prod_n = Integer::from(&factorial_n_int) * Integer::from(ni + 1);
     let mut fact_2k = Integer::from(2);
 
     for k in 1..=max_k {
-        let b2k = with_val(b_evens.get(k - 1).expect("b_evens has enough elements"));
-        let pow_val = with_val(rug::ops::Pow::pow(
-            x.clone(),
-            Integer::from(ni) + Integer::from(2 * k),
-        ));
-        let term =
-            with_val(with_val(b2k * with_val(&prod_n)) / with_val(with_val(&fact_2k) * pow_val));
+        let b2k = with_prec_val(
+            work_prec,
+            b_evens.get(k - 1).expect("b_evens has enough elements"),
+        );
+        let pow_val = Float::with_val(
+            work_prec,
+            rug::ops::Pow::pow(x.clone(), Integer::from(ni) + Integer::from(2 * k)),
+        );
+        let term = with_prec_val(
+            work_prec,
+            with_prec_val(work_prec, &b2k * with_prec_val(work_prec, &prod_n))
+                / with_prec_val(work_prec, with_prec_val(work_prec, &fact_2k) * pow_val),
+        );
 
         let abs_term = term.clone().abs();
         sum += term;
@@ -449,8 +474,12 @@ pub(super) fn polygamma(n: &IntRepr, value: &BackingFloat) -> BackingFloat {
         fact_2k *= &t2;
     }
 
-    let sign = with_val(if ni.is_odd() { 1 } else { -1 });
-    with_val(sign * (with_val(factorial_n.clone() * s) + sum))
+    let sign = with_prec_val(work_prec, if ni.is_odd() { 1 } else { -1 });
+    let res = with_prec_val(
+        work_prec,
+        &sign * (with_prec_val(work_prec, &factorial_n * &s) + &sum),
+    );
+    Float::with_val(prec, res)
 }
 
 // ============================================================================
@@ -545,15 +574,32 @@ pub(super) fn lambert_wm1(value: &BackingFloat) -> BackingFloat {
     w
 }
 
-// ============================================================================
-// Beta — exact via lgamma
-// ============================================================================
+fn gamma_sign(x: &Float) -> i32 {
+    if x.is_sign_positive() || x.is_zero() {
+        1
+    } else {
+        let floor = x.clone().floor();
+        let floor_int = floor.to_integer().unwrap_or_else(|| Integer::from(0));
+        if floor_int.is_even() { 1 } else { -1 }
+    }
+}
 
 pub(super) fn beta(a: &BackingFloat, b: &BackingFloat) -> BackingFloat {
-    let lga = a.clone().ln_gamma();
-    let lgb = b.clone().ln_gamma();
-    let lgapb = with_val(a + b).ln_gamma();
-    with_val(with_val(lga + lgb - lgapb).exp())
+    let prec = get_precision();
+    let work_prec = prec + 20;
+
+    let a_w = Float::with_val(work_prec, a);
+    let b_w = Float::with_val(work_prec, b);
+
+    let lga = lgamma(&a_w);
+    let lgb = lgamma(&b_w);
+    let lgapb = lgamma(&with_prec_val(work_prec, &a_w + &b_w));
+    let abs_beta = with_prec_val(work_prec, with_prec_val(work_prec, lga + lgb - lgapb).exp());
+    let sign =
+        gamma_sign(&a_w) * gamma_sign(&b_w) * gamma_sign(&with_prec_val(work_prec, &a_w + &b_w));
+
+    let res = with_prec_val(work_prec, abs_beta * sign);
+    Float::with_val(prec, res)
 }
 
 // ============================================================================
@@ -569,62 +615,79 @@ pub(super) fn beta(a: &BackingFloat, b: &BackingFloat) -> BackingFloat {
 /// Complete elliptic integral K(m) via AGM (parameter m = k^2).
 pub(super) fn elliptic_k(v: &BackingFloat) -> BackingFloat {
     let m = v.clone();
-    let one = with_val(1);
-    if m > one {
+    let prec = get_precision();
+    let work_prec = prec + 10;
+
+    let one = Float::with_val(work_prec, 1);
+    let m_w = Float::with_val(work_prec, &m);
+    if m_w > one {
         return nan();
     }
-    if m == one {
-        return Float::with_val(get_precision(), Special::Infinity);
+    if m_w == one {
+        return Float::with_val(prec, Special::Infinity);
     }
     let mut a = one.clone();
-    let mut b = with_val(&one - &m).sqrt();
-    let two = with_val(2);
-    let tol = precision_threshold();
+    let mut b = Float::with_val(work_prec, &one - &m_w).sqrt();
+    let two = Float::with_val(work_prec, 2);
+    let tol = Float::with_val(work_prec, 1) >> (work_prec - 2);
 
     for _ in 0..100 {
-        let an = with_val(with_val(&a + &b) / &two);
-        let bn = with_val(&a * &b).sqrt();
+        let an = Float::with_val(work_prec, Float::with_val(work_prec, &a + &b) / &two);
+        let bn = Float::with_val(work_prec, Float::with_val(work_prec, &a * &b).sqrt());
+        let diff = Float::with_val(work_prec, &an - &bn).abs();
         a = an;
         b = bn;
-        if with_val(&a - &b).abs() < tol {
+        if diff < tol || a == b {
             break;
         }
     }
-    let pi = Float::with_val(get_precision(), rug::float::Constant::Pi);
-    with_val(pi / (two * a))
+    let pi = Float::with_val(work_prec, rug::float::Constant::Pi);
+    let res = Float::with_val(work_prec, pi / (two * a));
+    Float::with_val(prec, res)
 }
 
 /// Complete elliptic integral E(m) via AGM with corrections (parameter m = k^2).
 pub(super) fn elliptic_e(v: &BackingFloat) -> BackingFloat {
     let m = v.clone();
-    let one = with_val(1);
-    if m > one {
+    let prec = get_precision();
+    let work_prec = prec + 10;
+
+    let one = Float::with_val(work_prec, 1);
+    let m_w = Float::with_val(work_prec, &m);
+    if m_w > one {
         return nan();
     }
-    if m == one {
-        return one;
+    if m_w == one {
+        return Float::with_val(prec, 1);
     }
     let mut a = one.clone();
-    let mut b = with_val(&one - &m).sqrt();
-    let two = with_val(2);
-    let mut sum = with_val(with_val(&one + with_val(&b * &b)) / &two);
-    let mut pow2 = with_val(1);
-    let tol = precision_threshold();
+    let mut b = Float::with_val(work_prec, &one - &m_w).sqrt();
+    let two = Float::with_val(work_prec, 2);
+    let mut sum = Float::with_val(
+        work_prec,
+        Float::with_val(work_prec, &one + Float::with_val(work_prec, &b * &b)) / &two,
+    );
+    let mut pow2 = Float::with_val(work_prec, 1);
+    let tol = Float::with_val(work_prec, 1) >> (work_prec - 2);
 
     for _ in 0..100 {
-        let an = with_val(with_val(&a + &b) / &two);
-        let bn = with_val(&a * &b).sqrt();
-        let cn = with_val(with_val(&a - &b) / &two);
-        sum = with_val(&sum - with_val(&pow2 * with_val(&cn * &cn)));
+        let an = Float::with_val(work_prec, Float::with_val(work_prec, &a + &b) / &two);
+        let bn = Float::with_val(work_prec, Float::with_val(work_prec, &a * &b).sqrt());
+        let cn = Float::with_val(work_prec, Float::with_val(work_prec, &a - &b) / &two);
+        sum = Float::with_val(
+            work_prec,
+            &sum - Float::with_val(work_prec, &pow2 * Float::with_val(work_prec, &cn * &cn)),
+        );
         a = an;
         b = bn;
-        pow2 = with_val(&pow2 * &two);
-        if cn.abs() < tol {
+        pow2 = Float::with_val(work_prec, &pow2 * &two);
+        if cn.clone().abs() < tol || cn.is_zero() {
             break;
         }
     }
-    let pi = Float::with_val(get_precision(), rug::float::Constant::Pi);
-    with_val(pi / (two * a) * sum)
+    let pi = Float::with_val(work_prec, rug::float::Constant::Pi);
+    let res = Float::with_val(work_prec, Float::with_val(work_prec, pi / (two * a)) * sum);
+    Float::with_val(prec, res)
 }
 
 /// Hermite polynomial `H_n(x)` via recurrence.
@@ -654,12 +717,6 @@ pub(super) fn hermite(n: &IntRepr, v: &BackingFloat) -> BackingFloat {
 
 /// Associated Legendre polynomial `P_l^m(x)` via recurrence.
 #[allow(clippy::many_single_char_names, reason = "Standard math notation")]
-#[allow(
-    clippy::too_many_lines,
-    clippy::integer_division,
-    clippy::cast_precision_loss,
-    reason = "Recurrence kept together; integer seed estimate; exact power-of-two cast"
-)]
 pub(super) fn assoc_legendre(l: &IntRepr, m: &IntRepr, v: &BackingFloat) -> BackingFloat {
     let (li, mi) = (l, m);
     if li.is_negative() {
@@ -669,50 +726,53 @@ pub(super) fn assoc_legendre(l: &IntRepr, m: &IntRepr, v: &BackingFloat) -> Back
     if m_abs > *li {
         return nan();
     }
+    let prec = v.prec();
     let x = v.clone();
     let x_abs = x.clone().abs();
-    let one = with_val(1);
+    let one = Float::with_val(prec, 1);
     if x_abs > one {
         return nan();
     }
-    let two = with_val(2);
+    let two = Float::with_val(prec, 2);
 
     let result = 'blk: {
         // Forward recurrence for all |x| <= 1 with m > 0
         if !m_abs.is_zero() {
-            let sqx = (with_val(&one - &x) * with_val(&one + &x)).sqrt();
+            let sqx = (Float::with_val(prec, &one - &x) * Float::with_val(prec, &one + &x)).sqrt();
             let mut pmm = one.clone();
-            let mut fact = with_val(1);
+            let mut fact = Float::with_val(prec, 1);
             let mut cnt = Integer::from(0);
             while cnt < m_abs {
-                pmm = with_val(&pmm * with_val(-&fact) * &sqx);
-                fact = with_val(&fact + &two);
+                pmm = Float::with_val(prec, &pmm * Float::with_val(prec, -&fact) * &sqx);
+                fact = Float::with_val(prec, &fact + &two);
                 cnt += 1;
             }
             if *li == m_abs {
                 break 'blk pmm;
             }
 
-            let two_m_plus_1 = with_val(Integer::from(&m_abs + &m_abs) + 1);
-            let pmmp1 = with_val(&x * two_m_plus_1 * &pmm);
+            let two_m_plus_1 = Float::with_val(prec, Integer::from(&m_abs + &m_abs) + 1);
+            let pmmp1 = Float::with_val(prec, &x * two_m_plus_1 * &pmm);
 
             if *li == Integer::from(&m_abs + 1) {
                 break 'blk pmmp1;
             }
 
             let (mut pmm_prev, mut pmm_curr) = (pmm, pmmp1);
-            let mut pll = with_val(0);
+            let mut pll = Float::with_val(prec, 0);
             let mut ll = Integer::from(&m_abs + 2);
 
             while ll <= *li {
-                let f_ll = with_val(&ll);
-                let f_m_abs = with_val(&m_abs);
-                let term1_fact = with_val(Integer::from(&ll + &ll) - 1);
-                let term2_fact = with_val(Integer::from(&ll + &m_abs) - 1);
-                let denom = with_val(&f_ll - &f_m_abs);
+                let f_ll = Float::with_val(prec, &ll);
+                let f_m_abs = Float::with_val(prec, &m_abs);
+                let term1_fact = Float::with_val(prec, Integer::from(&ll + &ll) - 1);
+                let term2_fact = Float::with_val(prec, Integer::from(&ll + &m_abs) - 1);
+                let denom = Float::with_val(prec, &f_ll - &f_m_abs);
 
-                pll = with_val(
-                    (with_val(&x * term1_fact * &pmm_curr) - with_val(term2_fact * &pmm_prev))
+                pll = Float::with_val(
+                    prec,
+                    (Float::with_val(prec, &x * term1_fact * &pmm_curr)
+                        - Float::with_val(prec, term2_fact * &pmm_prev))
                         / denom,
                 );
                 pmm_prev.clone_from(&pmm_curr);
@@ -729,20 +789,17 @@ pub(super) fn assoc_legendre(l: &IntRepr, m: &IntRepr, v: &BackingFloat) -> Back
             break 'blk x;
         }
 
-        let mut p0 = with_val(1);
-        let mut p1 = x.clone();
-        let mut ll = Integer::from(2);
+        let (mut p0, mut p1, mut ll) = (Float::with_val(prec, 1), x.clone(), Integer::from(2));
         while ll <= *li {
-            let f_ll = with_val(&ll);
-            let two_ll = with_val(&f_ll + &f_ll);
-            let two_ll_minus_1 = with_val(&two_ll - &one);
-            let ll_minus_1 = with_val(&f_ll - &one);
-            let term1 = with_val(&two_ll_minus_1 * &x);
-            let term2 = with_val(&term1 * &p1);
-            let term3 = with_val(&ll_minus_1 * &p0);
-            let div1 = with_val(&term2 / &f_ll);
-            let div2 = with_val(&term3 / &f_ll);
-            let p2 = with_val(&div1 - &div2);
+            let f_ll = Float::with_val(prec, &ll);
+            let two_ll_minus_1 = Float::with_val(prec, Float::with_val(prec, &f_ll + &f_ll) - &one);
+            let ll_minus_1 = Float::with_val(prec, &f_ll - &one);
+            let term2 = Float::with_val(prec, Float::with_val(prec, &two_ll_minus_1 * &x) * &p1);
+            let term3 = Float::with_val(prec, &ll_minus_1 * &p0);
+            let p2 = Float::with_val(
+                prec,
+                Float::with_val(prec, &term2 / &f_ll) - Float::with_val(prec, &term3 / &f_ll),
+            );
             p0 = p1;
             p1 = p2;
             ll += 1;
@@ -754,17 +811,18 @@ pub(super) fn assoc_legendre(l: &IntRepr, m: &IntRepr, v: &BackingFloat) -> Back
         let sign = if m_abs.is_even() {
             one.clone()
         } else {
-            with_val(-1)
+            Float::with_val(prec, -1)
         };
         let diff = Integer::from(li - &m_abs);
         let sum = Integer::from(li + &m_abs);
         let mut ratio = one;
         let mut j = Integer::from(&diff + 1);
         while j <= sum {
-            ratio = with_val(&ratio / with_val(&j));
+            ratio = Float::with_val(prec, &ratio / Float::with_val(prec, &j));
             j += 1;
         }
-        with_val(result * sign * ratio)
+        let temp = Float::with_val(prec, &result * &sign);
+        Float::with_val(prec, &temp * &ratio)
     } else {
         result
     }
@@ -785,7 +843,13 @@ pub(super) fn spherical_harmonic(
     if m_abs > *li {
         return nan();
     }
-    let cos_theta = theta.clone().cos();
+    let prec = get_precision();
+    let work_prec = prec + 30;
+
+    let theta_w = Float::with_val(work_prec, theta);
+    let phi_w = Float::with_val(work_prec, phi);
+
+    let cos_theta = theta_w.cos();
     if cos_theta.is_nan() {
         return nan();
     }
@@ -794,32 +858,36 @@ pub(super) fn spherical_harmonic(
     let diff = Integer::from(li - mi);
     let sum_fact = Integer::from(li + mi);
 
-    let mut ratio = with_val(1);
+    let mut ratio = Float::with_val(work_prec, 1);
     if diff > sum_fact {
         // (l-m)! / (l+m)! where m < 0
         let mut i = Integer::from(&sum_fact + 1);
         while i <= diff {
-            ratio = with_val(&ratio * with_val(&i));
+            ratio = Float::with_val(work_prec, &ratio * Float::with_val(work_prec, &i));
             i += 1;
         }
     } else if diff < sum_fact {
         // (l-m)! / (l+m)! where m > 0
         let mut i = Integer::from(&diff + 1);
         while i <= sum_fact {
-            ratio = with_val(&ratio / with_val(&i));
+            ratio = Float::with_val(work_prec, &ratio / Float::with_val(work_prec, &i));
             i += 1;
         }
     }
 
-    let four = with_val(4);
-    let two_l_plus_1 = with_val(Integer::from(li + li) + 1);
-    let pi = Float::with_val(get_precision(), rug::float::Constant::Pi);
+    let four = Float::with_val(work_prec, 4);
+    let two_l_plus_1 = Float::with_val(work_prec, Integer::from(li + li) + 1);
+    let pi = Float::with_val(work_prec, rug::float::Constant::Pi);
 
-    let norm_sq = with_val(with_val(two_l_plus_1 / (four * pi)) * ratio);
+    let norm_sq = Float::with_val(
+        work_prec,
+        Float::with_val(work_prec, two_l_plus_1 / (four * pi)) * ratio,
+    );
     let norm = norm_sq.sqrt();
 
-    let m_phi = with_val(mi) * phi;
-    with_val(norm * plm * m_phi.cos())
+    let m_phi = Float::with_val(work_prec, mi) * phi_w;
+    let res = Float::with_val(work_prec, norm * plm * m_phi.cos());
+    Float::with_val(prec, res)
 }
 
 // ============================================================================
@@ -844,8 +912,7 @@ fn bessel_i0_asymp(x: &Float, prec: u32) -> Option<Float> {
         num = Integer::from(&num * &num);
         let denom = Float::with_val(prec, 8 * k) * x;
         let factor = Float::with_val(prec, num / denom);
-        let t_mul = Float::with_val(prec, &term * factor);
-        term = Float::with_val(prec, -t_mul);
+        term = Float::with_val(prec, &term * factor);
 
         let term_abs = term.clone().abs();
         if term_abs < tol {
@@ -880,8 +947,7 @@ fn bessel_i1_asymp(x: &Float, prec: u32) -> Option<Float> {
         num = Integer::from(&num * &num) - 4;
         let denom = Float::with_val(prec, 8 * k) * x;
         let factor = Float::with_val(prec, num / denom);
-        let t_mul = Float::with_val(prec, &term * factor);
-        term = Float::with_val(prec, -t_mul);
+        term = Float::with_val(prec, &term * factor);
 
         let term_abs = term.clone().abs();
         if term_abs < tol {
@@ -920,7 +986,8 @@ fn bessel_k0_asymp(x: &Float, prec: u32) -> Option<Float> {
         num = Integer::from(&num * &num);
         let denom = Float::with_val(prec, 8 * k) * x;
         let factor = Float::with_val(prec, num / denom);
-        term = Float::with_val(prec, &term * factor);
+        let t_mul = Float::with_val(prec, &term * factor);
+        term = Float::with_val(prec, -t_mul);
 
         let term_abs = term.clone().abs();
         if term_abs < tol {
@@ -989,7 +1056,8 @@ fn precision_threshold_with(prec: u32) -> BackingFloat {
 
 /// Power series for the modified Bessel function of the first kind, order 0.
 fn bessel_i0_with_prec(x: &Float, prec: u32) -> Float {
-    if let Some(res) = bessel_i0_asymp(x, prec) {
+    let x_abs = Float::with_val(prec, x.clone().abs());
+    if let Some(res) = bessel_i0_asymp(&x_abs, prec) {
         return res;
     }
     let one = with_prec_val(prec, 1);
@@ -1015,8 +1083,9 @@ fn bessel_i0_with_prec(x: &Float, prec: u32) -> Float {
 
 /// Power series for the modified Bessel function of the first kind, order 1.
 fn bessel_i1_with_prec(x: &Float, prec: u32) -> Float {
-    if let Some(res) = bessel_i1_asymp(x, prec) {
-        return res;
+    let x_abs = Float::with_val(prec, x.clone().abs());
+    if let Some(res) = bessel_i1_asymp(&x_abs, prec) {
+        return if x.is_sign_negative() { -res } else { res };
     }
     let one = with_prec_val(prec, 1);
     let x_half = with_prec_val(prec, x / 2);
@@ -1043,68 +1112,99 @@ fn bessel_i1_with_prec(x: &Float, prec: u32) -> Float {
 pub(super) fn bessel_i(n: &IntRepr, v: &BackingFloat) -> BackingFloat {
     let prec = v.prec();
     let n_abs = Integer::from(n.clone().abs_ref());
+    let is_neg = v.is_sign_negative();
+    let v_abs = v.clone().abs();
+
     if n_abs.is_zero() {
-        return bessel_i0_with_prec(v, prec);
+        let res = bessel_i0_with_prec(&v_abs, prec + 20);
+        return Float::with_val(prec, res);
     }
     if n_abs == 1 {
-        let i1 = bessel_i1_with_prec(v, prec);
-        return if n.is_negative() { -i1 } else { i1 };
+        let res = bessel_i1_with_prec(&v_abs, prec + 20);
+        let final_res = if is_neg { -res } else { res };
+        return Float::with_val(prec, final_res);
     }
 
-    let tol = precision_threshold_with(prec);
-    if v.clone().abs() < tol {
-        return with_prec_val(prec, 0);
+    let work_prec = prec + n_abs.to_u32().unwrap_or(50).clamp(50, 300);
+    let v_w = Float::with_val(work_prec, &v_abs);
+    let tol = precision_threshold_with(work_prec);
+    if v_w < tol {
+        return Float::with_val(prec, 0);
     }
 
-    let two = with_prec_val(prec, 2);
-    let n_start = compute_i_start(&n_abs, v, prec);
+    let two = with_prec_val(work_prec, 2);
 
-    let mut i_next = with_prec_val(prec, 0);
-    let mut i_curr = precision_threshold_with(prec);
-    let mut result = with_prec_val(prec, 0);
-    let mut sum = with_prec_val(prec, 0);
+    let res = if v_w > Float::with_val(work_prec, &n_abs) {
+        let i0 = bessel_i0_with_prec(&v_w, work_prec);
+        let i1 = bessel_i1_with_prec(&v_w, work_prec);
+        let mut i_prev = i0;
+        let mut i_curr = i1;
+        let mut k = Integer::from(1);
+        let mut k_t = with_prec_val(work_prec, 1);
 
-    let mut k = n_start;
-    let mut k_t = with_prec_val(prec, &k);
-
-    loop {
-        let i_prev = with_prec_val(prec, with_prec_val(prec, &two * &k_t) / v * &i_curr) + &i_next;
-
-        if k == n_abs {
-            result.clone_from(&i_curr);
+        while k < n_abs {
+            let term = with_prec_val(
+                work_prec,
+                with_prec_val(work_prec, &two * &k_t) / &v_w * &i_curr,
+            );
+            let ik_plus_1 = with_prec_val(work_prec, &i_prev - term);
+            i_prev = i_curr;
+            i_curr = ik_plus_1;
+            k_t = with_prec_val(work_prec, &k_t + 1);
+            k += 1;
         }
-
-        if k.is_zero() {
-            sum = with_prec_val(prec, &sum + &i_curr);
-        } else if Integer::from(&k % 2).is_zero() {
-            sum = with_prec_val(prec, &sum + with_prec_val(prec, &two * &i_curr));
-        }
-
-        i_next = i_curr;
-        i_curr = i_prev;
-        if k.is_zero() {
-            break;
-        }
-        k -= 1;
-        k_t = with_prec_val(prec, &k_t - 1);
-    }
-
-    let i0_actual = bessel_i0_with_prec(v, prec);
-    let scale = with_prec_val(prec, &i0_actual / &sum);
-    let ans = with_prec_val(prec, result * scale);
-
-    if n.is_negative() && (Integer::from(&n_abs % 2) == 1) {
-        -ans
+        i_curr
     } else {
-        ans
+        let n_start = compute_i_start(&n_abs, &v_w, work_prec);
+
+        let mut i_next = with_prec_val(work_prec, 0);
+        let mut i_curr = precision_threshold_with(work_prec);
+        let mut result = with_prec_val(work_prec, 0);
+        let mut i0_unnorm = with_prec_val(work_prec, 0);
+
+        let mut k = n_start;
+        let mut k_t = with_prec_val(work_prec, &k);
+
+        loop {
+            let i_prev = with_prec_val(
+                work_prec,
+                with_prec_val(work_prec, &two * &k_t) / &v_w * &i_curr,
+            ) + &i_next;
+
+            if k == n_abs {
+                result.clone_from(&i_curr);
+            }
+
+            if k.is_zero() {
+                i0_unnorm.clone_from(&i_curr);
+            }
+
+            i_next = i_curr;
+            i_curr = i_prev;
+            if k.is_zero() {
+                break;
+            }
+            k -= 1;
+            k_t = with_prec_val(work_prec, &k_t - 1);
+        }
+
+        let i0_actual = bessel_i0_with_prec(&v_w, work_prec);
+        let scale = with_prec_val(work_prec, &i0_actual / &i0_unnorm);
+        Float::with_val(work_prec, result * scale)
+    };
+
+    if is_neg && n_abs.is_odd() {
+        Float::with_val(prec, -res)
+    } else {
+        Float::with_val(prec, res)
     }
 }
 
 fn compute_i_start(n: &Integer, v: &Float, prec: u32) -> Integer {
-    let n_f = Float::with_val(53, n);
-    let v_abs = Float::with_val(53, v.clone().abs());
+    let n_f = Float::with_val(prec, n);
+    let v_abs = Float::with_val(prec, v.clone().abs());
     let max_nv = if n_f > v_abs { n_f } else { v_abs };
-    let sq = Float::with_val(53, prec) * &max_nv;
+    let sq = Float::with_val(prec, prec) * &max_nv;
     let sq_root = sq
         .sqrt()
         .ceil()
@@ -1141,11 +1241,11 @@ fn bessel_k0(x: &Float) -> Float {
     };
 
     let x_w = Float::with_val(work_prec, x);
-    let two = Float::with_val(work_prec, 2);
+    let two_w = Float::with_val(work_prec, 2);
 
     let i0 = bessel_i0_with_prec(&x_w, work_prec);
     let gamma = Float::with_val(work_prec, rug::float::Constant::Euler);
-    let x_half = with_prec_val(work_prec, &x_w / &two);
+    let x_half = with_prec_val(work_prec, &x_w / &two_w);
     let ln_term = with_prec_val(
         work_prec,
         -(with_prec_val(work_prec, x_half.clone().ln()) + &gamma),
@@ -1199,31 +1299,33 @@ fn bessel_k1(x: &Float) -> Float {
     };
 
     let x_w = Float::with_val(work_prec, x);
-    let two = Float::with_val(work_prec, 2);
+    let two_w = Float::with_val(work_prec, 2);
 
-    let i0 = bessel_i0_with_prec(&x_w, work_prec);
     let i1 = bessel_i1_with_prec(&x_w, work_prec);
     let gamma = Float::with_val(work_prec, rug::float::Constant::Euler);
-    let x_half = with_prec_val(work_prec, &x_w / &two);
-    let one = with_prec_val(work_prec, 1);
+    let x_half = with_prec_val(work_prec, &x_w / &two_w);
+    let ln_term = with_prec_val(
+        work_prec,
+        with_prec_val(work_prec, x_half.clone().ln()) + &gamma,
+    ) * &i1;
 
     let t = with_prec_val(work_prec, &x_half * &x_half);
     let mut sum = with_prec_val(work_prec, 0);
     let mut term = with_prec_val(work_prec, 1);
     let mut k = Integer::from(1);
-    let mut h = with_prec_val(work_prec, 0);
+    let mut h_k = with_prec_val(work_prec, 0);
     let tol = precision_threshold_with(work_prec);
 
     loop {
         let kf = with_prec_val(work_prec, &k);
         let kp1 = with_prec_val(work_prec, Integer::from(&k + 1));
-        h = with_prec_val(
-            work_prec,
-            &h + with_prec_val(work_prec, with_prec_val(work_prec, 1) / &kf)
-                + with_prec_val(work_prec, with_prec_val(work_prec, 1) / &kp1),
-        );
+
+        h_k = with_prec_val(work_prec, &h_k + with_prec_val(work_prec, 1) / &kf);
+        let h_kp1 = with_prec_val(work_prec, &h_k + with_prec_val(work_prec, 1) / &kp1);
+        let h_sum = with_prec_val(work_prec, &h_k + &h_kp1);
+
         term = with_prec_val(work_prec, &term * &t) / with_prec_val(work_prec, &kf * &kp1);
-        let delta = with_prec_val(work_prec, &h * &term);
+        let delta = with_prec_val(work_prec, &h_sum * &term);
         let prev = sum.clone();
         sum = with_prec_val(work_prec, &sum + &delta);
         if with_prec_val(work_prec, &sum - &prev).abs() < tol {
@@ -1232,15 +1334,10 @@ fn bessel_k1(x: &Float) -> Float {
         k += 1;
     }
 
-    // k0, k1 asymptotic boundary uses half
-    let half = with_prec_val(work_prec, with_prec_val(work_prec, 1) / 2);
-    let imag = -(with_prec_val(work_prec, x_half.clone().ln()) + &gamma) + &half;
-    let res = with_prec_val(work_prec, one / &x_w)
-        + with_prec_val(
-            work_prec,
-            &x_half * with_prec_val(work_prec, &imag * &i0 - &i1),
-        )
-        + with_prec_val(work_prec, &x_half * sum);
+    let x_fourth = with_prec_val(work_prec, &x_half / 2);
+    let res = with_prec_val(work_prec, 1) / &x_w + &ln_term
+        - &x_fourth
+        - with_prec_val(work_prec, x_fourth * sum);
     Float::with_val(orig_prec, res)
 }
 
@@ -1249,31 +1346,39 @@ pub(super) fn bessel_k(n: &IntRepr, v: &BackingFloat) -> BackingFloat {
         return nan();
     }
     let n_abs = Integer::from(n.clone().abs_ref());
-    let k0 = bessel_k0(v);
-    if n_abs.is_zero() {
-        return k0;
-    }
-    let k1 = bessel_k1(v);
-    if n_abs == 1 {
-        return k1;
-    }
     let prec = v.prec();
-    let two = with_prec_val(prec, 2);
+    let work_prec = prec + 20;
+
+    let v_w = Float::with_val(work_prec, v);
+    let k0 = bessel_k0(&v_w);
+    if n_abs.is_zero() {
+        return Float::with_val(prec, k0);
+    }
+    let k1 = bessel_k1(&v_w);
+    if n_abs == 1 {
+        return Float::with_val(prec, k1);
+    }
+
+    let two = with_prec_val(work_prec, 2);
     let (mut k_prev, mut k_curr) = (k0, k1);
     let mut k = Integer::from(1);
-    let mut k_t = with_prec_val(prec, 1);
+    let mut k_t = with_prec_val(work_prec, 1);
 
     while k < n_abs {
         let kn = with_prec_val(
-            prec,
-            &k_prev + with_prec_val(prec, with_prec_val(prec, &two * &k_t) / v * &k_curr),
+            work_prec,
+            &k_prev
+                + with_prec_val(
+                    work_prec,
+                    with_prec_val(work_prec, &two * &k_t) / &v_w * &k_curr,
+                ),
         );
         k_prev = k_curr;
         k_curr = kn;
-        k_t = with_prec_val(prec, &k_t + 1);
+        k_t = with_prec_val(work_prec, &k_t + 1);
         k += 1;
     }
-    k_curr
+    Float::with_val(prec, k_curr)
 }
 
 // ============================================================================
@@ -1539,12 +1644,12 @@ fn euler_maclaurin_taylor_rug(order: usize, s: &Float, prec: u32) -> Vec<Float> 
     loop {
         let r = bernoulli_idx;
         let deriv_order = 2 * r - 1;
-        if 2 * r >= bernoullis.len() {
+        if r > bernoullis.len() {
             break;
         }
 
         let bern_rat = bernoullis
-            .get(2 * r)
+            .get(r - 1)
             .expect("bernoullis contains enough values");
         let bn = Float::with_val(prec, bern_rat.numer());
         let bd = Float::with_val(prec, bern_rat.denom());
@@ -1591,7 +1696,6 @@ fn euler_maclaurin_taylor_rug(order: usize, s: &Float, prec: u32) -> Vec<Float> 
     coeffs
 }
 
-#[allow(clippy::indexing_slicing, reason = "arbitrary precision math helpers")]
 fn zeta_deriv_internal(n: usize, s: &Float, prec: u32) -> Float {
     let one = Float::with_val(prec, 1);
     let delta = Float::with_val(prec, s - &one);
@@ -1601,40 +1705,63 @@ fn zeta_deriv_internal(n: usize, s: &Float, prec: u32) -> Float {
         let extra_terms = usize::try_from(prec >> 2).unwrap_or(30);
         let order = n + extra_terms;
 
-        let e_coeffs = eta_taylor_rug(order, &one, prec);
+        let order_eta = order + 1;
+        let e_coeffs = eta_taylor_rug(order_eta, &one, prec);
 
         let ln2 = Float::with_val(prec, 2).ln();
-        let mut a_coeffs = alloc::vec![Float::with_val(prec, 0); order + 1];
-        let mut current_ln2_pow = ln2.clone();
-        let mut current_fact = Float::with_val(prec, 1);
 
-        for (k, a_coeff) in a_coeffs.iter_mut().enumerate() {
+        let mut c_coeffs = alloc::vec![Float::with_val(prec, 0); order_eta + 1];
+        let mut f_coeffs = alloc::vec![Float::with_val(prec, 0); order_eta + 2];
+
+        let mut current_ln2_pow = ln2.clone(); // (ln 2)^1
+        let mut current_fact = Float::with_val(prec, 1); // 1!
+
+        for k in 0..=order_eta {
             let sign = if k % 2 == 0 {
                 one.clone()
             } else {
                 Float::with_val(prec, -1)
             };
             let num = Float::with_val(prec, &sign * &current_ln2_pow);
-            *a_coeff = Float::with_val(prec, &num / &current_fact);
+            *c_coeffs.get_mut(k).expect("c_coeffs k") = Float::with_val(prec, &num / &current_fact);
+
+            f_coeffs
+                .get_mut(k + 1)
+                .expect("f_coeffs k+1")
+                .clone_from(c_coeffs.get(k).expect("c_coeffs k"));
 
             current_ln2_pow = Float::with_val(prec, &current_ln2_pow * &ln2);
             let k_plus_2 = Float::with_val(prec, k + 2);
             current_fact = Float::with_val(prec, &current_fact * &k_plus_2);
         }
 
-        let mut c_coeffs = alloc::vec![Float::with_val(prec, 0); order + 1];
-        let a0 = a_coeffs[0].clone();
+        let mut h_coeffs = alloc::vec![Float::with_val(prec, 0); order_eta + 1];
+        for k in 0..=order_eta {
+            *h_coeffs.get_mut(k).expect("h_coeffs k") = Float::with_val(
+                prec,
+                e_coeffs.get(k).expect("e_coeffs k") - c_coeffs.get(k).expect("c_coeffs k"),
+            );
+        }
+
+        let mut g_coeffs = alloc::vec![Float::with_val(prec, 0); order + 1];
+        let f1 = f_coeffs.get(1).expect("f_coeffs 1").clone();
+
         for m in 0..=order {
-            let mut sum_cj_amj = Float::with_val(prec, 0);
-            for j in 0..m {
-                sum_cj_amj += Float::with_val(prec, &c_coeffs[j] * &a_coeffs[m - j]);
+            let mut sum_fj_g = Float::with_val(prec, 0);
+            for j in 2..=(m + 1) {
+                sum_fj_g += Float::with_val(
+                    prec,
+                    f_coeffs.get(j).expect("f_coeffs j")
+                        * g_coeffs.get(m + 1 - j).expect("g_coeffs m+1-j"),
+                );
             }
-            let diff = Float::with_val(prec, &e_coeffs[m] - &sum_cj_amj);
-            c_coeffs[m] = Float::with_val(prec, &diff / &a0);
+            let diff =
+                Float::with_val(prec, h_coeffs.get(m + 1).expect("h_coeffs m+1") - &sum_fj_g);
+            *g_coeffs.get_mut(m).expect("g_coeffs m") = Float::with_val(prec, &diff / &f1);
         }
 
         let n_fact = factorial_rug(prec, n);
-        let pole_sign = if n % 2 == 0 {
+        let pole_sign = if n.is_multiple_of(2) {
             one
         } else {
             Float::with_val(prec, -1)
@@ -1647,19 +1774,22 @@ fn zeta_deriv_internal(n: usize, s: &Float, prec: u32) -> Float {
 
         let mut series_sum = Float::with_val(prec, 0);
         let mut running_binom = Float::with_val(prec, factorial_rug(prec, n));
-        
+
         for j in 0..(order - n) {
-            let c_val = &c_coeffs[n + j + 1];
-            let term_coeff = Float::with_val(prec, c_val * &running_binom);
-            let delta_j = Float::with_val(prec, rug::ops::Pow::pow(delta.clone(), &Integer::from(j)));
-            
+            let g_val = g_coeffs.get(n + j).expect("g_coeffs n+j");
+            let term_coeff = Float::with_val(prec, g_val * &running_binom);
+            let delta_j =
+                Float::with_val(prec, rug::ops::Pow::pow(delta.clone(), &Integer::from(j)));
+
             let term = Float::with_val(prec, &term_coeff * &delta_j);
             let abs_term = term.clone().abs();
             series_sum += term;
-            if abs_term < Float::with_val(prec, &series_sum.clone().abs() * &tenth) && abs_term < precision_threshold_with(prec) {
+            if abs_term < Float::with_val(prec, &series_sum.clone().abs() * &tenth)
+                && abs_term < precision_threshold_with(prec)
+            {
                 break;
             }
-            
+
             // running_binom *= (n + j + 1) / (j + 1)
             let num = Float::with_val(prec, n + j + 1);
             let den = Float::with_val(prec, j + 1);
@@ -1712,48 +1842,63 @@ pub(super) fn zeta_deriv(n: &IntRepr, v: &BackingFloat) -> BackingFloat {
         return Float::with_val(get_precision(), rug::float::Special::Nan);
     };
     let prec = get_precision();
-    let s = v.clone();
-    let one = Float::with_val(prec, 1);
-    let tenth = Float::with_val(prec, Float::with_val(prec, 1) / 10);
-    let delta = Float::with_val(prec, &s - &one);
+    let guard_bits =
+        prec.div_ceil(10).clamp(60, 300) + 50 + u32::try_from(n_usize).unwrap_or(0) * 8;
+    let work_prec = prec + guard_bits;
+
+    let s = Float::with_val(work_prec, v);
+    let one = Float::with_val(work_prec, 1);
+    let tenth = Float::with_val(work_prec, Float::with_val(work_prec, 1) / 10);
+    let delta = Float::with_val(work_prec, &s - &one);
 
     if s > one || delta.abs() < tenth {
-        return zeta_deriv_internal(n_usize, &s, prec);
+        let res = zeta_deriv_internal(n_usize, &s, work_prec);
+        return Float::with_val(prec, res);
     }
 
     // Reflection for s <= 0.9 via Leibniz rule on functional equation:
     // \zeta(s) = 2 (2\pi)^{s-1} \sin(\pi s / 2) \Gamma(1-s) \zeta(1-s)
-    let two_pi = Float::with_val(prec, 2.0 * Float::with_val(prec, rug::float::Constant::Pi));
+    let two = Float::with_val(work_prec, 2);
+    let two_pi = Float::with_val(
+        work_prec,
+        &two * Float::with_val(work_prec, rug::float::Constant::Pi),
+    );
     let ln_2pi = two_pi.clone().ln();
 
     // A(s) = 2 (2\pi)^{s-1}
     let mut a_derivs = Vec::with_capacity(n_usize + 1);
-    let a_base = Float::with_val(prec, 2.0 * two_pi.pow(Float::with_val(prec, &s - &one)));
-    let mut cur_factor = Float::with_val(prec, 1.0);
+    let a_base = Float::with_val(
+        work_prec,
+        &two * two_pi.pow(Float::with_val(work_prec, &s - &one)),
+    );
+    let mut cur_factor = Float::with_val(work_prec, 1);
     for _ in 0..=n_usize {
-        a_derivs.push(Float::with_val(prec, &a_base * &cur_factor));
+        a_derivs.push(Float::with_val(work_prec, &a_base * &cur_factor));
         cur_factor *= &ln_2pi;
     }
 
     // B(s) = \sin(\pi s / 2)
-    let pi_half = Float::with_val(prec, Float::with_val(prec, rug::float::Constant::Pi) / 2);
+    let pi_half = Float::with_val(
+        work_prec,
+        Float::with_val(work_prec, rug::float::Constant::Pi) / 2,
+    );
     let mut b_derivs = Vec::with_capacity(n_usize + 1);
-    let mut cur_factor_b = Float::with_val(prec, 1);
+    let mut cur_factor_b = Float::with_val(work_prec, 1);
     for k in 0..=n_usize {
         let angle = Float::with_val(
-            prec,
-            &pi_half * &s + Float::with_val(prec, &pi_half * &Float::with_val(prec, k)),
+            work_prec,
+            &pi_half * &s + Float::with_val(work_prec, &pi_half * &Float::with_val(work_prec, k)),
         );
-        b_derivs.push(Float::with_val(prec, angle.sin() * &cur_factor_b));
+        b_derivs.push(Float::with_val(work_prec, angle.sin() * &cur_factor_b));
         cur_factor_b *= &pi_half;
     }
 
     // C(s) = \Gamma(1-s)
-    let one_minus_s = Float::with_val(prec, &one - &s);
+    let one_minus_s = Float::with_val(work_prec, &one - &s);
     let mut c_derivs = Vec::with_capacity(n_usize + 1);
     c_derivs.push(one_minus_s.clone().gamma());
     let mut g_derivs = Vec::with_capacity(n_usize + 1);
-    g_derivs.push(Float::with_val(prec, 0));
+    g_derivs.push(Float::with_val(work_prec, 0));
     for m in 1..=n_usize {
         let psi_val = polygamma(
             &crate::number::logic::int_math::from_i64(i64::try_from(m - 1).expect("fits"))
@@ -1761,10 +1906,10 @@ pub(super) fn zeta_deriv(n: &IntRepr, v: &BackingFloat) -> BackingFloat {
             &one_minus_s,
         );
         let sign = if m % 2 == 0 { 1 } else { -1 };
-        g_derivs.push(Float::with_val(prec, sign * psi_val));
+        g_derivs.push(Float::with_val(work_prec, sign * psi_val));
     }
     for k in 0..n_usize {
-        let mut sum = Float::with_val(prec, 0);
+        let mut sum = Float::with_val(work_prec, 0);
         let mut binom = Integer::from(1);
         for j in 0..=k {
             if j > 0 {
@@ -1772,7 +1917,7 @@ pub(super) fn zeta_deriv(n: &IntRepr, v: &BackingFloat) -> BackingFloat {
                 binom /= Integer::from(j);
             }
             sum += Float::with_val(
-                prec,
+                work_prec,
                 c_derivs.get(j).expect("c_derivs has j")
                     * g_derivs.get(k - j + 1).expect("g_derivs has k-j+1"),
             ) * &binom;
@@ -1783,14 +1928,15 @@ pub(super) fn zeta_deriv(n: &IntRepr, v: &BackingFloat) -> BackingFloat {
     // D(s) = \zeta(1-s)
     let mut d_derivs = Vec::with_capacity(n_usize + 1);
     for k in 0..=n_usize {
-        let z_val = zeta_deriv_internal(k, &one_minus_s, prec);
-        let sign = if k.is_multiple_of(2) { 1.0 } else { -1.0 };
-        d_derivs.push(Float::with_val(prec, sign * z_val));
+        let z_val = zeta_deriv_internal(k, &one_minus_s, work_prec);
+        let res_z = if k.is_multiple_of(2) { z_val } else { -z_val };
+        d_derivs.push(Float::with_val(work_prec, res_z));
     }
 
-    let ab = mul_derivs(&a_derivs, &b_derivs, n_usize, prec);
-    let abc = mul_derivs(&ab, &c_derivs, n_usize, prec);
-    let abcd = mul_derivs(&abc, &d_derivs, n_usize, prec);
+    let ab = mul_derivs(&a_derivs, &b_derivs, n_usize, work_prec);
+    let abc = mul_derivs(&ab, &c_derivs, n_usize, work_prec);
+    let abcd = mul_derivs(&abc, &d_derivs, n_usize, work_prec);
 
-    abcd.get(n_usize).expect("abcd has n elements").clone()
+    let res = abcd.get(n_usize).expect("abcd has n elements").clone();
+    Float::with_val(prec, res)
 }

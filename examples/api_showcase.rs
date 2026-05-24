@@ -129,7 +129,10 @@ fn section_symbol_management() {
     println!("  2.3 Context API Methods");
     println!("      ctx1.is_empty(): {}", ctx1.is_empty());
     println!("      ctx1.symbol_names(): {:?}", ctx1.symbol_names());
-    println!("      ctx1.contains_symbol(\"x\"): {}", ctx1.contains_symbol("x"));
+    println!(
+        "      ctx1.contains_symbol(\"x\"): {}",
+        ctx1.contains_symbol("x")
+    );
     println!(
         "      ctx1.contains_symbol(\"z\"): {}\n",
         ctx1.contains_symbol("z")

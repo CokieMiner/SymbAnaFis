@@ -102,8 +102,7 @@ pub(super) fn gamma_pole_sign<T: SpecFloat>(x: T) -> T {
     // usize::MAX >> 1 equals i64::MAX (on 64-bit) or i32::MAX (on 32-bit).
     let int_max_f = T::from_usize(usize::MAX >> 1);
     if r >= T::zero() && r <= int_max_f {
-        let n = r.to_int().unwrap_or_else(T::Int::zero);
-        if (n % T::Int::from_usize(2)).is_zero() {
+        if (r / T::two()).fract() == T::zero() {
             T::one()
         } else {
             T::neg_one()

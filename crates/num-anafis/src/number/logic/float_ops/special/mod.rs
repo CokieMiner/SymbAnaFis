@@ -48,12 +48,6 @@ pub trait SpecInt:
     + core::fmt::Debug
     + 'static
 {
-    #[allow(
-        dead_code,
-        reason = "Used via macro-generated from_usize on concrete types"
-    )]
-    const MAX: Self;
-
     fn zero() -> Self;
     fn one() -> Self;
     fn abs(self) -> Self;
@@ -120,7 +114,6 @@ pub trait SpecFloat:
         if v.is_negative() { -f } else { f }
     }
     fn from_usize(v: usize) -> Self;
-    fn to_int(self) -> Option<Self::Int>;
 
     fn abs(self) -> Self;
     fn signum(self) -> Self;
@@ -204,8 +197,6 @@ pub trait SpecFloat:
 macro_rules! impl_spec_int {
     ($ty:ty) => {
         impl $crate::number::logic::float_ops::special::SpecInt for $ty {
-            const MAX: Self = <$ty>::MAX;
-
             #[inline]
             fn zero() -> Self {
                 0
@@ -228,38 +219,11 @@ macro_rules! impl_spec_int {
             }
             #[inline]
             fn to_usize(self) -> usize {
-                debug_assert!(
-                    !self.is_negative(),
-                    "SpecInt::to_usize called with negative value"
-                );
-                #[allow(
-                    clippy::cast_possible_truncation,
-                    clippy::cast_sign_loss,
-                    reason = "Callers guarantee non-negative values within usize range"
-                )]
-                {
-                    self as usize
-                }
+                usize::try_from(self).unwrap_or(0)
             }
             #[inline]
             fn from_usize(v: usize) -> Self {
-                #[allow(
-                    clippy::cast_possible_truncation,
-                    reason = "MAX checked against usize; only relevant on 32-bit targets"
-                )]
-                let max_usize = Self::MAX as usize;
-                debug_assert!(
-                    v <= max_usize,
-                    "SpecInt::from_usize: value {v} exceeds target type range"
-                );
-                #[allow(
-                    clippy::cast_possible_wrap,
-                    clippy::cast_possible_truncation,
-                    reason = "Callers guarantee value fits; debug_assert catches violations"
-                )]
-                {
-                    v as Self
-                }
+                <$ty>::try_from(v).unwrap_or(Self::MAX)
             }
         }
     };
@@ -347,35 +311,9 @@ macro_rules! impl_spec_float {
             #[inline] fn pio34_lo() -> Self { $p34lo }
 
             #[inline]
-            #[allow(
-                clippy::cast_precision_loss,
-                trivial_numeric_casts,
-                reason = "usize-to-float; cast needed for generic macro support"
-            )]
-            fn from_usize(v: usize) -> Self { v as Self }
-
-            #[inline]
-            #[allow(
-                clippy::cast_possible_truncation,
-                trivial_numeric_casts,
-                reason = "Checked via floor; cast needed for generic macro support"
-            )]
-            fn to_int(self) -> Option<$int> {
-                if (self - self.floor()).abs() < Self::EPSILON {
-                    #[allow(
-                        trivial_numeric_casts,
-                        clippy::cast_precision_loss,
-                        reason = "Bounds check ensures value fits; cast needed for generic macro"
-                    )]
-                    {
-                        let max_f = <$int>::MAX as Self;
-                        let min_f = <$int>::MIN as Self;
-                        if self >= min_f && self < max_f + Self::one() {
-                            return Some(self as $int);
-                        }
-                    }
-                }
-                None
+            fn from_usize(v: usize) -> Self {
+                #[allow(clippy::cast_precision_loss, reason = "Unavoidable precision loss for huge integers")]
+                { v as Self }
             }
 
             #[inline] fn abs(self) -> Self { math::fabs(self) }
