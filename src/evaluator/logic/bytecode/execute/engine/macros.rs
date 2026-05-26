@@ -376,10 +376,7 @@ macro_rules! dispatch_loop {
                         *($regs.add(arg4)),
                     );
                 }
-                _ => {
-                    debug_assert!(false, "invalid opcode {opcode}");
-                    unsafe { std::hint::unreachable_unchecked() }
-                },
+                _ => unreachable!("invalid opcode {opcode}"),
             }
         }
     };

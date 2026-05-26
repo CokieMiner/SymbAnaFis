@@ -102,12 +102,16 @@ pub fn compute_const_from_children(
             const_from_map(node_map, base.as_ref())?.powf(const_from_map(node_map, exp.as_ref())?),
         ),
         ExprKind::FunctionCall { name, args } => {
+            // Quick-reject before allocating: unknown function or wrong arity
+            let op = FN_MAP
+                .get(&name.id())
+                .filter(|op| op.arity() == args.len())?;
             let c_args: Vec<f64> = args
                 .iter()
                 .map(|arg| const_from_map(node_map, arg.as_ref()))
                 .collect::<Option<Vec<_>>>()?;
 
-            FN_MAP.get(&name.id()).and_then(|op| op.fold_n(&c_args))
+            op.fold_n(&c_args)
         }
         ExprKind::Derivative { .. } | ExprKind::Poly(_) => None,
     }

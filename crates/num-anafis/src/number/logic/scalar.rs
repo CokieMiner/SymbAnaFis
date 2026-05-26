@@ -428,8 +428,10 @@ impl Div<&Scalar> for &Scalar {
     type Output = Scalar;
     fn div(self, rhs: &Scalar) -> Scalar {
         if rhs.is_zero() {
-            // NaN for division by zero
-            return Scalar::from_float_raw(float_ops::nan());
+            return Scalar::from_float_raw(float_ops::div(
+                &self.to_float_repr(),
+                &rhs.to_float_repr(),
+            ));
         }
         match (&self.0, &rhs.0) {
             (ScalarRepr::Int(a), ScalarRepr::Int(b)) => {

@@ -39,29 +39,14 @@ pub(super) fn round_to_i32(x: f64) -> Option<i32> {
     Some(rounded as i32)
 }
 
-/// Trait for returning a NaN value, abstracting over scalar and SIMD types.
-trait Nan {
-    fn nan() -> Self;
-}
-impl Nan for f64 {
-    #[inline]
-    fn nan() -> Self {
-        Self::NAN
-    }
-}
-#[cfg(feature = "parallel")]
-impl Nan for f64x4 {
-    #[inline]
-    fn nan() -> Self {
-        Self::splat(f64::NAN)
-    }
-}
-
 #[cold]
 #[inline(never)]
-fn unreachable_builtin<T: Nan>(arity: usize, op: FnOp) -> T {
-    debug_assert!(false, "Reached unreachable Builtin{arity} op: {op:?}");
-    T::nan()
+#[allow(
+    clippy::unreachable,
+    reason = "Logic error: builtin dispatch should never reach an unhandled opcode"
+)]
+fn unreachable_builtin(arity: usize, op: FnOp) -> ! {
+    unreachable!("Reached unreachable Builtin{arity} op: {op:?}");
 }
 
 /// Dispatches a 1-argument builtin function for scalar evaluation.

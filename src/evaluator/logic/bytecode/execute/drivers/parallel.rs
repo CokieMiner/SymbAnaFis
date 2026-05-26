@@ -43,7 +43,6 @@ use rayon::prelude::*;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fmt::{Display, Formatter, Result as FmtResult};
-use std::hint::unreachable_unchecked;
 use std::sync::Arc;
 
 // ============================================================================
@@ -515,11 +514,9 @@ pub fn evaluate_parallel_with_hint(
                                 if let Value::Num(n) = val {
                                     params[i] = *n;
                                 } else {
-                                    debug_assert!(false, "Non-numeric value in pure numeric path");
-                                    // SAFETY: mixed_cols.is_empty() guarantees all values are Value::Num
-                                    unsafe {
-                                        unreachable_unchecked();
-                                    }
+                                    return Err(DiffError::UnsupportedOperation(
+                                        "Non-numeric value in pure numeric path".to_owned(),
+                                    ));
                                 }
                             }
 

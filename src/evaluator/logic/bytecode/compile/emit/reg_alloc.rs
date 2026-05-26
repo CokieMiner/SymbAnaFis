@@ -2,6 +2,14 @@ use super::FnOp;
 use super::Instruction;
 use super::vir::{VInstruction, VReg};
 
+/// Linear-scan register allocator for the bytecode compiler.
+///
+/// Maps unbounded `VReg::Temp` virtual registers to a dense physical workspace
+/// using a free-list stack.  Liveness intervals are precomputed and stored as
+/// death-index buckets for O(1) recycling at each instruction boundary.
+///
+/// The allocator produces the final [`Instruction`] stream with physical register
+/// indices, an argument pool for N-ary instructions, and the total workspace size.
 pub struct RegAllocator {
     param_count: u32,
     const_count: u32,

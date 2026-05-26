@@ -26,6 +26,11 @@ impl DceScratch {
     }
 }
 
+/// Backward-liveness Dead Code Elimination with path-compression copy forwarding.
+///
+/// Resolves multi-hop forwarding chains (e.g. `T5→T4→T3→Param`) to immutable roots
+/// by traversing each mutable register's chain in a single pass. Unused instructions
+/// whose destination is never read by a live instruction are removed.
 #[allow(
     clippy::too_many_lines,
     clippy::too_many_arguments,
@@ -115,21 +120,37 @@ pub(super) fn eliminate_dead_code(
     }
 
     // Resolve multi-hop forwarding chains to reach immutable roots.
-    // Each iteration peels one hop off chains that end at a param/const.
-    for _ in 0..4 {
-        let mut any = false;
-        for reg in immutable_limit..u32::try_from(max_reg_len).expect("register index overflow") {
-            let forward = copy_of[reg as usize];
-            if forward >= immutable_limit {
-                let deeper = copy_of[forward as usize];
-                if deeper < immutable_limit {
-                    copy_of[reg as usize] = deeper;
-                    any = true;
-                }
-            }
+    // Path compression handles forward chains (physical reg reuse + fusion can create them).
+    // Self-loops (copy_of[reg] == reg) are the "not a copy" sentinel -- treated as dead ends.
+    for reg in immutable_limit..u32::try_from(max_reg_len).expect("register index overflow") {
+        let start = copy_of[reg as usize];
+        if start < immutable_limit || start == reg {
+            continue;
         }
-        if !any {
-            break;
+
+        // Phase 1: walk to immutable root; abort on self-loop (unresolvable)
+        let mut root = start;
+        while root >= immutable_limit {
+            let next = copy_of[root as usize];
+            if next == root {
+                root = u32::MAX;
+                break;
+            } // self-loop dead end
+            root = next;
+        }
+        if root >= immutable_limit {
+            continue;
+        }
+
+        // Phase 2: compress all intermediates directly to root
+        let mut cur = start;
+        while cur >= immutable_limit {
+            let next = copy_of[cur as usize];
+            copy_of[cur as usize] = root;
+            if next == cur {
+                break;
+            }
+            cur = next;
         }
     }
 

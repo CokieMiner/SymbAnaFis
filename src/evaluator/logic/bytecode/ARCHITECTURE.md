@@ -1,71 +1,189 @@
 # Bytecode Compiler Architecture (AnaFis Symbolic Engine)
 
-This document describes the lifecycle of a mathematical expression (`Expr`) from its abstract syntax tree (AST) to a high-performance, register-based bytecode executed by a specialized virtual machine. The pipeline is designed for maximum throughput, low latency, and minimal memory overhead.
+This document describes the lifecycle of a mathematical expression from its AST to optimized bytecode executed by a register-based virtual machine.
 
 ---
 
-## 1. The Compilation Pipeline (`compile/`)
+## 1. Module Map
 
-The compilation process transforms a high-level symbolic tree into a linear sequence of optimized instructions.
-
-### A. The Orchestrator: `compiler.rs`
-The `VirGenerator` manages the compilation state, including virtual register allocation and instruction generation. It lowers the AST into **Virtual IR (VIR)**, a pseudo-assembly format that supports unbounded temporary registers.
-
-### B. Tree Management and Codegen (`compile/codegen/`)
-*   **`traverse.rs`**: Implements a **recursion-free, iterative post-order traversal**. By using an explicit stack, it can handle expressions with millions of nodes (e.g., deep nested divisions) without risking a stack overflow.
-*   **`expand.rs`**: Handles function inlining and macro expansion before lowering to VIR.
-*   **`lower/`**: Transcribes `ExprKind` nodes into low-level `VInstruction` sequences.
-    *   **Dense-by-Construction**: The lowering pass actively emits specialized fused instructions (e.g., `MulAdd`, `NegMulAdd`) where possible.
-    *   **Polynomial Optimization**: Implements **Horner's Method** (for degree < 4) and **Sparse Estrin's Scheme** (for degree >= 4) to minimize instruction count for polynomial evaluations.
-
-### C. Virtual Intermediate Representation (`compile/vir/`)
-*   **`types.rs`**: Defines `VReg` (Virtual Register) types: `Param`, `Const`, and `Temp`. Supports N-ary operations through `Vec<VReg>` operand lists.
-*   **`node.rs`**: Performs compile-time **Constant Folding** and expression collapsing (e.g., `sin(0)` -> `0.0`).
-
-### D. Analytics (`compile/analysis/`)
-*   **`gvn.rs`**: Implements **Global Value Numbering** combined with **Commutative Normalization**. It ensures that algebraically equivalent sub-expressions (e.g., `a+b` and `b+a`) are deduplicated into a single value number.
-
-### E. Optimization Passes (`compile/optimize/`)
-The pipeline follows a **Transform > Clean > Fuse > Polish** strategy:
-`GVN > Division > VIR Fusion > Schedule > VIR DCE > RegAlloc > Strength > Power > DCE > Fusion > DCE > Compact`.
-
-*   **`vir_div_to_recip.rs` (Division Optimization)**: Identifies redundant divisions sharing the same denominator and converts them into a single reciprocal instruction followed by multiplications.
-*   **`vir_fusion.rs` (Pre-scheduling Fusion)**: Light fusion pass for VIR instructions (like Mul + Add -> MulAdd) ensuring the scheduler treats them as a single unit, helping physical fusion.
-*   **`schedule.rs` (Instruction Scheduler)**: A critical performance pass that reorders instructions to **minimize peak register pressure**.
-    *   **Heuristic**: Uses a Sethi-Ullman-inspired greedy topological sort.
-    *   **Weights**: Prioritizes instructions that "kill" the most active registers (reducing live ranges).
-    *   **Representation**: Uses a high-performance **Compressed Sparse Row (CSR)** graph layout to represent the dependency DAG with zero-allocation overhead during construction.
-*   **`vir_dce.rs` (VIR Dead Code Elimination)**: Eliminates dead code at the Virtual IR level prior to register allocation.
-*   **`fusion.rs` (Peephole Optimizer)**: Fuses instructions into specialized opcodes.
-    *   **N-ary Fusion**: Detects patterns like `Mul(A, B) + C + D` and fuses them into native `Add3(Mul(A, B), C, D)` or `Add4` variants.
-    *   **FMA Extraction**: Actively extracts Fused-Multiply-Add (`MulAdd`) and Fused-Multiply-Subtract patterns.
-*   **`power_chain.rs`**: Optimizes power sequences (e.g., $x^2, x^3, x^4$) by reusing previous results (e.g., $x^3 = x^2 \times x$).
-*   **`strength_reduction.rs`**: Replaces expensive operations with cheaper alternatives (e.g., `x / 2.0` -> `x * 0.5`, `x^2` -> `Square(x)`).
-*   **`dce.rs` (Dead Code Elimination)**: Removes redundant instructions and performs copy-forwarding to simplify the DAG for fusion.
-*   **`compact.rs`**: Performs register and constant re-indexing to eliminate holes created by optimization passes, improving L1 cache locality for the register file.
-
-### F. Physical Emission (`compile/emit/`)
-*   **`reg_alloc.rs`**: Maps unbounded virtual registers to a fixed set of physical slots using a **Linear Scan Register Allocation** algorithm. It tracks liveness to aggressively reuse slots, keeping the required "workspace" size minimal.
+```
+bytecode/
+├── instruction.rs        ISA definition (define_isa! macro, 43-instruction set)
+├── functions.rs          Builtin function table (FnOp: ~60 math functions)
+├── mod.rs                Public re-exports
+│
+├── compile/              Compilation pipeline (Expr → bytecode)
+│   ├── compiler.rs       VirGenerator orchestrator
+│   ├── codegen/
+│   │   ├── traverse.rs   Iterative postorder tree walk (stack-based, no recursion)
+│   │   ├── expand.rs     User-function inlining
+│   │   └── lower/        Per-ExprKind lowering to VIR
+│   │       ├── sum.rs    Sum compilation (FMA detection, negated-term extraction)
+│   │       ├── product.rs  Product compilation (constant folding)
+│   │       ├── div.rs    Division compilation (RecipExpm1, Sinc detection)
+│   │       ├── pow.rs    Power compilation (Horner/Estrin, half-integer exponents)
+│   │       ├── func.rs   Function-call compilation (exp(-x²) patterns)
+│   │       ├── misc.rs   Helper traversal, symbol dispatch
+│   │       ├── exp_helpers.rs  Exponential pattern helpers
+│   │       └── emit_helpers.rs  N-ary add/mul emission
+│   ├── vir/              Virtual Intermediate Representation
+│   │   ├── types.rs      VReg (Param/Const/Temp), VInstruction (31 variants)
+│   │   ├── node.rs       NodeData, constant folding, const_from_map
+│   │   ├── matcher.rs    Pattern matchers (negated_product_two_vregs, etc.)
+│   │   └── registry.rs   FN_MAP: interned-function-name → FnOp lookup
+│   ├── analysis/         VIR-level passes
+│   │   ├── gvn.rs        Global Value Numbering + LVN + constant folding
+│   │   ├── fusion.rs     optimize_div_to_recip, fuse_vir (pre-scheduling)
+│   │   ├── schedule.rs   Greedy Sethi-Ullman scheduler (CSR graph, BinaryHeap)
+│   │   └── dce.rs        eliminate_vir_dead_code (backward liveness)
+│   ├── emit/             Physical lowering
+│   │   ├── reg_alloc.rs  Linear-scan register allocator
+│   │   └── assemble.rs   assemble_flat_bytecode: VInstruction → Box<[u32]>
+│   └── optimize/         Physical-instruction passes
+│       ├── pipeline.rs   optimize_instructions orchestrator
+│       ├── power_chain.rs  reduce_strength + optimize_power_chains
+│       ├── fusion.rs     Peephole fusion (FMA, inverse, exp, sin-cos)
+│       ├── dce.rs        Dead code elimination + copy forwarding (path compression)
+│       ├── compact.rs    Constant pool compaction + register re-indexing
+│       └── helper.rs     ConstantPool, calculate_use_count, validate_program
+│
+└── execute/              Bytecode execution
+    ├── engine/
+    │   ├── macros.rs     dispatch_loop! macro (shared scalar/SIMD interpreter)
+    │   ├── scalar.rs     VmEvaluator::evaluate, evaluate_heap, eval_points_into
+    │   ├── simd.rs       eval_batch_simd (vertical f64x4, 4-wide lanes)
+    │   ├── builtins.rs   eval_builtin1/2/3/4 (scalar), eval_builtinN_simd
+    │   └── mod.rs
+    └── drivers/
+        ├── parallel.rs   evaluate_parallel, evaluate_parallel_with_hint (Rayon)
+        ├── batch.rs      run_chunked_evaluator (SIMD chunked dispatch)
+        └── mod.rs
+```
 
 ---
 
-## 2. Virtual Machine and Execution (`execute/`)
+## 2. Instruction Set
 
-The execution engine is designed for zero-overhead dispatch and cache-friendly data access.
+The ISA is defined by the `define_isa!` macro in `instruction.rs`. It produces 43 instructions with dense integer opcodes 0–42 — verified at compile time by `Instruction::OPCODE_COUNT` and the `isa_opcodes_are_dense` test. This density guarantees a single-indirect-branch jump table at dispatch time.
 
-### 2.1 The Dispatch Loop (`engine/`)
-The VM uses a **Register-Based Architecture** with a dense, sequential opcode set.
-*   **Jump Tables**: Opcodes are grouped logically (Add-family, Mul-family, etc.) and assigned sequential indices (0-41). This allows the compiler to generate a high-speed $O(1)$ jump table for the main loop.
-*   **Specialized Opcodes**: To avoid the overhead of generic N-ary loops, the engine provides native implementations for `Add3`, `Add4`, `Mul3`, and `Mul4`. These fetch operands directly from the instruction stream without indirection.
-*   **Unsafe Optimization**: Uses `unsafe` pointer arithmetic and `.get_unchecked()` to bypass bounds checks, relying on the compiler's mathematical proof of register safety.
+**Unified Memory Layout:** The physical register file is a contiguous `[Params | Constants | Temps]` array. Registers 0..param_count are input parameters. Registers param_count..param_count+const_count hold deduplicated constants (bulk-copied once before dispatch). The remaining slots are temporaries.
 
-### 2.2 Memory Management
-*   **Thread-Local Stack**: For small expressions, the register "workspace" is allocated on the **CPU Thread Stack** using `MaybeUninit` to avoid zeroing overhead.
-*   **Global Fallback**: Large expressions automatically spill to a pre-allocated heap buffer if the stack limit is exceeded.
+**Specialized opcodes** include:
+| Family | Instructions |
+|---|---|
+| Arithmetic | `Add`, `Add3`, `Add4`, `AddN`, `Mul`, `Mul3`, `Mul4`, `MulN`, `Sub`, `Div` |
+| FMA | `MulAdd`, `MulSub`, `NegMul`, `NegMulAdd`, `NegMulSub` |
+| Powers | `Square`, `Cube`, `Pow4`, `Pow3_2`, `InvPow3_2`, `InvSqrt`, `InvSquare`, `InvCube`, `Recip`, `Powi` |
+| Transcendental | `Sin`, `Cos`, `SinCos`, `AsinAcos`, `Exp`, `Ln`, `Sqrt` |
+| Specialized | `RecipExpm1`, `ExpSqr`, `ExpSqrNeg` |
+| Builtins | `Builtin1`-`Builtin4` (arbitrary FnOp via indirect call) |
+| Data movement | `Copy`, `Neg`, `End` |
 
-### 2.3 Vectorization and Parallelism
-*   **SIMD Engine (`simd.rs`)**: Uses `wide::f64x4` (or `f64x8`) to evaluate 4-8 data points in parallel per cycle.
-*   **Work-Stealing Parallelism (`parallel.rs`)**: For large datasets, the engine uses **Rayon** to distribute chunks of data across all available CPU cores. Each core executes its own SIMD-optimized instance of the VM, achieving massive throughput.
+N-ary instructions (`AddN`, `MulN`) use a separate **arg_pool** buffer for their operand lists, accessed via `(start_idx, count)` indices. The 2/3/4-operand variants avoid this indirection by encoding operands inline in the bytecode stream.
 
-### 2.4 Performance Summary
-The combination of **GVN deduplication**, **Register Pressure Scheduling**, **Specialized Opcode Fusion**, and **SIMD Execution** allows AnaFis to match or exceed the performance of native-compiled code for complex symbolic expressions.
+**Flat bytecode** is `Box<[u32]>`. Each instruction is encoded as `[opcode, dest, operand...]` with width 2-7 u32s. The stream is terminated by a single `End` sentinel (0), avoiding bounds checks in the dispatch loop. Constants and parameters are stored in separate `Box<[f64]>` buffers and bulk-copied into the register file before evaluation begins.
+
+---
+
+## 3. Compilation Pipeline
+
+Compilation has two phases: a **VIR phase** operating on `VInstruction` (virtual registers, n-ary ops, builtin dispatch), followed by register allocation and a **physical phase** on `Instruction` (physical registers, fixed arity).
+
+### Phase 1: VIR (in `compiler.rs::into_parts`)
+
+```
+GVN → Div-to-Recip → Pre-scheduling Fusion → Greedy Schedule → VIR DCE → RegAlloc
+```
+
+| Pass | File | Description |
+|---|---|---|
+| **GVN** | `analysis/gvn.rs` | Global Value Numbering + constant folding + identity simplification + LVN dedup. The key loop sets `dest` to a sentinel for hash-lookup, avoiding a clone on cache hits. |
+| **Div-to-Recip** | `analysis/fusion.rs` | Identifies redundant divisions sharing a denominator; replaces with a single `Recip` + multiplications. |
+| **Pre-scheduling Fusion** | `analysis/fusion.rs` | Light VIR fusion (`Mul+Add→MulAdd`, `Neg+Mul→NegMul`) so the scheduler treats fused units atomically. |
+| **Greedy Schedule** | `analysis/schedule.rs` | Sethi-Ullman-inspired topological sort. Builds a CSR dependency DAG, prioritizes instructions that kill many registers. Uses a `BinaryHeap` for O(n log n) extraction. |
+| **VIR DCE** | `analysis/dce.rs` | Backward liveness DCE. Eliminates instructions whose destination temp is never read. |
+| **RegAlloc** | `emit/reg_alloc.rs` | Linear-scan register allocation. Maps unbounded `VReg::Temp` to physical slots via a free-list stack. Aggressively recycles slots using precomputed death-heads (linked-list bucket sort by last-use index). |
+
+### Phase 2: Physical (in `pipeline.rs::optimize_instructions`)
+
+```
+Strength → Power → DCE → Fusion(loop) → DCE → Compact
+```
+
+| Pass | File | Description |
+|---|---|---|
+| **Strength Reduction** | `optimize/power_chain.rs` | `x/2.0 → x*0.5`, `x² → Square(x)`, etc. |
+| **Power Chain** | `optimize/power_chain.rs` | `x³ = x² * x`, `x⁴ = (x²)²` — reuses previous power results. |
+| **DCE** | `optimize/dce.rs` | Dead code elimination + copy forwarding with path compression. Resolves multi-hop forwarding chains (`T5→T4→T3→Param`) to immutable roots. |
+| **Fusion loop** | `optimize/fusion.rs` | Peephole FMA detection (`[Mul,Add]→MulAdd`, `[Mul,Sub]→MulSub`, reversed `NegMulAdd`), inverse fusion (`[Sqrt,Recip]→InvSqrt`), exponential fusion (`[Neg,Exp]→ExpNeg`), power fusion (`[Square,Mul]→Cube`), sin-cos pair fusion. Iterates until convergence (bounded at 32). |
+| **Compact** | `optimize/compact.rs` | Removes unused constants, shifts remaining constants and all temporaries down to create a dense minimal workspace. |
+
+### Codegen: Lowering (`codegen/lower/`)
+
+The lowering pass walks the postorder-traversed AST and emits `VInstruction` sequences directly:
+
+- **FMA by construction:** `sum.rs` detects `a*b ± c` patterns and emits `MulAdd`/`MulSub`/`NegMulAdd`/`NegMulSub` directly, without relying on later peephole fusion.
+- **Negated-term extraction:** `try_extract_negated_product` strips a `-1` factor from products, converting `a - b*c` → `MulSub` or `a + -(b*c)` → `Sub`.
+- **Polynomial codegen:** `pow.rs` uses Horner's method for degree < 4, sparse Estrin's scheme for degree ≥ 4.
+- **Recursion-free traversal:** `traverse.rs` uses an explicit stack with pointer-based deduplication (`FxHashSet<*const Expr>`), handling DAG-sharing correctly without recursion.
+
+---
+
+## 4. Execution Engine
+
+### Dispatch Loop (`macros.rs`)
+
+The `dispatch_loop!` macro is shared between scalar and SIMD engines via `$mode:tt` dispatch. It generates a `loop { match opcode { ... } }` over the flat `Box<[u32]>` bytecode using raw pointer arithmetic:
+
+- `let opcode = *pc; pc = pc.add(1);` — no bounds check, terminated by `End` sentinel (opcode 0)
+- Dense integer match (0-42) → LLVM jump table → O(1) single indirect branch
+- Register access: `*($regs.add(idx))` via raw pointer offset
+- Builtins dispatched via `$b1`/`$b2`/`$b3`/`$b4` function pointers
+
+### Scalar Engine (`scalar.rs`)
+
+Stack allocation staircase for the register file:
+```
+workspace ≤ 64  → MaybeUninit<[f64; 64]>   on stack  (512 bytes, L1)
+workspace ≤ 128 → MaybeUninit<[f64; 128]>  on stack  (1 KB)
+workspace ≤ 256 → MaybeUninit<[f64; 256]>  on stack  (2 KB)
+workspace > 256 → thread_local! heap Vec<f64>          (reused, RefCell-guarded)
+```
+
+Constants are `copy_nonoverlapping`'d once before the dispatch loop. Parameters are written per evaluation. The dispatch loop then executes over the flat bytecode.
+
+### SIMD Engine (`simd.rs`)
+
+Uses `wide::f64x4` (4 lanes, 256-bit). Strategy: **vertical vectorization** — the same bytecode instruction is applied to 4 data points simultaneously. The register file holds `f64x4` instead of `f64`.
+
+- Input columns loaded via contiguous `f64x4::from([f64; 4])` casts
+- Output stored via `copy_from_slice(&res)` in 4-point chunks
+- Tail handling (0-3 remaining points) falls back to scalar `eval_points_into`
+- 17 of ~42 builtins have native `f64x4` SIMD paths (Sin, Cos, Tan, Exp, Abs, Asin, Atan, Sinh, Cosh, Tanh, etc.); remaining 25 use lane-by-lane `arr.map(f64::fn)` fallback
+- Binary builtins (Bessel*, Polygamma, Beta, Hermite, etc.) are lane-by-lane with zero SIMD speedup
+
+### Parallel Execution (`drivers/`)
+
+`run_chunked_evaluator` splits the output into 256-point chunks and dispatches via Rayon:
+
+- Each chunk is processed by `eval_batch` → `eval_batch_simd`
+- `try_for_each_init` creates one SIMD workspace + column-slice buffer per Rayon job (~thread count), not per chunk
+- The `evaluate_parallel` API provides a clean macro (`eval_parallel!`) and typed result handling (`EvalResult`)
+- `evaluate_parallel_with_hint` accepts pre-computed numeric hints from Python bindings to skip per-point type checks
+
+---
+
+## 5. Key Design Decisions
+
+| Decision | Rationale |
+|---|---|
+| Dense 0..42 opcodes | Guarantees jump table dispatch (verified by test) |
+| N-ary AddN/MulN + specialized Add3/Add4/Mul3/Mul4 | Avoid arg_pool indirection for small N; support large fan-in for flat DAGs |
+| Stack staircase (64→128→256→heap) | Zero-cost for common expressions; defers heap allocation |
+| Vertical SIMD (f64x4) | Maximizes throughput; no gather/scatter needed |
+| Linear-scan register allocator | O(n) vs graph-coloring O(n²); sufficient for single-basic-block VIR |
+| Flat u32 bytecode | Dense encoding, sequential access, hardware prefetch |
+| GVN before scheduling | Deduplicates shared sub-expressions before live-range decisions |
+| Path-compression copy forwarding | O(n) resolution of arbitrary-length forwarding chains (replaced capped 4-iteration loop) |
+| Constants bulk-copied once | No constant-pool lookups in the dispatch loop |
+| Re-entrancy guard via RefCell::try_borrow_mut | Prevents UB from recursive evaluation without per-call allocation |

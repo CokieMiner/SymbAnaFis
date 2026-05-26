@@ -1,6 +1,5 @@
 use super::Instruction;
 use rustc_hash::FxHashMap;
-use std::cell::RefCell;
 
 /// Compacts the constant pool and reassigns register indices.
 ///
@@ -115,8 +114,8 @@ fn remap_after_constant_compaction(
 ) -> u32 {
     let temp_start =
         param_count_u32 + u32::try_from(new_const_count).expect("New constant count overflow");
-    let next_temp = RefCell::new(temp_start);
-    let temp_map = RefCell::new(FxHashMap::default());
+    let mut next_temp = temp_start;
+    let mut temp_map = FxHashMap::default();
 
     let mut remap_register = |reg_idx: u32| {
         if reg_idx < param_count_u32 {
@@ -125,11 +124,9 @@ fn remap_after_constant_compaction(
             let old_rel_idx = reg_idx - param_count_u32;
             index_map[old_rel_idx as usize].expect("Constant index missing in map during remapping")
         } else {
-            let mut map = temp_map.borrow_mut();
-            *map.entry(reg_idx).or_insert_with(|| {
-                let mut p = next_temp.borrow_mut();
-                let v = *p;
-                *p += 1;
+            *temp_map.entry(reg_idx).or_insert_with(|| {
+                let v = next_temp;
+                next_temp += 1;
                 v
             })
         }

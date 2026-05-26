@@ -1,4 +1,10 @@
 //! Evaluator Implementation Details (Core Engines)
+//!
+//! The `bytecode` evaluator is the primary numeric fast path. The `tree`
+//! evaluator provides symbolic partial evaluation as a fallback.
+//!
+//! Types re-exported as `pub` here are consumed by [`super::api`] for the
+//! public evaluator API boundary (`compile`, `disassemble`, `eval_f64`, etc.).
 
 pub(super) mod bytecode;
 pub(super) mod tree;
