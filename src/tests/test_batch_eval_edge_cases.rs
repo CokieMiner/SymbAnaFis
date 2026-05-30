@@ -47,17 +47,45 @@ fn test_batch_eval_inconsistent_lengths() {
     let mut output = vec![0.0; 5];
     compiled.eval_batch(&[&x, &y], &mut output, None).unwrap();
 
-    // Expected:
-    // i=0: 1.0 + 10.0 = 11.0
-    // i=1: 2.0 + 20.0 = 22.0
-    // i=2: 2.0 (last x) + 30.0 = 32.0
-    // i=3: 2.0 (last x) + 40.0 = 42.0
-    // i=4: 2.0 (last x) + 50.0 = 52.0
+    // Expected: missing x values are filled with 0.0.
     assert_eq!(output[0], 11.0);
     assert_eq!(output[1], 22.0);
-    assert_eq!(output[2], 32.0);
-    assert_eq!(output[3], 42.0);
-    assert_eq!(output[4], 52.0);
+    assert_eq!(output[2], 30.0);
+    assert_eq!(output[3], 40.0);
+    assert_eq!(output[4], 50.0);
+}
+
+#[test]
+fn test_batch_eval_ignores_extra_values() {
+    let expr = parse("x + y", &HashSet::new(), &HashSet::new(), None).unwrap();
+    let compiled = VmEvaluator::compile(&expr, &["x", "y"], None).unwrap();
+
+    let x = vec![1.0, 2.0, 3.0, 4.0];
+    let y = vec![10.0, 20.0, 30.0, 40.0];
+
+    let mut output = vec![0.0; 2];
+    compiled.eval_batch(&[&x, &y], &mut output, None).unwrap();
+
+    assert_eq!(output, vec![11.0, 22.0]);
+}
+
+#[test]
+fn test_batch_eval_simd_zero_fills_short_columns() {
+    use wide::f64x4;
+
+    let expr = parse("x + y", &HashSet::new(), &HashSet::new(), None).unwrap();
+    let compiled = VmEvaluator::compile(&expr, &["x", "y"], None).unwrap();
+
+    let x = vec![1.0, 2.0];
+    let y = vec![10.0, 20.0, 30.0, 40.0];
+
+    let mut output = vec![0.0; 4];
+    let mut workspace = vec![f64x4::splat(0.0); compiled.workspace_size()];
+    compiled
+        .eval_batch(&[&x, &y], &mut output, Some(&mut workspace))
+        .unwrap();
+
+    assert_eq!(output, vec![11.0, 22.0, 30.0, 40.0]);
 }
 
 #[test]

@@ -99,6 +99,37 @@ fn test_two_vars() {
 }
 
 #[test]
+fn test_short_numeric_columns_fill_zero() {
+    let results = eval_parallel!(
+        exprs: ["x + y"],
+        vars: [["x", "y"]],
+        values: [[[1.0, 2.0], [10.0, 20.0, 30.0]]]
+    )
+    .expect("Should pass");
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].len(), 3);
+    assert_eq!(results[0][0].to_string(), "11");
+    assert_eq!(results[0][1].to_string(), "22");
+    assert_eq!(results[0][2].to_string(), "30");
+}
+
+#[test]
+fn test_empty_numeric_columns_fill_zero() {
+    let results = eval_parallel!(
+        exprs: ["x + y"],
+        vars: [["x", "y"]],
+        values: [[[], [10.0, 20.0]]]
+    )
+    .expect("Should pass");
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].len(), 2);
+    assert_eq!(results[0][0].to_string(), "10");
+    assert_eq!(results[0][1].to_string(), "20");
+}
+
+#[test]
 fn test_skip_value() {
     let eval_results = eval_parallel!(
         exprs: ["x * y"],

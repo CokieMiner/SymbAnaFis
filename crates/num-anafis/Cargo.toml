@@ -18,6 +18,7 @@ backend64 = ["dep:num-rational", "dep:num-integer"]
 backendrug = ["dep:rug"]
 std = []
 serde = ["dep:serde"]
+clifford = []
 
 [dependencies]
 pyo3 = { version = "0.28.3", features = ["extension-module"], optional = true }
@@ -26,7 +27,11 @@ num-traits = { version = "0.2.19" }
 num-integer = { version = "0.1.46", optional = true }
 num-rational = { version = "0.4.2", optional = true }
 rug = { version = "1.29.0", optional = true }
-serde = { version = "1", features = ["derive"], optional = true }
+serde = { version = "1", features = ["derive", "rc"], optional = true }
+
+
+[dev-dependencies]
+proptest = "1.11.0"
 
 [lib]
 name = "num_anafis"

@@ -20,7 +20,7 @@ use super::{SpecFloat, SpecInt};
 ///   `J_n(x) ≈ (x/2)ⁿ/n! · [1 − (x/2)²/(n+1) + …]` avoids Miller overflow
 ///   for small `x` in f32 (where `(x/2)ⁿ/n!` may underflow in the Miller seed).
 /// - **Hankel asymptotic expansion** (`x > max(n²/2 + 20, 10)`): Uses
-///   [`bessel_j_asymptotic`] — DLMF §10.17. The offset 20 guarantees that
+///   [`besselj_asymptotic`] — DLMF §10.17. The offset 20 guarantees that
 ///   `8x >> 4n²−1` for the series convergence criterion.
 /// - **Forward recurrence** (`x > n`): [`forward_recurrence_j`] with
 ///   compensated summation — stable when `J_n` is not yet dominated by the
@@ -32,12 +32,12 @@ use super::{SpecFloat, SpecInt};
 /// `J_{-n}(x) = (-1)^n J_n(x)`, `J_n(-x) = (-1)^n J_n(x)`.
 ///
 /// Reference: [DLMF, §10.6], [DLMF, §10.8], [DLMF, §10.17], [DLMF, §10.74]
-pub fn bessel_j<T: SpecFloat, I: SpecInt>(n: I, x: T) -> T {
+pub fn besselj<T: SpecFloat, I: SpecInt>(n: I, x: T) -> T {
     if x.is_nan() {
         return T::nan();
     }
     if n.is_negative() {
-        let val = bessel_j(n.abs(), x);
+        let val = besselj(n.abs(), x);
         return if (n.abs() % I::from_usize(2)) == I::one() {
             -val
         } else {
@@ -94,7 +94,7 @@ pub fn bessel_j<T: SpecFloat, I: SpecInt>(n: I, x: T) -> T {
     let hankel_threshold = n_float * n_float / T::two() + T::from_usize(20);
     if ax > hankel_threshold && ax > T::from_usize(10) {
         let sign = j_sign(n, n, x);
-        return sign * bessel_j_asymptotic(n, ax);
+        return sign * besselj_asymptotic(n, ax);
     }
 
     if ax > n_float {
@@ -123,7 +123,7 @@ pub fn bessel_j<T: SpecFloat, I: SpecInt>(n: I, x: T) -> T {
 /// `Y_{-n}(x) = (-1)^n Y_n(x)`.
 ///
 /// Reference: [DLMF, §10.6.1], [Cephes, yn.c]
-pub fn bessel_y<T: SpecFloat, I: SpecInt>(n: I, x: T) -> T {
+pub fn bessely<T: SpecFloat, I: SpecInt>(n: I, x: T) -> T {
     if x.is_nan() || x <= T::zero() {
         return T::nan();
     }
@@ -132,11 +132,11 @@ pub fn bessel_y<T: SpecFloat, I: SpecInt>(n: I, x: T) -> T {
     if n_float.is_infinite() {
         return T::nan();
     }
-    let y0 = bessel_y0(x);
+    let y0 = bessely0(x);
     if n_abs.is_zero() {
         return y0;
     }
-    let y1 = bessel_y1(x);
+    let y1 = bessely1(x);
     if n_abs == I::one() {
         return if n.is_negative() { -y1 } else { y1 };
     }
@@ -205,7 +205,7 @@ pub fn bessel_y<T: SpecFloat, I: SpecInt>(n: I, x: T) -> T {
 /// growing (typically after 6–12 terms for well-conditioned `x >> n²/2`).
 /// The minimum iteration of 2 terms (`k > 2` guard) ensures at least baseline
 /// accuracy for borderline cases.
-fn bessel_j_asymptotic<T: SpecFloat, I: SpecInt>(n_abs: I, ax: T) -> T {
+fn besselj_asymptotic<T: SpecFloat, I: SpecInt>(n_abs: I, ax: T) -> T {
     let n_t = T::from_int(n_abs);
     let mu = T::from_usize(4) * n_t * n_t;
     let one = T::one();
@@ -268,12 +268,12 @@ fn forward_recurrence_j<T: SpecFloat, I: SpecInt>(n: I, x: T) -> T {
     let ax = x.abs();
     let sign = j_sign(n, n_abs, x);
 
-    let j0 = bessel_j0(ax);
+    let j0 = besselj0(ax);
     if n_abs.is_zero() {
         return j0;
     }
 
-    let j1 = bessel_j1(ax);
+    let j1 = besselj1(ax);
     if n_abs == I::one() {
         return sign * j1;
     }
@@ -436,29 +436,27 @@ fn miller_backward_j<T: SpecFloat, I: SpecInt>(n: I, x: T) -> T {
 ///   factored zeros at `r₁` and `r₂`: `J₀(x) ≈ (x²−r₁)(x²−r₂)·R(x²)`.
 ///   Factoring the first two zeros removes the dominant oscillations and lets
 ///   a low-order (8/8) rational fit achieve full f64 precision.
-/// - **Large** (`|x| > split`): Hankel form via [`bessel_j_asymptotic`]:
+/// - **Large** (`|x| > split`): Hankel form via [`besselj_asymptotic`]:
 ///   `J₀(x) ≈ √(2/(πx)) · [P·cos(χ) − Q·sin(χ)]` with `χ = x − π/4`.
 ///   Uses Cody-Waite range reduction for the `π/4` subtraction.
 ///
 /// Reference: [Cephes, j0.c], [DLMF, §10.6], [DLMF, §10.17.3]
-fn bessel_j0<T: SpecFloat>(x: T) -> T {
+fn besselj0<T: SpecFloat>(x: T) -> T {
     if x.is_nan() {
         return T::nan();
     }
     let ax = x.abs();
-    let split = T::bessel_j_split();
+    let split = T::besselj_split();
     if ax <= split {
         let z = ax * ax;
-        let r1 = T::bessel_j0_root1();
-        let r2 = T::bessel_j0_root2();
-        (z - r1)
-            * (z - r2)
-            * horner_rational(z, T::bessel_j0_num_coeffs(), T::bessel_j0_den_coeffs())
+        let r1 = T::besselj0_root1();
+        let r2 = T::besselj0_root2();
+        (z - r1) * (z - r2) * horner_rational(z, T::besselj0_num_coeffs(), T::besselj0_den_coeffs())
     } else {
         let z = split / ax;
         let q = z * z;
-        let p = horner_rational(q, T::bessel_j0_pcos_coeffs(), T::bessel_j0_psin_coeffs());
-        let q_rat = horner_rational(q, T::bessel_y0_pcos_coeffs(), T::bessel_y0_psin_coeffs());
+        let p = horner_rational(q, T::besselj0_pcos_coeffs(), T::besselj0_psin_coeffs());
+        let q_rat = horner_rational(q, T::bessely0_pcos_coeffs(), T::bessely0_psin_coeffs());
         let xx = (ax - T::pio4_hi()) - T::pio4_lo();
         let term_sqrt = (T::frac_2_pi() / ax).sqrt();
         term_sqrt * (p * xx.cos() - z * q_rat * xx.sin())
@@ -467,32 +465,32 @@ fn bessel_j0<T: SpecFloat>(x: T) -> T {
 
 /// `J₁(x)` via rational-Chebyshev approximation (Cephes).
 ///
-/// Piecewise strategy identical to [`bessel_j0`]:
+/// Piecewise strategy identical to [`besselj0`]:
 /// - **Small** (`|x| ≤ split`): `J₁(x) ≈ x·(x²−r₁)(x²−r₂)·R(x²)` with
 ///   factored zeros at `r₁`, `r₂` and a rational fit for the smooth remainder.
 /// - **Large** (`|x| > split`): Hankel asymptotic form with `χ = x − 3π/4`.
 ///
 /// Reference: [Cephes, j1.c], [DLMF, §10.6], [DLMF, §10.17.3]
-fn bessel_j1<T: SpecFloat>(x: T) -> T {
+fn besselj1<T: SpecFloat>(x: T) -> T {
     if x.is_nan() {
         return T::nan();
     }
     let ax = x.abs();
-    let split = T::bessel_j_split();
+    let split = T::besselj_split();
     if ax <= split {
         let z = ax * ax;
-        let r1 = T::bessel_j1_root1();
-        let r2 = T::bessel_j1_root2();
+        let r1 = T::besselj1_root1();
+        let r2 = T::besselj1_root2();
         let ans = ax
             * (z - r1)
             * (z - r2)
-            * horner_rational(z, T::bessel_j1_num_coeffs(), T::bessel_j1_den_coeffs());
+            * horner_rational(z, T::besselj1_num_coeffs(), T::besselj1_den_coeffs());
         if x < T::zero() { -ans } else { ans }
     } else {
         let z = split / ax;
         let q = z * z;
-        let p = horner_rational(q, T::bessel_j1_pcos_coeffs(), T::bessel_j1_psin_coeffs());
-        let q_rat = horner_rational(q, T::bessel_y1_pcos_coeffs(), T::bessel_y1_psin_coeffs());
+        let p = horner_rational(q, T::besselj1_pcos_coeffs(), T::besselj1_psin_coeffs());
+        let q_rat = horner_rational(q, T::bessely1_pcos_coeffs(), T::bessely1_psin_coeffs());
         let xx = (ax - T::pio34_hi()) - T::pio34_lo();
         let term_sqrt = (T::frac_2_pi() / ax).sqrt();
         let ans = term_sqrt * (p * xx.cos() - z * q_rat * xx.sin());
@@ -509,20 +507,20 @@ fn bessel_j1<T: SpecFloat>(x: T) -> T {
 ///   `Y₀(x) ≈ √(2/(πx)) · [P·sin(χ) + Q·cos(χ)]`.
 ///
 /// Reference: [Cephes, y0.c], [DLMF, §10.6], [DLMF, §10.17.3]
-fn bessel_y0<T: SpecFloat>(x: T) -> T {
+fn bessely0<T: SpecFloat>(x: T) -> T {
     if x.is_nan() || x <= T::zero() {
         return T::nan();
     }
-    let split = T::bessel_j_split();
+    let split = T::besselj_split();
     if x <= split {
         let z = x * x;
-        let p = horner_rational(z, T::bessel_y0_num_coeffs(), T::bessel_y0_den_coeffs());
-        p + T::frac_2_pi() * bessel_j0(x) * x.ln()
+        let p = horner_rational(z, T::bessely0_num_coeffs(), T::bessely0_den_coeffs());
+        p + T::frac_2_pi() * besselj0(x) * x.ln()
     } else {
         let z = split / x;
         let q = z * z;
-        let p = horner_rational(q, T::bessel_j0_pcos_coeffs(), T::bessel_j0_psin_coeffs());
-        let q_rat = horner_rational(q, T::bessel_y0_pcos_coeffs(), T::bessel_y0_psin_coeffs());
+        let p = horner_rational(q, T::besselj0_pcos_coeffs(), T::besselj0_psin_coeffs());
+        let q_rat = horner_rational(q, T::bessely0_pcos_coeffs(), T::bessely0_psin_coeffs());
         let xx = (x - T::pio4_hi()) - T::pio4_lo();
         let term_sqrt = (T::frac_2_pi() / x).sqrt();
         term_sqrt * (p * xx.sin() + z * q_rat * xx.cos())
@@ -538,20 +536,20 @@ fn bessel_y0<T: SpecFloat>(x: T) -> T {
 ///   `Y₁(x) ≈ √(2/(πx)) · [P·sin(χ) + Q·cos(χ)]`.
 ///
 /// Reference: [Cephes, y1.c], [DLMF, §10.6], [DLMF, §10.17.3]
-fn bessel_y1<T: SpecFloat>(x: T) -> T {
+fn bessely1<T: SpecFloat>(x: T) -> T {
     if x.is_nan() || x <= T::zero() {
         return T::nan();
     }
-    let split = T::bessel_j_split();
+    let split = T::besselj_split();
     if x <= split {
         let z = x * x;
-        let p = x * horner_rational(z, T::bessel_y1_num_coeffs(), T::bessel_y1_den_coeffs());
-        p + T::frac_2_pi() * (bessel_j1(x) * x.ln() - T::one() / x)
+        let p = x * horner_rational(z, T::bessely1_num_coeffs(), T::bessely1_den_coeffs());
+        p + T::frac_2_pi() * (besselj1(x) * x.ln() - T::one() / x)
     } else {
         let z = split / x;
         let q = z * z;
-        let p = horner_rational(q, T::bessel_j1_pcos_coeffs(), T::bessel_j1_psin_coeffs());
-        let q_rat = horner_rational(q, T::bessel_y1_pcos_coeffs(), T::bessel_y1_psin_coeffs());
+        let p = horner_rational(q, T::besselj1_pcos_coeffs(), T::besselj1_psin_coeffs());
+        let q_rat = horner_rational(q, T::bessely1_pcos_coeffs(), T::bessely1_psin_coeffs());
         let xx = (x - T::pio34_hi()) - T::pio34_lo();
         let term_sqrt = (T::frac_2_pi() / x).sqrt();
         term_sqrt * (p * xx.sin() + z * q_rat * xx.cos())

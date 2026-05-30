@@ -4,7 +4,7 @@
     reason = "Delegation wrappers can't be const for all backends; &T API for non-Copy uniformity"
 )]
 
-use crate::number::logic::int_math::IntRepr;
+use crate::number::logic::int_math::IntType;
 use alloc::string::String;
 use core::cmp::Ordering;
 
@@ -13,17 +13,24 @@ use core::cmp::Ordering;
 // 2. backendrug   (rug::Float — GMP/MPFR-based arbitrary precision)
 // 3. backend32     (f32 — memory-optimized)
 
-#[cfg(all(not(feature = "backend32"), not(feature = "backendrug")))]
+#[cfg(all(
+    any(not(feature = "backend32"), feature = "backend64"),
+    not(feature = "backendrug")
+))]
 use super::f64_ops as backend;
 
 #[cfg(feature = "backendrug")]
 use super::rug_ops as backend;
 
-#[cfg(all(feature = "backend32", not(feature = "backendrug")))]
+#[cfg(all(
+    feature = "backend32",
+    not(feature = "backend64"),
+    not(feature = "backendrug")
+))]
 use super::f32_ops as backend;
 
 /// The float representation type selected by the active backend feature.
-pub type FloatRepr = backend::BackingFloat;
+pub type FloatType = backend::BackingFloat;
 
 /// Macro that generates delegation functions for the float backend.
 /// Every function listed here MUST be implemented by every backend module,
@@ -49,97 +56,96 @@ delegate_float_ops! {
     fn get_precision() -> u32;
 
     // --- Construction & conversion ---
-    fn nan() -> FloatRepr;
-    fn from_f32(value: f32) -> FloatRepr;
-    fn from_f64(value: f64) -> FloatRepr;
-    fn from_i64(value: i64) -> FloatRepr;
-    fn from_int(value: &IntRepr) -> FloatRepr;
-    fn clone(value: &FloatRepr) -> FloatRepr;
-    fn to_int(value: &FloatRepr) -> Option<IntRepr>;
-    fn to_rational(value: &FloatRepr) -> Option<crate::number::logic::rational_math::RationalRepr>;
-    fn to_string(value: &FloatRepr) -> String;
+    fn nan() -> FloatType;
+    fn from_f32(value: f32) -> FloatType;
+    fn from_f64(value: f64) -> FloatType;
+    fn from_i64(value: i64) -> FloatType;
+    fn from_int(value: &IntType) -> FloatType;
+    fn clone(value: &FloatType) -> FloatType;
+    fn to_int(value: &FloatType) -> Option<IntType>;
+    fn to_rational(value: &FloatType) -> Option<crate::number::logic::rational_math::RationalType>;
+    fn to_string(value: &FloatType) -> String;
 
     // --- Arithmetic ---
-    fn add(lhs: &FloatRepr, rhs: &FloatRepr) -> FloatRepr;
-    fn sub(lhs: &FloatRepr, rhs: &FloatRepr) -> FloatRepr;
-    fn mul(lhs: &FloatRepr, rhs: &FloatRepr) -> FloatRepr;
-    fn div(lhs: &FloatRepr, rhs: &FloatRepr) -> FloatRepr;
-    fn neg(value: &FloatRepr) -> FloatRepr;
+    fn add(lhs: &FloatType, rhs: &FloatType) -> FloatType;
+    fn sub(lhs: &FloatType, rhs: &FloatType) -> FloatType;
+    fn mul(lhs: &FloatType, rhs: &FloatType) -> FloatType;
+    fn div(lhs: &FloatType, rhs: &FloatType) -> FloatType;
+    fn neg(value: &FloatType) -> FloatType;
 
     // --- Comparison ---
-    fn cmp(lhs: &FloatRepr, rhs: &FloatRepr) -> Option<Ordering>;
+    fn cmp(lhs: &FloatType, rhs: &FloatType) -> Option<Ordering>;
 
     // --- Properties ---
-    fn is_zero(value: &FloatRepr) -> bool;
-    fn is_one(value: &FloatRepr) -> bool;
-    fn is_neg_one(value: &FloatRepr) -> bool;
-    fn is_integer(value: &FloatRepr) -> bool;
-    fn is_finite(value: &FloatRepr) -> bool;
-    fn is_negative(value: &FloatRepr) -> bool;
-    fn is_positive(value: &FloatRepr) -> bool;
-    fn is_nan(value: &FloatRepr) -> bool;
+    fn is_zero(value: &FloatType) -> bool;
+    fn is_one(value: &FloatType) -> bool;
+    fn is_neg_one(value: &FloatType) -> bool;
+    fn is_integer(value: &FloatType) -> bool;
+    fn is_finite(value: &FloatType) -> bool;
+    fn is_negative(value: &FloatType) -> bool;
+    fn is_positive(value: &FloatType) -> bool;
+    fn is_nan(value: &FloatType) -> bool;
 
     // --- Basic math ---
-    fn abs(value: &FloatRepr) -> FloatRepr;
-    fn signum(value: &FloatRepr) -> FloatRepr;
-    fn floor(value: &FloatRepr) -> FloatRepr;
-    fn ceil(value: &FloatRepr) -> FloatRepr;
-    fn round(value: &FloatRepr) -> FloatRepr;
-    fn fract(value: &FloatRepr) -> FloatRepr;
-    fn pow(lhs: &FloatRepr, rhs: &FloatRepr) -> FloatRepr;
-    fn sqrt(value: &FloatRepr) -> FloatRepr;
-    fn cbrt(value: &FloatRepr) -> FloatRepr;
+    fn abs(value: &FloatType) -> FloatType;
+    fn signum(value: &FloatType) -> FloatType;
+    fn floor(value: &FloatType) -> FloatType;
+    fn ceil(value: &FloatType) -> FloatType;
+    fn round(value: &FloatType) -> FloatType;
+    fn fract(value: &FloatType) -> FloatType;
+    fn pow(lhs: &FloatType, rhs: &FloatType) -> FloatType;
+    fn sqrt(value: &FloatType) -> FloatType;
+    fn cbrt(value: &FloatType) -> FloatType;
 
     // --- Trigonometric ---
-    fn sin(value: &FloatRepr) -> FloatRepr;
-    fn cos(value: &FloatRepr) -> FloatRepr;
-    fn tan(value: &FloatRepr) -> FloatRepr;
-    fn asin(value: &FloatRepr) -> FloatRepr;
-    fn acos(value: &FloatRepr) -> FloatRepr;
-    fn atan(value: &FloatRepr) -> FloatRepr;
-    fn atan2(y: &FloatRepr, x: &FloatRepr) -> FloatRepr;
+    fn sin(value: &FloatType) -> FloatType;
+    fn cos(value: &FloatType) -> FloatType;
+    fn tan(value: &FloatType) -> FloatType;
+    fn asin(value: &FloatType) -> FloatType;
+    fn acos(value: &FloatType) -> FloatType;
+    fn atan(value: &FloatType) -> FloatType;
+    fn atan2(y: &FloatType, x: &FloatType) -> FloatType;
 
     // --- Hyperbolic ---
-    fn sinh(value: &FloatRepr) -> FloatRepr;
-    fn cosh(value: &FloatRepr) -> FloatRepr;
-    fn tanh(value: &FloatRepr) -> FloatRepr;
-    fn asinh(value: &FloatRepr) -> FloatRepr;
-    fn acosh(value: &FloatRepr) -> FloatRepr;
-    fn atanh(value: &FloatRepr) -> FloatRepr;
+    fn sinh(value: &FloatType) -> FloatType;
+    fn cosh(value: &FloatType) -> FloatType;
+    fn tanh(value: &FloatType) -> FloatType;
+    fn asinh(value: &FloatType) -> FloatType;
+    fn acosh(value: &FloatType) -> FloatType;
+    fn atanh(value: &FloatType) -> FloatType;
 
     // --- Exponential & logarithmic ---
-    fn exp(value: &FloatRepr) -> FloatRepr;
-    fn expm1(value: &FloatRepr) -> FloatRepr;
-    fn ln(value: &FloatRepr) -> FloatRepr;
-    fn log1p(value: &FloatRepr) -> FloatRepr;
+    fn exp(value: &FloatType) -> FloatType;
+    fn expm1(value: &FloatType) -> FloatType;
+    fn ln(value: &FloatType) -> FloatType;
+    fn log1p(value: &FloatType) -> FloatType;
 
     // --- Special functions ---
-    fn erf(value: &FloatRepr) -> FloatRepr;
-    fn erfc(value: &FloatRepr) -> FloatRepr;
-    fn gamma(value: &FloatRepr) -> FloatRepr;
-    fn lgamma(value: &FloatRepr) -> FloatRepr;
-    fn digamma(value: &FloatRepr) -> FloatRepr;
-    fn trigamma(value: &FloatRepr) -> FloatRepr;
-    fn tetragamma(value: &FloatRepr) -> FloatRepr;
-    fn lambert_w(value: &FloatRepr) -> FloatRepr;
-    fn lambert_wm1(value: &FloatRepr) -> FloatRepr;
-    fn elliptic_k(value: &FloatRepr) -> FloatRepr;
-    fn elliptic_e(value: &FloatRepr) -> FloatRepr;
-    fn zeta(value: &FloatRepr) -> FloatRepr;
-    fn bessel_j(n: &IntRepr, value: &FloatRepr) -> FloatRepr;
-    fn bessel_y(n: &IntRepr, value: &FloatRepr) -> FloatRepr;
-    fn bessel_i(n: &IntRepr, value: &FloatRepr) -> FloatRepr;
-    fn bessel_k(n: &IntRepr, value: &FloatRepr) -> FloatRepr;
-    fn polygamma(n: &IntRepr, value: &FloatRepr) -> FloatRepr;
-    fn beta(a: &FloatRepr, b: &FloatRepr) -> FloatRepr;
-    fn zeta_deriv(n: &IntRepr, value: &FloatRepr) -> FloatRepr;
-    fn hermite(n: &IntRepr, value: &FloatRepr) -> FloatRepr;
-    fn assoc_legendre(l: &IntRepr, m: &IntRepr, value: &FloatRepr) -> FloatRepr;
-    fn spherical_harmonic(l: &IntRepr, m: &IntRepr, theta: &FloatRepr, phi: &FloatRepr) -> FloatRepr;
+    fn erf(value: &FloatType) -> FloatType;
+    fn erfc(value: &FloatType) -> FloatType;
+    fn gamma(value: &FloatType) -> FloatType;
+    fn lgamma(value: &FloatType) -> FloatType;
+    fn digamma(value: &FloatType) -> FloatType;
+    fn trigamma(value: &FloatType) -> FloatType;
+    fn tetragamma(value: &FloatType) -> FloatType;
+    fn lambertw(order: &IntType, value: &FloatType) -> FloatType;
+    fn elliptic_k(value: &FloatType) -> FloatType;
+    fn elliptic_e(value: &FloatType) -> FloatType;
+    fn zeta(value: &FloatType) -> FloatType;
+    fn besselj(n: &IntType, value: &FloatType) -> FloatType;
+    fn bessely(n: &IntType, value: &FloatType) -> FloatType;
+    fn besseli(n: &IntType, value: &FloatType) -> FloatType;
+    fn besselk(n: &IntType, value: &FloatType) -> FloatType;
+    fn polygamma(n: &IntType, value: &FloatType) -> FloatType;
+    fn beta(a: &FloatType, b: &FloatType) -> FloatType;
+    fn zeta_deriv(n: &IntType, value: &FloatType) -> FloatType;
+    fn hermite(n: &IntType, value: &FloatType) -> FloatType;
+    fn assoc_legendre(l: &IntType, m: &IntType, value: &FloatType) -> FloatType;
+    fn spherical_harmonic(l: &IntType, m: &IntType, theta: &FloatType, phi: &FloatType) -> FloatType;
 }
 
 #[cfg(feature = "serde")]
 #[inline]
-pub(in crate::number) fn from_str(value: &str) -> Option<FloatRepr> {
+pub(in crate::number) fn from_str(value: &str) -> Option<FloatType> {
     backend::from_str(value)
 }

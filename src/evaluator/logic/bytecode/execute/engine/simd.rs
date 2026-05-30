@@ -78,7 +78,12 @@ impl VmEvaluator {
                 } else if i + n_lanes <= col.len() {
                     *out_val = f64x4::from(unsafe { *(col.as_ptr().add(i).cast::<[f64; 4]>()) });
                 } else {
-                    *out_val = f64x4::splat(unsafe { *col.get_unchecked(col.len() - 1) });
+                    let mut lanes = [0.0_f64; 4];
+                    let available = col.len().saturating_sub(i).min(n_lanes);
+                    for (lane, out_lane) in lanes.iter_mut().take(available).enumerate() {
+                        *out_lane = unsafe { *col.get_unchecked(i + lane) };
+                    }
+                    *out_val = f64x4::from(lanes);
                 }
             }
 

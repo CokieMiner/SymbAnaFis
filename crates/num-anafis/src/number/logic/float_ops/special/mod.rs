@@ -34,14 +34,14 @@ mod polygamma;
 mod zeta;
 mod zeta_deriv;
 
-pub use bessel_ik::{bessel_i, bessel_k};
-pub use bessel_jy::{bessel_j, bessel_y};
+pub use bessel_ik::{besseli, besselk};
+pub use bessel_jy::{besselj, bessely};
 pub use beta::beta;
 pub use elliptic::{elliptic_e, elliptic_k};
 pub use erf::{erf, erfc};
 pub use gamma::{gamma, lgamma};
 pub use hermite::hermite;
-pub use lambert_w::{lambert_w0, lambert_wm1};
+pub use lambert_w::{lambertw0, lambertwm1};
 pub use legendre::{assoc_legendre, spherical_harmonic};
 pub use polygamma::{digamma, polygamma_n, tetragamma, trigamma};
 pub use zeta::zeta;
@@ -163,45 +163,45 @@ pub trait SpecFloat:
     fn stirling_coeffs() -> &'static [Self];
     fn zeta_ints() -> &'static [Self];
 
-    fn bessel_j0_num_coeffs() -> &'static [Self];
-    fn bessel_j0_den_coeffs() -> &'static [Self];
-    fn bessel_j0_pcos_coeffs() -> &'static [Self];
-    fn bessel_j0_psin_coeffs() -> &'static [Self];
+    fn besselj0_num_coeffs() -> &'static [Self];
+    fn besselj0_den_coeffs() -> &'static [Self];
+    fn besselj0_pcos_coeffs() -> &'static [Self];
+    fn besselj0_psin_coeffs() -> &'static [Self];
 
-    fn bessel_j1_num_coeffs() -> &'static [Self];
-    fn bessel_j1_den_coeffs() -> &'static [Self];
-    fn bessel_j1_pcos_coeffs() -> &'static [Self];
-    fn bessel_j1_psin_coeffs() -> &'static [Self];
+    fn besselj1_num_coeffs() -> &'static [Self];
+    fn besselj1_den_coeffs() -> &'static [Self];
+    fn besselj1_pcos_coeffs() -> &'static [Self];
+    fn besselj1_psin_coeffs() -> &'static [Self];
 
-    fn bessel_y0_num_coeffs() -> &'static [Self];
-    fn bessel_y0_den_coeffs() -> &'static [Self];
-    fn bessel_y0_pcos_coeffs() -> &'static [Self];
-    fn bessel_y0_psin_coeffs() -> &'static [Self];
+    fn bessely0_num_coeffs() -> &'static [Self];
+    fn bessely0_den_coeffs() -> &'static [Self];
+    fn bessely0_pcos_coeffs() -> &'static [Self];
+    fn bessely0_psin_coeffs() -> &'static [Self];
 
-    fn bessel_y1_num_coeffs() -> &'static [Self];
-    fn bessel_y1_den_coeffs() -> &'static [Self];
-    fn bessel_y1_pcos_coeffs() -> &'static [Self];
-    fn bessel_y1_psin_coeffs() -> &'static [Self];
+    fn bessely1_num_coeffs() -> &'static [Self];
+    fn bessely1_den_coeffs() -> &'static [Self];
+    fn bessely1_pcos_coeffs() -> &'static [Self];
+    fn bessely1_psin_coeffs() -> &'static [Self];
 
-    fn bessel_i0_small_coeffs() -> &'static [Self];
-    fn bessel_i0_large_coeffs() -> &'static [Self];
+    fn besseli0_small_coeffs() -> &'static [Self];
+    fn besseli0_large_coeffs() -> &'static [Self];
 
-    fn bessel_i1_small_coeffs() -> &'static [Self];
-    fn bessel_i1_large_coeffs() -> &'static [Self];
+    fn besseli1_small_coeffs() -> &'static [Self];
+    fn besseli1_large_coeffs() -> &'static [Self];
 
-    fn bessel_k0_small_coeffs() -> &'static [Self];
-    fn bessel_k0_large_coeffs() -> &'static [Self];
+    fn besselk0_small_coeffs() -> &'static [Self];
+    fn besselk0_large_coeffs() -> &'static [Self];
 
-    fn bessel_k1_small_coeffs() -> &'static [Self];
-    fn bessel_k1_large_coeffs() -> &'static [Self];
+    fn besselk1_small_coeffs() -> &'static [Self];
+    fn besselk1_large_coeffs() -> &'static [Self];
 
-    fn bessel_j_split() -> Self;
+    fn besselj_split() -> Self;
     fn bessel_miller_seed() -> Self;
 
-    fn bessel_j0_root1() -> Self;
-    fn bessel_j0_root2() -> Self;
-    fn bessel_j1_root1() -> Self;
-    fn bessel_j1_root2() -> Self;
+    fn besselj0_root1() -> Self;
+    fn besselj0_root2() -> Self;
+    fn besselj1_root1() -> Self;
+    fn besselj1_root2() -> Self;
 }
 
 // ============================================================================
@@ -264,41 +264,41 @@ macro_rules! impl_spec_float {
         pio4_lo = $p4lo:expr,
         pio34_hi = $p34hi:expr,
         pio34_lo = $p34lo:expr,
-        bessel_j_split = $bjsplit:expr,
+        besselj_split = $bjsplit:expr,
         bessel_miller_seed = $seed:expr,
-        bessel_j0_root1 = $bj0r1:expr,
-        bessel_j0_root2 = $bj0r2:expr,
-        bessel_j1_root1 = $bj1r1:expr,
-        bessel_j1_root2 = $bj1r2:expr,
+        besselj0_root1 = $bj0r1:expr,
+        besselj0_root2 = $bj0r2:expr,
+        besselj1_root1 = $bj1r1:expr,
+        besselj1_root2 = $bj1r2:expr,
         lanczos: [$($lc:expr),* $(,)?],
         bernoulli: [$($bn:expr, $bd:expr);* $(;)?],
         stieltjes: [$($st:expr),* $(,)?],
         zeta_ints: [$($zi:expr),* $(,)?],
         stirling: [$($sc:expr),* $(,)?],
-        bessel_j0_num: [$($bjn0:expr),* $(,)?],
-        bessel_j0_den: [$($bjd0:expr),* $(,)?],
-        bessel_j0_pcos: [$($bjpc0:expr),* $(,)?],
-        bessel_j0_psin: [$($bjps0:expr),* $(,)?],
-        bessel_j1_num: [$($bjn1:expr),* $(,)?],
-        bessel_j1_den: [$($bjd1:expr),* $(,)?],
-        bessel_j1_pcos: [$($bjpc1:expr),* $(,)?],
-        bessel_j1_psin: [$($bjps1:expr),* $(,)?],
-        bessel_y0_num: [$($byn0:expr),* $(,)?],
-        bessel_y0_den: [$($byd0:expr),* $(,)?],
-        bessel_y0_pcos: [$($bypc0:expr),* $(,)?],
-        bessel_y0_psin: [$($byps0:expr),* $(,)?],
-        bessel_y1_num: [$($byn1:expr),* $(,)?],
-        bessel_y1_den: [$($byd1:expr),* $(,)?],
-        bessel_y1_pcos: [$($bypc1:expr),* $(,)?],
-        bessel_y1_psin: [$($byps1:expr),* $(,)?],
-        bessel_i0_small: [$($bi0s:expr),* $(,)?],
-        bessel_i0_large: [$($bi0l:expr),* $(,)?],
-        bessel_i1_small: [$($bi1bs:expr),* $(,)?],
-        bessel_i1_large: [$($bi1bl:expr),* $(,)?],
-        bessel_k0_small: [$($bk0s:expr),* $(,)?],
-        bessel_k0_large: [$($bk0l:expr),* $(,)?],
-        bessel_k1_small: [$($bk1s:expr),* $(,)?],
-        bessel_k1_large: [$($bk1l:expr),* $(,)?],
+        besselj0_num: [$($bjn0:expr),* $(,)?],
+        besselj0_den: [$($bjd0:expr),* $(,)?],
+        besselj0_pcos: [$($bjpc0:expr),* $(,)?],
+        besselj0_psin: [$($bjps0:expr),* $(,)?],
+        besselj1_num: [$($bjn1:expr),* $(,)?],
+        besselj1_den: [$($bjd1:expr),* $(,)?],
+        besselj1_pcos: [$($bjpc1:expr),* $(,)?],
+        besselj1_psin: [$($bjps1:expr),* $(,)?],
+        bessely0_num: [$($byn0:expr),* $(,)?],
+        bessely0_den: [$($byd0:expr),* $(,)?],
+        bessely0_pcos: [$($bypc0:expr),* $(,)?],
+        bessely0_psin: [$($byps0:expr),* $(,)?],
+        bessely1_num: [$($byn1:expr),* $(,)?],
+        bessely1_den: [$($byd1:expr),* $(,)?],
+        bessely1_pcos: [$($bypc1:expr),* $(,)?],
+        bessely1_psin: [$($byps1:expr),* $(,)?],
+        besseli0_small: [$($bi0s:expr),* $(,)?],
+        besseli0_large: [$($bi0l:expr),* $(,)?],
+        besseli1_small: [$($bi1bs:expr),* $(,)?],
+        besseli1_large: [$($bi1bl:expr),* $(,)?],
+        besselk0_small: [$($bk0s:expr),* $(,)?],
+        besselk0_large: [$($bk0l:expr),* $(,)?],
+        besselk1_small: [$($bk1s:expr),* $(,)?],
+        besselk1_large: [$($bk1l:expr),* $(,)?],
     ) => {
         impl $crate::number::logic::float_ops::special::SpecFloat for $ty {
             type Int = $int;
@@ -377,45 +377,45 @@ macro_rules! impl_spec_float {
             #[inline]
             fn zeta_ints() -> &'static [Self] { &[$($zi),*] }
 
-            #[inline] fn bessel_j0_num_coeffs() -> &'static [Self] { &[$($bjn0),*] }
-            #[inline] fn bessel_j0_den_coeffs() -> &'static [Self] { &[$($bjd0),*] }
-            #[inline] fn bessel_j0_pcos_coeffs() -> &'static [Self] { &[$($bjpc0),*] }
-            #[inline] fn bessel_j0_psin_coeffs() -> &'static [Self] { &[$($bjps0),*] }
+            #[inline] fn besselj0_num_coeffs() -> &'static [Self] { &[$($bjn0),*] }
+            #[inline] fn besselj0_den_coeffs() -> &'static [Self] { &[$($bjd0),*] }
+            #[inline] fn besselj0_pcos_coeffs() -> &'static [Self] { &[$($bjpc0),*] }
+            #[inline] fn besselj0_psin_coeffs() -> &'static [Self] { &[$($bjps0),*] }
 
-            #[inline] fn bessel_j1_num_coeffs() -> &'static [Self] { &[$($bjn1),*] }
-            #[inline] fn bessel_j1_den_coeffs() -> &'static [Self] { &[$($bjd1),*] }
-            #[inline] fn bessel_j1_pcos_coeffs() -> &'static [Self] { &[$($bjpc1),*] }
-            #[inline] fn bessel_j1_psin_coeffs() -> &'static [Self] { &[$($bjps1),*] }
+            #[inline] fn besselj1_num_coeffs() -> &'static [Self] { &[$($bjn1),*] }
+            #[inline] fn besselj1_den_coeffs() -> &'static [Self] { &[$($bjd1),*] }
+            #[inline] fn besselj1_pcos_coeffs() -> &'static [Self] { &[$($bjpc1),*] }
+            #[inline] fn besselj1_psin_coeffs() -> &'static [Self] { &[$($bjps1),*] }
 
-            #[inline] fn bessel_y0_num_coeffs() -> &'static [Self] { &[$($byn0),*] }
-            #[inline] fn bessel_y0_den_coeffs() -> &'static [Self] { &[$($byd0),*] }
-            #[inline] fn bessel_y0_pcos_coeffs() -> &'static [Self] { &[$($bypc0),*] }
-            #[inline] fn bessel_y0_psin_coeffs() -> &'static [Self] { &[$($byps0),*] }
+            #[inline] fn bessely0_num_coeffs() -> &'static [Self] { &[$($byn0),*] }
+            #[inline] fn bessely0_den_coeffs() -> &'static [Self] { &[$($byd0),*] }
+            #[inline] fn bessely0_pcos_coeffs() -> &'static [Self] { &[$($bypc0),*] }
+            #[inline] fn bessely0_psin_coeffs() -> &'static [Self] { &[$($byps0),*] }
 
-            #[inline] fn bessel_y1_num_coeffs() -> &'static [Self] { &[$($byn1),*] }
-            #[inline] fn bessel_y1_den_coeffs() -> &'static [Self] { &[$($byd1),*] }
-            #[inline] fn bessel_y1_pcos_coeffs() -> &'static [Self] { &[$($bypc1),*] }
-            #[inline] fn bessel_y1_psin_coeffs() -> &'static [Self] { &[$($byps1),*] }
+            #[inline] fn bessely1_num_coeffs() -> &'static [Self] { &[$($byn1),*] }
+            #[inline] fn bessely1_den_coeffs() -> &'static [Self] { &[$($byd1),*] }
+            #[inline] fn bessely1_pcos_coeffs() -> &'static [Self] { &[$($bypc1),*] }
+            #[inline] fn bessely1_psin_coeffs() -> &'static [Self] { &[$($byps1),*] }
 
-            #[inline] fn bessel_i0_small_coeffs() -> &'static [Self] { &[$($bi0s),*] }
-            #[inline] fn bessel_i0_large_coeffs() -> &'static [Self] { &[$($bi0l),*] }
+            #[inline] fn besseli0_small_coeffs() -> &'static [Self] { &[$($bi0s),*] }
+            #[inline] fn besseli0_large_coeffs() -> &'static [Self] { &[$($bi0l),*] }
 
-            #[inline] fn bessel_i1_small_coeffs() -> &'static [Self] { &[$($bi1bs),*] }
-            #[inline] fn bessel_i1_large_coeffs() -> &'static [Self] { &[$($bi1bl),*] }
+            #[inline] fn besseli1_small_coeffs() -> &'static [Self] { &[$($bi1bs),*] }
+            #[inline] fn besseli1_large_coeffs() -> &'static [Self] { &[$($bi1bl),*] }
 
-            #[inline] fn bessel_k0_small_coeffs() -> &'static [Self] { &[$($bk0s),*] }
-            #[inline] fn bessel_k0_large_coeffs() -> &'static [Self] { &[$($bk0l),*] }
+            #[inline] fn besselk0_small_coeffs() -> &'static [Self] { &[$($bk0s),*] }
+            #[inline] fn besselk0_large_coeffs() -> &'static [Self] { &[$($bk0l),*] }
 
-            #[inline] fn bessel_k1_small_coeffs() -> &'static [Self] { &[$($bk1s),*] }
-            #[inline] fn bessel_k1_large_coeffs() -> &'static [Self] { &[$($bk1l),*] }
+            #[inline] fn besselk1_small_coeffs() -> &'static [Self] { &[$($bk1s),*] }
+            #[inline] fn besselk1_large_coeffs() -> &'static [Self] { &[$($bk1l),*] }
 
-            #[inline] fn bessel_j_split() -> Self { $bjsplit }
+            #[inline] fn besselj_split() -> Self { $bjsplit }
             #[inline] fn bessel_miller_seed() -> Self { $seed }
 
-            #[inline] fn bessel_j0_root1() -> Self { $bj0r1 }
-            #[inline] fn bessel_j0_root2() -> Self { $bj0r2 }
-            #[inline] fn bessel_j1_root1() -> Self { $bj1r1 }
-            #[inline] fn bessel_j1_root2() -> Self { $bj1r2 }
+            #[inline] fn besselj0_root1() -> Self { $bj0r1 }
+            #[inline] fn besselj0_root2() -> Self { $bj0r2 }
+            #[inline] fn besselj1_root1() -> Self { $bj1r1 }
+            #[inline] fn besselj1_root2() -> Self { $bj1r2 }
         }
     };
 }

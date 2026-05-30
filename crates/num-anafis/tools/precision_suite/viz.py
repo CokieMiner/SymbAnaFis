@@ -106,6 +106,7 @@ def run_viz_cli():
             print("  rug: plots skipped (guaranteed ULP)")
             continue
         out_dir = CHARTS_DIR / backend
+        out_dir.mkdir(parents=True, exist_ok=True)
 
         for func_name in sorted(funcs):
             if target_funcs and func_name not in target_funcs:
@@ -128,13 +129,13 @@ def run_viz_cli():
             else:
                 panels = _group_by_discrete(func_entries, disc_keys)
                 if n_cont == 1:
-                    out_path = out_dir / f"{func_name}_panel.png"
+                    out_path = out_dir / f"{func_name}_3d.png"
                     plot_panel_1d(panels, backend, func_name, str(out_path), dpi=160)
-                    print(f"  {backend}/{func_name}_panel.png ({len(panels)} panels, {len(func_entries)} pts)")
+                    print(f"  {backend}/{func_name}_3d.png ({len(func_entries)} pts)")
                 elif n_cont == 2:
-                    out_path = out_dir / f"{func_name}_panel.png"
+                    out_path = out_dir / f"{func_name}_3d.png"
                     plot_panel_heatmap(panels, backend, func_name, str(out_path), dpi=160)
-                    print(f"  {backend}/{func_name}_panel.png ({len(panels)} panels, {len(func_entries)} pts)")
+                    print(f"  {backend}/{func_name}_3d.png ({len(func_entries)} pts)")
 
     print(f"\nCharts saved to {CHARTS_DIR}")
 

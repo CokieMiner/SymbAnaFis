@@ -13,7 +13,7 @@
 #[macro_use]
 mod shared_ops;
 
-use crate::number::logic::int_math::{self, IntRepr};
+use crate::number::logic::int_math::{self, IntType};
 use crate::number::logic::rational_math as rational;
 use alloc::string::String;
 use core::cmp::Ordering;
@@ -79,7 +79,7 @@ pub(super) const fn get_precision() -> u32 {
     clippy::cast_precision_loss,
     reason = "Lossy int-to-float; caller must restrict magnitude for exactness"
 )]
-pub(super) fn from_int(value: &IntRepr) -> BackingFloat {
+pub(super) fn from_int(value: &IntType) -> BackingFloat {
     *value as f32
 }
 
@@ -105,7 +105,7 @@ pub(super) const fn from_i64(value: i64) -> BackingFloat {
     clippy::cast_precision_loss,
     reason = "i32::MAX is not exactly representable in f32; bounds check is approximate but safe"
 )]
-pub(super) fn to_int(value: &BackingFloat) -> Option<IntRepr> {
+pub(super) fn to_int(value: &BackingFloat) -> Option<IntType> {
     let v = *value;
     if v.fract() != 0.0 || v < i32::MIN as f32 || v >= i32::MAX as f32 {
         return None;
@@ -151,12 +151,12 @@ crate::number::logic::float_ops::special::impl_spec_float!(
     pio4_lo = 0.0,
     pio34_hi = 3.0 * core::f32::consts::FRAC_PI_4,
     pio34_lo = 0.0,
-    bessel_j_split = 5.0,
+    besselj_split = 5.0,
     bessel_miller_seed = 1e-30,
-    bessel_j0_root1 = 5.783_186,
-    bessel_j0_root2 = 30.471_263,
-    bessel_j1_root1 = 14.681_971,
-    bessel_j1_root2 = 49.218_456,
+    besselj0_root1 = 5.783_186,
+    besselj0_root2 = 30.471_263,
+    besselj1_root1 = 14.681_971,
+    besselj1_root2 = 49.218_456,
     lanczos: [
         1.0,
         676.520_4,
@@ -245,13 +245,13 @@ crate::number::logic::float_ops::special::impl_spec_float!(
         -0.000_595_238_1,
         0.000_841_750_86,
     ],
-    bessel_j0_num: [
+    besselj0_num: [
         9.708_622_175e+15,
         -2.492_483_439e+14,
         1.956_174_889e+12,
         -4.794_432_000e+09,
     ],
-    bessel_j0_den: [
+    besselj0_den: [
         1.710_862_908e+18,
         3.181_219_570e+16,
         3.105_182_167e+14,
@@ -262,7 +262,7 @@ crate::number::logic::float_ops::special::impl_spec_float!(
         4.995_631_409e+02,
         1.000_000_000e+00,
     ],
-    bessel_j0_pcos: [
+    besselj0_pcos: [
         1.000_000_000e+00,
         5.303_240_299e+00,
         8.747_164_726e+00,
@@ -271,7 +271,7 @@ crate::number::logic::float_ops::special::impl_spec_float!(
         8.283_524_215e-02,
         7.969_367_434e-04,
     ],
-    bessel_j0_psin: [
+    besselj0_psin: [
         1.000_000_000e+00,
         5.306_052_685e+00,
         8.761_908_531e+00,
@@ -280,13 +280,13 @@ crate::number::logic::float_ops::special::impl_spec_float!(
         8.562_884_480e-02,
         9.244_087_851e-04,
     ],
-    bessel_j1_num: [
+    besselj1_num: [
         3.682_957_273e+15,
         -7.274_942_274e+13,
         4.522_282_844e+11,
         -8.999_712_000e+08,
     ],
-    bessel_j1_den: [
+    besselj1_den: [
         5.322_786_368e+18,
         8.952_223_673e+16,
         7.843_696_104e+14,
@@ -297,7 +297,7 @@ crate::number::logic::float_ops::special::impl_spec_float!(
         6.208_364_868e+02,
         1.000_000_000e+00,
     ],
-    bessel_j1_pcos: [
+    besselj1_pcos: [
         1.000_000_000e+00,
         5.214_516_163e+00,
         8.424_045_563e+00,
@@ -306,7 +306,7 @@ crate::number::logic::float_ops::special::impl_spec_float!(
         7.313_970_476e-02,
         7.621_255_936e-04,
     ],
-    bessel_j1_psin: [
+    besselj1_psin: [
         1.000_000_000e+00,
         5.209_828_377e+00,
         8.399_855_614e+00,
@@ -315,7 +315,7 @@ crate::number::logic::float_ops::special::impl_spec_float!(
         6.884_559_244e-02,
         5.713_231_512e-04,
     ],
-    bessel_y0_num: [
+    bessely0_num: [
         -1.849_508_051e+16,
         4.427_332_605e+16,
         -3.466_283_153e+15,
@@ -325,7 +325,7 @@ crate::number::logic::float_ops::special::impl_spec_float!(
          -1.466_393_000e+07,
          1.559_243_652e+04,
      ],
-     bessel_y0_den: [
+     bessely0_den: [
         2.505_962_578e+17,
         3.171_577_529e+15,
         2.029_796_091e+13,
@@ -335,7 +335,7 @@ crate::number::logic::float_ops::special::impl_spec_float!(
         1.041_283_569e+03,
         1.000_000_000e+00,
     ],
-    bessel_y0_pcos: [
+    bessely0_pcos: [
         -6.050_143_719e+00,
         -5.141_053_391e+01,
         -1.470_774_994e+02,
@@ -345,7 +345,7 @@ crate::number::logic::float_ops::special::impl_spec_float!(
         -1.282_527_208e+00,
         -1.136_638_410e-02,
     ],
-    bessel_y0_psin: [
+    bessely0_psin: [
         2.420_057_373e+02,
         2.062_093_262e+03,
         5.930_727_051e+03,
@@ -355,7 +355,7 @@ crate::number::logic::float_ops::special::impl_spec_float!(
         6.431_782_532e+01,
         1.000_000_000e+00,
     ],
-    bessel_y1_num: [
+    bessely1_num: [
         -7.788_772_008e+17,
         2.024_394_696e+17,
         -8.127_702_695e+15,
@@ -363,7 +363,7 @@ crate::number::logic::float_ops::special::impl_spec_float!(
          -6.473_558_917e+11,
          1.263_204_736e+09,
      ],
-     bessel_y1_den: [
+     bessely1_den: [
         3.972_706_210e+18,
         6.871_410_803e+16,
         6.205_577_458e+14,
@@ -374,7 +374,7 @@ crate::number::logic::float_ops::special::impl_spec_float!(
         5.943_015_747e+02,
         1.000_000_000e+00,
     ],
-    bessel_y1_pcos: [
+    bessely1_pcos: [
         2.520_701_981e+01,
         2.116_887_512e+02,
         5.974_896_240e+02,
@@ -384,7 +384,7 @@ crate::number::logic::float_ops::special::impl_spec_float!(
         4.982_138_634e+00,
         5.108_625_814e-02,
     ],
-    bessel_y1_psin: [
+    bessely1_psin: [
         3.360_935_974e+02,
         2.826_192_871e+03,
         7.997_041_504e+03,
@@ -394,7 +394,7 @@ crate::number::logic::float_ops::special::impl_spec_float!(
         7.423_732_758e+01,
         1.000_000_000e+00,
     ],
-    bessel_i0_small: [
+    besseli0_small: [
         -4.415_341_631e-18,
         3.330_794_607e-17,
         -2.431_279_961e-16,
@@ -426,7 +426,7 @@ crate::number::logic::float_ops::special::impl_spec_float!(
         -3.046_826_720e-01,
         6.767_953_038e-01,
     ],
-    bessel_i0_large: [
+    besseli0_large: [
         -7.233_180_778e-18,
         -4.830_504_408e-18,
         4.465_621_556e-17,
@@ -453,7 +453,7 @@ crate::number::logic::float_ops::special::impl_spec_float!(
         3.369_116_457e-03,
         8.044_903_874e-01,
     ],
-    bessel_i1_small: [
+    besseli1_small: [
         8.333_333_221_e-02,
         6.944_453_712_e-03,
         3.472_097_211_e-04,
@@ -463,14 +463,14 @@ crate::number::logic::float_ops::special::impl_spec_float!(
         5.262_251_502_e-11,
         1.331_933_703_e-12,
     ],
-    bessel_i1_large: [
+    besseli1_large: [
         3.989_421_160_e-01,
         -1.495_812_648_e-01,
         -4.764_757_419_e-02,
         -2.651_573_155_e-02,
         -1.471_486_007_e-01,
     ],
-    bessel_k0_small: [
+    besselk0_small: [
         -0.577_215_664_901_532_9,
         0.422_784_335_098_467_1,
         0.230_696_083_774_616_8,
@@ -493,7 +493,7 @@ crate::number::logic::float_ops::special::impl_spec_float!(
         2.006_834_571_635_192_e-34,
         5.227_972_406_327_522_e-37,
     ],
-    bessel_k0_large: [
+    besselk0_large: [
         5.300_433_572e-18,
         -1.647_580_495e-17,
         5.210_391_488e-17,
@@ -520,7 +520,7 @@ crate::number::logic::float_ops::special::impl_spec_float!(
         -3.144_809_976e-02,
         2.440_303_087e+00,
     ],
-    bessel_k1_small: [
+    besselk1_small: [
         1.0,
         0.154_431_329_803_065_73,
         -0.672_784_335_098_467_1,
@@ -534,7 +534,7 @@ crate::number::logic::float_ops::special::impl_spec_float!(
         -3.491_712_256_588_879_e-12,
         -3.469_365_077_312_896_e-14,
     ],
-    bessel_k1_large: [
+    besselk1_large: [
         -5.756_744_448e-18,
         1.794_050_855e-17,
         -5.689_462_735e-17,

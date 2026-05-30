@@ -4,7 +4,7 @@
     reason = "Delegation wrappers can't be const for all backends; &T API for non-Copy uniformity"
 )]
 
-use crate::number::logic::int_math::IntRepr;
+use crate::number::logic::int_math::IntType;
 use alloc::string::String;
 use core::cmp::Ordering;
 
@@ -20,7 +20,7 @@ use super::primitive_math as backend;
 use super::rug_ops as backend;
 
 /// Internal representation of rational numbers.
-pub type RationalRepr = backend::BackingRational;
+pub type RationalType = backend::BackingRational;
 
 macro_rules! delegate_rational_ops {
     (
@@ -40,26 +40,26 @@ macro_rules! delegate_rational_ops {
 
 delegate_rational_ops! {
     // --- Construction & Extraction ---
-    fn from_integer(value: IntRepr) -> RationalRepr;
-    fn new(num: IntRepr, den: IntRepr) -> RationalRepr;
+    fn from_integer(value: IntType) -> RationalType;
+    fn new(num: IntType, den: IntType) -> RationalType;
 
     // We clone the components out of the rational to maintain abstraction
-    fn numer(value: &RationalRepr) -> IntRepr;
-    fn denom(value: &RationalRepr) -> IntRepr;
+    fn numer(value: &RationalType) -> IntType;
+    fn denom(value: &RationalType) -> IntType;
 
     // --- Arithmetic ---
-    fn add(lhs: &RationalRepr, rhs: &RationalRepr) -> RationalRepr;
-    fn sub(lhs: &RationalRepr, rhs: &RationalRepr) -> RationalRepr;
-    fn mul(lhs: &RationalRepr, rhs: &RationalRepr) -> RationalRepr;
-    fn div(lhs: &RationalRepr, rhs: &RationalRepr) -> RationalRepr;
-    fn neg(value: &RationalRepr) -> RationalRepr;
+    fn add(lhs: &RationalType, rhs: &RationalType) -> RationalType;
+    fn sub(lhs: &RationalType, rhs: &RationalType) -> RationalType;
+    fn mul(lhs: &RationalType, rhs: &RationalType) -> RationalType;
+    fn div(lhs: &RationalType, rhs: &RationalType) -> RationalType;
+    fn neg(value: &RationalType) -> RationalType;
 
     // --- Comparison ---
-    fn cmp(lhs: &RationalRepr, rhs: &RationalRepr) -> Ordering;
+    fn cmp(lhs: &RationalType, rhs: &RationalType) -> Ordering;
 
     // --- Properties ---
-    fn is_integer(value: &RationalRepr) -> bool;
-    fn to_integer(value: &RationalRepr) -> IntRepr;
+    fn is_integer(value: &RationalType) -> bool;
+    fn to_integer(value: &RationalType) -> IntType;
 
-    fn to_string(value: &RationalRepr) -> String;
+    fn to_string(value: &RationalType) -> String;
 }

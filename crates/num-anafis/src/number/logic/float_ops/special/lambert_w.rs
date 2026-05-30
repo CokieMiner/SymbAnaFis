@@ -35,7 +35,7 @@ fn halley_iter<T: SpecFloat>(x: T, mut w: T) -> T {
 }
 
 /// W(x) solves W·e^W = x (principal branch W₀).
-pub fn lambert_w0<T: SpecFloat>(x: T) -> T {
+pub fn lambertw0<T: SpecFloat>(x: T) -> T {
     let one = T::one();
     let e = T::e();
     let e_inv = one / e;
@@ -94,7 +94,7 @@ pub fn lambert_w0<T: SpecFloat>(x: T) -> T {
 
 /// W₋₁(x) — the lower real branch, defined for x ∈ [-1/e, 0).
 /// Returns W ≤ -1; NaN outside the domain.
-pub fn lambert_wm1<T: SpecFloat>(x: T) -> T {
+pub fn lambertwm1<T: SpecFloat>(x: T) -> T {
     let one = T::one();
     let e = T::e();
     let e_inv = one / e;

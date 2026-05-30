@@ -13,14 +13,26 @@ mod error;
 mod number;
 
 pub use error::NumAnafisError;
-pub use number::FloatRepr;
-pub use number::IntRepr;
+pub use number::AnafisMathExt;
+pub use number::FloatType;
+pub use number::IntType;
 pub use number::IntoScalar;
 pub use number::Number;
-pub use number::RationalRepr;
+pub use number::RationalType;
 pub use number::Scalar;
 pub use number::r;
 pub use number::s;
+
+#[cfg(feature = "clifford")]
+pub use number::CliffordNumber;
+#[cfg(feature = "clifford")]
+pub use number::FastClifford;
+#[cfg(feature = "clifford")]
+pub use number::GeneratorSet;
+#[cfg(feature = "clifford")]
+pub use number::{
+    cga_gens, ci, e_minus, e_plus, e1, e2, e3, eps, inf, orig, pseudo3d, pseudo5d, qi, qj, qk, sj,
+};
 
 #[cfg(feature = "python")]
 #[allow(

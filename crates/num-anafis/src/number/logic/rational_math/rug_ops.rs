@@ -1,4 +1,4 @@
-use crate::number::logic::int_math::IntRepr;
+use crate::number::logic::int_math::IntType;
 use core::cmp::Ordering;
 use rug::Rational;
 extern crate alloc;
@@ -7,19 +7,19 @@ use alloc::string::{String, ToString};
 
 pub(super) type BackingRational = Rational;
 
-pub(super) fn from_integer(value: IntRepr) -> BackingRational {
+pub(super) fn from_integer(value: IntType) -> BackingRational {
     Rational::from(value)
 }
 
-pub(super) fn new(num: IntRepr, den: IntRepr) -> BackingRational {
+pub(super) fn new(num: IntType, den: IntType) -> BackingRational {
     Rational::from((num, den))
 }
 
-pub(super) fn numer(value: &BackingRational) -> IntRepr {
+pub(super) fn numer(value: &BackingRational) -> IntType {
     value.numer().clone()
 }
 
-pub(super) fn denom(value: &BackingRational) -> IntRepr {
+pub(super) fn denom(value: &BackingRational) -> IntType {
     value.denom().clone()
 }
 
@@ -51,8 +51,8 @@ pub(super) const fn is_integer(value: &BackingRational) -> bool {
     value.is_integer()
 }
 
-pub(super) fn to_integer(value: &BackingRational) -> IntRepr {
-    IntRepr::from(value.numer() / value.denom())
+pub(super) fn to_integer(value: &BackingRational) -> IntType {
+    IntType::from(value.numer() / value.denom())
 }
 
 pub(super) fn to_string(value: &BackingRational) -> String {

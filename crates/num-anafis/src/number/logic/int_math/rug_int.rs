@@ -1,6 +1,6 @@
 #![allow(
     clippy::unnecessary_wraps,
-    reason = "Option<IntRepr> required for uniform API with overflow-checked backends"
+    reason = "Option<IntType> required for uniform API with overflow-checked backends"
 )]
 use alloc::string::{String, ToString};
 use core::cmp::Ordering;

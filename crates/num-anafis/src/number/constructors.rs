@@ -10,7 +10,7 @@
 //! ```
 
 use super::logic::float_ops::{from_f32, from_f64, from_i64 as from_i64_to_float, nan};
-use super::logic::int_math::{IntRepr, clone, from_i64 as from_i64_to_int, is_zero};
+use super::logic::int_math::{IntType, clone, from_i64 as from_i64_to_int, is_zero};
 use super::logic::rational_math::new;
 use super::logic::scalar::{Scalar, ScalarRepr};
 
@@ -36,7 +36,7 @@ macro_rules! impl_intoscalar_exact {
                 fn into_scalar(self) -> Scalar {
                     Scalar::from_int(
                         from_i64_to_int(i64::from(self))
-                            .expect(concat!(stringify!($ty), " always fits in i64 and IntRepr")),
+                            .expect(concat!(stringify!($ty), " always fits in i64 and IntType")),
                     )
                 }
             }
@@ -195,8 +195,8 @@ pub fn r(num: impl IntoScalar, den: impl IntoScalar) -> Scalar {
     &n / &d
 }
 
-/// Try to extract an `IntRepr` from a Scalar (only if it's already Int).
-fn to_int_repr(s: &Scalar) -> Option<IntRepr> {
+/// Try to extract an `IntType` from a Scalar (only if it's already Int).
+fn to_int_repr(s: &Scalar) -> Option<IntType> {
     match s.0 {
         ScalarRepr::Int(ref i) => Some(clone(i)),
         ScalarRepr::Rational(_) | ScalarRepr::Float(_) => None,

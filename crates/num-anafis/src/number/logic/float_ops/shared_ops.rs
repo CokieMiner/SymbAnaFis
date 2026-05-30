@@ -2,7 +2,7 @@
 //!
 //! This module is `#[macro_use]`d by each backend so the macro below is
 //! expanded in the calling module's scope, picking up the local
-//! `BackingFloat`, `IntRepr`, `math`, `rational`, and `int_math` bindings.
+//! `BackingFloat`, `IntType`, `math`, `rational`, and `int_math` bindings.
 
 macro_rules! impl_shared_float_ops {
     () => {
@@ -18,7 +18,7 @@ macro_rules! impl_shared_float_ops {
 
         // --- Construction & conversion ---
 
-        pub(super) fn to_rational(value: &BackingFloat) -> Option<rational::RationalRepr> {
+        pub(super) fn to_rational(value: &BackingFloat) -> Option<rational::RationalType> {
             use num_traits::Float;
             if !value.is_finite() {
                 return None;
@@ -278,23 +278,23 @@ macro_rules! impl_shared_float_ops {
         // --- Bessel functions ---
 
         #[inline]
-        pub(super) fn bessel_j(n: &IntRepr, value: &BackingFloat) -> BackingFloat {
-            super::special::bessel_j(*n, *value)
+        pub(super) fn besselj(n: &IntType, value: &BackingFloat) -> BackingFloat {
+            super::special::besselj(*n, *value)
         }
 
         #[inline]
-        pub(super) fn bessel_y(n: &IntRepr, value: &BackingFloat) -> BackingFloat {
-            super::special::bessel_y(*n, *value)
+        pub(super) fn bessely(n: &IntType, value: &BackingFloat) -> BackingFloat {
+            super::special::bessely(*n, *value)
         }
 
         #[inline]
-        pub(super) fn bessel_i(n: &IntRepr, value: &BackingFloat) -> BackingFloat {
-            super::special::bessel_i(*n, *value)
+        pub(super) fn besseli(n: &IntType, value: &BackingFloat) -> BackingFloat {
+            super::special::besseli(*n, *value)
         }
 
         #[inline]
-        pub(super) fn bessel_k(n: &IntRepr, value: &BackingFloat) -> BackingFloat {
-            super::special::bessel_k(*n, *value)
+        pub(super) fn besselk(n: &IntType, value: &BackingFloat) -> BackingFloat {
+            super::special::besselk(*n, *value)
         }
 
         // --- Special functions ---
@@ -335,7 +335,7 @@ macro_rules! impl_shared_float_ops {
         }
 
         #[inline]
-        pub(super) fn polygamma(n: &IntRepr, value: &BackingFloat) -> BackingFloat {
+        pub(super) fn polygamma(n: &IntType, value: &BackingFloat) -> BackingFloat {
             super::special::polygamma_n(*n, *value)
         }
 
@@ -345,18 +345,19 @@ macro_rules! impl_shared_float_ops {
         }
 
         #[inline]
-        pub(super) fn zeta_deriv(n: &IntRepr, value: &BackingFloat) -> BackingFloat {
+        pub(super) fn zeta_deriv(n: &IntType, value: &BackingFloat) -> BackingFloat {
             super::special::zeta_deriv(*n, *value)
         }
 
         #[inline]
-        pub(super) fn lambert_w(value: &BackingFloat) -> BackingFloat {
-            super::special::lambert_w0(*value)
-        }
-
-        #[inline]
-        pub(super) fn lambert_wm1(value: &BackingFloat) -> BackingFloat {
-            super::special::lambert_wm1(*value)
+        pub(super) fn lambertw(order: &IntType, value: &BackingFloat) -> BackingFloat {
+            if int_math::is_zero(order) {
+                super::special::lambertw0(*value)
+            } else if int_math::is_neg_one(order) {
+                super::special::lambertwm1(*value)
+            } else {
+                super::special::SpecFloat::nan()
+            }
         }
 
         #[inline]
@@ -375,14 +376,14 @@ macro_rules! impl_shared_float_ops {
         }
 
         #[inline]
-        pub(super) fn hermite(n: &IntRepr, value: &BackingFloat) -> BackingFloat {
+        pub(super) fn hermite(n: &IntType, value: &BackingFloat) -> BackingFloat {
             super::special::hermite(*n, *value)
         }
 
         #[inline]
         pub(super) fn assoc_legendre(
-            l: &IntRepr,
-            m: &IntRepr,
+            l: &IntType,
+            m: &IntType,
             value: &BackingFloat,
         ) -> BackingFloat {
             super::special::assoc_legendre(*l, *m, *value)
@@ -390,8 +391,8 @@ macro_rules! impl_shared_float_ops {
 
         #[inline]
         pub(super) fn spherical_harmonic(
-            l: &IntRepr,
-            m: &IntRepr,
+            l: &IntType,
+            m: &IntType,
             theta: &BackingFloat,
             phi: &BackingFloat,
         ) -> BackingFloat {

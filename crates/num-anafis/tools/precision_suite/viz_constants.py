@@ -25,13 +25,13 @@ CLASS_MARKERS = {
 
 SINGLE_ARG = {
     "erf", "erfc", "gamma", "lgamma", "digamma", "trigamma", "tetragamma",
-    "zeta", "lambert_w", "lambert_wm1", "sinc", "elliptic_k", "elliptic_e",
+    "zeta", "sinc", "elliptic_k", "elliptic_e",
 }
 
 MULTI_ARG = {
     "bessel_j", "bessel_y", "bessel_i", "bessel_k",
     "polygamma", "beta", "zeta_deriv", "hermite",
-    "assoc_legendre", "spherical_harmonic",
+    "assoc_legendre", "spherical_harmonic", "lambert_w",
 }
 
 TWO_ARG = {
@@ -48,14 +48,13 @@ RUG_NOTE = "Rug guarantees faithful rounding (0 ULP). Sinc: 1 ULP guarantee."
 DEFAULT_DPI = 160
 
 INTEGER_POLE_FUNCS = {
-    "gamma", "lgamma", "digamma", "trigamma", "tetragamma", "polygamma",
+    "gamma", "lgamma", "digamma", "trigamma", "tetragamma", "polygamma", "beta",
 }
 
 POLE_POINTS = {
     "zeta": [1.0],
     "zeta_deriv": [1.0],
     "lambert_w": [-1 / math.e],
-    "lambert_wm1": [-1 / math.e],
     "elliptic_k": [-1.0, 1.0],
     "elliptic_e": [-1.0, 1.0],
     "bessel_y": [0.0],
@@ -64,7 +63,6 @@ POLE_POINTS = {
 
 DOMAIN_LIMITS = {
     "lambert_w": [-1 / math.e],
-    "lambert_wm1": [-1 / math.e],
     "elliptic_k": [-1.0, 1.0],
     "elliptic_e": [-1.0, 1.0],
     "bessel_y": [0.0],

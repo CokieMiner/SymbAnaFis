@@ -2,9 +2,9 @@
     clippy::pattern_type_mismatch,
     reason = "Match ergonomics on &self.0 are intentional; explicit & + ref conflicts with other clippy lints for Copy backends"
 )]
-use super::float_ops::{self, FloatRepr, from_int, to_int};
-use super::int_math::{self, IntRepr};
-use super::rational_math::{self, RationalRepr, is_integer, to_integer};
+use super::float_ops::{self, FloatType, from_int, to_int};
+use super::int_math::{self, IntType};
+use super::rational_math::{self, RationalType, is_integer, to_integer};
 use super::traits::Number;
 use core::cmp::Ordering;
 use core::fmt::{Debug, Display, Formatter, Result};
@@ -16,9 +16,9 @@ use core::ops::{Add, Div, Mul, Neg, Sub};
 /// (like sin, exp, sqrt of non-perfect squares) promote to Float.
 #[derive(Clone, Debug)]
 pub(in crate::number) enum ScalarRepr {
-    Int(IntRepr),
-    Rational(RationalRepr),
-    Float(FloatRepr),
+    Int(IntType),
+    Rational(RationalType),
+    Float(FloatType),
 }
 
 /// A mathematical scalar that automatically manages its representation
@@ -30,14 +30,14 @@ impl Scalar {
     /// Create a new Scalar from an integer representation (internal).
     #[inline]
     #[must_use]
-    pub(in crate::number) const fn from_int(value: IntRepr) -> Self {
+    pub(in crate::number) const fn from_int(value: IntType) -> Self {
         Self(ScalarRepr::Int(value))
     }
 
     /// Create a new Scalar from a rational representation (internal).
     #[inline]
     #[must_use]
-    pub(in crate::number) fn from_rational(value: RationalRepr) -> Self {
+    pub(in crate::number) fn from_rational(value: RationalType) -> Self {
         if rational_math::is_integer(&value) {
             Self(ScalarRepr::Int(rational_math::to_integer(&value)))
         } else {
@@ -48,7 +48,7 @@ impl Scalar {
     /// Create a new Scalar from a float representation (internal).
     #[inline]
     #[must_use]
-    pub(in crate::number) fn from_float(value: FloatRepr) -> Self {
+    pub(in crate::number) fn from_float(value: FloatType) -> Self {
         if let Some(int_repr) = float_ops::to_int(&value) {
             return Self::from_int(int_repr);
         }
@@ -62,7 +62,7 @@ impl Scalar {
     /// math operations whose results are inherently approximate).
     #[inline]
     #[must_use]
-    pub(crate) const fn from_float_raw(value: FloatRepr) -> Self {
+    pub(crate) const fn from_float_raw(value: FloatType) -> Self {
         Self(ScalarRepr::Float(value))
     }
 
@@ -70,7 +70,7 @@ impl Scalar {
     /// `round`/`floor`/`ceil` where integer results are plausible.
     #[inline]
     #[must_use]
-    pub(crate) fn from_float_maybe_int(value: FloatRepr) -> Self {
+    pub(crate) fn from_float_maybe_int(value: FloatType) -> Self {
         if let Some(i) = float_ops::to_int(&value) {
             return Self::from_int(i);
         }
@@ -79,7 +79,7 @@ impl Scalar {
 
     /// Convert to the highest-precision float representation (internal).
     #[must_use]
-    pub(in crate::number) fn to_float_repr(&self) -> FloatRepr {
+    pub(in crate::number) fn to_float_repr(&self) -> FloatType {
         match &self.0 {
             ScalarRepr::Int(i) => from_int(i),
             ScalarRepr::Rational(r) => {
@@ -105,9 +105,9 @@ impl Scalar {
         float_ops::get_precision()
     }
 
-    /// Returns `Some(IntRepr)` if this value is exactly an integer, `None` otherwise.
+    /// Returns `Some(IntType)` if this value is exactly an integer, `None` otherwise.
     #[must_use]
-    pub fn to_int(&self) -> Option<IntRepr> {
+    pub fn to_int(&self) -> Option<IntType> {
         match &self.0 {
             ScalarRepr::Int(i) => Some(int_math::clone(i)),
             ScalarRepr::Rational(r) => {
@@ -194,6 +194,15 @@ impl Scalar {
             }
         }
     }
+
+    /// Returns the machine epsilon for the current precision.
+    #[must_use]
+    pub fn epsilon() -> Self {
+        let two = float_ops::from_i64(2);
+        let prec = Self::get_precision();
+        let neg_prec = float_ops::from_i64(-i64::from(prec));
+        Self::from_float_raw(float_ops::pow(&two, &neg_prec))
+    }
 }
 
 // ============================================================================
@@ -249,23 +258,24 @@ impl Eq for Scalar {}
 
 impl PartialOrd for Scalar {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.total_cmp(other))
-    }
-
-    fn lt(&self, other: &Self) -> bool {
-        self.total_cmp(other) == Ordering::Less
-    }
-
-    fn le(&self, other: &Self) -> bool {
-        self.total_cmp(other) != Ordering::Greater
-    }
-
-    fn gt(&self, other: &Self) -> bool {
-        self.total_cmp(other) == Ordering::Greater
-    }
-
-    fn ge(&self, other: &Self) -> bool {
-        self.total_cmp(other) != Ordering::Less
+        match (&self.0, &other.0) {
+            (ScalarRepr::Int(a), ScalarRepr::Int(b)) => Some(int_math::cmp(a, b)),
+            (ScalarRepr::Rational(a), ScalarRepr::Rational(b)) => Some(rational_math::cmp(a, b)),
+            (ScalarRepr::Int(a), ScalarRepr::Rational(b)) => Some(rational_math::cmp(
+                &rational_math::from_integer(int_math::clone(a)),
+                b,
+            )),
+            (ScalarRepr::Rational(a), ScalarRepr::Int(b)) => Some(rational_math::cmp(
+                a,
+                &rational_math::from_integer(int_math::clone(b)),
+            )),
+            _ => {
+                // IEEE 754: NaN is unordered — partial_cmp returns None
+                let fl = self.to_float_repr();
+                let fr = other.to_float_repr();
+                float_ops::cmp(&fl, &fr)
+            }
+        }
     }
 }
 
@@ -534,9 +544,9 @@ impl Div<&Self> for Scalar {
 // Number Trait Helpers
 // ============================================================================
 
-/// Extract an `IntRepr` from a [`Scalar`] used as an integer order parameter.
+/// Extract an `IntType` from a [`Scalar`] used as an integer order parameter.
 /// Returns None if extraction fails (e.g., Float that doesn't round to int).
-fn extract_int_order(s: &Scalar) -> Option<IntRepr> {
+fn extract_int_order(s: &Scalar) -> Option<IntType> {
     match &s.0 {
         ScalarRepr::Int(n) => Some(int_math::clone(n)),
         ScalarRepr::Rational(r) => Some(to_integer(r)),
@@ -835,12 +845,7 @@ impl Number for Scalar {
         }
         &self.sin() / self
     }
-    fn lambert_w(&self) -> Self {
-        Self::from_float_raw(float_ops::lambert_w(&self.to_float_repr()))
-    }
-    fn lambert_wm1(&self) -> Self {
-        Self::from_float_raw(float_ops::lambert_wm1(&self.to_float_repr()))
-    }
+
     fn elliptic_k(&self) -> Self {
         Self::from_float_raw(float_ops::elliptic_k(&self.to_float_repr()))
     }
@@ -877,7 +882,7 @@ impl Number for Scalar {
                 return Self::from_int(int_math::from_i64(1).expect("constant 1 always fits"));
             }
 
-            let two = int_math::from_i64(2).expect("2 always fits in IntRepr");
+            let two = int_math::from_i64(2).expect("2 always fits in IntType");
             let mut result = Self::from_int(int_math::from_i64(1).expect("constant 1 always fits"));
             let mut base = self.clone();
             let mut ec = int_math::clone(e);
@@ -895,10 +900,10 @@ impl Number for Scalar {
         // Non-integer exponent → use float pow
         Self::from_float_raw(float_ops::pow(&self.to_float_repr(), &exp.to_float_repr()))
     }
-    impl_special_with_int_order_fn!(bessel_j, float_ops::bessel_j);
-    impl_special_with_int_order_fn!(bessel_y, float_ops::bessel_y);
-    impl_special_with_int_order_fn!(bessel_i, float_ops::bessel_i);
-    impl_special_with_int_order_fn!(bessel_k, float_ops::bessel_k);
+    impl_special_with_int_order_fn!(besselj, float_ops::besselj);
+    impl_special_with_int_order_fn!(bessely, float_ops::bessely);
+    impl_special_with_int_order_fn!(besseli, float_ops::besseli);
+    impl_special_with_int_order_fn!(besselk, float_ops::besselk);
     impl_special_with_int_order_fn!(polygamma, float_ops::polygamma);
 
     fn beta(&self, other: &Self) -> Self {
@@ -910,6 +915,7 @@ impl Number for Scalar {
 
     impl_special_with_int_order_fn!(zeta_deriv, float_ops::zeta_deriv);
     impl_special_with_int_order_fn!(hermite, float_ops::hermite);
+    impl_special_with_int_order_fn!(lambertw, float_ops::lambertw);
 
     fn assoc_legendre(&self, l: &Self, m: &Self) -> Self {
         let (Some(li), Some(mi)) = (extract_int_order(l), extract_int_order(m)) else {

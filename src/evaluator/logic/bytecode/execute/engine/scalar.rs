@@ -216,7 +216,13 @@ impl VmEvaluator {
     /// This is used for large expressions that exceed the stack-allocation staircase,
     /// or in parallel workloads where workspaces are managed by a driver.
     #[inline]
-    pub fn evaluate_heap(&self, params: &[f64], registers: &mut [f64]) -> f64 {
+    pub(crate) fn evaluate_heap(&self, params: &[f64], registers: &mut [f64]) -> f64 {
+        assert!(
+            registers.len() >= self.workspace_size,
+            "evaluate_heap: workspace too small: got {}, need {}",
+            registers.len(),
+            self.workspace_size
+        );
         let ptr = registers.as_mut_ptr();
         self.setup_registers(params, ptr);
         unsafe {
@@ -229,8 +235,8 @@ impl VmEvaluator {
     ///
     /// # Errors
     ///
-    /// Returns `DiffError` if the input columns do not match the expected parameter count
-    /// or if the columns have inconsistent lengths.
+    /// Missing parameter columns and short columns are filled with `0.0`; values
+    /// past `output.len()` are ignored.
     #[cfg(feature = "parallel")]
     pub fn eval_batch(
         &self,
@@ -323,8 +329,6 @@ impl VmEvaluator {
                 let cl = col_lens[ci];
                 let val = if j < cl {
                     unsafe { *col_ptrs[ci].add(j) }
-                } else if cl > 0 {
-                    unsafe { *col_ptrs[ci].add(cl - 1) }
                 } else {
                     0.0
                 };

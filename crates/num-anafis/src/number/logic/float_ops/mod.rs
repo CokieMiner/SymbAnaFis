@@ -1,5 +1,8 @@
 // Default: f64
-#[cfg(all(not(feature = "backend32"), not(feature = "backendrug")))]
+#[cfg(all(
+    any(not(feature = "backend32"), feature = "backend64"),
+    not(feature = "backendrug")
+))]
 mod f64_ops;
 
 // Override: rug (MPFR-based arbitrary precision)
@@ -7,7 +10,11 @@ mod f64_ops;
 mod rug_ops;
 
 // Override: f32 (memory-optimized)
-#[cfg(all(feature = "backend32", not(feature = "backendrug")))]
+#[cfg(all(
+    feature = "backend32",
+    not(feature = "backend64"),
+    not(feature = "backendrug")
+))]
 mod f32_ops;
 
 // Special function algorithms shared by f32/f64 via SpecFloat trait.

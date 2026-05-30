@@ -72,19 +72,19 @@ macro_rules! define_number_trait {
 
             /// Bessel function of the first kind: `J_order(self)`.
             #[must_use]
-            fn bessel_j(&self, order: &Self) -> Self;
+            fn besselj(&self, order: &Self) -> Self;
 
             /// Bessel function of the second kind: `Y_order(self)`.
             #[must_use]
-            fn bessel_y(&self, order: &Self) -> Self;
+            fn bessely(&self, order: &Self) -> Self;
 
             /// Modified Bessel function of the first kind: `I_order(self)`.
             #[must_use]
-            fn bessel_i(&self, order: &Self) -> Self;
+            fn besseli(&self, order: &Self) -> Self;
 
             /// Modified Bessel function of the second kind: `K_order(self)`.
             #[must_use]
-            fn bessel_k(&self, order: &Self) -> Self;
+            fn besselk(&self, order: &Self) -> Self;
 
             /// Polygamma function: `ψ^(order)(self)`.
             #[must_use]
@@ -97,6 +97,10 @@ macro_rules! define_number_trait {
             /// Derivative of the Riemann zeta function.
             #[must_use]
             fn zeta_deriv(&self, order: &Self) -> Self;
+
+            /// Lambert W function on branch n: `W_n(self)`.
+            #[must_use]
+            fn lambertw(&self, n: &Self) -> Self;
 
             /// Hermite polynomial: `H_n(self)`.
             #[must_use]
@@ -228,8 +232,6 @@ define_number_trait! {
         trigamma,
         tetragamma,
         sinc,
-        lambert_w,
-        lambert_wm1,
         elliptic_k,
         elliptic_e,
         zeta,

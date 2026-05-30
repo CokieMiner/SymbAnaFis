@@ -1,7 +1,7 @@
 #![allow(
     clippy::trivially_copy_pass_by_ref,
     clippy::unnecessary_wraps,
-    reason = "&T API for non-Copy backend uniformity; Option<IntRepr> for uniform API"
+    reason = "&T API for non-Copy backend uniformity; Option<IntType> for uniform API"
 )]
 
 #[path = "shared_ops.rs"]

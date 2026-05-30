@@ -244,11 +244,8 @@ impl PyScalar {
     fn sinc(&self) -> Self {
         Self(self.0.sinc())
     }
-    fn lambert_w(&self) -> Self {
-        Self(self.0.lambert_w())
-    }
-    fn lambert_wm1(&self) -> Self {
-        Self(self.0.lambert_wm1())
+    fn lambertw(&self, n: &Self) -> Self {
+        Self(self.0.lambertw(&n.0))
     }
     fn zeta(&self) -> Self {
         Self(self.0.zeta())
@@ -263,17 +260,17 @@ impl PyScalar {
         Self(self.0.exp_polar())
     }
 
-    fn bessel_j(&self, n: &Self) -> Self {
-        Self(self.0.bessel_j(&n.0))
+    fn besselj(&self, n: &Self) -> Self {
+        Self(self.0.besselj(&n.0))
     }
-    fn bessel_y(&self, n: &Self) -> Self {
-        Self(self.0.bessel_y(&n.0))
+    fn bessely(&self, n: &Self) -> Self {
+        Self(self.0.bessely(&n.0))
     }
-    fn bessel_i(&self, n: &Self) -> Self {
-        Self(self.0.bessel_i(&n.0))
+    fn besseli(&self, n: &Self) -> Self {
+        Self(self.0.besseli(&n.0))
     }
-    fn bessel_k(&self, n: &Self) -> Self {
-        Self(self.0.bessel_k(&n.0))
+    fn besselk(&self, n: &Self) -> Self {
+        Self(self.0.besselk(&n.0))
     }
     fn polygamma(&self, n: &Self) -> Self {
         Self(self.0.polygamma(&n.0))

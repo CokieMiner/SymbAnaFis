@@ -343,7 +343,7 @@ pub fn evaluate_parallel(
 /// or absolute evaluation triggers invalid data format loops.
 ///
 /// # Panics
-/// Panics if numerical chunk broadcasters encounter empty vectors after previous validation buffers.
+/// Panics only if internal numeric fast-path invariants are broken.
 // Parallel evaluation handles complex dispatch logic, length is justified
 #[allow(
     clippy::too_many_lines,
@@ -405,13 +405,6 @@ pub fn evaluate_parallel_with_hint(
             return Ok(vec![]);
         }
 
-        // SAFETY: Validate that no columns are empty when n_points > 0
-        // This prevents panics in the fast paths that use .last().expect()
-        // Broadcasting from the last value is only valid if the column has at least one value
-        if expr_values.iter().any(Vec::is_empty) {
-            return Err(DiffError::EvalColumnLengthMismatch);
-        }
-
         // =========================================================
         // OPTIMIZATION: Attempt to compile for fast evaluation
         // =========================================================
@@ -447,16 +440,12 @@ pub fn evaluate_parallel_with_hint(
                                 .map(|v| if let Value::Num(n) = v { *n } else { f64::NAN })
                                 .collect()
                         } else {
-                            // Broadcasting: fill from column, then repeat last value
+                            // Fill missing trailing values with 0.0, matching evaluate().
                             let mut col = Vec::with_capacity(n_points);
                             for v in var_vals {
                                 col.push(if let Value::Num(n) = v { *n } else { f64::NAN });
                             }
-                            // SAFETY: validated that no columns are empty when n_points > 0
-                            let last = *col
-                                .last()
-                                .expect("Column cannot be empty (validated earlier)");
-                            col.resize(n_points, last);
+                            col.resize(n_points, 0.0);
                             col
                         }
                     })
@@ -505,14 +494,12 @@ pub fn evaluate_parallel_with_hint(
                             let (params, workspace) = buffers;
 
                             for (i, var_vals) in expr_values.iter().take(n_vars).enumerate() {
-                                let val = var_vals.get(point_idx).unwrap_or_else(|| {
-                                    var_vals
-                                        .last()
-                                        .expect("Column cannot be empty (validated earlier)")
-                                });
+                                let val = var_vals.get(point_idx);
 
-                                if let Value::Num(n) = val {
+                                if let Some(Value::Num(n)) = val {
                                     params[i] = *n;
+                                } else if val.is_none() {
+                                    params[i] = 0.0;
                                 } else {
                                     return Err(DiffError::UnsupportedOperation(
                                         "Non-numeric value in pure numeric path".to_owned(),
@@ -543,13 +530,10 @@ pub fn evaluate_parallel_with_hint(
                             let mut all_numeric = true;
                             for &col_idx in &mixed_cols {
                                 let var_vals = &expr_values[col_idx];
-                                let val = var_vals.get(point_idx).unwrap_or_else(|| {
-                                    var_vals
-                                        .last()
-                                        .expect("Column cannot be empty (validated earlier)")
-                                });
-
-                                if !matches!(val, Value::Num(_)) {
+                                if var_vals
+                                    .get(point_idx)
+                                    .is_some_and(|val| !matches!(val, Value::Num(_)))
+                                {
                                     all_numeric = false;
                                     break;
                                 }
@@ -558,14 +542,12 @@ pub fn evaluate_parallel_with_hint(
                             if all_numeric {
                                 // FAST PATH: Run compiled code
                                 for (i, var_vals) in expr_values.iter().take(n_vars).enumerate() {
-                                    let val = var_vals.get(point_idx).unwrap_or_else(|| {
-                                        var_vals
-                                            .last()
-                                            .expect("Column cannot be empty (validated earlier)")
-                                    });
+                                    let val = var_vals.get(point_idx);
 
-                                    if let Value::Num(n) = val {
+                                    if let Some(Value::Num(n)) = val {
                                         params[i] = *n;
+                                    } else if val.is_none() {
+                                        params[i] = 0.0;
                                     } else {
                                         return Err(DiffError::UnsupportedOperation(
                                             "Value must be Num after all_numeric check".to_owned(),
@@ -582,13 +564,13 @@ pub fn evaluate_parallel_with_hint(
                                 })
                             } else {
                                 // SLOW PATH: Fallback for this point
-                                evaluate_slow_point(
+                                Ok(evaluate_slow_point(
                                     expr,
                                     &vars,
                                     expr_values,
                                     point_idx,
                                     *was_string,
-                                )
+                                ))
                             }
                         },
                     )
@@ -601,7 +583,13 @@ pub fn evaluate_parallel_with_hint(
             let pts: Vec<EvalResult> = (0..n_points)
                 .into_par_iter()
                 .map(|point_idx| {
-                    evaluate_slow_point(expr, &vars, expr_values, point_idx, *was_string)
+                    Ok(evaluate_slow_point(
+                        expr,
+                        &vars,
+                        expr_values,
+                        point_idx,
+                        *was_string,
+                    ))
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(pts)
@@ -628,31 +616,24 @@ fn evaluate_slow_point(
     var_values: &[Vec<Value>],
     point_idx: usize,
     was_string: bool,
-) -> Result<EvalResult, DiffError> {
+) -> EvalResult {
     let n_vars = vars.len();
     let mut var_map: HashMap<&str, f64> = HashMap::new();
     let mut expr_subs: Vec<(&str, &Expr)> = Vec::with_capacity(n_vars);
 
     for var_idx in 0..n_vars {
-        let val = if point_idx < var_values[var_idx].len() {
-            &var_values[var_idx][point_idx]
-        } else {
-            // Broadcast from last value
-            // SAFETY: Column cannot be empty (validated upfront in evaluate_parallel_with_hint)
-            var_values[var_idx]
-                .last()
-                .ok_or(DiffError::EvalColumnLengthMismatch)?
-        };
-
-        match val {
-            Value::Num(n) => {
+        match var_values[var_idx].get(point_idx) {
+            Some(Value::Num(n)) => {
                 var_map.insert(vars[var_idx], *n);
             }
-            Value::Expr(e) => {
+            Some(Value::Expr(e)) => {
                 expr_subs.push((vars[var_idx], e));
             }
-            Value::Skip => {
+            Some(Value::Skip) => {
                 // Keep symbolic
+            }
+            None => {
+                var_map.insert(vars[var_idx], 0.0);
             }
         }
     }
@@ -667,11 +648,11 @@ fn evaluate_slow_point(
     let evaluated = result.evaluate(&var_map, &HashMap::new());
 
     // Convert to appropriate result type
-    Ok(if was_string {
+    if was_string {
         EvalResult::String(evaluated.to_string())
     } else {
         EvalResult::Expr(evaluated)
-    })
+    }
 }
 
 /// Format a float for string output (helper for compiled evaluator results)
@@ -695,7 +676,6 @@ fn format_float(n: f64) -> String {
 // ============================================================================
 
 /// Helper macro to parse nested value arrays
-#[macro_export]
 #[doc(hidden)]
 macro_rules! __parse_values_inner {
     // Single value

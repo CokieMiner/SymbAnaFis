@@ -6,6 +6,7 @@
     clippy::redundant_type_annotations,
     clippy::use_debug,
     clippy::items_after_statements,
+    clippy::non_ascii_literal,
     reason = "Showcase requirements: unwrap for demos, stdout/debug for display, similar names for math, explicit types for clarity"
 )]
 //! API Showcase: Complete `SymbAnaFis` Feature Demonstration (Rust)

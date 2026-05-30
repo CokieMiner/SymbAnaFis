@@ -13,9 +13,9 @@ pub enum NumAnafisError {
     ActiveGeneratorsExceedSignature(Box<SignatureMismatchError>),
     /// Generator index is out of bounds for the active algebra.
     GeneratorIndexOutOfRange(Box<IndexOutOfRangeError>),
-    /// Inline constructor was used beyond the supported inline threshold.
-    InlineCoefficientsRequireAtMostFourGenerators {
-        /// Requested active generator count.
+    /// Inline coefficients support at most 5 generators.
+    InlineCoefficientsRequireAtMostFiveGenerators {
+        /// The invalid generator count.
         active: u8,
     },
     /// Dense coefficients length does not match `2^n`.
@@ -62,8 +62,11 @@ impl Display for NumAnafisError {
                 let (index, active) = (e.index, e.active);
                 write!(f, "generator index {index} out of range for n={active}")
             }
-            Self::InlineCoefficientsRequireAtMostFourGenerators { active } => {
-                write!(f, "inline coefficients require n <= 4, got n={active}")
+            Self::InlineCoefficientsRequireAtMostFiveGenerators { active } => {
+                write!(
+                    f,
+                    "Inline coefficients require <= 5 generators, but found {active}"
+                )
             }
             Self::DenseCoefficientLengthMismatch(ref e) => {
                 let (expected, found) = (e.expected, e.found);

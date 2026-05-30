@@ -2,7 +2,7 @@
 //!
 //! Algorithms adapted from:
 //! - Cephes Mathematical Library (S. L. Moshier): `i0.c`, `k0.c`, `k1.c`, `iv.c`
-//! - Boost C++ Libraries: `bessel_i1.hpp`
+//! - Boost C++ Libraries: `besseli1.hpp`
 //! - Clenshaw, C. W. (1955). "A note on the summation of Chebyshev series."
 //! - DLMF (NIST): §§10.29, 10.74
 
@@ -23,7 +23,7 @@ use super::{SpecFloat, SpecInt};
 ///   series converges within ~256 terms before overflow of the factorial
 ///   denominator at f32/f64 precision (Γ(256) ≈ 10⁵⁰⁷ exceeds `f64::MAX`).
 /// - **Asymptotic expansion** (`|x| > max(18, n²/2)`): Hankel-type expansion
-///   via [`bessel_i_asymptotic`] using DLMF §10.40.1. The minimum 18 prevents
+///   via [`besseli_asymptotic`] using DLMF §10.40.1. The minimum 18 prevents
 ///   underflow of the `√(2πx)⁻¹` prefactor during intermediate series terms.
 /// - **Forward recurrence** (`n < √(|x|/3)` for `|x| ≥ 9`, else `n < 2`):
 ///   [`forward_recurrence_i`] is stable only when the order `n` is small
@@ -38,7 +38,7 @@ use super::{SpecFloat, SpecInt};
 ///
 /// Reference: [DLMF, §10.25.2], [DLMF, §10.40.1],
 ///            [DLMF, §10.29.1], [DLMF, §10.74]
-pub fn bessel_i<T: SpecFloat, I: SpecInt>(n: I, x: T) -> T {
+pub fn besseli<T: SpecFloat, I: SpecInt>(n: I, x: T) -> T {
     if x.is_nan() {
         return T::nan();
     }
@@ -52,16 +52,16 @@ pub fn bessel_i<T: SpecFloat, I: SpecInt>(n: I, x: T) -> T {
     };
     // I_{-n}(x) = I_n(x) for integer n.
     if n_abs.is_zero() {
-        return sign * bessel_i0(ax);
+        return sign * besseli0(ax);
     }
     if n_abs == I::one() {
-        return sign * bessel_i1_unsigned(ax);
+        return sign * besseli1_unsigned(ax);
     }
 
     if ax < T::eps() {
         return T::zero();
     }
-    if bessel_i_definitely_overflows(n_abs, ax) {
+    if besseli_definitely_overflows(n_abs, ax) {
         return sign * T::infinity();
     }
 
@@ -73,7 +73,7 @@ pub fn bessel_i<T: SpecFloat, I: SpecInt>(n: I, x: T) -> T {
 
     let n_float = T::from_int(n_abs);
     if ax > T::from_usize(18).max(n_float * n_float / T::two()) {
-        return sign * bessel_i_asymptotic(n_abs, ax);
+        return sign * besseli_asymptotic(n_abs, ax);
     }
 
     // Forward recurrence for I_n is stable only while the order is small
@@ -108,16 +108,16 @@ pub fn bessel_i<T: SpecFloat, I: SpecInt>(n: I, x: T) -> T {
 /// `K_n(x)` is defined only for `x > 0`. Returns `NaN` for `x ≤ 0`.
 ///
 /// Reference: [DLMF, §10.29.1]
-pub fn bessel_k<T: SpecFloat, I: SpecInt>(n: I, x: T) -> T {
+pub fn besselk<T: SpecFloat, I: SpecInt>(n: I, x: T) -> T {
     if x <= T::zero() {
         return T::nan();
     }
     let n_abs = n.abs();
-    let k0 = bessel_k0(x);
+    let k0 = besselk0(x);
     if n_abs.is_zero() {
         return k0;
     }
-    let k1 = bessel_k1(x);
+    let k1 = besselk1(x);
     if n_abs == I::one() {
         return k1;
     }
@@ -149,11 +149,11 @@ pub fn bessel_k<T: SpecFloat, I: SpecInt>(n: I, x: T) -> T {
 ///
 /// Reference: [DLMF, §10.29.1]
 fn forward_recurrence_i<T: SpecFloat, I: SpecInt>(n_abs: I, ax: T) -> T {
-    let i0 = bessel_i0(ax);
+    let i0 = besseli0(ax);
     if n_abs.is_zero() {
         return i0;
     }
-    let i1 = bessel_i1_unsigned(ax);
+    let i1 = besseli1_unsigned(ax);
     if n_abs == I::one() {
         return i1;
     }
@@ -217,7 +217,7 @@ fn power_series_i<T: SpecFloat, I: SpecInt>(n_abs: I, ax: T) -> T {
 /// Uses the leading term of the asymptotic expansion (DLMF §10.40.1):
 /// `ln I_n(x) ≈ x − ½ln(2πx) − (4n²−1)/(8x)` to estimate whether the result
 /// exceeds `T::MAX` before computing it.
-fn bessel_i_definitely_overflows<T: SpecFloat, I: SpecInt>(n_abs: I, ax: T) -> bool {
+fn besseli_definitely_overflows<T: SpecFloat, I: SpecInt>(n_abs: I, ax: T) -> bool {
     if ax <= T::one() {
         return false;
     }
@@ -237,7 +237,7 @@ fn bessel_i_definitely_overflows<T: SpecFloat, I: SpecInt>(n_abs: I, ax: T) -> b
 /// full f64 precision when `x > max(18, n²/2)`.
 ///
 /// Reference: [DLMF, §10.40.1]
-fn bessel_i_asymptotic<T: SpecFloat, I: SpecInt>(n_abs: I, ax: T) -> T {
+fn besseli_asymptotic<T: SpecFloat, I: SpecInt>(n_abs: I, ax: T) -> T {
     let n_t = T::from_int(n_abs);
     let mu = T::from_usize(4) * n_t * n_t;
     let mut term = T::one();
@@ -413,17 +413,17 @@ fn compute_i_start<T: SpecFloat, I: SpecInt>(n: I, ax: T) -> I {
 /// (each with ~12 terms) at f64 precision.
 ///
 /// References: [Cephes, i0.c], [DLMF, §10.25.2], [DLMF, §10.40.1]
-fn bessel_i0<T: SpecFloat>(x: T) -> T {
+fn besseli0<T: SpecFloat>(x: T) -> T {
     if x.is_nan() {
         return T::nan();
     }
     let ax = x.abs();
     if ax <= T::from_int(8) {
         let y = (ax / T::from_int(2)) - T::from_int(2);
-        ax.exp() * clenshaw_eval(y, T::bessel_i0_small_coeffs())
+        ax.exp() * clenshaw_eval(y, T::besseli0_small_coeffs())
     } else {
         let y = (T::from_int(32) / ax) - T::from_int(2);
-        let p = clenshaw_eval(y, T::bessel_i0_large_coeffs());
+        let p = clenshaw_eval(y, T::besseli0_large_coeffs());
         if p == T::zero() {
             T::zero()
         } else {
@@ -441,7 +441,7 @@ fn bessel_i0<T: SpecFloat>(x: T) -> T {
 
 /// `I₁(x)` for `x ≥ 0` — no sign handling.
 ///
-/// Uses piecewise approximations adapted from Boost `bessel_i1.hpp`:
+/// Uses piecewise approximations adapted from Boost `besseli1.hpp`:
 /// - **Small x** (`x < 7.75`): Rational approximation via Horner on `(x/2)²`.
 ///   The split point `31/4 = 7.75` is empirically chosen so that both the
 ///   small-x and large-x approximations achieve full f64 precision.
@@ -452,18 +452,18 @@ fn bessel_i0<T: SpecFloat>(x: T) -> T {
 /// factors out the leading Taylor terms for better conditioning.
 ///
 /// Reference: [DLMF, §10.25.2], [DLMF, §10.40.1]
-fn bessel_i1_unsigned<T: SpecFloat>(ax: T) -> T {
+fn besseli1_unsigned<T: SpecFloat>(ax: T) -> T {
     if ax.is_nan() {
         return T::nan();
     }
     let boost_split = T::from_usize(31) / T::from_usize(4); // 7.75
     if ax < boost_split {
         let a = (ax / T::two()).powf(T::two());
-        let p = horner_eval(a, T::bessel_i1_small_coeffs());
+        let p = horner_eval(a, T::besseli1_small_coeffs());
         ax * (T::one() + T::half() * a + a * a * p) / T::two()
     } else {
         let y = T::one() / ax;
-        let p = horner_eval(y, T::bessel_i1_large_coeffs());
+        let p = horner_eval(y, T::besseli1_large_coeffs());
         if p == T::zero() {
             T::zero()
         } else {
@@ -496,7 +496,7 @@ fn bessel_i1_unsigned<T: SpecFloat>(ax: T) -> T {
 /// ~1 ULP of f64 precision (12-term Chebyshev fits).
 ///
 /// Reference: [DLMF, §10.31.1], [DLMF, §10.40.2]
-fn bessel_k0<T: SpecFloat>(x: T) -> T {
+fn besselk0<T: SpecFloat>(x: T) -> T {
     if x.is_nan() || x <= T::zero() {
         return T::nan();
     }
@@ -504,12 +504,12 @@ fn bessel_k0<T: SpecFloat>(x: T) -> T {
     if x <= two {
         let four = T::from_usize(4);
         let y = x * x / four;
-        let i0 = bessel_i0(x);
+        let i0 = besseli0(x);
         let ln_term = -(x / two).ln() * i0;
-        ln_term + horner_eval(y, T::bessel_k0_small_coeffs())
+        ln_term + horner_eval(y, T::besselk0_small_coeffs())
     } else {
         let y = (T::from_int(8) / x) - T::two();
-        (-x).exp() * clenshaw_eval(y, T::bessel_k0_large_coeffs()) / x.sqrt()
+        (-x).exp() * clenshaw_eval(y, T::besselk0_large_coeffs()) / x.sqrt()
     }
 }
 
@@ -523,7 +523,7 @@ fn bessel_k0<T: SpecFloat>(x: T) -> T {
 ///   `K₁(x) = e⁻ˣ · P(8/x − 2) / √x`.
 ///
 /// Reference: [DLMF, §10.31.1], [DLMF, §10.40.2]
-fn bessel_k1<T: SpecFloat>(x: T) -> T {
+fn besselk1<T: SpecFloat>(x: T) -> T {
     if x.is_nan() || x <= T::zero() {
         return T::nan();
     }
@@ -537,12 +537,12 @@ fn bessel_k1<T: SpecFloat>(x: T) -> T {
         } else {
             T::one()
         };
-        let i1 = sign * bessel_i1_unsigned(ax);
+        let i1 = sign * besseli1_unsigned(ax);
         let ln_term = (x * T::half()).ln() * i1;
-        ln_term + horner_eval(y, T::bessel_k1_small_coeffs()) / x
+        ln_term + horner_eval(y, T::besselk1_small_coeffs()) / x
     } else {
         let y = (T::from_int(8) / x) - T::two();
-        (-x).exp() * clenshaw_eval(y, T::bessel_k1_large_coeffs()) / x.sqrt()
+        (-x).exp() * clenshaw_eval(y, T::besselk1_large_coeffs()) / x.sqrt()
     }
 }
 
