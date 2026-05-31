@@ -1,10 +1,5 @@
 # SymbAnaFis — Module Organization & Encapsulation Guide
 
-> This document is the **single source of truth** for module structure, visibility rules,
-> and re-export discipline in the SymbAnaFis codebase.
-
----
-
 ## Table of Contents
 
 - [SymbAnaFis — Module Organization \& Encapsulation Guide](#symbanafis--module-organization--encapsulation-guide)
@@ -229,7 +224,6 @@ strictly reserved for the `core/` root.
 | `pub` | Item is part of the public external API; declared in `api.rs` / `api_user.rs` |
 | *(bare, no modifier)* | Item is private to the current file/module |
 
-> [!IMPORTANT]
 > A `pub(in crate::module)` item **cannot** be directly re-exported as `pub` at the crate root.
 > Use a `pub` wrapper function (for functions) or ensure the type itself is `pub` in `api.rs`.
 
@@ -420,7 +414,3 @@ Only use `pub(crate)` for items that genuinely need crate-wide access
 use `pub(super)`.
 
 ---
-
-> [!NOTE]
-> The staircase must be **unbroken**. Each layer sees only the floor directly above it.
-> If you break the chain anywhere, you lose the encapsulation guarantees this architecture provides.

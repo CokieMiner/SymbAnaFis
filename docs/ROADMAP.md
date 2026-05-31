@@ -1,7 +1,7 @@
 # AnaFis Ecosystem Roadmap
 
-> **AnaFis**: Advanced Numerical Analysis and Fitting Interface System  
-> A "No-Compromise" Statistical Engine for Experimental Physics (SOTA 2026)
+> **AnaFis**: Analisé Fisica (Physical Analysis) 
+> A "No-Compromise" Statistical Engine for Experimental Physics
 
 ## Philosophy: "Neural & Rigorous Metrology"
 
@@ -35,18 +35,12 @@
 - [x] Bytecode disassembly & performance statistics
 - [x] Compile-time singularity detection (E/E, sin(E)/E → sinc)
 - [x] Modular evaluator architecture
-- [x] Property-based testing (quickcheck)
-- [ ] Developer documentation (CONTRIBUTING.md, agentic workflows)
 
 ### Domain Analysis (`symb_anafis::domain`) - HIGH PRIORITY
 - [ ] Detect division by zero patterns at compile time
 - [ ] Conditional bytecode with L'Hôpital fallbacks
 - [ ] Series expansion for limits (`series(sin(x)/x, x, 0)`)
 - [ ] Full domain inference (log domain, sqrt domain, etc.)
-
-### Compiler Optimization Levels (`symb_anafis::config`) - HIGH PRIORITY
-- [ ] Flags for Interpreted vs SymJit JIT
-- [ ] Integration with JIT and Domain Analysis modules
 
 ### JIT Compilation (via `symjit`) - HIGH PRIORITY
 - [ ] Integration of basic arithmetic ops
@@ -115,10 +109,6 @@
 - [ ] Limit at infinity handling
 - [ ] Multivariable limits
 
-### Operational Calculus (`symb_anafis::calculus`) - LOW PRIORITY
-- [ ] Operator Mapping (e.g., diff(f,x,2) → D²)
-- [ ] Polynomial Operator Decomposition for expression simplification
-
 ### Integral Transforms (`symb_anafis::transforms`) - LOW PRIORITY
 - [ ] Laplace/Fourier/Mellin symbolic rules
 
@@ -164,12 +154,6 @@
 - [ ] `#[derive(Measurable)]` proc macro
 - [ ] Arrow/ndarray interop
 
-#### `utils-anafis` - Shared Utilities
-- [ ] `kernels.rs`: KD-tree (kiddo) + Gaussian kernels
-- [ ] `optimization.rs`: argmin wrapper (LBFGS, constraints)
-- [ ] `neural.rs`: burn/candle abstraction layer
-- [ ] `persistence.rs`: rusqlite result caching
-
 ---
 
 ### Statistical Module Crates
@@ -191,12 +175,6 @@
 - [ ] Heteroscedastic: Ψ = diag(σ²) from UncertaintyTensor
 - [ ] Confidence intervals on loadings
 - [ ] Factor rotation (varimax, promax)
-
-#### `propagator-anafis` - Uncertainty Propagation
-- [ ] Dual-number propagation (linear/1st-order, GUM Type B)
-- [ ] Non-linearity detection via Hessian threshold
-- [ ] MCM fallback with adaptive sampling (JCGM 101)
-- [ ] Correlated inputs handling (covariance matrix)
 
 #### `outliers-anafis` - Robust Detection
 - [ ] Basic MCD with fixed covariance
@@ -299,8 +277,6 @@
 
 ### Ideas / Backlog (Long Term)
 - [ ] GPU Acceleration (OpenCL/CUDA for eval_batch >100M points)
-- [ ] Complex Numbers (First-class complex arithmetic)
-- [ ] Interval Arithmetic (Rigorous bounds computation)
 - [ ] WASM Demo (Interactive "Try it now" web page)
 
 ---
