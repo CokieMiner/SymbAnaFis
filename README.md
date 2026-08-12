@@ -1,3 +1,6 @@
+
+Lacks of updates cause I'm working on a arbitrary precision numeric lib to use for this, https://github.com/CokieMiner/MpAnafis.
+
 # SymbAnaFis
 
 [![Crates.io](https://img.shields.io/crates/v/symb_anafis.svg)](https://crates.io/crates/symb_anafis)
