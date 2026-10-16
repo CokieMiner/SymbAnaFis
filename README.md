@@ -1,201 +1,172 @@
 # SymbAnaFis
 
 [![Crates.io](https://img.shields.io/crates/v/symb_anafis.svg)](https://crates.io/crates/symb_anafis)
-[![PyPI](https://img.shields.io/pypi/v/symb-anafis.svg)](https://pypi.org/project/symb-anafis/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![no-std](https://img.shields.io/badge/no--std-alloc-brightgreen.svg)](#features)
 
-**High-performance symbolic mathematics** library written in Rust with Python bindings.
+`SymbAnaFis` provides high-performance symbolic mathematics, exact expression manipulation, and term rewriting in pure Rust.
 
-SymbAnaFis provides a robust engine for symbolic differentiation, simplification, and evaluation, designed for performance-critical applications in physics, engineering, and machine learning.
+Designed for speed, mathematical soundness, and minimal memory footprints across complex algebraic workloads:
+- **Globally interned expression DAG (`Expr`)**: One-pointer owning handles utilizing the null-pointer niche; $O(1)$ structural equality and hashing via collision-safe weak interning.
+- **Embedded sparse multivariate polynomials (`Polynomial`)**: Native canonical polynomial normal forms inside the AST for fast like-term reductions and coefficient quotients.
+- **Associative & commutative pattern rewriting**: Commutative subset matching for sum and product groups with transactional backtracking, bounded search limits (`match_limit`), and caller guards (`RewriteGuard`).
+- **Exact & representation-preserving numerics**: Built on `NumAnaFis` (`Number`), keeping exact integers, reduced rationals, bitwise-faithful IEEE floats, and scalar complex values.
+- **Zero-overhead ownership & memory safety**: Scoped contexts (`Context`) and zero-sized `'owner` symbol lifetimes prevent dangling symbols, aliasing bugs, and memory leaks.
+- **Zero external dependencies by default**, targeting `no_std` environments (requiring only `alloc`).
 
-## Key Capabilities
-
-*   **∂ Symbolic Differentiation**: Supports product, chain, and quotient rules for a vast array of mathematical functions.
-*   **✨ Algebraic Simplification**: Intelligent simplification engine covering trigonometric identities, constant folding, and algebraic expansion.
-*   **📊 Uncertainty Propagation**: Comprehensive support for calculating uncertainty propagation with full covariance matrix integration.
-*   **∇ Vector Calculus**: Native symbolic computation of Gradients, Hessians, and Jacobian matrices.
-*   **🚀 Parallel Processing**: Optional parallel evaluation engine using Rayon for massive batch operations.
-*   **📦 Python Bindings**: Seamless Python integration via `maturin`, offering the speed of Rust with the ease of Python.
-
-## Visual Benchmarks
-
-SymbAnaFis performance is validated against SymPy and SymEngine using complex physical simulations.
-Each benchmark features a **Quad-View Dashboard** comparing real-time simulations side-by-side.
-
-### Aizawa Attractor
-[Watch Video](videos/aizawa_quad.mp4)
-Simulates 500,000 particles flowing through the Aizawa field, comparing Euler integration throughput.
-
-### Clifford Attractor
-[Watch Video](videos/clifford_quad.mp4)
-Visualizes 1,000,000 particles evolving in the Clifford map, testing discrete map evaluation speed.
-
-### Double Pendulum Matrix
-[Watch Video](videos/double_pendulum_quad.mp4)
-Simulates 50,000 chaotic double pendulums, verifying symbolic differentiation correctness and RK4 integration stability.
-
-### Gradient Descent Avalanche
-[Watch Video](videos/gradient_descent_quad.mp4)
-Massive particle descent on a complex terrain function, showcasing symbolic differentiation of compiled functions.
-
-## Installation
-
-```bash
-# Python
-pip install symb-anafis
-
-# Rust
-cargo add symb_anafis
-```
+---
 
 ## Quick Start
 
-### Python
+Add `symb_anafis` to your `Cargo.toml`:
 
-```python
-import symb_anafis
-
-# Differentiate complex expressions
-result = symb_anafis.diff("x^3 + sin(x)", "x", [], None)
-# → "3*x^2 + cos(x)"
-
-# Algebraic Simplification
-result = symb_anafis.simplify("sin(x)^2 + cos(x)^2", [], None)
-# → "1"
-
-# Handle constants automatically
-result = symb_anafis.diff("a*x^2", "x", ["a"], None)
-# → "2*a*x"
+```toml
+[dependencies]
+symb_anafis = "0.9.0"
 ```
 
-### Rust
+### Basic Symbolic Manipulation & Rewriting
 
 ```rust
-use symb_anafis::{diff, simplify, symb};
+use symb_anafis::{Context, Expr, ExprView, Pattern, RewriteRule, Substitution};
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // String API for ease of use
-    let result = diff("sin(x) * x", "x", &[], None)?;
-    println!("{result}");  // cos(x)*x + sin(x)
+// 1. Thread-safe, scoped symbol creation
+let ctx = Context::new();
+let x = ctx.symb("x");
+let y = ctx.symb("y");
 
-    // Type-safe API (Symbol is Copy - no clone needed!)
-    let x = symb("x");
-    let expr = x.pow(2.0) + x.sin();  // x² + sin(x)
-    
-    // Export to LaTeX
-    println!("{}", expr.to_latex());  // x^{2} + \sin(x)
-    
-    Ok(())
-}
-```
+// 2. Natural arithmetic on Copy symbols and Expr handles
+let expr = x.pow(2) + x.sin() * y;
+assert!(matches!(expr.view(), ExprView::Sum(_)));
 
-## Advanced Features
-
-### 🔍 Fine-Grained Control
-Use the Builder pattern to configure safety limits and behavior.
-
-```rust
-use symb_anafis::{Diff, Simplify};
-
-Diff::new()
-    .domain_safe(true)     // Prevent unsafe simplifications (e.g., x/x != 1 if x=0)
-    .max_depth(200)        // Prevent stack overflows on massive expressions
-    .diff_str("sqrt(x^2)", "x", &[])?; // Result: abs(x)
-```
-
-### 📉 Uncertainty Propagation
-Calculate error propagation symbolically, supporting correlated variables.
-
-```rust
-use symb_anafis::uncertainty_propagation;
-
-// Calculate uncertainty formula for f = x + y with full covariance support
-let sigma = uncertainty_propagation(&expr, &["x", "y"], None)?;
-// → sqrt(sigma_x^2 + 2*sigma_x*sigma_y*rho_xy + sigma_y^2)
-```
-
-### ⚡ Parallel Evaluation
-Evaluate expressions over large datasets in parallel (requires `parallel` feature).
-
-```rust
-// Requires: symb_anafis = { features = ["parallel"] }
-use symb_anafis::{eval_parallel, symb};
-
-let x = symb("x");
-let expr = x.pow(2.0);
-
-// Clean macro syntax for parallel evaluation
-let results = eval_parallel!(
-    exprs: ["x + y", expr],
-    vars: [["x", "y"], ["x"]],
-    values: [
-        [[1.0, 2.0], [3.0, 4.0]],
-        [[1.0, 2.0, 3.0]]
-    ]
+// 3. Associative & commutative pattern rewriting
+let u = Pattern::capture("u");
+let sin_cos_rule = RewriteRule::new(
+    u.sin().pow(2) + u.cos().pow(2),
+    Pattern::exact(&Expr::number(1)),
 ).unwrap();
+
+let target = x.sin().pow(2) + x.cos().pow(2) + y;
+let simplified = sin_cos_rule.apply_all(&target, None, None).unwrap();
+assert_eq!(simplified, Expr::number(1) + y);
+
+// 4. Concrete expression substitutions
+let sub = Substitution::new(x.sin(), y.to_expr());
+let substituted = sub.apply_all(&expr);
+assert_eq!(substituted, x.pow(2) + y * y);
 ```
 
-### 🛠️ Custom Functions
-Register custom functions with their own derivative rules.
+---
 
-```rust
-use symb_anafis::{Diff, UserFunction};
+## Architectural Highlights
 
-Diff::new()
-    .user_fn("f", UserFunction::new(1..=1).partial(0, |args| {
-        // Define ∂f/∂u = 2u for f(u)
-        // Clone the Arc (cheap), then multiply
-        2.0 * args[0].clone()  
-    }).unwrap())
-    .diff_str("f(x^2)", "x", &[])?; // → 4*x^3
+### 1. Globally Interned Expression DAG (`Expr`)
+
+Every expression is an interned, immutable Directed Acyclic Graph (DAG) node wrapped in a 1-pointer handle:
+- **Null-Pointer Niche Optimization**: `Expr(Option<Arc<Node>>)` uses the null-pointer niche; size equals a single machine word (`usize`).
+- **$O(1)$ Equality and Hashing**: Identical live subtrees share exactly one physical allocation. Structural equality and hashing reduce to instantaneous pointer comparisons.
+- **Lock-Free Fast Paths & Weak Interning**: Storage uses sharded, collision-safe weak tables that automatically reclaim deallocated nodes without global tracing garbage collectors.
+
+### 2. Associative & Commutative Term Rewriting
+
+Rewriting expressions containing commutative and associative operations ($\sum$ and $\prod$) presents combinatorial challenges. `SymbAnaFis` provides:
+- **Disjoint Subset Matching**: Root sum and product patterns automatically match subsets of operands without requiring permutation explosion; unmatched operands survive unmodified.
+- **Transactional Backtracking**: Variable captures and trial expansions maintain an undo log, reverting state cleanly on failed branches.
+- **Bounded Search Limits**: Rewriting accepts an optional `match_limit: Option<usize>` parameter. Reaching the candidate limit stops traversal immediately with `RewriteError::MatchLimitExceeded`, guaranteeing execution bounds on massive trees.
+- **Caller Guards (`RewriteGuard`)**: Enforces domain conditions, sign requirements, or integrality constraints directly during match exploration.
+
+### 3. Canonical Sparse Multivariate Polynomials
+
+Polynomial expressions (such as $a x^2 y + b x + c$) are recognized and embedded as specialized AST variants (`Node::Poly`):
+- **Sorted Monomial Order**: Monomial bases are uniquely ordered by structural base identity; exponents are stored as packed positive integers.
+- **Shared Literal Coefficients**: Numeric coefficients retain shared literal handles without cloning payload values.
+- **Fast Logical Projections**: Iteration and monomial visits (`map_logical`, `fold_monomials`) present a unified view across ordinary sums and polynomial representations.
+
+### 4. Representation-Preserving Numeric Tiers
+
+Through native integration with [`NumAnaFis`](https://github.com/CokieMiner/NumAnaFis), literal values retain their true algebraic tier:
+- **Exact Stays Exact**: Integers and reduced rationals perform exact arithmetic without unwanted floating-point coercion.
+- **Bitwise Float Fidelity**: Floating-point values preserve IEEE 754 bitwise identity, including signed zeros and distinct NaN payloads.
+- **Complex Numbers**: Continuous branch cuts and scalar imaginary units ($i$) are preserved across algebraic operations.
+
+### 5. Scoped Symbol Lifetimes & Contexts
+
+Symbols avoid error-prone stringly-typed lookups and dangling handles:
+- **`Symbol<'owner>`**: Represents a native-width `Copy` identifier bound by lifetime to its creator (`Context` or owning `Expr`).
+- **Global & Local Separation**: Global handles (`Symbol<'static>`) provide permanent process-wide identities; local handles allow lightweight isolated evaluation contexts without name collision.
+- **Sound Unbinding**: Unbinding a name preserves issued handles within their lifetime; rebinding creates a fresh unique identity.
+
+---
+
+## Cargo Features
+
+All features are optional; the crate compiles in `no_std + alloc` by default:
+
+| Feature | Description |
+| --- | --- |
+| `std` | Links the standard library, selects poison-recovering registry mutexes, and enables `NumAnaFis`'s `std` backend. |
+| `num-traits` | Implements `num_traits` ecosystem traits (`Zero`, `One`, `Num`, etc.) for `Expr`. |
+
+Without `std`, shared registries employ private non-poisoning spin mutexes suitable for bare-metal and embedded targets with atomic support.
+
+---
+
+## Ongoing Re-engineering (v0.9.0 Refactor)
+
+The crate is undergoing an architectural overhaul transitioning from legacy dynamic AST trees to interned DAG nodes:
+- **Active Core (`src/core/`)**: Production-ready interned expressions, polynomials, symbols, functions, associative rewriting, and concrete substitutions.
+- **Diagnostics (`src/errors/`)**: Modularized, zero-allocation error diagnostics (`core.rs`, `diff.rs`, `parser.rs`).
+- **Staged Reintegration (`old/`)**: Symbolic differentiation (`diff`), Pratt parser (`parser`), algebraic simplification (`simplification`), and bytecode virtual machine evaluation (`evaluator`) are archived under `old/` and being re-engineered under strict project guidelines.
+
+---
+
+## Documentation & Architecture
+
+- [Project Guidelines](AGENTS.md): Architectural invariants, monotonic call graphs, safety contracts, and verification protocols.
+- [NumAnaFis](https://github.com/CokieMiner/NumAnaFis): Numeric scalar core and special mathematical functions.
+- [MpAnaFis](https://github.com/CokieMiner/MpAnaFis): High-performance arbitrary-precision arithmetic.
+
+---
+
+## Development & Verification
+
+To verify the library locally:
+
+```sh
+cargo check --lib
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --lib --all-features
+cargo test --doc --all-features
 ```
 
-## Supported Functions
+When audit tools are active:
 
-SymbAnaFis supports over 50 built-in mathematical functions:
+```sh
+python3 tools/structure_audit.py
+python3 tools/import_audit.py
+python3 tools/check_allows.py
+```
 
-| Category                   | Functions                                                                     |
-| -------------------------- | ----------------------------------------------------------------------------- |
-| **Trig**                   | `sin`, `cos`, `tan`, `cot`, `sec`, `csc`                                      |
-| **Inverse Trig**           | `asin`, `acos`, `atan`, `atan2`, `acot`, `asec`, `acsc`                       |
-| **Hyperbolic**             | `sinh`, `cosh`, `tanh`, `coth`, `sech`, `csch`                                |
-| **Inverse Hyperbolic**     | `asinh`, `acosh`, `atanh`, `acoth`, `asech`, `acsch`                          |
-| **Exp/Log**                | `exp`, `ln`, `log(b, x)`, `log10`, `log2`                |
-| **Roots**                  | `sqrt`, `cbrt`                                                                |
-| **Error Functions**        | `erf`, `erfc`                                                                 |
-| **Gamma Family**           | `gamma`, `lgamma`, `digamma`, `trigamma`, `tetragamma`, `polygamma(n, x)`, `beta(a, b)` |
-| **Zeta**                   | `zeta`, `zeta_deriv(n, s)`                                                    |
-| **Bessel**                 | `besselj(n, x)`, `bessely(n, x)`, `besseli(n, x)`, `besselk(n, x)`            |
-| **Elliptic Integrals**     | `elliptic_k`, `elliptic_e`                                                    |
-| **Orthogonal Polynomials** | `hermite(n, x)`, `assoc_legendre(l, m, x)`                                    |
-| **Spherical Harmonics**    | `spherical_harmonic(l, m, θ, φ)`                                             |
-| **Other**                  | `abs`, `signum`, `sinc`, `lambertw(k, x)`, `floor`, `ceil`, `round` |
-
-
-## Documentation
-
-- **[API Reference](docs/API_REFERENCE.md)** - Detailed guide to all functions and modules.
-- **[Compiler Architecture](src/evaluator/logic/bytecode/ARCHITECTURE.md)** - Detailed design of the register-based VM and optimization pipeline.
-- **[docs.rs](https://docs.rs/symb_anafis)** - Full Rust crate documentation.
-
-## License
-
-Apache License 2.0 - see [LICENSE](LICENSE)
+---
 
 ## Citation
 
-If you use SymbAnaFis in academic work, please cite:
+Academic citation:
 
 ```bibtex
 @software{symbanafis,
   author       = {Martins, Pedro},
-  title        = {SymbAnaFis: High-Performance Symbolic Mathematics Library},
+  orcid        = {0009-0001-8170-2930},
+  title        = {SymbAnaFis: High-performance symbolic mathematics},
   year         = {2026},
   url          = {https://github.com/CokieMiner/SymbAnaFis},
-  version      = {0.8.0}
+  version      = {0.9.0}
 }
 ```
 
 ---
 
-**Built with ❤️ in Rust** 🚀
+## License
+
+`SymbAnaFis` is licensed under the Apache License, Version 2.0.
+See [LICENSE](LICENSE) for details.
