@@ -1,18 +1,4 @@
-target
-*.txt
-Cargo.lock
 .env
-python/symb_anafis/__pycache__/__init__.cpython-314.pyc
-python/symb_anafis/symb_anafis.cpython-314-x86_64-linux-gnu.so
-*.pyc
-CLAUDE.md
+target
 .vscode
-
-# Allow benchmark results
-!benches/bench_output.txt
-!benches/CI_BENCHMARK_RESULTS.md
-
-*.pdf
-GEMINI.md
-.codex
-*.json
+old

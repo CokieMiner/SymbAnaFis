@@ -14,114 +14,53 @@ keywords = [
     "derivatives",
 ]
 categories = ["mathematics", "science"]
-exclude = [
-    "videos/*",
-    "benches/bench_output.txt",
-    ".github/*",
-    ".agent/*",
-    "target/*",
-    "*.mp4",
+
+include = [
+    "/src/**",
+    "/Cargo.toml",
+    "/README.md",
+    "/LICENSE",
+    "/CHANGELOG.md",
 ]
 
-[workspace]
-members = [".", "crates/num-anafis"]
-resolver = "2"
 
 [lib]
 name = "symb_anafis"
-crate-type = ["cdylib", "rlib"]
+crate-type = ["rlib"]
 
 [dependencies]
-num-traits = "0.2.19"
-rustc-hash = "2.1.2"
-slotmap = { version = "1.1.1" }
-#num-anafis = { path = "crates/num-anafis" }
-numpy = { version = "0.28.0", optional = true }
-pyo3 = { version = "0.28.2", features = ["extension-module"], optional = true }
-rayon = { version = "1.12.0", optional = true }
-wide = { version = "1.4.0", optional = true }
+hashbrown = { version = "0.17.1", default-features = false, features = ["default-hasher"] }
+foldhash = { version = "0.2.0", default-features = false }
+num-traits = { version = "0.2.19", optional = true, default-features = false }
+num_anafis = { path = "../num-anafis", default-features = false }
+
 
 [dev-dependencies]
-ahash = "0.8.12"
-criterion = "0.8.2"
-dotenvy = "0.15.7"
-quickcheck = "1.1.0"
-rand = "0.10.1"
-symbolica = "1.5.1"
+proptest = { version = "1.12.0", default-features = false, features = ["std"] }
 
 [features]
 default = []
-python = ["pyo3", "numpy"]
-parallel = ["rayon", "wide"]
-#backend32 = ["num-anafis/backend32"]
-#backend64 = ["num-anafis/backend64"]
-#backend_big_astro = ["num-anafis/backend_big_astro"]
-#backend_big_rug = ["num-anafis/backend_big_rug"]
+std = ["num_anafis/std"]
+num-traits = ["dep:num-traits"]
 
-[[bench]]
-name = "benchmark"
-harness = false
-path = "benches/rust/benchmark.rs"
-
-[[bench]]
-name = "benchmark_symbolica"
-harness = false
-path = "benches/rust/benchmark_symbolica.rs"
-
-[[bench]]
-name = "large_expr"
-harness = false
-path = "benches/rust/large_expr.rs"
-
-[[bench]]
-name = "benchmark_parallel"
-harness = false
-path = "benches/rust/benchmark_parallel.rs"
-required-features = ["parallel"]
-
-# =============================================================================
-# EXPLICIT EXAMPLES
-# =============================================================================
-
-[[example]]
-name = "flamegraph_benchmarks"
-path = "examples/benchmarks/flamegraph_benchmarks.rs"
-
-[[example]]
-name = "flamegraph_compile_eval"
-path = "examples/benchmarks/flamegraph_compile_eval.rs"
-
-[[example]]
-name = "flamegraph_profile"
-path = "examples/benchmarks/flamegraph_profile.rs"
-
-[[example]]
-name = "profile_pipeline"
-path = "examples/benchmarks/profile_pipeline.rs"
-
-[[example]]
-name = "simplification_comparison"
-path = "examples/benchmarks/simplification_comparison.rs"
-
-[[example]]
-name = "expr_with_4649517_caracters-comparison"
-path = "examples/benchmarks/expr_with_4649517_caracters-comparison.rs"
 
 # ============================================================================
-# Lints Configuration (applies to lib, tests, examples, benches)
+# Lints Configuration
 # ============================================================================
 [lints.rust]
-# SAFETY & DOCUMENTATION
 unsafe_code = "deny"
 missing_docs = "deny"
 let_underscore_drop = "deny"
+missing_copy_implementations = "deny"
+missing_debug_implementations = "deny"
+trivial_casts = "deny"
+trivial_numeric_casts = "deny"
 
 
 [lints.rustdoc]
 broken_intra_doc_links = "deny"
 
 [lints.clippy]
-# Base: Ativa todos os avisos standard
 all = { level = "deny", priority = -1 }
 
 # =============================================================================
@@ -138,7 +77,9 @@ nursery = { level = "deny", priority = -1 }
 # CODE QUALITY & STYLE (RESTRICTION)
 # =============================================================================
 allow_attributes_without_reason = "deny" # Require explicit reasons for allow attributes
-# as_conversions = "deny"                 # Safer type casting (TryFrom/From)
+alloc_instead_of_core = "deny"           # Prefer core for allocator-free primitives
+arithmetic_side_effects = "deny"         # Require checked arithmetic or local bounds proofs
+as_conversions = "deny"                  # Require explicit conversion and range proofs
 clone_on_ref_ptr = "deny"                # Avoid double indirection performance hit
 cognitive_complexity = "deny"           # Keep code maintainable
 create_dir = "deny"                      # Force error handling for filesystem ops
@@ -147,11 +88,12 @@ empty_drop = "deny"                      # Detect accidentally empty Drop implem
 empty_structs_with_brackets = "deny"     # Consistent struct syntax
 exit = "deny"                            # No hard exits in library code
 filetype_is_file = "deny"                # More robust file type checking
+float_cmp_const = "deny"                 # Require explicit exact-value comparison contracts
 fn_to_numeric_cast = "deny"              # Prevent function pointer casting bugs
 format_push_string = "deny"              # Performance: use write! instead of format!
 get_unwrap = "deny"                      # Use [] indexing instead of get().unwrap()
 if_then_some_else_none = "deny"          # Use bool::then_some for clarity
-inline_asm_x86_att_syntax = "deny"       # Consistent ASM syntax if used
+indexing_slicing = "deny"                # Prove bounds at the access site
 inline_asm_x86_intel_syntax = "deny"    # Consistent ASM syntax
 integer_division = "deny"                # Force explicit float division
 large_include_file = "deny"              # No embedding huge files
@@ -159,6 +101,7 @@ let_underscore_must_use = "deny"         # Don't ignore important return values
 lossy_float_literal = "deny"             # Stricter float precision (upgraded)
 map_err_ignore = "deny"                  # Don't lose error context
 mem_forget = "deny"                      # No memory leaks
+missing_assert_message = "deny"          # Explain failed invariants in assertions
 mixed_read_write_in_expression = "deny"  # Avoid subtle bugs
 mutex_atomic = "deny"                    # Performance critical (upgraded)
 non_ascii_literal = "deny"               # Keep code portable
@@ -175,7 +118,13 @@ same_name_method = "deny"                # Avoid confusing method names
 self_named_module_files = "deny"         # Consistent module naming
 semicolon_inside_block = "deny"          # Consistent semicolon style
 shadow_unrelated = "deny"                # Prevent confusing variable shadowing
+shadow_reuse = "deny"                    # Keep separate states visible
+std_instead_of_alloc = "deny"            # Use alloc for allocation and ownership types
+std_instead_of_core = "deny"             # Use core for allocator-free primitives
 single_char_lifetime_names = "deny"      # Descriptive lifetime names
+host_endian_bytes = "deny"               # Make byte ordering explicit
+exhaustive_enums = "deny"                # Keep public enums extensible
+exhaustive_structs = "deny"              # Keep public structures extensible
 unnecessary_self_imports = "deny"        # Clean imports
 unneeded_field_pattern = "deny"          # Clean pattern matching
 unseparated_literal_suffix = "deny"      # Readable numeric literals

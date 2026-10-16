@@ -160,7 +160,7 @@ SymbAnaFis supports over 50 built-in mathematical functions:
 | **Inverse Trig**           | `asin`, `acos`, `atan`, `atan2`, `acot`, `asec`, `acsc`                       |
 | **Hyperbolic**             | `sinh`, `cosh`, `tanh`, `coth`, `sech`, `csch`                                |
 | **Inverse Hyperbolic**     | `asinh`, `acosh`, `atanh`, `acoth`, `asech`, `acsch`                          |
-| **Exp/Log**                | `exp`, `ln`, `log(b, x)`, `log10`, `log2`, `exp_polar`¹   |
+| **Exp/Log**                | `exp`, `ln`, `log(b, x)`, `log10`, `log2`                |
 | **Roots**                  | `sqrt`, `cbrt`                                                                |
 | **Error Functions**        | `erf`, `erfc`                                                                 |
 | **Gamma Family**           | `gamma`, `lgamma`, `digamma`, `trigamma`, `tetragamma`, `polygamma(n, x)`, `beta(a, b)` |
@@ -168,10 +168,9 @@ SymbAnaFis supports over 50 built-in mathematical functions:
 | **Bessel**                 | `besselj(n, x)`, `bessely(n, x)`, `besseli(n, x)`, `besselk(n, x)`            |
 | **Elliptic Integrals**     | `elliptic_k`, `elliptic_e`                                                    |
 | **Orthogonal Polynomials** | `hermite(n, x)`, `assoc_legendre(l, m, x)`                                    |
-| **Spherical Harmonics**    | `spherical_harmonic(l, m, θ, φ)`, `ynm(l, m, θ, φ)`                           |
-| **Other**                  | `abs`, `signum`, `sinc`, `lambertw`, `floor`, `ceil`, `round`                 |
+| **Spherical Harmonics**    | `spherical_harmonic(l, m, θ, φ)`                                             |
+| **Other**                  | `abs`, `signum`, `sinc`, `lambertw(k, x)`, `floor`, `ceil`, `round` |
 
-¹ `exp_polar` currently aliases `exp` (placeholder for future polar form support)
 
 ## Documentation
 
