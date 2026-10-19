@@ -9,8 +9,8 @@ use core::{
 use alloc::{sync::Arc, vec::Vec};
 
 use super::{
-    AdditiveOperands, Arithmetic, Expr, ExprView, FunctionDefinition, HashMap, Normalization,
-    Pattern, PatternNode,
+    AdditiveOperands, Arithmetic, CaptureConditions, Expr, ExprView, FunctionDefinition, HashMap,
+    Normalization, Pattern, PatternNode, UserFunction,
 };
 
 impl PatternNode {
@@ -24,7 +24,7 @@ impl PatternNode {
                     match input.node() {
                         Self::Sum(children) if sum => flat.extend(children.iter().cloned()),
                         Self::Product(children) if !sum => flat.extend(children.iter().cloned()),
-                        Self::Capture(_)
+                        Self::Capture { .. }
                         | Self::Exact(_)
                         | Self::Function { .. }
                         | Self::Sum(_)
@@ -59,14 +59,23 @@ impl Normalization {
                     .clone()
             };
             let expression = match pattern.node() {
-                PatternNode::Capture(name) => {
-                    if let Some(existing) = self.captures.get(name) {
+                PatternNode::Capture { name, predicates } => {
+                    if let Some((existing, conditions)) = self.captures.get_mut(name) {
+                        for condition in predicates.iter() {
+                            if !conditions.iter().any(|old| Arc::ptr_eq(old, condition)) {
+                                conditions.push(Arc::clone(condition));
+                            }
+                        }
                         existing.clone()
                     } else {
-                        let marker = FunctionDefinition::local(Arc::clone(name), 0..=0);
-                        self.markers.insert(marker.clone(), pattern.clone());
+                        let marker =
+                            FunctionDefinition::local(Arc::clone(name), UserFunction::new(0..=0));
+                        self.markers.insert(marker.clone(), Arc::clone(name));
                         let expression = FunctionDefinition::construct(marker, Vec::new());
-                        self.captures.insert(Arc::clone(name), expression.clone());
+                        self.captures.insert(
+                            Arc::clone(name),
+                            (expression.clone(), predicates.iter().cloned().collect()),
+                        );
                         expression
                     }
                 }
@@ -105,8 +114,8 @@ impl Normalization {
                 || node
                     .children()
                     .any(|expression| memo.get(&expression).is_some_and(|(_, captured)| *captured));
-            let group = node.same_node(root)
-                && matches!(node.view(), ExprView::Sum(_) | ExprView::Product(_));
+            let group =
+                node == root && matches!(node.view(), ExprView::Sum(_) | ExprView::Product(_));
             let template = marker.map_or_else(
                 || {
                     if !contains_marker && !group {
@@ -140,7 +149,21 @@ impl Normalization {
                     };
                     Pattern(Some(Arc::new(kind)))
                 },
-                Clone::clone,
+                |name| {
+                    let predicates = match self
+                        .captures
+                        .get(name)
+                        .map(|(_, conditions)| conditions.as_slice())
+                    {
+                        None | Some([]) => CaptureConditions::Unrestricted,
+                        Some([predicate]) => CaptureConditions::One(Arc::clone(predicate)),
+                        Some(conditions) => CaptureConditions::Many(conditions.to_vec()),
+                    };
+                    Pattern(Some(Arc::new(PatternNode::Capture {
+                        name: Arc::clone(name),
+                        predicates,
+                    })))
+                },
             );
             memo.insert(node.clone(), (template, contains_marker));
             Ok::<_, Infallible>(None)

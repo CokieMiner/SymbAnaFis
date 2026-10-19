@@ -24,17 +24,17 @@ proptest! {
         value in -8_i64..=8,
     ) {
         let context = Context::new();
-        let x = context.symb("x");
-        let u = context.symb("u");
-        let a = Pattern::capture("a");
-        let other_a = Pattern::capture("a");
+        let x = context.symb("x")?;
+        let u = context.symb("u")?;
+        let a = Pattern::capture("a", None);
+        let other_a = Pattern::capture("a", None);
         let pattern = first * &a + second * &other_a;
         let rule = RewriteRule::new(pattern, Pattern::exact(u))
             .expect("literal replacements require no captures");
         let input = first * x + second * x;
         prop_assert_eq!(rule.apply_all(&input, None, None), Ok(u.to_expr()));
 
-        let b = Pattern::capture("b");
+        let b = Pattern::capture("b", None);
         let args_function = context.register_function("args", UserFunction::new(2..=2))
             .expect("the custom name is unbound");
         let body = first * &a + second * &b;
@@ -56,9 +56,9 @@ proptest! {
         value in -8_i64..=8,
     ) {
         let context = Context::new();
-        let x = context.symb("x");
-        let u = context.symb("u");
-        let a = Pattern::capture("a");
+        let x = context.symb("x")?;
+        let u = context.symb("u")?;
+        let a = Pattern::capture("a", None);
         let rule = RewriteRule::new(a.pow(first) * a.pow(second), Pattern::exact(u))
             .expect("literal replacements require no captures");
         prop_assert_eq!(rule.apply_all(&x.pow(first + second), None, None), Ok(u.to_expr()));
@@ -87,10 +87,10 @@ proptest! {
         y_value in -8_i64..=8,
     ) {
         let context = Context::new();
-        let x = context.symb("x");
-        let y = context.symb("y");
-        let a = Pattern::capture("a");
-        let b = Pattern::capture("b");
+        let x = context.symb("x")?;
+        let y = context.symb("y")?;
+        let a = Pattern::capture("a", None);
+        let b = Pattern::capture("b", None);
         let replacement = (coefficient * &a - &b) / divisor + (-&a).pow(exponent);
         let args_function = context.register_function("args", UserFunction::new(2..=2))
             .expect("the custom name is unbound");
@@ -116,18 +116,18 @@ proptest! {
         reverse in prop::bool::ANY,
     ) {
         let context = Context::new();
-        let x = context.symb("x");
-        let y = context.symb("y");
-        let z = context.symb("z");
-        let u = context.symb("u");
-        let a = Pattern::capture("a");
+        let x = context.symb("x")?;
+        let y = context.symb("y")?;
+        let z = context.symb("z")?;
+        let u = context.symb("u")?;
+        let a = Pattern::capture("a", None);
         let mut terms = vec![Pattern::exact(x), Pattern::exact(y), Pattern::exact(z)];
         if reverse { terms.reverse(); }
         let vector = Pattern::sum(terms);
         let chained = x + (y + Pattern::exact(z));
         let rest: Vec<_> = remainder.iter().enumerate()
-            .map(|(index, coefficient)| *coefficient * context.symb(&format!("r{index}")))
-            .collect();
+            .map(|(index, coefficient)| context.symb(&format!("r{index}")).map(|symbol| *coefficient * symbol))
+            .collect::<Result<_, _>>()?;
         let input = Expr::sum(rest.iter().cloned().chain([x.to_expr(), y.to_expr(), z.to_expr()]).collect());
         let expected = Expr::sum(rest.into_iter().chain([u.to_expr()]).collect());
         for template in [vector, chained] {
@@ -152,9 +152,9 @@ proptest! {
         constant in -5_i32..=5,
     ) {
         let context = Context::new();
-        let x = context.symb("x");
-        let u = context.symb("u");
-        let a = Pattern::capture("a");
+        let x = context.symb("x")?;
+        let u = context.symb("u")?;
+        let a = Pattern::capture("a", None);
         let pattern = a.pow(low) + coefficient * a.pow(high);
         prop_assert!(matches!(pattern.node(), PatternNode::Sum(_)));
         let rule = RewriteRule::new(pattern, a)
@@ -177,10 +177,10 @@ proptest! {
     fn mixed_concrete_operands_preserve_context_identity(value in 1_i32..=9) {
         let first = Context::new();
         let second = Context::new();
-        let x = first.symb("x");
-        let other_x = second.symb("x");
-        let y = first.symb("y");
-        let a = Pattern::capture("a");
+        let x = first.symb("x")?;
+        let other_x = second.symb("x")?;
+        let y = first.symb("y")?;
+        let a = Pattern::capture("a", None);
         let x_expr = x.to_expr();
         let literal = Number::from(value);
         let replacements = [
@@ -216,12 +216,12 @@ proptest! {
         x_value in -8_i64..=8,
         y_value in -8_i64..=8,
     ) {
-        let a = Pattern::capture("a");
+        let a = Pattern::capture("a", None);
         let context = Context::new();
         let function = context.register_function("first", UserFunction::new(2..=2))
             .expect("the custom name is unbound");
         let rule = RewriteRule::new(
-            Pattern::apply(function.clone(), vec![a.clone(), Pattern::capture("b")]).expect("the function accepts two patterns"), a,
+            Pattern::apply(function.clone(), vec![a.clone(), Pattern::capture("b", None)]).expect("the function accepts two patterns"), a,
         ).expect("the retained argument is captured");
         let x = Expr::number(x_value);
         let y = Expr::number(y_value);
@@ -231,7 +231,7 @@ proptest! {
 
 #[test]
 fn undefined_zero_bases_and_empty_groups_preserve_expression_contracts() {
-    let a = Pattern::capture("a");
+    let a = Pattern::capture("a", None);
     assert!(matches!((&a - &a).node(), PatternNode::Product(_)));
     assert!(matches!((&a / &a).node(), PatternNode::Div(_, _)));
     assert!(matches!(a.pow(0).node(), PatternNode::Pow(_, _)));

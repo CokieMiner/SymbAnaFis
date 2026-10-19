@@ -9,6 +9,13 @@ use crate::collections::HashMap;
 use super::{FixedState, Interner, Mutex, SHARDS};
 
 impl<Value: ?Sized + Hash + Eq> Interner<Value> {
+    /// Create an empty index.
+    pub const fn new() -> Self {
+        Self {
+            shards: [const { Mutex::new(HashMap::with_hasher(FixedState::with_seed(0))) }; SHARDS],
+        }
+    }
+
     /// Allocate only when no equal live value exists.
     pub fn intern(&self, value: Value) -> Arc<Value>
     where
@@ -52,13 +59,6 @@ impl<Value: ?Sized + Hash + Eq> Interner<Value> {
             self.prune(rejected_hash);
         }
         selected
-    }
-
-    /// Create an empty index.
-    pub const fn new() -> Self {
-        Self {
-            shards: [const { Mutex::new(HashMap::with_hasher(FixedState::with_seed(0))) }; SHARDS],
-        }
     }
 
     /// Remove expired entries from the given fingerprint bucket.

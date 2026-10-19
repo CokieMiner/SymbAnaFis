@@ -1,10 +1,12 @@
 //! Borrowed multiplicative views and counted arithmetic slots.
 
-use core::slice::from_ref;
+use core::{num::NonZeroU64, slice::from_ref};
 
 use alloc::{vec, vec::Vec};
 
-use super::{AdditiveOperands, AlgebraicOperands, Expr, FactorSide, Node, WeightedOperand};
+use super::{
+    AdditiveOperands, AlgebraicOperands, Expr, FactorSide, Node, PowerProjection, WeightedOperand,
+};
 
 impl AlgebraicOperands {
     /// Project positive powers, scalar prefixes, and signed integer addends.
@@ -26,6 +28,7 @@ impl AlgebraicOperands {
                     original: original.clone(),
                     base: original.clone(),
                     count: 1,
+                    denominator: NonZeroU64::MIN,
                     coefficient: false,
                     negative: false,
                     changed: false,
@@ -74,6 +77,7 @@ impl AlgebraicOperands {
                         original: unit.clone(),
                         base: unit,
                         count: 1,
+                        denominator: NonZeroU64::MIN,
                         coefficient: true,
                         negative: false,
                         changed: false,
@@ -83,6 +87,54 @@ impl AlgebraicOperands {
             }
         }
         Some(Self { sum, slots })
+    }
+
+    /// Refine exact powers into common rational units without expanding nodes.
+    /// Principal bases stay intact; nested poles retain their opaque slot.
+    /// A common denominator \(D\) counts \(b^{p/q}\) as \(pD/q\) units of \(1/D\).
+    pub fn refine_powers(&mut self, denominator: NonZeroU64) {
+        for slot in &mut self.slots {
+            if slot.coefficient {
+                continue;
+            }
+            let Some(power) = PowerProjection::new(&slot.original) else {
+                continue;
+            };
+            if power.nonzero || power.exponent.get() <= 0 {
+                continue;
+            }
+            let mut first = denominator.get();
+            let mut second = power.denominator.get();
+            while second != 0 {
+                let Some(remainder) = first.checked_rem(second) else {
+                    break;
+                };
+                first = second;
+                second = remainder;
+            }
+            let Some(scale) = denominator.get().checked_div(first) else {
+                continue;
+            };
+            let Some(common) = power
+                .denominator
+                .get()
+                .checked_mul(scale)
+                .and_then(NonZeroU64::new)
+            else {
+                continue;
+            };
+            let Some(count) = power
+                .exponent
+                .get()
+                .checked_mul(i128::from(scale))
+                .and_then(|count| i64::try_from(count).ok())
+            else {
+                continue;
+            };
+            slot.base = power.base.clone();
+            slot.count = count;
+            slot.denominator = common;
+        }
     }
 
     /// Borrow ordinary factors; project numerator quotients only when present.

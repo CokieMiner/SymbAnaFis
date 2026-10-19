@@ -6,18 +6,24 @@ use alloc::vec::Vec;
 
 use super::{Expr, Node, Polynomial};
 
+type NodePair<'node> = (&'node Expr, &'node Expr);
+
 /// Compare structures iteratively, without cached hashes or recursion.
 impl Node {
     pub const POLYNOMIAL_RANK: u8 = 7;
 
     pub fn compare(left: &Expr, right: &Expr) -> Ordering {
         let mut pending = Vec::new();
-        let immediate = compare_expression(left, right, &mut pending);
-        if immediate != Ordering::Equal {
-            return immediate;
-        }
-        while let Some((first, second)) = pending.pop() {
-            let order = compare_expression(first, second, &mut pending);
+        let mut next = Some((left, right));
+        while let Some((first, second)) = next.take().or_else(|| pending.pop()) {
+            if first == second {
+                continue;
+            }
+            let kind_order = first.node().rank().cmp(&second.node().rank());
+            if kind_order != Ordering::Equal {
+                return kind_order;
+            }
+            let order = compare_node(first.node(), second.node(), &mut next, &mut pending);
             if order != Ordering::Equal {
                 return order;
             }
@@ -43,25 +49,11 @@ impl Node {
     }
 }
 
-fn compare_expression<'node>(
-    left: &'node Expr,
-    right: &'node Expr,
-    pending: &mut Vec<(&'node Expr, &'node Expr)>,
-) -> Ordering {
-    if left.same_node(right) {
-        return Ordering::Equal;
-    }
-    let kind_order = left.node().rank().cmp(&right.node().rank());
-    if kind_order != Ordering::Equal {
-        return kind_order;
-    }
-    compare_node(left.node(), right.node(), pending)
-}
-
 fn compare_node<'node>(
     left: &'node Node,
     right: &'node Node,
-    pending: &mut Vec<(&'node Expr, &'node Expr)>,
+    next: &mut Option<NodePair<'node>>,
+    pending: &mut Vec<NodePair<'node>>,
 ) -> Ordering {
     match (left, right) {
         (Node::Number(a), Node::Number(b)) => a.compare(b),
@@ -85,15 +77,21 @@ fn compare_node<'node>(
             if names != Ordering::Equal {
                 return names;
             }
-            compare_children(a, b, pending)
+            compare_children(a, b, next, pending)
         }
         (Node::Sum(a), Node::Sum(b)) | (Node::Product(a), Node::Product(b)) => {
-            compare_children(a, b, pending)
+            compare_children(a, b, next, pending)
         }
-        (Node::Poly(a), Node::Poly(b)) => compare_polynomial(a, b, pending),
+        (Node::Poly(a), Node::Poly(b)) => compare_polynomial(a, b, next, pending),
         (Node::Div(a, b), Node::Div(c, d)) | (Node::Pow(a, b), Node::Pow(c, d)) => {
-            pending.push((b, d));
-            pending.push((a, c));
+            if a == c {
+                *next = Some((b, d));
+            } else {
+                *next = Some((a, c));
+                if b != d {
+                    pending.push((b, d));
+                }
+            }
             Ordering::Equal
         }
         (
@@ -113,7 +111,7 @@ fn compare_node<'node>(
                 .cmp(&b_var.id())
                 .then_with(|| a_order.cmp(b_order));
             if order == Ordering::Equal {
-                pending.push((a, b));
+                *next = Some((a, b));
             }
             order
         }
@@ -139,7 +137,8 @@ fn compare_node<'node>(
 fn compare_polynomial<'node>(
     left: &'node Polynomial,
     right: &'node Polynomial,
-    pending: &mut Vec<(&'node Expr, &'node Expr)>,
+    next: &mut Option<NodePair<'node>>,
+    pending: &mut Vec<NodePair<'node>>,
 ) -> Ordering {
     let shape = left
         .terms
@@ -170,33 +169,50 @@ fn compare_polynomial<'node>(
             .iter()
             .zip(&right.terms)
             .rev()
-            .map(|(first, second)| (&first.coefficient, &second.coefficient)),
-    );
-    pending.extend(
-        left.terms
-            .iter()
-            .zip(&right.terms)
-            .rev()
-            .flat_map(|(first, second)| {
-                first
-                    .powers
-                    .iter()
-                    .zip(&second.powers)
-                    .rev()
-                    .map(|((first_base, _), (second_base, _))| (first_base, second_base))
+            .filter_map(|(first, second)| {
+                (first.coefficient != second.coefficient)
+                    .then_some((&first.coefficient, &second.coefficient))
             }),
     );
-    compare_children(&left.bases, &right.bases, pending)
+    let mut bases = left
+        .terms
+        .iter()
+        .zip(&right.terms)
+        .flat_map(|(first, second)| {
+            first.powers.iter().zip(&second.powers).filter_map(
+                |((first_base, _), (second_base, _))| {
+                    (first_base != second_base).then_some((first_base, second_base))
+                },
+            )
+        });
+    *next = bases.next();
+    pending.extend(bases.rev());
+    Ordering::Equal
 }
 
 fn compare_children<'node>(
     left: &'node [Expr],
     right: &'node [Expr],
-    pending: &mut Vec<(&'node Expr, &'node Expr)>,
+    next: &mut Option<NodePair<'node>>,
+    pending: &mut Vec<NodePair<'node>>,
 ) -> Ordering {
     let length = left.len().cmp(&right.len());
     if length == Ordering::Equal {
-        pending.extend(left.iter().zip(right).rev());
+        let mut unequal = left
+            .iter()
+            .zip(right)
+            .filter(|(first, second)| first != second);
+        *next = unequal.next();
+        if left.len() > 1
+            && let Some((first, second)) = *next
+            && let (Node::Number(a), Node::Number(b)) = (first.node(), second.node())
+        {
+            let coefficient_order = a.compare(b);
+            if coefficient_order != Ordering::Equal {
+                return coefficient_order;
+            }
+        }
+        pending.extend(unequal.rev());
     }
     length
 }

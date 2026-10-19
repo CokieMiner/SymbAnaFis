@@ -19,11 +19,17 @@ fn handle_is_one_pointer() {
 }
 
 #[test]
+#[cfg(target_pointer_width = "64")]
+fn node_payload_fits_six_native_words() {
+    assert!(size_of::<super::super::Node>() <= size_of::<usize>().saturating_mul(6));
+}
+
+#[test]
 fn literal_identity_keeps_float_bits_including_nan() {
     for value in [0.0, -0.0, f64::INFINITY, f64::NAN] {
         let first = Expr::number(value);
         let second = Expr::number(value);
-        assert!(first.same_node(&second));
+        assert!(core::ptr::eq(first.pointer(), second.pointer()));
         assert_eq!(first, second);
     }
     let literals: HashSet<_> = [
@@ -66,7 +72,7 @@ fn concurrent_publication_allocates_one_live_node() {
         .map(|worker| worker.join().expect("construction thread succeeded"))
         .collect();
     let first = roots.first().expect("workers produced roots");
-    assert!(roots.iter().all(|root| root.same_node(first)));
+    assert!(roots.iter().all(|root| root == first));
 }
 
 #[test]
@@ -104,11 +110,11 @@ fn deep_graph_operations_use_a_small_stack() {
             }
             assert_eq!(expression.node_count(), 20_001);
             assert_eq!(expression.max_depth(), 20_001);
-            assert!(
+            assert_eq!(
                 expression
                     .map(|_| Ok::<_, ()>(None))
-                    .expect("the identity transformation cannot fail")
-                    .same_node(&expression)
+                    .expect("the identity transformation cannot fail"),
+                expression
             );
             assert!(format!("{expression}").ends_with(')'));
             let observer =

@@ -1,6 +1,9 @@
 //! Counted arithmetic matching without expanding powers or collected terms.
 
-use core::slice::from_ref;
+use core::{
+    num::{NonZeroI128, NonZeroU64},
+    slice::from_ref,
+};
 
 use alloc::{vec, vec::Vec};
 
@@ -19,6 +22,11 @@ impl ConcreteMatcher<'_> {
             Some(Selection::Partial(partial)) => Some(partial),
             None => None,
         };
+        if self.arithmetic & 16 != 0
+            && let Some(selected) = self.select_powers(expression)
+        {
+            return Some(selected);
+        }
         let sum = matches!(expression.node(), Node::Sum(_) | Node::Poly(_));
         if matches!(expression.node(), Node::Number(_) | Node::ImaginaryUnit)
             || !sum
@@ -31,11 +39,6 @@ impl ConcreteMatcher<'_> {
             return explicit.map(Selection::Partial);
         }
         if self.arithmetic & (if sum { 1 } else { 2 }) == 0 {
-            return explicit.map(Selection::Partial);
-        }
-        if sum && explicit.is_some() && matches!(self.exact, ExactSources::One(_)) {
-            // Canonical addition has one collected coefficient per base. An
-            // explicit match consumes every required base for this sole source.
             return explicit.map(Selection::Partial);
         }
         let remaining = explicit.as_ref().map(|partial| {
@@ -120,6 +123,27 @@ impl AlgebraicOperands {
         ]))
     }
 
+    /// Remove one manifest factor group without dividing by symbolic values.
+    /// The owned remainder retains the original inputs for simultaneous traversal.
+    pub fn remove_once(expression: &Expr, required: &Expr) -> Option<Self> {
+        let mut operands = Self::new(expression, false, 0)?;
+        for selected in operands.concrete(required)? {
+            match selected {
+                OperandMatch::Count { index, amount } => {
+                    let slot = operands.slots.get_mut(index)?;
+                    slot.count = slot.count.checked_sub(amount)?;
+                    slot.changed = true;
+                }
+                OperandMatch::Coefficient { index, divisor } => {
+                    let slot = operands.slots.get_mut(index)?;
+                    slot.base = Expr::scalar_quotient(slot.base.literal()?, divisor.literal()?, 1);
+                    slot.changed = true;
+                }
+            }
+        }
+        Some(operands)
+    }
+
     /// Find a concrete group by pointer identity in the counted projection.
     pub fn concrete(&self, expression: &Expr) -> Option<Vec<OperandMatch>> {
         let additive = if self.sum {
@@ -144,115 +168,11 @@ impl AlgebraicOperands {
                     selected.iter(),
                     side == FactorSide::Denominator,
                 )?;
-                candidate.same_node(expected).then_some(consumed)
+                (candidate == *expected).then_some(consumed)
             })?;
             selected.push(found);
         }
         (!selected.is_empty()).then_some(selected)
-    }
-
-    /// Construct one requested virtual operand while proving disjoint consumption.
-    pub fn candidate<'used>(
-        &self,
-        index: usize,
-        demand: OperandDemand,
-        literal: Option<&Expr>,
-        used: impl Iterator<Item = &'used OperandMatch>,
-        denominator: bool,
-    ) -> Option<(Expr, OperandMatch)> {
-        let slot = self.slots.get(index).filter(|slot| {
-            if (slot.side == FactorSide::Denominator) != denominator {
-                return false;
-            }
-            if slot.coefficient {
-                !slot.changed
-            } else {
-                slot.count > 0
-            }
-        })?;
-        if slot.coefficient {
-            if !matches!(demand, OperandDemand::Atom | OperandDemand::Whole)
-                || used.into_iter().any(|selected| match selected {
-                    OperandMatch::Count {
-                        index: selected_index,
-                        ..
-                    }
-                    | OperandMatch::Coefficient {
-                        index: selected_index,
-                        ..
-                    } => *selected_index == index,
-                })
-            {
-                return None;
-            }
-            let projected = literal
-                .filter(|value| {
-                    value.literal().is_some_and(|number| {
-                        number.value().is_finite() && !number.value().is_zero()
-                    })
-                })
-                .unwrap_or(&slot.base);
-            return Some((
-                projected.clone(),
-                OperandMatch::Coefficient {
-                    index,
-                    divisor: projected.clone(),
-                },
-            ));
-        }
-        let mut remaining = slot.count;
-        for selected in used {
-            if let OperandMatch::Count {
-                index: selected_index,
-                amount,
-            } = selected
-                && *selected_index == index
-            {
-                remaining = remaining.checked_sub(*amount)?;
-            }
-        }
-        let count = match demand {
-            OperandDemand::Atom => 1,
-            OperandDemand::Split(count) if count > 0 && count < remaining => count,
-            OperandDemand::Whole => remaining,
-            OperandDemand::Power(count) if !self.sum => count,
-            OperandDemand::Copies(count) if self.sum => count,
-            OperandDemand::Root { exponent, block } if !self.sum => exponent.checked_mul(block)?,
-            OperandDemand::Split(_)
-            | OperandDemand::Power(_)
-            | OperandDemand::Copies(_)
-            | OperandDemand::Root { .. } => {
-                return None;
-            }
-        };
-        if count <= 0 || count > remaining {
-            return None;
-        }
-        let projected = if let OperandDemand::Root { exponent, block } = demand
-            && block > 1
-        {
-            slot.base.pow(block).pow(exponent)
-        } else if count == slot.count && !slot.changed {
-            slot.original.clone()
-        } else if count == 1 && !slot.negative {
-            slot.base.clone()
-        } else if self.sum {
-            let coefficient = if slot.negative {
-                count.saturating_neg()
-            } else {
-                count
-            };
-            Expr::product(vec![Expr::number(coefficient), slot.base.clone()])
-        } else {
-            slot.base.pow(count)
-        };
-        Some((
-            projected,
-            OperandMatch::Count {
-                index,
-                amount: count,
-            },
-        ))
     }
 
     /// Consume disjoint original units and divide coefficients through the backend.
@@ -305,7 +225,7 @@ impl AlgebraicOperands {
             remainder: self.remainder(),
             inserted,
         }
-        .rebuild(Clone::clone)
+        .rebuild(&mut Clone::clone)
     }
 
     /// Normalize repeated replacements in space proportional to their stored factors.
@@ -357,7 +277,7 @@ impl AlgebraicOperands {
         )
     }
 
-    fn remainder(&self) -> Vec<RemainingOperand> {
+    pub fn remainder(&self) -> Vec<RemainingOperand> {
         self.slots
             .iter()
             .filter(|slot| {
@@ -368,6 +288,21 @@ impl AlgebraicOperands {
                 }
             })
             .map(|slot| {
+                if slot.changed
+                    && slot.denominator != NonZeroU64::MIN
+                    && let Some(exponent) =
+                        NonZeroI128::new(i128::from(if slot.side == FactorSide::Denominator {
+                            slot.count.saturating_neg()
+                        } else {
+                            slot.count
+                        }))
+                {
+                    return RemainingOperand::Power {
+                        base: slot.base.clone(),
+                        exponent,
+                        denominator: slot.denominator,
+                    };
+                }
                 if slot.side == FactorSide::Denominator {
                     return if !slot.changed {
                         RemainingOperand::Divisor(slot.original.clone())
@@ -396,6 +331,23 @@ impl AlgebraicOperands {
                 }
             })
             .collect()
+    }
+
+    /// Borrow surviving original inputs, excluding generated numeric quotients.
+    pub fn remaining_inputs(&self) -> impl Iterator<Item = &Expr> {
+        self.slots.iter().filter_map(|slot| {
+            if slot.coefficient {
+                (!slot.changed && !slot.base.is_one_num()).then_some(&slot.original)
+            } else if slot.count > 0 {
+                Some(if slot.changed {
+                    &slot.base
+                } else {
+                    &slot.original
+                })
+            } else {
+                None
+            }
+        })
     }
 
     /// Select the arithmetic family supported by a concrete source.
@@ -451,6 +403,12 @@ impl AlgebraicOperands {
             .and_then(NumericValue::gaussian)
             .filter(|(_, imaginary)| *imaginary == 0)
             .map(|(real, _)| real)
+    }
+
+    /// Read a stored exact real exponent with its positive denominator.
+    pub fn ratio(expression: &Expr) -> Option<(i64, NonZeroU64)> {
+        let (numerator, denominator) = expression.literal()?.exact_ratio()?;
+        Some((numerator, NonZeroU64::new(denominator)?))
     }
 
     /// Borrow original slots in deterministic canonical order.

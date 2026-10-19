@@ -116,10 +116,11 @@ impl Symbol<'_> {
     /// use symb_anafis::Context;
     /// let expression = {
     ///     let context = Context::new();
-    ///     let x = context.symb("retained_context_symbol");
+    ///     let x = context.symb("retained_context_symbol")?;
     ///     x + 1
     /// };
     /// assert!(expression.contains_var("retained_context_symbol"));
+    /// # Ok::<(), symb_anafis::SymbolError>(())
     /// ```
     ///
     /// Local Copy handles cannot escape their context:
@@ -128,7 +129,7 @@ impl Symbol<'_> {
     /// use symb_anafis::Context;
     /// let x = {
     ///     let context = Context::new();
-    ///     context.symb("x")
+    ///     context.symb("x").expect("symbol allocation")
     /// };
     /// let expression = x + 1;
     /// ```
@@ -143,15 +144,10 @@ impl Symbol<'_> {
         SYMBOLS.remove_id(self.0)
     }
 
-    /// Copy the name, or return `None` for an anonymous symbol.
+    /// Share the name allocation, or return `None` for an anonymous symbol.
+    /// Call `as_deref` to inspect the text or `to_string` to copy it.
     #[must_use]
-    pub fn name(&self) -> Option<String> {
-        self.name_arc().map(|name| name.as_ref().into())
-    }
-
-    /// Share the registry's name allocation.
-    #[must_use]
-    pub fn name_arc(&self) -> Option<Arc<str>> {
+    pub fn name(&self) -> Option<Arc<str>> {
         SymbolData::for_symbol(*self).name_arc()
     }
 

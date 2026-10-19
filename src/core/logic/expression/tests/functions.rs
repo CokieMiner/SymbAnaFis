@@ -9,15 +9,14 @@ use super::super::{Expr, ExprView};
 #[test]
 fn lambert_branch_cells_keep_exact_domain_rules() {
     let x = Expr::symbol("builtin_lambert_branch_x");
-    assert!(
-        x.lambertw(0).same_node(
-            &Function::builtin("lambert_w")
-                .expect("the builtin alias is known")
-                .call(vec![Expr::number(0), x.clone()])
-                .expect("Lambert W accepts two arguments")
-        )
+    assert_eq!(
+        x.lambertw(0),
+        Function::builtin("lambert_w")
+            .expect("the builtin alias is known")
+            .call(vec![Expr::number(0), x.clone()])
+            .expect("Lambert W accepts two arguments")
     );
-    assert!(x.lambertw(0).same_node(&x.lambertw(Expr::number(0))));
+    assert_eq!(x.lambertw(0), x.lambertw(Expr::number(0)));
     assert!(matches!(
         Expr::number(0).lambertw(-1).view(),
         ExprView::Function { .. }
@@ -27,13 +26,12 @@ fn lambert_branch_cells_keep_exact_domain_rules() {
         ExprView::Function { args, .. } if args.len() == 2
     ));
     let symbol = Symbol::intern("builtin_lambert_branch_symbol");
-    assert!(
-        symbol.lambertw(-1).same_node(
-            &Function::builtin("lambert_w")
-                .expect("the builtin alias is known")
-                .call(vec![Expr::number(-1), symbol.to_expr()])
-                .expect("Lambert W accepts two arguments")
-        )
+    assert_eq!(
+        symbol.lambertw(-1),
+        Function::builtin("lambert_w")
+            .expect("the builtin alias is known")
+            .call(vec![Expr::number(-1), symbol.to_expr()])
+            .expect("Lambert W accepts two arguments")
     );
 }
 

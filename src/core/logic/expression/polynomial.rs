@@ -59,26 +59,69 @@ impl AdditiveOperands for Expr {
 impl Polynomial {
     /// Borrow stored DAG edges, including shared numeric coefficient handles.
     pub fn children(&self) -> impl Iterator<Item = &Expr> {
-        self.bases
-            .iter()
-            .chain(self.terms.iter().map(|term| &term.coefficient))
-            .chain(
-                self.terms
-                    .iter()
-                    .flat_map(|term| term.powers.iter().map(|(base, _)| base)),
-            )
+        self.terms.iter().map(|term| &term.coefficient).chain(
+            self.terms
+                .iter()
+                .flat_map(|term| term.powers.iter().map(|(base, _)| base)),
+        )
     }
 }
 
 impl Node {
-    /// Locate the unique compact group in structurally ordered sum operands.
-    pub fn compact_group(terms: &[Expr]) -> Option<&Polynomial> {
-        let position = terms.partition_point(|term| term.node().rank() < Self::POLYNOMIAL_RANK);
-        if let Self::Poly(polynomial) = terms.get(position)?.node() {
-            Some(polynomial)
-        } else {
-            None
+    /// Select all monomials involving a repeated positive-power base.
+    /// Other terms, including every standalone numeric literal, stay outside.
+    pub fn collect_polynomials(terms: Vec<Expr>) -> Vec<Expr> {
+        // Distinct powers require at least one explicit power above one.
+        // Plain unit-coefficient sums retain their vector without scratch tables.
+        if !terms.iter().any(Candidate::has_positive_power) {
+            return terms;
         }
+        let candidates: Vec<_> = terms
+            .iter()
+            .enumerate()
+            .filter_map(|(index, term)| Candidate::new(index, term))
+            .collect();
+        let repeated = Candidate::repeated_bases(&candidates);
+        if repeated.is_empty() {
+            return terms;
+        }
+        let selected: Vec<_> = candidates
+            .into_iter()
+            .filter(|candidate| {
+                candidate
+                    .powers
+                    .iter()
+                    .any(|(base, _)| repeated.contains(base))
+            })
+            .collect();
+        let mut sources = HashSet::new();
+        let mut monomials = Vec::with_capacity(selected.len());
+        for candidate in selected {
+            sources.insert(candidate.source);
+            monomials.push(PolynomialTerm {
+                coefficient: candidate.coefficient,
+                powers: candidate.powers,
+            });
+        }
+        monomials.sort_unstable_by(|left, right| Self::compare_powers(&left.powers, &right.powers));
+        if monomials.windows(2).any(|pair| {
+            let [left, right] = pair else {
+                return false;
+            };
+            left.powers == right.powers
+        }) {
+            // Failed finite coefficient folding can leave repeated monomials.
+            // Do not replace those explicit operations with a numeric result.
+            return terms;
+        }
+        let polynomial = Expr::intern(Self::Poly(Polynomial { terms: monomials }));
+        let mut result: Vec<_> = terms
+            .into_iter()
+            .enumerate()
+            .filter_map(|(index, term)| (!sources.contains(&index)).then_some(term))
+            .collect();
+        result.push(polynomial);
+        result
     }
 
     /// Reconstruct monomials after mapping shared bases and coefficients.
@@ -107,75 +150,20 @@ impl Node {
             if *exponent == 1 {
                 value
             } else {
-                Expr::pow_static(value, Expr::number(i64::from(*exponent)))
+                Self::normalize_power(value, Expr::number(i64::from(*exponent)))
             }
         }));
         Expr::product(factors)
     }
 
-    /// Select all monomials involving a repeated positive-power base.
-    /// Other terms, including every standalone numeric literal, stay outside.
-    pub fn collect_polynomials(terms: Vec<Expr>) -> Vec<Expr> {
-        // Distinct powers require at least one explicit power above one.
-        // Plain unit-coefficient sums retain their vector without scratch tables.
-        if !terms.iter().any(Candidate::has_positive_power) {
-            return terms;
+    /// Locate the unique compact group in structurally ordered sum operands.
+    pub fn compact_group(terms: &[Expr]) -> Option<&Polynomial> {
+        let position = terms.partition_point(|term| term.node().rank() < Self::POLYNOMIAL_RANK);
+        if let Self::Poly(polynomial) = terms.get(position)?.node() {
+            Some(polynomial)
+        } else {
+            None
         }
-        let candidates: Vec<_> = terms
-            .iter()
-            .enumerate()
-            .filter_map(|(index, term)| Candidate::new(index, term))
-            .collect();
-        let repeated = Candidate::repeated_bases(&candidates);
-        if repeated.is_empty() {
-            return terms;
-        }
-        let selected: Vec<_> = candidates
-            .into_iter()
-            .filter(|candidate| {
-                candidate
-                    .powers
-                    .iter()
-                    .any(|(base, _)| repeated.contains(base))
-            })
-            .collect();
-        let mut bases: Vec<_> = selected
-            .iter()
-            .flat_map(|candidate| candidate.powers.iter().map(|(base, _)| base.clone()))
-            .collect();
-        Self::sort_operands(&mut bases);
-        bases.dedup();
-        let mut sources = HashSet::new();
-        let mut monomials = Vec::with_capacity(selected.len());
-        for candidate in selected {
-            sources.insert(candidate.source);
-            monomials.push(PolynomialTerm {
-                coefficient: candidate.coefficient,
-                powers: candidate.powers,
-            });
-        }
-        monomials.sort_unstable_by(|left, right| Self::compare_powers(&left.powers, &right.powers));
-        if monomials.windows(2).any(|pair| {
-            let [left, right] = pair else {
-                return false;
-            };
-            left.powers == right.powers
-        }) {
-            // Failed finite coefficient folding can leave repeated monomials.
-            // Do not replace those explicit operations with a numeric result.
-            return terms;
-        }
-        let polynomial = Expr::intern(Self::Poly(Polynomial {
-            bases,
-            terms: monomials,
-        }));
-        let mut result: Vec<_> = terms
-            .into_iter()
-            .enumerate()
-            .filter_map(|(index, term)| (!sources.contains(&index)).then_some(term))
-            .collect();
-        result.push(polynomial);
-        result
     }
 
     fn compare_powers(left: &[(Expr, u32)], right: &[(Expr, u32)]) -> Ordering {
@@ -191,6 +179,19 @@ impl Node {
 }
 
 impl Candidate {
+    fn has_positive_power(term: &Expr) -> bool {
+        let is_power = |factor: &Expr| {
+            matches!(factor.node(), Node::Pow(..))
+                && Node::positive_factor(factor)
+                    .is_some_and(|(_, exponent)| exponent > 1 && u32::try_from(exponent).is_ok())
+        };
+        if let Node::Product(factors) = term.node() {
+            factors.iter().any(is_power)
+        } else {
+            is_power(term)
+        }
+    }
+
     fn new(source: usize, term: &Expr) -> Option<Self> {
         let (coefficient, factors): (Expr, &[Expr]) = if let Node::Product(factors) = term.node() {
             let (first, rest) = factors.split_first()?;
@@ -214,7 +215,7 @@ impl Candidate {
             let [left, right] = pair else {
                 return false;
             };
-            left.0.same_node(&right.0)
+            left.0 == right.0
         }) {
             return None;
         }
@@ -223,33 +224,6 @@ impl Candidate {
             coefficient,
             powers,
         })
-    }
-
-    fn factor(factor: &Expr) -> Option<(Expr, u32)> {
-        if let Some((base, power)) = Node::positive_factor(factor) {
-            if base.literal().is_some() {
-                return None;
-            }
-            return u32::try_from(power)
-                .ok()
-                .map(|exponent| (base.clone(), exponent));
-        }
-        // A general power may itself be an opaque base, e.g. a + a^2 where
-        // a = x^(1/2). Its inner exponent and branch are not combined or erased.
-        matches!(factor.node(), Node::Pow(..)).then(|| (factor.clone(), 1))
-    }
-
-    fn has_positive_power(term: &Expr) -> bool {
-        let is_power = |factor: &Expr| {
-            matches!(factor.node(), Node::Pow(..))
-                && Node::positive_factor(factor)
-                    .is_some_and(|(_, exponent)| exponent > 1 && u32::try_from(exponent).is_ok())
-        };
-        if let Node::Product(factors) = term.node() {
-            factors.iter().any(is_power)
-        } else {
-            is_power(term)
-        }
     }
 
     fn repeated_bases(candidates: &[Self]) -> HashSet<Expr> {
@@ -265,5 +239,19 @@ impl Candidate {
             }
         }
         repeated
+    }
+
+    fn factor(factor: &Expr) -> Option<(Expr, u32)> {
+        if let Some((base, power)) = Node::positive_factor(factor) {
+            if base.literal().is_some() {
+                return None;
+            }
+            return u32::try_from(power)
+                .ok()
+                .map(|exponent| (base.clone(), exponent));
+        }
+        // A general power may itself be an opaque base, e.g. a + a^2 where
+        // a = x^(1/2). Its inner exponent and branch are not combined or erased.
+        matches!(factor.node(), Node::Pow(..)).then(|| (factor.clone(), 1))
     }
 }

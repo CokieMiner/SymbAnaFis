@@ -1,4 +1,4 @@
-//! Iterative destruction; even deep chains are released without recursive drops.
+//! Iterative destruction of expression DAG nodes.
 
 use alloc::{sync::Arc, vec::Vec};
 
@@ -35,9 +35,6 @@ fn release(node: Node, pending: &mut Vec<Arc<Node>>) {
             }
         }
         Node::Poly(polynomial) => {
-            for base in polynomial.bases {
-                enqueue(base, pending);
-            }
             for term in polynomial.terms {
                 enqueue(term.coefficient, pending);
                 for (base, _) in term.powers {

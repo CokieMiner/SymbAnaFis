@@ -73,7 +73,7 @@ proptest! {
         let function = context.register_function("arity_property", UserFunction::new(minimum..=maximum))
             .expect("the custom name is unbound");
         let call = function.call(vec![Expr::number(1); actual]);
-        let pattern = Pattern::apply(function, vec![Pattern::capture("a"); actual]);
+        let pattern = Pattern::apply(function, vec![Pattern::capture("a", None); actual]);
         let accepts = (minimum..=maximum).contains(&actual);
         prop_assert_eq!(call.is_ok(), accepts);
         prop_assert_eq!(pattern.is_ok(), accepts);
@@ -118,8 +118,13 @@ proptest! {
 #[test]
 fn concurrent_final_handles_reclaim_metadata_without_registry_access() {
     let context = Context::new();
+    let capture = Arc::new(17_i64);
+    let weak_capture = Arc::downgrade(&capture);
     let first = context
-        .register_function("concurrent_release", UserFunction::new(0..=0))
+        .register_function(
+            "concurrent_release",
+            UserFunction::new(0..=0).body(Arc::new(move |_| Expr::number(*capture))),
+        )
         .expect("the custom name is unbound");
     assert!(
         matches!(&first.0, FunctionIdentity::Custom(_)),
@@ -148,5 +153,9 @@ fn concurrent_final_handles_reclaim_metadata_without_registry_access() {
     assert!(
         weak.upgrade().is_none(),
         "the final owners reclaim registered metadata"
+    );
+    assert!(
+        weak_capture.upgrade().is_none(),
+        "the final owners release the definition and its callback captures"
     );
 }

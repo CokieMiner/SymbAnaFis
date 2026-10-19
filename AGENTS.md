@@ -13,10 +13,15 @@ The current legacy implementation is archived under `old/` as behavioral referen
 ### Core Types & Representation Contracts
 
 - **`Expr`**: A one-pointer owning handle (`Option<Arc<Node>>` utilizing the null-pointer niche) over a private, immutable node enum.
-  - Every node is constructed via library-wide, collision-safe weak interning. Identical live subtrees share exactly one allocation.
+  - Every node is constructed via library-wide, collision-safe weak interning. Identical live subtrees share one canonical node and its payloads.
+  - Numeric payloads are stored inline in their nodes; function arguments use `Vec<Expr>` storage. Interning allocates a canonical node only when no equal live node exists.
   - Structural equality (`Eq`, `PartialEq`) and hashing (`Hash`) are $O(1)$ canonical pointer comparisons.
   - Specialized multivariate polynomials (`Node::Poly`) remain private. Public views expose logical sums with lazy child iterators; public mapping and folding visit logical monomials once without introducing visits for internal additive storage groups.
   - Operators, mathematical methods, and n-ary vector constructors share normalized kernels. Keep consuming arithmetic kernels private rather than exposing duplicate technical constructors.
+  - Canonical aliases use `sqrt(x)` for exact `x^(1/2)`, `exp(x)` for `e^x`, and unary logarithms for exact bases `e`, `2`, and `10`. Approximate exponents retain their numeric representation. Known negative real powers use denominators; products combine denominators without symbolic cancellation. Positive integer powers distribute over products and quotients while preserving every pole.
+  - Nested positive integer powers combine by checked multiplication of exact native exponents. Zero, general fractional, and approximate inner powers retain their nesting; square-root aliases normalize separately. Exponent overflow preserves explicit powers.
+  - Derivatives evaluate through a memoized iterative engine on regular principal-branch domains. Constructors perform ordinary normalization; differentiation never invokes a separate simplifier. Unsupported cases retain owning derivative nodes. Order zero returns the inner expression; repeated derivative states admit constant-space cycle detection. Stored orders are `NonZeroU32`; adjacent unevaluated derivatives with the same symbol identity combine by checked addition. Overflow retains nesting, and different variable identities do not commute.
+  - Exact quotients normalize as `(a*A)/(b*B) = (a/b)*Div(A, B)` when the finite numeric coefficients have a nonzero divisor and a representable result. Coefficients stay outside the shared symbolic quotient; unit coefficients and unit denominators are omitted. Numeric literals inside sums, exponents, and function arguments remain in place; reciprocal numerators may be one. Zero denominators, approximate division, and capacity-limited coefficients remain explicit. This normalization does not introduce float reciprocals or cancel symbolic denominator factors without proof.
 - **Numeric Literals (`NumericValue`)**: Representation-preserving DAG identity over `num_anafis::Number`.
   - Retains exact integers, reduced rationals, native IEEE floats, and scalar complex components.
   - Structural literal identity is strictly distinguished from numeric equality (e.g. `2.0` float vs `2` integer).
@@ -25,18 +30,26 @@ The current legacy implementation is archived under `old/` as behavioral referen
   - Global handles (`Symbol<'static>`) have permanent metadata in the sharded directory.
   - Local handles borrow a `Context` or an owning `Expr`; the compiler enforces that they cannot outlive that owner.
   - Name unbinding preserves identities within the owner's lifetime; rebinding creates a fresh unique identity. Raw IDs cannot bypass the owner boundary.
-- **`Function`**: An opaque identity containing a static `BuiltinFunction` enum or an owning canonical custom name.
+  - `Context::symb` returns `Result<Symbol<'_>, SymbolError>`; ID exhaustion leaves existing bindings valid.
+- **`Function`**: An opaque identity containing a static `BuiltinFunction` enum or a shared, immutable custom definition with its canonical name.
   - Builtin functions pass enum identities directly; arity, derivatives, and exact folding dispatch to static definitions without intern locks or hash-map lookups.
-  - Custom functions register unique, sparse, sorted partial derivatives by argument index. Duplicate registration returns an error without mutating existing definitions.
+  - Custom definitions store sparse, sorted partial derivatives with unique argument indices. Setting a partial again replaces that callback in the draft; registered definitions remain immutable. Registering a duplicate function name returns an error without changing its existing binding or definition.
   - Registered arities are immutable. Unknown strings cannot create function identities or AST calls.
+  - Custom handles and expression nodes retain bodies and partials after name removal or context destruction. Contexts store only name-to-handle bindings; callback access uses the borrowed `Function::definition` accessor without registry lookup. Equality and hashing depend on identity, never callbacks.
 - **`Pattern` / `RewriteRule`**: Structural pattern matching with capture groups and memoized replacement across every edge to a shared input node.
   - **Associative / Commutative Matching**: Root sum and product patterns match disjoint commutative operand groups with backtracking and transactional undos (`Undo::Popped`, `Undo::Capture`). Unmatched operands survive automatically. Nested groups require complete coverage.
   - **Bounded Search**: `match_limit: Option<usize>` strictly bounds candidate permutations across the entire transformation pass, returning `RewriteError::MatchLimitExceeded` on exhaustion without publishing corrupted partial output.
-  - **Guards**: `RewriteGuard` callbacks allow callers to enforce semantic conditions on captured bindings (e.g., domain proofs, sign checks, integrality) before accepting an assignment.
-  - **Counted Multiplicities**: Power matching consumes positive integer powers and collected integer addends without expanding exponents into repeated handles.
+  - **Guards**: Caller callbacks enforce semantic conditions on complete captured bindings before accepting an assignment. Local capture predicates reject candidates before continuing the search; repeated names retain all their conditions after normalization. Callback aliases remain private.
+  - **Replacement**: A rule takes a compiled pattern or an owning, pure callback through the same constructor and application method. Replacement callbacks run only after an assignment and its guard are accepted. Counted matches reuse one result per assignment; capture-free callbacks are evaluated lazily once per application pass. Inserted destinations are not revisited.
+  - **Counted Multiplicities**: Exact rational templates consume integral groups on an unchanged principal base. Integer outer powers may capture fractional blocks present in the input; reciprocal templates require denominator factors. Nested reciprocal exclusions stay opaque. Bare expressions do not infer fractional roots. Collected integer addends remain compressed.
+- **`Properties` / `Property` / `Truth`**: Read-only, conservative scalar proofs computed in one stored-DAG traversal. Symbols range over finite complex values without additional assumptions. Unknown facts never authorize guarded transformations; nonfinite literals and retained poles cannot acquire finite-value proofs. Analysis does not mutate nodes or validate user-defined identities.
 - **`Substitution` / `Substitutions`**: Concrete expression replacement by canonical identity, including logical polynomial monomials.
   - Exact whole matches take priority over partial groups. Entries apply simultaneously without revisiting destination subtrees in the same pass.
   - Duplicate sources accept identical destinations and reject conflicting destinations.
+  - Changes of variable supply the explicit inverse `x -> g(u)`. Every scalar occurrence of `x` is replaced; no such occurrence remains when the destination does not contain `x`. Domain and branch choices belong to the caller. Differentiation-variable metadata is retained; transforming a differential operator requires a calculus transformation.
+  - Manifest common symbolic factors are retained while additive groups are replaced. Extraction never divides by an unproved symbolic value.
+  - Exact rational powers and nested integer powers admit integral counted decomposition only when it preserves principal branches and zero exclusions. Fractional outer powers do not expose powers inside their own base. Widened traversal counts are checked; numeric literal arithmetic belongs to `Number`.
+  - Surviving original factors are traversed; generated coefficients and exponent counts are not new sources in the same pass.
 - **Feature Contract**:
   - The default core is `no_std + alloc`, using `hashbrown` collections, const-initialized global state, and private non-poisoning spin mutexes.
   - Supported targets provide a global allocator and pointer-width atomics for `Arc` and registry sequences.
@@ -52,15 +65,17 @@ The current legacy implementation is archived under `old/` as behavioral referen
 
 ### Subsystem Boundaries
 
-- **`src/collections/`**: Private `no_std` collection facades (`HashMap`, `HashSet`) backed by `hashbrown` and deterministic hashing (`foldhash`).
+- **`src/collections/`**: Private `no_std` collection facades (`HashMap`, `HashSet`) backed by `hashbrown` and `foldhash`, without operating-system entropy. Global interner indices use fixed seeds; collection iteration order is unspecified.
 - **`src/core/api/`**: Public borrowed views (`ExprView`) and inspectors.
 - **`src/core/logic/`**: Type owners, canonical construction, weak interning, symbol/function registries, traversal, rewriting, substitutions, and memory reclamation.
-- **`src/errors/`**: Subsystem diagnostic owners (`core.rs`, `diff.rs`, `parser.rs`).
-- **`src/diff/`**: Symbolic differentiation engine, chain rule, product rule, quotient rule, and sparse partial callbacks. *(In staging)*
-- **`src/parser/`**: Pratt text-to-AST parser, precedence climbing, and exact source `Span` diagnostics. *(In staging)*
-- **`src/simplification/`**: Term canonicalization, like-term collection, constant folding, and identity rules powered by `RewriteRule` and multivariate polynomial normal forms. *(In staging)*
-- **`src/evaluator/`**: Numerical evaluation pipelines, bytecode virtual machines, and vectorized execution backends. *(In staging)*
-- **`src/functions/`**: Built-in mathematical functions registry and algebraic domain properties. *(In staging)*
+- **`src/errors/`**: Subsystem diagnostic owners (`core.rs`, `diff.rs`, `evaluator.rs`, `parser.rs`, `simplification.rs`, `uncertainty.rs`).
+- **`src/diff/`**: Iterative, memoized symbolic differentiation through `Expr::derivative`, `gradient`, `jacobian`, and `hessian`; balanced product rules, regular principal-branch formulas, and sparse partial callbacks. Jacobian columns reuse completed partials and traversal storage across output roots. Hessians retain mixed operator order. Missing active partials and unsupported derivatives remain symbolic; no synthetic function identities or separate simplification pass are introduced.
+- **`src/uncertainty/`**: Real first-order propagation via gradient covariance contraction. Covariance constructors validate shape, exact symmetry, and disproved scalar conditions; unknown hypotheses, positive semidefiniteness, and local linear-model validity belong to the caller. Diagonal storage is linear. Results retain sensitivity poles, symbol identities, and numeric representation tiers.
+- **`src/parser/`**: Streaming UTF-8 lexer and iterative precedence parser using scoped context symbols, known function identities, and exact source `Span` diagnostics. Integer literals stay exact; decimal and scientific literals retain floating representation. Parentheses balance strictly, names stay whole, and flat sums/products use batched construction.
+- **`src/simplification/`**: Reusable ordered simplification sequences with compact, expanded, factored, and compilation presets; custom rules, mapping callbacks, and scoring; shared compiled plans, cycle detection, and explicit growth/work limits. Builtin rules preserve poles and principal branches by default; explicitly selected assumption-dependent rules require caller-supplied hypotheses. Custom rule validity always belongs to the caller. Exact polynomial GCD cancellation verifies divisibility and requires a proved nonzero removed factor in preserving mode. Compilation preparation selects native numerical forms using estimated operations over shared DAG nodes. Canonical construction supplies constant folding and term collection. `src/simplification/RULES.md` specifies both domain modes and complete legacy rule coverage.
+- **`src/evaluator/`**: Memoized direct evaluation and shared scalar register programs for native `f64` and commutative `Numeric` backends. Compilation expands registered bodies, removes unreachable work, compacts constants, and reuses temporary slots. Joint sine/cosine and hyperbolic sine/cosine instructions call backend paired methods and validate two distinct destinations. Native floating plans admit integer multiplication chains, sparse Horner, bounded dense Estrin, shared reciprocals, and efficient FMA; generic plans retain backend operations. Larger plans use Sethi–Ullman pressure scheduling. Borrowed disassembly exposes allocated instructions without numerical execution. SIMD and parallel execution are outside the active evaluator.
+- Builtin identities, arities, folding, and domain properties belong to `src/core/logic/`. Symbolic derivative formulas belong to `src/diff/`; numerical function kernels belong to `NumAnaFis`.
+- **`bindings/python/` and `python/symb_anafis/`**: A separate PyO3 extension crate and a class-based Python facade. The default Rust build does not depend on Python. Python symbols own `Expr` handles; validated coordinates borrow pinned owners only during native calls. Function builders compile once into owning symbolic templates. Callback errors are invocation-local and checked before publishing output. GC-tracked containers own separate Python references and implement traversal/clearing; never share a single `Arc<Py<_>>` reference between GC-tracked owners. Native numerical execution releases the GIL after converting inputs; evaluator copies retain independent workspaces. Public mathematical operations remain namespaced methods.
 
 ---
 
@@ -68,7 +83,7 @@ The current legacy implementation is archived under `old/` as behavioral referen
 
 - **Representation Invariants**:
   - **DAG Canonicity**: Every live identical node shares exactly one interned allocation. Hashing and equality checks must remain $O(1)$ pointer operations.
-  - **Polynomial Normal Form**: Monomial bases are sorted in canonical structural order; exponents are positive `u32` integers; coefficients share finite numeric literal handles; degree-zero terms belong to the outer sum.
+  - **Polynomial Normal Form**: Monomial bases are sorted in canonical structural order and own their shared expression handles directly, without a redundant base table; exponents are positive `u32` integers; coefficients share finite numeric literal handles; degree-zero terms belong to the outer sum.
   - **Numeric Soundness**: Rationals are strictly irreducible with positive denominators. Scalar floats retain bitwise representation, signed zeros, and NaN payloads without canonical unification.
   - **Symbol Lifetime Isolation**: Local symbol handles are bound by `'owner` to their context or expression. Raw IDs cannot be transmuted across owner boundaries.
   - **Function Arity Invariance**: Once registered, function arities cannot be modified. Builtin identities require zero locks or hash lookups for arity verification.
@@ -89,7 +104,7 @@ The current legacy implementation is archived under `old/` as behavioral referen
 
 ## 3. Memory Safety & Performance Discipline
 
-- **SAFETY Proofs**: Every `unsafe` block requires an immediately preceding `// SAFETY:` comment proving the exact obligations: bounds, initialization, aliasing, alignment, lifetimes, capacity, or target prerequisites. (Unsafe code is strictly quarantined to synchronization primitives like `mutex.rs`).
+- **SAFETY Proofs**: Every `unsafe` block requires an immediately preceding `// SAFETY:` comment proving the exact obligations: bounds, initialization, aliasing, alignment, lifetimes, capacity, or target prerequisites. Unsafe code is confined to synchronization primitives and the scalar register execution boundary. Register execution requires independent instruction validation before construction, immutable instructions, initialized fixed-length workspaces, and source reads completed before a destination slot is reused. Unchecked parameter copies and batch reads require complete input-shape validation first.
 - **Lint Allowances**:
   - Every `allow` or `expect` attribute requires an explicit, descriptive `reason = "..."` and the narrowest useful scope.
   - Prefer `expect` for justified exceptions. Do not suppress invalid code or misplaced feature gates.
@@ -103,7 +118,7 @@ The current legacy implementation is archived under `old/` as behavioral referen
   - Enforce the chronological pipeline: `Validate once` $\to$ `Dispatch once` $\to$ `Establish invariants` $\to$ `Execute infallible kernel` $\to$ `Primitive leaf operations`.
 - **Hot-Path Traversal Discipline**:
   - Never recursively traverse an expression without memoization or cycle protection.
-  - Public visitors (`map_logical`, `fold_monomials`) must visit shared subtrees predictably without generating redundant visits for internal polynomial representations.
+  - Public visitors (`map`, `fold`) must visit shared subtrees predictably without generating redundant visits for internal polynomial representations.
 - **Forwarding Functions**:
   - Place trivial argument adaptation and forwarding at the call site. Avoid duplicate API variants that merely toggle internal options. Keep shared algorithms, required traits, and accessors that preserve private ownership.
 
@@ -124,6 +139,7 @@ The current legacy implementation is archived under `old/` as behavioral referen
   - Define each subsystem's public surface in its `mod.rs`.
   - Import public subsystem types via `crate::subsystem::Type`. Do not introduce per-type files that only forward an existing type or duplicate export aliases.
   - Implementation files import parent dependencies via `super::Thing`, never `super::sibling::Thing`. Cross-subsystem access uses `crate::subsystem::Thing`; production imports must never bypass a facade.
+  - Mathematical drivers and shared kernels belong to their owning type's namespace. Facades export types rather than standalone functions; differentiation uses `Differentiation` and numerical traversal uses `Traversal`.
 - **Opaque Type Ownership**:
   - Public types own private fields. Implementations needing field access reside as descendants of the type owner.
   - Owners live in dedicated files (e.g. `expression.rs`) and declare implementation children directly in `expression/`. Do not introduce an intermediate folder that only forwards declarations.
@@ -169,7 +185,9 @@ Source files follow downward execution order matching chronological data flow:
 
 - **Strict Test Separation**:
   - Production files contain zero test code.
-  - Tests reside in dedicated `tests.rs` or `tests/` directories located directly beside the files they test.
+  - Standalone core API suites reside in `src/core/logic/tests/`, grouped by subsystem and contract. Types with implementation children may keep their existing adjacent `tests/` directories.
+  - Tests requiring private fields remain descendants of the type owner. Use its existing `tests/` directory; do not introduce a directory for an individual implementation file's tests.
+  - Standalone private owners may retain adjacent test directories when descendant access is required to verify ownership, exhaustion, or synchronization invariants.
   - The only test declaration in a production `mod.rs` or type owner is `#[cfg(test)] mod tests;`. Test-only imports or reexports are forbidden in production registries.
 - **Coverage Requirements**:
   - Active core transformations require property-based tests (`proptest`) with varied inputs, verifying mathematical equivalence, structural invariants, and ownership lifetimes.
@@ -187,7 +205,6 @@ Source files follow downward execution order matching chronological data flow:
     python3 tools/structure_audit.py
     python3 tools/import_audit.py
     python3 tools/check_allows.py
-    python3 -m unittest discover -s tools/audit/tests
     ```
 
 ---

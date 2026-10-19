@@ -14,7 +14,7 @@ use super::{Expr, ExprChildren, Function, Symbol};
 /// use symb_anafis::{Context, ExprView};
 /// let symbol = {
 ///     let context = Context::new();
-///     let expression = context.symb("x").to_expr();
+///     let expression = context.symb("x").expect("symbol allocation").to_expr();
 ///     match expression.view() {
 ///         ExprView::Symbol(symbol) => symbol,
 ///         _ => unreachable!(),
@@ -56,7 +56,7 @@ pub enum ExprView<'expr> {
         inner: &'expr Expr,
         /// Differentiation variable's identity.
         var: Symbol<'expr>,
-        /// Differentiation order.
+        /// Positive differentiation order.
         order: u32,
     },
 }

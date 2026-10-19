@@ -1,18 +1,23 @@
 //! Canonical sums and commuting scalar products.
 //!
-//! Every active expression is a real or complex scalar. Scalar i is central.
-//! Clifford generators are outside this contract: an extension must introduce
-//! an ordered multiplication boundary before it can use these constructors.
+//! Expressions are real or complex scalars. Multiplication is commutative,
+//! and the imaginary unit is central.
 
 use core::slice::from_ref;
 
 use alloc::{vec, vec::Vec};
 
+use hashbrown::hash_map::Entry;
 use num_anafis::Number;
 
 use crate::collections::HashMap;
 
-use super::{Expr, Node, NumericValue};
+use super::{Expr, Node, NumericValue, ProductFrame};
+
+struct SumGroup {
+    first: Expr,
+    repeated: Vec<Expr>,
+}
 
 impl Node {
     /// Normalize addition while retaining zero coefficients of unknown bases.
@@ -20,40 +25,76 @@ impl Node {
         if terms.len() <= 1 {
             return terms.pop().unwrap_or_else(|| Expr::number(Number::zero()));
         }
-        let flat = Self::flatten(terms, true);
-        let (numbers, symbolic) = Self::partition_numbers(flat);
-        let mut normalized = Self::fold_numbers(numbers, true);
-        if Self::distinct_symbol_tail(&symbolic) {
-            if normalized.is_empty() {
-                return Self::finish(symbolic, true);
-            }
-            normalized.extend(symbolic);
+        let mut normalized = Self::flatten(terms, true);
+        Self::fold_number_prefix(&mut normalized, true);
+        if Self::distinct_atomic_tail(&normalized) {
             if normalized.len() > 1 {
                 normalized.retain(|term| !term.is_zero_num());
             }
             return Self::finish(normalized, true);
         }
-        let mut groups: HashMap<Expr, Vec<(NumericValue, Expr)>> = HashMap::new();
-        for term in symbolic {
-            let (coefficient, base) = Self::split_coefficient(&term);
-            groups.entry(base).or_default().push((coefficient, term));
+        if let [first, second] = normalized.as_slice() {
+            let (first_coefficient, first_factors) = Self::coefficient_parts(first);
+            let (second_coefficient, second_factors) = Self::coefficient_parts(second);
+            // Equal factor slices collect directly without a grouping table.
+            if first_factors == second_factors {
+                let unit = NumericValue::new(Number::one());
+                let mut coefficients = [
+                    first_coefficient.unwrap_or(&unit),
+                    second_coefficient.unwrap_or(&unit),
+                ];
+                coefficients.sort_unstable_by(|left, right| left.compare(right));
+                if let Some(value) = Self::finite_fold(coefficients.into_iter(), true) {
+                    let base = if let [single] = first_factors {
+                        single.clone()
+                    } else {
+                        Expr::product(first_factors.to_vec())
+                    };
+                    normalized.clear();
+                    normalized.push(Expr::number(value));
+                    normalized.push(base);
+                    return Self::normalize_product(normalized);
+                }
+            }
         }
-        for (base, original) in groups {
-            // A singleton group already has a canonical coefficient and base.
-            // Reuse its input instead of allocating coefficients and rebuilding 1*base.
-            if original.len() == 1 {
-                normalized.extend(original.into_iter().map(|(_, term)| term));
+        let mut groups: HashMap<Expr, SumGroup> = HashMap::new();
+        for term in normalized.extract_if(.., |term| {
+            term.literal()
+                .is_none_or(|value| !value.value().is_finite())
+        }) {
+            let (_, factors) = Self::coefficient_parts(&term);
+            let base = if let [base] = factors {
+                base.clone()
+            } else {
+                Expr::product(factors.to_vec())
+            };
+            match groups.entry(base) {
+                Entry::Vacant(entry) => {
+                    entry.insert(SumGroup {
+                        first: term,
+                        repeated: Vec::new(),
+                    });
+                }
+                Entry::Occupied(mut entry) => entry.get_mut().repeated.push(term),
+            }
+        }
+        for (base, mut group) in groups {
+            if group.repeated.is_empty() {
+                normalized.push(group.first);
                 continue;
             }
-            let mut coefficients: Vec<_> = original
+            group.repeated.push(group.first);
+            let unit = NumericValue::new(Number::one());
+            let mut coefficients: Vec<_> = group
+                .repeated
                 .iter()
-                .map(|(coefficient, _)| coefficient.clone())
+                .map(|term| Self::coefficient_parts(term).0.unwrap_or(&unit))
                 .collect();
-            coefficients.sort_by(NumericValue::compare);
-            if let Some(value) = Self::finite_fold(&coefficients, true) {
+            coefficients.sort_unstable_by(|left, right| left.compare(right));
+            if let Some(value) = Self::finite_fold(coefficients.into_iter(), true) {
                 normalized.push(Expr::product(vec![Expr::number(value), base]));
             } else {
-                normalized.extend(original.into_iter().map(|(_, term)| term));
+                normalized.extend(group.repeated);
             }
         }
         if normalized.len() > 1 {
@@ -64,30 +105,92 @@ impl Node {
         Self::finish(normalized, true)
     }
 
-    /// Normalize multiplication of commuting scalars, preserving unknown factors.
+    /// Normalize scalar products with coefficients outside shared quotients.
+    /// Unknown factors and every denominator retain their domain exclusions.
     pub fn normalize_product(mut factors: Vec<Expr>) -> Expr {
-        if factors.len() <= 1 {
-            return factors.pop().unwrap_or_else(|| Expr::number(Number::one()));
+        let mut pending = Vec::new();
+        'normalize: loop {
+            let mut value = 'product: {
+                if factors.len() <= 1 {
+                    break 'product factors.pop().unwrap_or_else(|| Expr::number(Number::one()));
+                }
+                let mut flat = Self::flatten(factors, false);
+                // Only powers and derivatives sort after quotients.
+                if flat
+                    .iter()
+                    .rev()
+                    .find(|factor| {
+                        !matches!(factor.node(), Self::Pow(..) | Self::Derivative { .. })
+                    })
+                    .is_some_and(|factor| matches!(factor.node(), Self::Div(..)))
+                {
+                    let prefix = Self::numeric_prefix(&flat);
+                    // A finite scalar prefix and one quotient already have
+                    // canonical coefficient placement.
+                    let weighted_quotient = matches!(flat.get(prefix..), Some([quotient])
+                        if matches!(quotient.node(), Self::Div(..)))
+                        && flat.iter().take(prefix).all(|factor| {
+                            factor
+                                .literal()
+                                .is_some_and(|value| value.value().is_finite())
+                        });
+                    if weighted_quotient && let [coefficient, quotient] = flat.as_slice() {
+                        break 'product if coefficient.is_one_num() {
+                            quotient.clone()
+                        } else {
+                            Self::finish(flat, false)
+                        };
+                    }
+                    if !weighted_quotient {
+                        let mut numerators = Vec::with_capacity(flat.len());
+                        let mut denominators = Vec::new();
+                        for factor in flat {
+                            if let Self::Div(numerator, denominator) = factor.node() {
+                                numerators.push(numerator.clone());
+                                denominators.push(denominator.clone());
+                            } else {
+                                numerators.push(factor);
+                            }
+                        }
+                        pending.push(ProductFrame::Numerator { denominators });
+                        factors = numerators;
+                        continue 'normalize;
+                    }
+                }
+                Self::fold_number_prefix(&mut flat, false);
+                let (mut normalized, rebuild) = Self::collect_positive_factors(flat);
+                if normalized.len() > 1 {
+                    normalized.retain(|factor| !factor.is_one_num());
+                }
+                if rebuild {
+                    factors = normalized;
+                    continue 'normalize;
+                }
+                let prefix = Self::numeric_prefix(&normalized);
+                if let Some(literals) = normalized.get_mut(..prefix) {
+                    Self::sort_operands(literals);
+                }
+                Self::finish(normalized, false)
+            };
+            while let Some(frame) = pending.pop() {
+                match frame {
+                    ProductFrame::Numerator { denominators } => {
+                        pending.push(ProductFrame::Denominator { numerator: value });
+                        factors = denominators;
+                        continue 'normalize;
+                    }
+                    ProductFrame::Denominator { numerator } => {
+                        if let Some((top, bottom)) = Self::split_quotient(&numerator) {
+                            pending.push(ProductFrame::Denominator { numerator: top });
+                            factors = vec![bottom, value];
+                            continue 'normalize;
+                        }
+                        value = Self::normalize_quotient(numerator, value);
+                    }
+                }
+            }
+            return value;
         }
-        let flat = Self::flatten(factors, false);
-        // This order is valid for central complex scalars, including i. It must
-        // not be extended to noncommuting generators by sorting their names.
-        let (numbers, symbolic) = Self::partition_numbers(flat);
-        let (collected, regrouped) = Self::collect_positive_factors(symbolic);
-        let mut normalized = Self::fold_numbers(numbers, false);
-        normalized.extend(collected);
-        if normalized.len() > 1 {
-            normalized.retain(|factor| !factor.is_one_num());
-        }
-        // Numeric folding only changes the literal prefix. The symbolic tail
-        // retains the canonical order established by flattening or linear merge.
-        let prefix = Self::numeric_prefix(&normalized);
-        if regrouped {
-            Self::sort_operands(&mut normalized);
-        } else if let Some(literals) = normalized.get_mut(..prefix) {
-            Self::sort_operands(literals);
-        }
-        Self::finish(normalized, false)
     }
 
     fn flatten(mut inputs: Vec<Expr>, sum: bool) -> Vec<Expr> {
@@ -202,62 +305,84 @@ impl Node {
         }
     }
 
-    fn partition_numbers(mut inputs: Vec<Expr>) -> (Vec<NumericValue>, Vec<Expr>) {
-        let prefix = Self::numeric_prefix(&inputs);
+    /// Fold finite prefix literals in place, retaining singleton and failed folds.
+    fn fold_number_prefix(inputs: &mut Vec<Expr>, sum: bool) {
+        let prefix = Self::numeric_prefix(inputs);
         let numbers = inputs
-            .extract_if(..prefix, |input| {
-                input
-                    .literal()
-                    .is_some_and(|value| value.value().is_finite())
+            .iter()
+            .take(prefix)
+            .filter_map(|input| input.literal().filter(|value| value.value().is_finite()));
+        if numbers.clone().nth(1).is_none() {
+            return;
+        }
+        let Some(combined) = Self::finite_fold(numbers, sum) else {
+            return;
+        };
+        let mut folded = Some(Expr::number(combined));
+        inputs.retain_mut(|input| {
+            if input
+                .literal()
+                .is_none_or(|value| !value.value().is_finite())
+            {
+                return true;
+            }
+            folded.take().is_some_and(|replacement| {
+                *input = replacement;
+                true
             })
-            .filter_map(|input| input.literal().cloned())
-            .collect();
-        (numbers, inputs)
+        });
     }
 
     fn numeric_prefix(inputs: &[Expr]) -> usize {
         // Node rank places every Number, followed by central i, before all
         // symbolic kinds. Finiteness is checked within this prefix, not assumed.
         inputs
-            .partition_point(|input| matches!(input.node(), Self::Number(_) | Self::ImaginaryUnit))
+            .iter()
+            .take_while(|input| matches!(input.node(), Self::Number(_) | Self::ImaginaryUnit))
+            .count()
     }
 
-    fn distinct_symbol_tail(terms: &[Expr]) -> bool {
+    fn distinct_atomic_tail(terms: &[Expr]) -> bool {
         let mut previous = None;
-        terms.iter().all(|term| {
-            if !matches!(term.node(), Self::Symbol(_)) {
-                return false;
-            }
-            let distinct = previous.is_none_or(|prior: &Expr| !prior.same_node(term));
-            previous = Some(term);
-            distinct
-        })
+        terms
+            .iter()
+            .skip_while(|term| {
+                term.literal()
+                    .is_some_and(|value| value.value().is_finite())
+            })
+            .all(|term| {
+                if !matches!(
+                    term.node(),
+                    Self::Symbol(_)
+                        | Self::Pi
+                        | Self::Euler
+                        | Self::Function { .. }
+                        | Self::Div(..)
+                        | Self::Derivative { .. }
+                ) {
+                    return false;
+                }
+                let distinct = previous.is_none_or(|prior: &Expr| prior != term);
+                previous = Some(term);
+                distinct
+            })
     }
 
-    fn fold_numbers(numbers: Vec<NumericValue>, sum: bool) -> Vec<Expr> {
-        if numbers.is_empty() {
-            return Vec::new();
+    /// Borrow a finite scalar coefficient and the remaining multiplicative factors.
+    pub fn coefficient_parts(term: &Expr) -> (Option<&NumericValue>, &[Expr]) {
+        if let Some(value) = term.literal()
+            && value.value().is_finite()
+        {
+            return (Some(value), &[]);
         }
-        Self::finite_fold(&numbers, sum).map_or_else(
-            || {
-                numbers
-                    .into_iter()
-                    .map(|value| Expr::number(value.value().clone()))
-                    .collect()
-            },
-            |value| vec![Expr::number(value)],
-        )
-    }
-
-    fn split_coefficient(term: &Expr) -> (NumericValue, Expr) {
         if let Self::Product(factors) = term.node()
             && let Some((first, rest)) = factors.split_first()
             && let Some(coefficient) = first.literal()
             && coefficient.value().is_finite()
         {
-            return (coefficient.clone(), Expr::product(rest.to_vec()));
+            return (Some(coefficient), rest);
         }
-        (NumericValue::new(Number::one()), term.clone())
+        (None, from_ref(term))
     }
 
     fn finish(mut operands: Vec<Expr>, sum: bool) -> Expr {
@@ -272,16 +397,18 @@ impl Node {
         }
     }
 
-    fn finite_fold(values: &[NumericValue], sum: bool) -> Option<Number> {
-        let (first, rest) = values.split_first()?;
-        rest.iter()
-            .try_fold(first.value().clone(), |accumulated, value| {
-                let left = NumericValue::new(accumulated);
-                if sum {
-                    left.add(value)
-                } else {
-                    left.mul(value)
-                }
-            })
+    fn finite_fold<'value>(
+        mut values: impl Iterator<Item = &'value NumericValue>,
+        sum: bool,
+    ) -> Option<Number> {
+        let first = values.next()?;
+        values.try_fold(first.value().clone(), |accumulated, value| {
+            let left = NumericValue::new(accumulated);
+            if sum {
+                left.add(value)
+            } else {
+                left.mul(value)
+            }
+        })
     }
 }

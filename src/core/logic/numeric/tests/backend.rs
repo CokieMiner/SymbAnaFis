@@ -1,6 +1,6 @@
 //! Generated checks for exact backend roots, norms, and integer cells.
 
-use core::ops::Mul;
+use core::ops::{Mul, Neg};
 
 use num_anafis::{Number, Real};
 use proptest::{arbitrary::any, prop_assert, prop_assert_eq, proptest};
@@ -203,11 +203,9 @@ fn backend_special_cells_and_minimum_boundaries_remain_explicit() {
     );
     let minimum = Number::from_int(i64::MIN);
     assert_eq!(minimum.negate(), minimum);
-    assert_function(
-        &crate::core::Function::builtin("negate")
-            .expect("negation is a known builtin")
-            .call(alloc::vec![Expr::number(i64::MIN)])
-            .expect("negation is unary"),
-        "checked exact-cell negation rejects the minimum integer",
+    assert_number(
+        &Neg::neg(Expr::number(i64::MIN)),
+        minimum,
+        "negation follows the numeric backend's capacity policy",
     );
 }

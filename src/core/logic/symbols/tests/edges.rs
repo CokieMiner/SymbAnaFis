@@ -29,7 +29,9 @@ fn removing_by_id_preserves_replacements_and_local_ownership() {
 #[test]
 fn global_removal_and_drop_preserve_context_symbols_and_retained_expressions() {
     let context = Context::new();
-    let local = context.symb("registry_independent_local");
+    let local = context
+        .symb("registry_independent_local")
+        .expect("symbol allocation");
     let registry = SymbolRegistry::new();
     let global = registry
         .intern("registry_independent_local")
@@ -49,7 +51,7 @@ fn global_removal_and_drop_preserve_context_symbols_and_retained_expressions() {
     drop(registry);
     assert!(SymbolData::lookup(another.id()).is_ok());
     assert_eq!(local.to_expr().as_symbol(), Some(local));
-    assert!(global_symbol.to_expr().same_node(&global_expr));
+    assert_eq!(global_symbol.to_expr(), global_expr);
 }
 
 #[test]

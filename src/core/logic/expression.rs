@@ -5,22 +5,28 @@
     reason = "the type owner keeps fields private while its descendants implement operations; mod.rs files contain plumbing only"
 )]
 
-use core::{ptr::null, slice::Iter};
+use core::{
+    num::{NonZeroI128, NonZeroU32, NonZeroU64},
+    ptr::null,
+    slice::Iter,
+};
 
 use alloc::{borrow::Cow, sync::Arc, vec, vec::Vec};
 
 use num_anafis::Number;
 
+use crate::collections::HashMap;
+
 use super::{
-    BuiltinFunction, ExprView, FunctionDefinition, FunctionName, Interner, NumericValue, SYMBOLS,
-    Substitution, Substitutions, Symbol, SymbolData,
+    BuiltinFunction, ExprView, FunctionDefinition, FunctionName, Interner, NumericValue, Pattern,
+    SYMBOLS, Substitution, Substitutions, Symbol, SymbolData,
 };
 
 static NODES: Interner<Node> = Interner::new();
 
 /// An immutable handle to a globally interned expression DAG.
 ///
-/// Equal live expressions share one allocation. Cloning shares ownership; equality
+/// Equal live expressions share one canonical node. Cloning shares ownership; equality
 /// and hashing use the canonical pointer. Nodes store neither IDs nor cached hashes.
 /// Literals retain their `NumAnaFis` representation. Float components have bitwise
 /// identity, including signed zeros and NaN payloads; exact values stay exact.
@@ -103,6 +109,11 @@ pub enum OperandDemand {
     Copies(i64),
     /// A positive integer block raised to a fixed positive integer exponent.
     Root { exponent: i64, block: i64 },
+    /// One exact positive rational power on its unchanged principal base.
+    Rational {
+        numerator: i64,
+        denominator: NonZeroU64,
+    },
 }
 
 #[derive(Debug)]
@@ -110,6 +121,7 @@ struct WeightedOperand {
     original: Expr,
     base: Expr,
     count: i64,
+    denominator: NonZeroU64,
     coefficient: bool,
     negative: bool,
     changed: bool,
@@ -136,17 +148,49 @@ struct LinearTerm {
 struct LinearMatch {
     terms: Vec<(usize, Expr)>,
     scale: Number,
+    factor: Option<AlgebraicOperands>,
+}
+
+struct PowerProjection<'expr> {
+    base: &'expr Expr,
+    exponent: NonZeroI128,
+    denominator: NonZeroU64,
+    nonzero: bool,
+    projected: bool,
+}
+
+enum ProductFrame {
+    Numerator { denominators: Vec<Expr> },
+    Denominator { numerator: Expr },
 }
 
 #[derive(Debug)]
-enum RemainingOperand {
+pub enum RemainingOperand {
     Original(Expr),
-    Counted { base: Expr, count: i64 },
+    Counted {
+        base: Expr,
+        count: i64,
+    },
     Fixed(Expr),
-    Scaled { base: Expr, coefficient: Expr },
+    Scaled {
+        base: Expr,
+        coefficient: Expr,
+    },
     Divisor(Expr),
     FixedDivisor(Expr),
-    DivisorCounted { base: Expr, count: i64 },
+    DivisorCounted {
+        base: Expr,
+        count: i64,
+    },
+    Power {
+        base: Expr,
+        exponent: NonZeroI128,
+        denominator: NonZeroU64,
+    },
+    Factored {
+        factor: AlgebraicOperands,
+        inserted: Expr,
+    },
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
@@ -168,7 +212,7 @@ enum Node {
     Derivative {
         inner: Expr,
         var: Arc<SymbolData>,
-        order: u32,
+        order: NonZeroU32,
     },
 }
 
@@ -181,8 +225,13 @@ enum Node {
 /// to the outer sum; this representation has no degree-zero terms.
 #[derive(Debug, PartialEq, Eq, Hash)]
 struct Polynomial {
-    bases: Vec<Expr>,
     terms: Vec<PolynomialTerm>,
+}
+
+/// Borrowed stored edges and compact monomials for numerical engines.
+#[derive(Clone, Copy, Debug)]
+pub struct EvaluationView<'expr> {
+    expression: &'expr Expr,
 }
 
 /// One nonzero-coefficient monomial in a canonical sparse polynomial.
@@ -222,6 +271,12 @@ pub enum ExactSources<'entries> {
     Many(&'entries Substitutions),
 }
 
+#[derive(Clone)]
+enum SubstitutionInput<'root> {
+    Stored(&'root Expr),
+    Logical(Expr),
+}
+
 #[derive(Debug)]
 struct OperandSource<'entries> {
     sum: bool,
@@ -230,6 +285,136 @@ struct OperandSource<'entries> {
 }
 
 impl Expr {
+    fn substitute_logical_with(&self, mut select: impl FnMut(&Self) -> Option<Selection>) -> Self {
+        let mut memo = HashMap::new();
+        let mut projections = HashMap::new();
+        let mut partial: HashMap<Self, PartialSelection> = HashMap::new();
+        let mut pending = vec![(SubstitutionInput::Stored(self), false)];
+        while let Some((input, ready)) = pending.pop() {
+            let original = match &input {
+                SubstitutionInput::Stored(original) => *original,
+                SubstitutionInput::Logical(original) => original,
+            };
+            if memo.contains_key(original) {
+                continue;
+            }
+            if ready {
+                let rebuilt = partial.remove(original).map_or_else(
+                    || Node::rebuild_logical(original, &memo, &projections),
+                    |selection| {
+                        selection.rebuild(&mut |child| {
+                            if child == original {
+                                return Node::rebuild_logical(original, &memo, &projections);
+                            }
+                            memo.get(child)
+                                .expect("unmatched original operands precede their parent")
+                                .clone()
+                        })
+                    },
+                );
+                projections.remove(original);
+                memo.insert(original.clone(), rebuilt);
+                continue;
+            }
+            match select(original) {
+                Some(Selection::Whole(replacement)) => {
+                    memo.insert(original.clone(), replacement);
+                }
+                Some(Selection::Partial(selection)) => {
+                    pending.push((input.clone(), true));
+                    for operand in &selection.remainder {
+                        match operand {
+                            RemainingOperand::Original(child)
+                            | RemainingOperand::Divisor(child)
+                            | RemainingOperand::Counted { base: child, .. }
+                            | RemainingOperand::Power { base: child, .. }
+                            | RemainingOperand::DivisorCounted { base: child, .. }
+                            | RemainingOperand::Scaled { base: child, .. } => {
+                                if child == original {
+                                    // A residual power may retain this input as its base.
+                                    // Its children are original; its new power is not.
+                                    input.expand_children(&mut pending, &mut projections);
+                                } else {
+                                    pending
+                                        .push((SubstitutionInput::Logical(child.clone()), false));
+                                }
+                            }
+                            RemainingOperand::Factored { factor, .. } => pending.extend(
+                                factor
+                                    .remaining_inputs()
+                                    .cloned()
+                                    .map(|child| (SubstitutionInput::Logical(child), false)),
+                            ),
+                            RemainingOperand::Fixed(_) | RemainingOperand::FixedDivisor(_) => {}
+                        }
+                    }
+                    partial.insert(original.clone(), selection);
+                }
+                None => {
+                    pending.push((input.clone(), true));
+                    input.expand_children(&mut pending, &mut projections);
+                }
+            }
+        }
+        memo.remove(self)
+            .expect("the original root is visited once")
+    }
+
+    /// Keep a wide integer exponent in a logarithmic number of native powers.
+    fn integer_power(base: &Self, exponent: i128) -> Self {
+        if let Ok(native) = i64::try_from(exponent) {
+            if let Some(value) = base.literal()
+                && value.value().is_finite()
+                && !value.value().is_zero()
+            {
+                if native > 0 {
+                    return AlgebraicOperands::repeat(base.clone(), native, false);
+                }
+                if let Some(magnitude) = native.checked_neg().filter(|count| *count > 0) {
+                    return Self::scalar_quotient(
+                        &NumericValue::new(Number::one()),
+                        value,
+                        magnitude,
+                    );
+                }
+            } else {
+                return base.pow(native);
+            }
+        }
+        let mut remaining = exponent.unsigned_abs();
+        let mut block = if exponent < 0 {
+            base.literal()
+                .filter(|value| value.value().is_finite() && !value.value().is_zero())
+                .map_or_else(
+                    || base.pow(-1),
+                    |value| Self::scalar_quotient(&NumericValue::new(Number::one()), value, 1),
+                )
+        } else {
+            base.clone()
+        };
+        let mut factors = Vec::new();
+        loop {
+            if let Ok(native) = i64::try_from(remaining) {
+                factors.push(if block.literal().is_some() {
+                    AlgebraicOperands::repeat(block, native, false)
+                } else {
+                    block.pow(native)
+                });
+                break;
+            }
+            if remaining & 1 != 0 {
+                factors.push(block.clone());
+            }
+            remaining >>= 1;
+            block = if block.literal().is_some() {
+                AlgebraicOperands::repeat(block, 2, false)
+            } else {
+                block.pow(2)
+            };
+        }
+        Self::product(factors)
+    }
+
     /// Divide scalar coefficients without materializing oversized integer powers.
     fn scalar_quotient(numerator: &NumericValue, denominator: &NumericValue, count: i64) -> Self {
         let (coefficient, remaining) = numerator.divide_power(denominator, count);
@@ -241,36 +426,6 @@ impl Expr {
                 Self::number(denominator.value().to_float()).pow(remaining.saturating_neg()),
             ])
         }
-    }
-
-    /// Fold finite division and remove an exact unit denominator.
-    fn div_expr(left: Self, right: Self) -> Self {
-        if right.is_one_num() {
-            return left;
-        }
-        if let (Some(numerator), Some(denominator)) = (left.literal(), right.literal())
-            && numerator.value().is_finite()
-            && denominator.value().is_finite()
-            && let Some(value) = numerator.div(denominator)
-        {
-            return Self::number(value);
-        }
-        Self::intern(Node::Div(left, right))
-    }
-
-    /// Fold finite powers while preserving symbolic and undefined zero powers.
-    fn pow_static(base: Self, exponent: Self) -> Self {
-        if exponent.is_one_num() {
-            return base;
-        }
-        if let (Some(value), Some(power)) = (base.literal(), exponent.literal())
-            && value.value().is_finite()
-            && power.value().is_finite()
-            && let Some(folded) = value.pow(power)
-        {
-            return Self::number(folded);
-        }
-        Self::intern(Node::Pow(base, exponent))
     }
 
     fn intern(node: Node) -> Self {
@@ -308,8 +463,11 @@ impl Expr {
 }
 
 mod analysis;
+mod calculus;
+mod candidates;
 mod constructors;
 mod display;
+mod evaluation;
 mod functions;
 mod identity;
 mod linear;
@@ -320,12 +478,16 @@ mod operands;
 mod operators;
 mod ordering;
 mod polynomial;
+mod power_matching;
 mod powers;
 mod projection;
+mod properties;
 mod reclaim;
 mod subsets;
 mod transform;
 mod view;
+
+pub use properties::{Properties, Property, Truth};
 
 #[cfg(test)]
 mod tests;

@@ -1,13 +1,5 @@
 //! Concrete substitutions with original-node and associative subset matching.
 
-#![cfg_attr(
-    test,
-    expect(
-        clippy::self_named_module_files,
-        reason = "descendant tests access the substitution owner beside its implementation"
-    )
-)]
-
 use alloc::vec::Vec;
 
 use hashbrown::hash_map::Entry;
@@ -30,32 +22,66 @@ use super::{Expr, SubstitutionError};
 /// coefficient quotients through the numeric backend: `2*x -> u` maps `3*x`
 /// to `(3/2)*u`, and maps `x` to `(1/2)*u`. Sum sources accept common signed
 /// and fractional scales, and quotient sources preserve unmatched denominators.
-/// Negative and fractional powers are not split. Scalar quotient evaluation
+/// Manifest common symbolic factors also participate: `x+y -> u` maps
+/// `f(z)*x + f(z)*y` to `f(z)*u`, without dividing by `f(z)`.
+/// Unmatched symbolic factors and function arguments remain traversal inputs:
+/// `2*x -> u` maps `f(x)*x` to `f(u/2)*u/2`.
+/// Exact rational and nested integer powers expose integral groups when zero
+/// exclusions survive: `x^2 -> u` maps `1/x^4` to `1/u^2`, and
+/// `sqrt(x) -> u` maps `x^(3/2)` to `u^3`.
+/// A source with a pole does not introduce that pole into a defined input.
+/// Fractional outer powers retain their principal base: `sqrt(x^2)` does not
+/// expose `x` as its square root. Original surviving bases and children are
+/// traversed; generated power counts are not new sources in the same pass.
+/// Scalar quotient evaluation
 /// reduces before promotion, avoiding oversized integer power intermediates.
+///
+/// A change of variable supplies the chosen inverse, \(x\to g(u)\). Every
+/// scalar occurrence of \(x\) is replaced, including function arguments,
+/// exponents, denominators, and compact polynomial bases. If \(g(u)\) does not
+/// contain \(x\), these scalar occurrences disappear. The caller chooses the
+/// domain and inverse branch; no domain proof or equation solving is required.
+/// An unevaluated derivative retains its differentiation-variable metadata.
+/// Changing that operator requires a calculus transformation.
+///
+/// ```
+/// use symb_anafis::{Context, Number, Substitution};
+/// let context = Context::new();
+/// let x = context.symb("x")?;
+/// let u = context.symb("u")?;
+/// let inverse = u.sqrt();
+/// let change = Substitution::new(x.into(), inverse.clone());
+/// let result = change.apply_all(&(x.pow(5) + x.sin()));
+/// let exponent = Number::from_int(5) / Number::from_int(2);
+/// assert_eq!(result, u.pow(exponent) + inverse.sin());
+/// assert!(!result.contains_symbol(x));
+/// # Ok::<(), symb_anafis::SymbolError>(())
+/// ```
 ///
 /// ```
 /// use symb_anafis::{Context, Substitution, UserFunction};
 /// let context = Context::new();
-/// let x = context.symb("x");
-/// let y = context.symb("y");
-/// let c = context.symb("c");
+/// let x = context.symb("x")?;
+/// let y = context.symb("y")?;
+/// let c = context.symb("c")?;
 /// let f = context.register_function("f", UserFunction::new(2..=2))?;
 /// let pair = context.register_function("pair", UserFunction::new(2..=2))?;
 /// let call = f.call(vec![x.into(), y.into()])?;
 /// let substitution = Substitution::new(call.clone(), c.into());
 /// let input = pair.call(vec![call.clone(), call])?;
 /// assert_eq!(substitution.apply_all(&input), pair.call(vec![c.into(), c.into()])?);
-/// # Ok::<(), symb_anafis::FunctionError>(())
+/// # Ok::<(), Box<dyn core::error::Error>>(())
 /// ```
 ///
 /// ```
 /// use symb_anafis::{Context, Expr, Substitution};
 /// let context = Context::new();
-/// let x = context.symb("x");
-/// let u = context.symb("u");
+/// let x = context.symb("x")?;
+/// let u = context.symb("u")?;
 /// let substitution = Substitution::new(2*x, u.into());
 /// assert_eq!(substitution.apply_all(&(3*x)), (Expr::number(3)/2)*u);
 /// assert_eq!(substitution.apply_all(&x.to_expr()), (Expr::number(1)/2)*u);
+/// # Ok::<(), symb_anafis::SymbolError>(())
 /// ```
 #[derive(Clone, Debug)]
 pub struct Substitution {
@@ -72,12 +98,14 @@ pub struct Substitution {
 /// Polynomial monomials participate through the logical expression projection.
 /// Overlapping operand groups follow entry order; whole-node matches take
 /// precedence. Disjoint groups are replaced without matching inserted values.
+/// Surviving common factors remain original traversal inputs. Numeric quotients
+/// and exponent counts created by decomposition are not new matching targets.
 ///
 /// ```
 /// use symb_anafis::{Context, Substitutions, UserFunction};
 /// let context = Context::new();
-/// let x = context.symb("x");
-/// let y = context.symb("y");
+/// let x = context.symb("x")?;
+/// let y = context.symb("y")?;
 /// let pair = context.register_function("pair", UserFunction::new(2..=2))?;
 /// let substitutions = Substitutions::new([
 ///     (x.into(), y.into()), (y.into(), x.into()),
@@ -158,7 +186,7 @@ impl Substitutions {
     pub fn iter(&self) -> impl Iterator<Item = (&Expr, &Expr)> {
         self.order
             .iter()
-            .filter_map(|from| self.get(from).map(|to| (from, to)))
+            .filter_map(|from| self.replacements.get(from).map(|to| (from, to)))
     }
 
     /// Return the number of distinct source expressions.
@@ -173,6 +201,3 @@ impl Substitutions {
         self.replacements.is_empty()
     }
 }
-
-#[cfg(test)]
-mod tests;

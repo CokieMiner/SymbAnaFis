@@ -13,7 +13,7 @@ use super::Expr;
 impl PartialEq for Expr {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
-        self.same_node(other)
+        eq(self.pointer(), other.pointer())
     }
 }
 
@@ -65,14 +65,5 @@ impl From<Number> for Expr {
 impl From<&Number> for Expr {
     fn from(value: &Number) -> Self {
         Self::number(value.clone())
-    }
-}
-
-impl Expr {
-    /// Test whether two handles own the same canonical allocation.
-    #[must_use]
-    #[inline]
-    pub fn same_node(&self, other: &Self) -> bool {
-        eq(self.pointer(), other.pointer())
     }
 }

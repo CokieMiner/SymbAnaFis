@@ -29,7 +29,7 @@ fn anonymous_symbol_view_keeps_identity_without_a_display_name() {
     );
     assert!(anonymous.unregister(), "the anonymous registration exists");
     assert!(
-        matches!(&viewed, ExprView::Symbol(symbol) if symbol.to_expr().same_node(&expression)),
+        matches!(&viewed, ExprView::Symbol(symbol) if symbol.to_expr() == expression),
         "name unbinding retains metadata"
     );
 }
@@ -41,8 +41,8 @@ proptest! {
     ) {
         let first_context = Context::new();
         let second_context = Context::new();
-        let first = first_context.symb(&name);
-        let second = second_context.symb(&name);
+        let first = first_context.symb(&name)?;
+        let second = second_context.symb(&name)?;
         let expression = first.to_expr();
         let node = expression.0.as_ref().expect("a live expression owns its node");
         let owners = Arc::strong_count(node);
@@ -54,12 +54,12 @@ proptest! {
         prop_assert_ne!(viewed, second);
         prop_assert_eq!(expression.as_symbol(), Some(viewed));
         first_context.clear_symbols();
-        prop_assert!(viewed.to_expr().same_node(&expression));
-        let rebound = first_context.symb(&name);
+        prop_assert_eq!(&viewed.to_expr(), &expression);
+        let rebound = first_context.symb(&name)?;
         prop_assert_ne!(viewed, rebound);
         prop_assert_eq!(expression.symbol_name(), Some(name.as_str()));
         drop(first_context);
-        prop_assert!(viewed.to_expr().same_node(&expression));
+        prop_assert_eq!(&viewed.to_expr(), &expression);
     }
 
     #[test]
@@ -71,8 +71,8 @@ proptest! {
         tail_count in 0_u8..=8,
     ) {
         let context = Context::new();
-        let x = context.symb("x");
-        let y = context.symb("y");
+        let x = context.symb("x")?;
+        let y = context.symb("y")?;
         let weighted = Expr::product(vec![Expr::number(coefficient), x.pow(low)]);
         let mut inputs = vec![weighted.clone(), x.pow(high), y.to_expr(), Expr::number(constant)];
         inputs.extend((-8_i64..0).take(usize::from(tail_count)).map(|exponent| x.pow(exponent)));
@@ -96,7 +96,7 @@ proptest! {
             prop_assert_eq!(cursor.len(), remaining);
         }
         prop_assert_eq!(remaining, 0);
-        prop_assert!(Expr::sum(logical).same_node(&root));
+        prop_assert_eq!(&Expr::sum(logical), &root);
 
         let exact = Pattern::sum(root.children().map(Pattern::exact).collect());
         let rule = RewriteRule::new(exact, Pattern::exact(y))
@@ -110,7 +110,7 @@ proptest! {
         high in 6_i64..=9,
     ) {
         let context = Context::new();
-        let base = context.symb("x").to_expr();
+        let base = context.symb("x")?.to_expr();
         let root = Expr::sum(vec![base.pow(low), base.pow(high)]);
         let node = base.0.as_ref().expect("a live expression owns its node");
         let owners = Arc::strong_count(node);
@@ -127,7 +127,7 @@ proptest! {
         prop_assert_eq!(copy.len(), 2);
         prop_assert_eq!(Arc::strong_count(node), owners.saturating_add(1));
         let copied = copy.next().expect("the cloned cursor starts at the first term");
-        prop_assert!(first.same_node(&copied));
+        prop_assert_eq!(&first, &copied);
         prop_assert_eq!(Arc::strong_count(node), owners.saturating_add(1));
         drop(first);
         drop(copied);
@@ -139,14 +139,14 @@ proptest! {
         exponent in 2_i64..=12,
     ) {
         let context = Context::new();
-        let x = context.symb("x");
-        let y = context.symb("y");
+        let x = context.symb("x")?;
+        let y = context.symb("y")?;
         let packed = context.register_function("packed", UserFunction::new(2..=2))
             .expect("the custom name is unbound");
         let power = x.pow(exponent);
         let input = Expr::sum(vec![x.to_expr(), power.clone(), y.to_expr()]);
-        let a = Pattern::capture("a");
-        let b = Pattern::capture("b");
+        let a = Pattern::capture("a", None);
+        let b = Pattern::capture("b", None);
         let output = Pattern::apply(packed.clone(), vec![a.clone(), b.clone()])
             .expect("packed is binary");
         let rule = RewriteRule::new(Pattern::sum(vec![a, b]), output)
@@ -162,8 +162,8 @@ proptest! {
         high in 6_i64..=9,
     ) {
         let context = Context::new();
-        let x = context.symb("x");
-        let y = context.symb("y");
+        let x = context.symb("x")?;
+        let y = context.symb("y")?;
         let function = context.register_function("pair", UserFunction::new(2..=2))
             .expect("the custom name is unbound");
         let root = match kind {
@@ -177,7 +177,7 @@ proptest! {
             7 => Expr::product(vec![x.to_expr(), y.to_expr()]),
             8 => Div::div(x.to_expr(), y.to_expr()),
             9 => x.pow(low),
-            10 => Expr::derivative_symbol(x.sin(), x, 2),
+            10 => Expr::derivative(x.sin(), x, 2),
             _ => Expr::sum(vec![x.pow(low), x.pow(high), Expr::number(1)]),
         };
         let mut children = root.children();
@@ -203,7 +203,7 @@ proptest! {
     ) {
         let children = {
             let context = Context::new();
-            let x = context.symb("x");
+            let x = context.symb("x")?;
             let root = Expr::sum(vec![x.pow(low), x.pow(high)]);
             root.children().collect::<Vec<_>>()
         };
@@ -220,9 +220,9 @@ proptest! {
         constant in 1_i32..=6,
     ) {
         let context = Context::new();
-        let x = context.symb("x");
-        let y = context.symb("y");
-        let u = context.symb("u");
+        let x = context.symb("x")?;
+        let y = context.symb("y")?;
+        let u = context.symb("u")?;
         let target = x.pow(low);
         let other = x.pow(high);
         let compact = Expr::sum(vec![target.clone(), other.clone()]);
@@ -245,11 +245,11 @@ proptest! {
             *count = count.saturating_add(1);
             Ok::<_, ()>(None)
         }).expect("the counting transformation cannot fail");
-        prop_assert!(unchanged.same_node(&root));
+        prop_assert_eq!(&unchanged, &root);
         prop_assert_eq!(folded, mapped);
 
         let transformed = root.map(|node| {
-            Ok::<_, ()>(node.same_node(&target).then(|| u.to_expr()))
+            Ok::<_, ()>((node == &target).then(|| u.to_expr()))
         }).expect("concrete replacement cannot fail");
         let expected_sum = Expr::sum(vec![u.to_expr(), other, y.to_expr(), Expr::number(constant)]);
         let expected = function.call(vec![expected_sum, u.to_expr()]).expect("pair is binary");

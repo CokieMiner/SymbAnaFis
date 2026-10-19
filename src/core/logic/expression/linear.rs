@@ -1,4 +1,4 @@
-//! Common scalar multiples of original additive terms.
+//! Common numeric and symbolic factors of original additive terms.
 
 use core::ops::Sub;
 
@@ -7,12 +7,12 @@ use alloc::{vec, vec::Vec};
 use num_anafis::Number;
 
 use super::{
-    AdditiveOperands, ConcreteMatcher, ExactSources, Expr, LinearMatch, LinearOperands, LinearTerm,
-    Node, NumericValue, PartialSelection, RemainingOperand, Selection,
+    AdditiveOperands, AlgebraicOperands, ConcreteMatcher, ExactSources, Expr, LinearMatch,
+    LinearOperands, LinearTerm, Node, NumericValue, PartialSelection, RemainingOperand, Selection,
 };
 
 impl ConcreteMatcher<'_> {
-    /// Replace common scalar multiples while retaining original unmatched bases.
+    /// Replace common factors while retaining original unmatched bases.
     pub fn select_linear(
         &self,
         expression: &Expr,
@@ -21,10 +21,19 @@ impl ConcreteMatcher<'_> {
         let Some(mut operands) = LinearOperands::new(expression) else {
             return explicit.map(Selection::Partial);
         };
-        let mut inserted = Vec::new();
+        let mut replacements = Vec::new();
         let mut apply = |source: &Expr, destination: &Expr| {
-            if let Some(selected) = operands.select(source) {
-                inserted.push(operands.consume(selected, destination));
+            let Some(required) = LinearOperands::new(source) else {
+                return;
+            };
+            while let Some(selected) = operands.select(&required) {
+                let (replacement, exhausted_term) = operands.consume(selected, destination);
+                replacements.push(replacement);
+                if !exhausted_term {
+                    // Approximate division may leave every coefficient nonzero.
+                    // Retain that residual without repeatedly rounding it away.
+                    break;
+                }
             }
         };
         match self.exact {
@@ -35,11 +44,8 @@ impl ConcreteMatcher<'_> {
                 }
             }
         }
-        if inserted.is_empty() {
+        if replacements.is_empty() {
             return explicit.map(Selection::Partial);
-        }
-        if let Some(partial) = explicit {
-            inserted.extend(partial.inserted);
         }
         let remainder = operands
             .terms
@@ -59,11 +65,12 @@ impl ConcreteMatcher<'_> {
                     None => RemainingOperand::Fixed(term.coefficient),
                 })
             })
+            .chain(replacements)
             .collect();
         Some(Selection::Partial(PartialSelection {
             sum: true,
             remainder,
-            inserted,
+            inserted: explicit.map_or_else(Vec::new, |partial| partial.inserted),
         }))
     }
 }
@@ -122,15 +129,14 @@ impl LinearOperands {
         })
     }
 
-    fn select(&self, source: &Expr) -> Option<LinearMatch> {
-        let source_terms = Self::new(source)?;
-        let explicit: Option<Vec<_>> = source_terms
+    fn select(&self, source: &Self) -> Option<LinearMatch> {
+        let explicit: Option<Vec<_>> = source
             .terms
             .iter()
             .map(|required| {
                 self.terms
                     .iter()
-                    .position(|term| !term.changed && term.original.same_node(&required.original))
+                    .position(|term| !term.changed && term.original == required.original)
                     .map(|index| (index, required.coefficient.clone()))
             })
             .collect();
@@ -138,19 +144,102 @@ impl LinearOperands {
             return Some(LinearMatch {
                 terms,
                 scale: Number::one(),
+                factor: None,
             });
         }
+        if let Some(selected) = self.select_scaled(source, None) {
+            return Some(selected);
+        }
+        let anchor = source.terms.first()?;
+        for term in self
+            .terms
+            .iter()
+            .filter(|term| !term.coefficient.is_zero_num())
+        {
+            let Some(base) = &term.base else {
+                continue;
+            };
+            let Some(factor) = anchor.base.as_ref().map_or_else(
+                || AlgebraicOperands::new(base, false, 0),
+                |required| AlgebraicOperands::remove_once(base, required),
+            ) else {
+                continue;
+            };
+            if factor.slots.iter().any(|slot| {
+                slot.base
+                    .literal()
+                    .is_some_and(|value| !value.value().is_finite())
+            }) {
+                continue;
+            }
+            let multiplier = PartialSelection {
+                sum: false,
+                remainder: factor.remainder(),
+                inserted: Vec::new(),
+            }
+            .rebuild(&mut Clone::clone);
+            if !multiplier.is_one_num()
+                && let Some(mut selected) = self.select_scaled(source, Some(&multiplier))
+            {
+                selected.factor = Some(factor);
+                return Some(selected);
+            }
+        }
+        None
+    }
+
+    /// Select a common factor using \(c F (a b + d e)\).
+    /// Numeric ratios choose a common signed scale without symbolic division.
+    fn select_scaled(&self, source: &Self, factor: Option<&Expr>) -> Option<LinearMatch> {
         let mut scale: Option<Number> = None;
-        let mut selected = Vec::new();
-        for required in source_terms.terms {
+        let mut selected: Vec<(usize, Expr)> = Vec::new();
+        for required in &source.terms {
             let coefficient = required.coefficient.literal()?;
             if !coefficient.value().is_finite() || coefficient.value().is_zero() {
                 return None;
             }
-            let (index, term) =
-                self.terms.iter().enumerate().find(|(_, term)| {
-                    term.base == required.base && !term.coefficient.is_zero_num()
-                })?;
+            let base = factor.map_or_else(
+                || required.base.clone(),
+                |multiplier| {
+                    Some(required.base.as_ref().map_or_else(
+                        || multiplier.clone(),
+                        |base| Expr::product(vec![multiplier.clone(), base.clone()]),
+                    ))
+                },
+            );
+            let available = |index: usize, term: &LinearTerm| {
+                !term.coefficient.is_zero_num()
+                    && !selected.iter().any(|(previous, _)| *previous == index)
+            };
+            let direct = self
+                .terms
+                .iter()
+                .enumerate()
+                .find(|(index, term)| term.base == base && available(*index, term));
+            let (index, term) = direct.or_else(|| {
+                let multiplier = factor?;
+                let required_base = required.base.as_ref()?;
+                self.terms.iter().enumerate().find(|(index, term)| {
+                    if !available(*index, term) {
+                        return false;
+                    }
+                    let Some(actual_base) = &term.base else {
+                        return false;
+                    };
+                    let Some(remaining) =
+                        AlgebraicOperands::remove_once(actual_base, required_base)
+                    else {
+                        return false;
+                    };
+                    PartialSelection {
+                        sum: false,
+                        remainder: remaining.remainder(),
+                        inserted: Vec::new(),
+                    }
+                    .rebuild(&mut Clone::clone)
+                        == *multiplier
+                })
+            })?;
             let actual = term.coefficient.literal()?;
             if !actual.value().is_finite() {
                 return None;
@@ -175,27 +264,29 @@ impl LinearOperands {
             } else {
                 scale = Some(ratio.clone());
             }
-            selected.push((index, required.coefficient));
+            selected.push((index, required.coefficient.clone()));
         }
         Some(LinearMatch {
             terms: selected,
             scale: scale?,
+            factor: None,
         })
     }
 
-    fn consume(&mut self, selected: LinearMatch, destination: &Expr) -> Expr {
+    fn consume(&mut self, selected: LinearMatch, destination: &Expr) -> (RemainingOperand, bool) {
         let coefficient = Expr::number(selected.scale);
+        let mut exhausted_term = false;
         for (index, required) in selected.terms {
             if let Some(term) = self.terms.get_mut(index) {
                 let consumed = Expr::product(vec![required, coefficient.clone()]);
                 term.coefficient = Sub::sub(&term.coefficient, consumed);
                 term.changed = true;
+                exhausted_term |= term.coefficient.is_zero_num();
             }
         }
-        if coefficient.is_one_num() {
-            return destination.clone();
-        }
-        if let Some(terms) = destination.additive_operands() {
+        let inserted = if coefficient.is_one_num() {
+            destination.clone()
+        } else if let Some(terms) = destination.additive_operands() {
             Expr::sum(
                 terms
                     .iter()
@@ -204,7 +295,12 @@ impl LinearOperands {
             )
         } else {
             Expr::product(vec![coefficient, destination.clone()])
-        }
+        };
+        let replacement = match selected.factor {
+            Some(factor) => RemainingOperand::Factored { factor, inserted },
+            None => RemainingOperand::Fixed(inserted),
+        };
+        (replacement, exhausted_term)
     }
 
     /// Recognize additive shapes and numeric multiples without reconstructing terms.
@@ -245,6 +341,7 @@ impl LinearTerm {
         };
         let (mut coefficient, base) = match numerator.node() {
             Node::Number(value) if value.value().is_finite() => (numerator.clone(), None),
+            Node::ImaginaryUnit => (numerator.clone(), None),
             Node::Product(factors)
                 if factors.first().is_some_and(|first| {
                     first
@@ -259,7 +356,6 @@ impl LinearTerm {
                 }
             }
             Node::Number(_)
-            | Node::ImaginaryUnit
             | Node::Pi
             | Node::Euler
             | Node::Symbol(_)

@@ -1,4 +1,4 @@
-//! Lazy commutative partitions and positive-power decompositions.
+//! Lazy commutative partitions and exact power decompositions.
 
 use alloc::{vec, vec::Vec};
 
@@ -6,10 +6,13 @@ use super::{Assignment, Expr, Group, GroupValues, OperandDemand, Pattern, Patter
 
 impl Group<'_, '_> {
     /// Try individual operands, counted blocks, then grouped capture partitions.
-    pub fn candidate(&mut self, pattern: &Pattern) -> Option<(Expr, Assignment)> {
+    pub fn candidate<'pattern>(
+        &mut self,
+        pattern: &'pattern Pattern,
+    ) -> Option<(Expr, Assignment<'pattern>)> {
         if !self.root
             && self.patterns.len() == 1
-            && matches!(pattern.node(), PatternNode::Capture(_))
+            && matches!(pattern.node(), PatternNode::Capture { .. })
         {
             return self.grouped(true);
         }
@@ -18,29 +21,45 @@ impl Group<'_, '_> {
             GroupValues::Owned(values) => values.len(),
             GroupValues::Counted(values) => values.originals().len(),
         };
+        let power = if !self.sum && matches!(self.values, GroupValues::Counted(_)) {
+            pattern.node().power_template()
+        } else {
+            None
+        };
+        let basic = pattern.node().operand_demand(self.sum, power.as_ref());
+        let multiple = matches!(pattern.node(), PatternNode::Capture { .. })
+            || power.is_some() && matches!(basic, OperandDemand::Power(_));
+        let literal = if let PatternNode::Exact(value) = pattern.node() {
+            Some(value)
+        } else {
+            None
+        };
         while self.next < count {
             let index = self.next;
             if let GroupValues::Counted(values) = &self.values {
-                let basic = pattern.node().operand_demand(self.sum);
-                let multiple = matches!(pattern.node(), PatternNode::Capture(_))
-                    || matches!(pattern.node(), PatternNode::Pow(..))
-                        && matches!(basic, OperandDemand::Power(_));
                 let demand = match (pattern.node(), basic) {
-                    (PatternNode::Capture(_), _) if self.projection == 0 => OperandDemand::Whole,
-                    (PatternNode::Capture(_), _) => OperandDemand::Split(self.projection),
-                    (PatternNode::Pow(..), OperandDemand::Power(exponent)) => OperandDemand::Root {
-                        exponent,
-                        block: self.projection.saturating_add(1),
-                    },
+                    (PatternNode::Capture { .. }, _) if self.projection == 0 => {
+                        OperandDemand::Whole
+                    }
+                    (PatternNode::Capture { .. }, _) => OperandDemand::Split(self.projection),
+                    (_, OperandDemand::Power(exponent)) if power.is_some() => {
+                        let Some(block) = self.projection.checked_add(1) else {
+                            self.next = index.saturating_add(1);
+                            self.projection = 0;
+                            continue;
+                        };
+                        OperandDemand::Root { exponent, block }
+                    }
                     _ => basic,
                 };
-                let literal = if let PatternNode::Exact(value) = pattern.node() {
-                    Some(value)
-                } else {
-                    None
-                };
                 let projected = if let Selected::Counted(used) = &self.selected {
-                    values.candidate(index, demand, literal, used.iter(), false)
+                    values.candidate(
+                        index,
+                        demand,
+                        literal,
+                        used.iter(),
+                        power.as_ref().is_some_and(|source| source.inverse),
+                    )
                 } else {
                     None
                 };
@@ -50,7 +69,15 @@ impl Group<'_, '_> {
                     } else {
                         self.next = index.saturating_add(1);
                     }
-                    return Some((value, Assignment::Counted(consumed)));
+                    let assignment = if let Some(source) = power {
+                        Assignment::Projected {
+                            operand: consumed,
+                            base: source.base,
+                        }
+                    } else {
+                        Assignment::Counted(consumed)
+                    };
+                    return Some((value, assignment));
                 }
                 self.next = index.saturating_add(1);
                 self.projection = 0;
@@ -68,14 +95,14 @@ impl Group<'_, '_> {
                 }
             }
         }
-        if matches!(pattern.node(), PatternNode::Capture(_)) {
+        if matches!(pattern.node(), PatternNode::Capture { .. }) {
             self.grouped(false)
         } else {
             None
         }
     }
 
-    fn grouped(&mut self, complete: bool) -> Option<(Expr, Assignment)> {
+    fn grouped(&mut self, complete: bool) -> Option<(Expr, Assignment<'static>)> {
         let values = match &self.values {
             GroupValues::Borrowed(values) => *values,
             GroupValues::Owned(values) => values.as_ref(),

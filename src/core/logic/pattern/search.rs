@@ -4,15 +4,27 @@ use core::ptr::from_ref;
 
 use alloc::vec::Vec;
 
+use hashbrown::hash_map::Entry;
+
 use crate::collections::{HashMap, HashSet};
 
 use super::{
-    AlgebraicOperands, Assignment, Choice, Expr, Group, GroupValues, MatchChildren, MatchInput,
-    MatchResult, MatchWork, OperandDemand, Pattern, PatternNode, RewriteError, Search, Selected,
-    Task, Undo,
+    AlgebraicOperands, Assignment, BuiltinFunction, Choice, Expr, Group, GroupValues,
+    MatchChildren, MatchInput, MatchResult, MatchWork, NonZeroU64, OperandDemand, Pattern,
+    PatternNode, PowerTemplate, RewriteError, Search, Selected, Task, Undo,
 };
 
 impl<'pattern, 'input> Search<'pattern, 'input> {
+    pub fn new() -> Self {
+        Self {
+            pending: Vec::new(),
+            captured: HashMap::new(),
+            expanded: HashSet::new(),
+            undo: Vec::new(),
+            choices: Vec::new(),
+        }
+    }
+
     pub fn run(
         mut self,
         work: &mut MatchWork,
@@ -85,16 +97,25 @@ impl<'pattern, 'input> Search<'pattern, 'input> {
                     .checked_sub(1)
                     .ok_or(RewriteError::MatchLimitExceeded { limit: work.limit })?;
             }
-            if !self.compatible(pattern, &value) {
+            let template = match &assignment {
+                Assignment::Projected { base, .. } => *base,
+                Assignment::Explicit(_) | Assignment::Group(_) | Assignment::Counted(_) => pattern,
+            };
+            if !self.compatible(template, &value) {
                 continue;
             }
             let mut selected = group.selected.clone();
             match (&mut selected, assignment) {
-                (Selected::Explicit(indices), Assignment::Explicit(index)) => indices.push(index),
+                (Selected::Explicit(indices), Assignment::Explicit(index)) => {
+                    indices.push(index);
+                }
                 (Selected::Explicit(indices), Assignment::Group(assigned)) => {
                     indices.extend(assigned);
                 }
-                (Selected::Counted(operands), Assignment::Counted(operand)) => {
+                (
+                    Selected::Counted(operands),
+                    Assignment::Counted(operand) | Assignment::Projected { operand, .. },
+                ) => {
                     operands.push(operand);
                 }
                 _ => {
@@ -116,10 +137,19 @@ impl<'pattern, 'input> Search<'pattern, 'input> {
                 checkpoint: self.undo.len(),
                 retry: group,
             });
-            // The new choice checkpoints both pushes before either task runs.
-            self.undo.extend([Undo::Pushed, Undo::Pushed]);
-            self.pending
-                .extend([Task::Group(continuation), Task::Match(pattern, value)]);
+            if let PatternNode::Capture { name, .. } = template.node() {
+                if let Entry::Vacant(entry) = self.captured.entry(name.as_ref()) {
+                    entry.insert(value);
+                    self.undo.push(Undo::Capture(name));
+                }
+                self.undo.push(Undo::Pushed);
+                self.pending.push(Task::Group(continuation));
+            } else {
+                // The new choice checkpoints both pushes before either task runs.
+                self.undo.extend([Undo::Pushed, Undo::Pushed]);
+                self.pending
+                    .extend([Task::Group(continuation), Task::Match(template, value)]);
+            }
             return Ok(true);
         }
         Ok(false)
@@ -138,7 +168,7 @@ impl<'pattern, 'input> Search<'pattern, 'input> {
         if cacheable && self.expanded.contains(&key) {
             return true;
         }
-        let capture = if let PatternNode::Capture(name) = pattern.node()
+        let capture = if let PatternNode::Capture { name, .. } = pattern.node()
             && !self.captured.contains_key(name.as_ref())
         {
             Some(name.as_ref())
@@ -209,11 +239,13 @@ impl<'pattern, 'input> Search<'pattern, 'input> {
 
     fn compatible(&self, pattern: &Pattern, value: &Expr) -> bool {
         match pattern.node() {
-            PatternNode::Exact(expected) => expected.same_node(value),
-            PatternNode::Capture(name) => self
-                .captured
-                .get(name.as_ref())
-                .is_none_or(|existing| existing.same_node(value)),
+            PatternNode::Exact(expected) => expected == value,
+            PatternNode::Capture { name, predicates } => {
+                self.captured
+                    .get(name.as_ref())
+                    .is_none_or(|existing| existing == value)
+                    && predicates.iter().all(|predicate| predicate(value))
+            }
             PatternNode::Function { .. }
             | PatternNode::Sum(_)
             | PatternNode::Product(_)
@@ -247,32 +279,24 @@ impl<'pattern, 'input> Search<'pattern, 'input> {
         self.pending.push(Task::Group(choice.retry));
         true
     }
-
-    pub fn new() -> Self {
-        Self {
-            pending: Vec::new(),
-            captured: HashMap::new(),
-            expanded: HashSet::new(),
-            undo: Vec::new(),
-            choices: Vec::new(),
-        }
-    }
 }
 
 impl PatternNode {
     /// Prove a fixed exponent or coefficient before projecting a virtual operand.
-    pub fn operand_demand(&self, sum: bool) -> OperandDemand {
+    pub fn operand_demand(&self, sum: bool, power: Option<&PowerTemplate<'_>>) -> OperandDemand {
+        if let Some(source) = power {
+            return if source.denominator == NonZeroU64::MIN {
+                OperandDemand::Power(source.numerator)
+            } else {
+                OperandDemand::Rational {
+                    numerator: source.numerator,
+                    denominator: source.denominator,
+                }
+            };
+        }
         match self {
             Self::Exact(value) => AlgebraicOperands::demand(value, sum),
-            Self::Pow(_, exponent) if !sum => {
-                if let Self::Exact(value) = exponent.node() {
-                    AlgebraicOperands::integer(value)
-                        .filter(|power| *power > 0)
-                        .map_or(OperandDemand::Whole, OperandDemand::Power)
-                } else {
-                    OperandDemand::Whole
-                }
-            }
+            Self::Pow(..) if !sum => OperandDemand::Whole,
             Self::Product(factors) if sum => factors
                 .first()
                 .and_then(|factor| {
@@ -284,12 +308,72 @@ impl PatternNode {
                 })
                 .filter(|count| *count > 0)
                 .map_or(OperandDemand::Atom, OperandDemand::Copies),
-            Self::Capture(_)
+            Self::Capture { .. }
             | Self::Function { .. }
             | Self::Sum(_)
             | Self::Product(_)
             | Self::Div(..)
             | Self::Pow(..) => OperandDemand::Atom,
         }
+    }
+
+    /// Expose only a fixed exact exponent, retaining the template's principal base.
+    pub fn power_template(&self) -> Option<PowerTemplate<'_>> {
+        let reciprocal = match self {
+            Self::Div(unit, denominator) if matches!(unit.node(), Self::Exact(value) if value.is_one_num()) => {
+                Some(denominator)
+            }
+            Self::Capture { .. }
+            | Self::Exact(_)
+            | Self::Function { .. }
+            | Self::Sum(_)
+            | Self::Product(_)
+            | Self::Div(..)
+            | Self::Pow(..) => None,
+        };
+        let node = reciprocal.map_or(self, Pattern::node);
+        if reciprocal.is_some()
+            && matches!(node, Self::Div(unit, _) if matches!(unit.node(), Self::Exact(value) if value.is_one_num()))
+        {
+            return None;
+        }
+        let projected = match node {
+            Self::Pow(base, exponent) => {
+                let ratio = if let Self::Exact(value) = exponent.node() {
+                    AlgebraicOperands::ratio(value)
+                } else {
+                    None
+                };
+                ratio.map(|(numerator, denominator)| (base, numerator, denominator))
+            }
+            Self::Function { name, args } if *name == BuiltinFunction::Sqrt.function() => {
+                let [base] = args.as_slice() else { return None };
+                Some((base, 1, NonZeroU64::new(2)?))
+            }
+            Self::Capture { .. }
+            | Self::Exact(_)
+            | Self::Function { .. }
+            | Self::Sum(_)
+            | Self::Product(_)
+            | Self::Div(..) => None,
+        };
+        let Some((base, signed, denominator)) = projected else {
+            return reciprocal.map(|base| PowerTemplate {
+                base,
+                numerator: 1,
+                denominator: NonZeroU64::MIN,
+                inverse: true,
+            });
+        };
+        if signed < 0 && reciprocal.is_some() {
+            return None;
+        }
+        let numerator = signed.checked_abs()?;
+        (numerator > 0).then_some(PowerTemplate {
+            base,
+            numerator,
+            denominator,
+            inverse: signed < 0 || reciprocal.is_some(),
+        })
     }
 }

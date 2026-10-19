@@ -1,27 +1,13 @@
 //! Memoized DAG reconstruction and original-node substitution.
 
-#![cfg_attr(
-    test,
-    expect(
-        clippy::self_named_module_files,
-        reason = "descendant tests verify the private traversal without exposing its callback kernel"
-    )
-)]
-
-use alloc::{sync::Arc, vec, vec::Vec};
+use alloc::{vec, vec::Vec};
 
 use crate::collections::{HashMap, HashSet};
 
 use super::{
-    ConcreteMatcher, ExactSources, Expr, FunctionDefinition, Node, PartialSelection, Polynomial,
-    RemainingOperand, Selection, Substitution, Substitutions, Symbol,
+    ConcreteMatcher, ExactSources, Expr, FunctionDefinition, Node, Polynomial, Substitution,
+    SubstitutionInput, Substitutions, Symbol,
 };
-
-#[derive(Clone)]
-enum SubstitutionInput<'root> {
-    Stored(&'root Expr),
-    Logical(Expr),
-}
 
 impl Substitution {
     /// Replace exact nodes and disjoint explicit or counted arithmetic groups.
@@ -31,8 +17,9 @@ impl Substitution {
     /// projection. Every surviving edge to a shared node receives the same
     /// memoized result; destinations are not substituted again.
     ///
-    /// Matching uses positive integer powers, common signed additive scales,
-    /// and scalar coefficient quotients. Quotients are reduced before approximate
+    /// Matching uses exact power groups that preserve branches and zero exclusions,
+    /// common additive factors, and scalar coefficient quotients.
+    /// Quotients are reduced before approximate
     /// promotion. Unmatched bases remain original traversal inputs; generated
     /// coefficient quotients and exponent literals are kept out of selection.
     ///
@@ -41,6 +28,9 @@ impl Substitution {
     /// numeric backend capacity panics.
     #[must_use]
     pub fn apply_all(&self, expression: &Expr) -> Expr {
+        if self.from() == self.to() {
+            return expression.clone();
+        }
         let matcher = ConcreteMatcher::new(ExactSources::One(self));
         expression.substitute_logical_with(|node| matcher.select(node))
     }
@@ -58,7 +48,10 @@ impl Substitutions {
     /// numeric backend capacity panics.
     #[must_use]
     pub fn apply_all(&self, expression: &Expr) -> Expr {
-        if self.is_empty() {
+        if self
+            .iter()
+            .all(|(source, destination)| source == destination)
+        {
             return expression.clone();
         }
         let matcher = ConcreteMatcher::new(ExactSources::Many(self));
@@ -117,7 +110,8 @@ impl Expr {
         Ok(transform(&rebuilt)?.unwrap_or(rebuilt))
     }
 
-    /// Replace all occurrences of one symbol identity, across all DAG edges.
+    /// Replace symbol expression nodes with this identity across all DAG edges.
+    /// A derivative's differentiation-variable metadata retains its identity.
     ///
     /// # Panics
     /// Rebuilding changed parents can propagate numeric backend capacity panics.
@@ -141,7 +135,8 @@ impl Expr {
         })
     }
 
-    /// Replace all symbols with this name, including distinct context identities.
+    /// Replace symbol expression nodes with this name across context identities.
+    /// Differentiation-variable metadata retains its identity.
     /// Use `substitute_symbol` when the identity matters.
     ///
     /// # Panics
@@ -175,68 +170,10 @@ impl Expr {
             })
         })
     }
-
-    fn substitute_logical_with(&self, mut select: impl FnMut(&Self) -> Option<Selection>) -> Self {
-        let mut memo = HashMap::new();
-        let mut projections = HashMap::new();
-        let mut partial: HashMap<Self, PartialSelection> = HashMap::new();
-        let mut pending = vec![(SubstitutionInput::Stored(self), false)];
-        while let Some((input, ready)) = pending.pop() {
-            let original = match &input {
-                SubstitutionInput::Stored(original) => *original,
-                SubstitutionInput::Logical(original) => original,
-            };
-            if memo.contains_key(original) {
-                continue;
-            }
-            if ready {
-                let rebuilt = partial.remove(original).map_or_else(
-                    || Node::rebuild_logical(original, &memo, &projections),
-                    |selection| {
-                        selection.rebuild(|child| {
-                            memo.get(child)
-                                .expect("unmatched original operands precede their parent")
-                                .clone()
-                        })
-                    },
-                );
-                projections.remove(original);
-                memo.insert(original.clone(), rebuilt);
-                continue;
-            }
-            match select(original) {
-                Some(Selection::Whole(replacement)) => {
-                    memo.insert(original.clone(), replacement);
-                }
-                Some(Selection::Partial(selection)) => {
-                    pending.push((input.clone(), true));
-                    pending.extend(selection.remainder.iter().filter_map(
-                        |operand| match operand {
-                            RemainingOperand::Original(child)
-                            | RemainingOperand::Divisor(child)
-                            | RemainingOperand::Counted { base: child, .. }
-                            | RemainingOperand::DivisorCounted { base: child, .. }
-                            | RemainingOperand::Scaled { base: child, .. } => {
-                                Some((SubstitutionInput::Logical(child.clone()), false))
-                            }
-                            RemainingOperand::Fixed(_) | RemainingOperand::FixedDivisor(_) => None,
-                        },
-                    ));
-                    partial.insert(original.clone(), selection);
-                }
-                None => {
-                    pending.push((input.clone(), true));
-                    input.expand_children(&mut pending, &mut projections);
-                }
-            }
-        }
-        memo.remove(self)
-            .expect("the original root is visited once")
-    }
 }
 
 impl SubstitutionInput<'_> {
-    fn expand_children(
+    pub fn expand_children(
         &self,
         pending: &mut Vec<(Self, bool)>,
         projections: &mut HashMap<Expr, Vec<Expr>>,
@@ -327,7 +264,7 @@ impl Node {
         (result, projections)
     }
 
-    fn rebuild_logical(
+    pub fn rebuild_logical(
         original: &Expr,
         memo: &HashMap<Expr, Expr>,
         projections: &HashMap<Expr, Vec<Expr>>,
@@ -339,7 +276,7 @@ impl Node {
         projections.get(original).map_or_else(
             || Self::rebuild_with(original, get),
             |terms| {
-                if terms.iter().all(|term| term.same_node(get(term))) {
+                if terms.iter().all(|term| term == get(term)) {
                     original.clone()
                 } else {
                     Expr::sum(terms.iter().map(|term| get(term).clone()).collect())
@@ -349,7 +286,7 @@ impl Node {
     }
 
     fn rebuild_with<'mapped>(original: &Expr, get: impl Fn(&Expr) -> &'mapped Expr) -> Expr {
-        if Self::children(original).all(|child| child.same_node(get(child))) {
+        if Self::children(original).all(|child| child == get(child)) {
             return original.clone();
         }
         let mapped = |child: &Expr| get(child).clone();
@@ -363,13 +300,11 @@ impl Node {
             Self::Sum(args) => Expr::sum(args.iter().map(mapped).collect()),
             Self::Poly(polynomial) => Expr::sum(Self::mapped_polynomial(polynomial, mapped)),
             Self::Product(args) => Expr::product(args.iter().map(mapped).collect()),
-            Self::Div(left, right) => Expr::div_expr(mapped(left), mapped(right)),
-            Self::Pow(base, exponent) => Expr::pow_static(mapped(base), mapped(exponent)),
-            Self::Derivative { inner, var, order } => Expr::intern(Self::Derivative {
-                inner: mapped(inner),
-                var: Arc::clone(var),
-                order: *order,
-            }),
+            Self::Div(left, right) => Self::normalize_quotient(mapped(left), mapped(right)),
+            Self::Pow(base, exponent) => Self::normalize_power(mapped(base), mapped(exponent)),
+            Self::Derivative { inner, var, order } => {
+                Expr::derivative(mapped(inner), var.symbol(), order.get())
+            }
         }
     }
 
@@ -398,6 +333,3 @@ impl Node {
             .chain(polynomial.into_iter().flat_map(Polynomial::children))
     }
 }
-
-#[cfg(test)]
-mod tests;

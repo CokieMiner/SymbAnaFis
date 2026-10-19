@@ -1,4 +1,4 @@
-//! Queries on unique DAG nodes, independent of parked engines.
+//! Queries on unique expression DAG nodes.
 
 use core::iter::once;
 
@@ -9,7 +9,8 @@ use crate::collections::{HashMap, HashSet};
 use super::{Expr, Node, Symbol, SymbolData};
 
 impl Expr {
-    /// Count distinct reachable allocations, rather than repeated edges.
+    /// Count distinct reachable DAG nodes, rather than repeated edges.
+    /// Payload buffers and registry allocations are excluded.
     #[must_use]
     pub fn node_count(&self) -> usize {
         // Each reachable node owns a nonempty allocation, so their count plus
@@ -18,7 +19,7 @@ impl Expr {
     }
 
     /// Return the longest stored DAG path, counting the root as depth one.
-    /// This allocation metric does not materialize compact additive terms.
+    /// Stored-node depth does not materialize compact additive terms.
     #[must_use]
     pub fn max_depth(&self) -> usize {
         let mut depths: HashMap<&Self, usize> = HashMap::new();

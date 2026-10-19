@@ -16,14 +16,15 @@ use core::{
 
 use alloc::{sync::Arc, vec::Vec};
 
-use super::{BuiltinFunction, Expr, FunctionDefinition, FunctionError};
+use super::{BuiltinFunction, Expr, FunctionDefinition, FunctionError, UserFunction};
 
-/// An opaque function identity with a static builtin or an owning custom name.
+/// An opaque function identity with a static builtin or an owning custom definition.
 ///
 /// Builtins require no allocation or registry lock. Custom handles retain their
-/// registered name and immutable arity, even after removal from their context.
-/// Distinct registrations own distinct identities. The last handle or expression
-/// releases unused metadata.
+/// name, arity, body, and partial derivatives after removal or context destruction.
+/// Registered definitions are immutable. Distinct registrations own distinct
+/// identities; equality and hashing do not inspect callbacks. The final handle
+/// or expression releases the definition and its captured owners.
 #[derive(Clone, Debug)]
 pub struct FunctionName(FunctionIdentity);
 
@@ -36,8 +37,7 @@ enum FunctionIdentity {
 #[derive(Debug)]
 struct CustomFunction {
     name: Arc<str>,
-    minimum: usize,
-    maximum: usize,
+    definition: UserFunction,
 }
 
 impl PartialEq for FunctionName {
@@ -123,7 +123,37 @@ impl FunctionName {
                 let arity = function.definition().arity();
                 arity..=arity
             }
-            FunctionIdentity::Custom(function) => function.minimum..=function.maximum,
+            FunctionIdentity::Custom(function) => function.definition.arity(),
+        }
+    }
+
+    /// Borrow a custom function's immutable definition without registry access.
+    /// Builtins return `None`; their behavior belongs to the static builtin registry.
+    /// The definition remains available after removal or context destruction.
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    /// use symb_anafis::{Context, Expr, FunctionError, UserFunction};
+    /// let function = {
+    ///     let context = Context::new();
+    ///     context.register_function(
+    ///         "add",
+    ///         UserFunction::new(2..=2)
+    ///             .body(Arc::new(|args| Expr::sum(args.to_vec())))
+    ///             .partial(0, Arc::new(|_| Expr::number(1)))?,
+    ///     )?
+    /// };
+    /// let definition = function.definition().expect("registered custom function");
+    /// let body = definition.body_fn().expect("defined body");
+    /// assert_eq!(body(&[Expr::number(2), Expr::number(3)]), Expr::number(5));
+    /// assert!(definition.partial_fn(0).is_some());
+    /// # Ok::<(), FunctionError>(())
+    /// ```
+    #[must_use]
+    pub fn definition(&self) -> Option<&UserFunction> {
+        match &self.0 {
+            FunctionIdentity::Builtin(_) => None,
+            FunctionIdentity::Custom(function) => Some(&function.definition),
         }
     }
 
@@ -145,12 +175,12 @@ impl BuiltinFunction {
 }
 
 impl FunctionDefinition {
-    /// Create an isolated identity with immutable name and arity metadata.
-    pub fn local(name: Arc<str>, arity: RangeInclusive<usize>) -> FunctionName {
+    /// Move a custom definition into its isolated, shared function identity.
+    /// Sealed callers validate the arity before publishing the handle.
+    pub fn local(name: Arc<str>, definition: UserFunction) -> FunctionName {
         FunctionName(FunctionIdentity::Custom(Arc::new(CustomFunction {
             name,
-            minimum: *arity.start(),
-            maximum: *arity.end(),
+            definition,
         })))
     }
 

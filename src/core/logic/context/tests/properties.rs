@@ -33,13 +33,13 @@ proptest! {
         let global = Symbol::intern("context_global_name");
         let first = Context::new();
         let second = Context::new();
-        let first_symbol = first.symb(&name);
-        let second_symbol = second.symb(&name);
+        let first_symbol = first.symb(&name)?;
+        let second_symbol = second.symb(&name)?;
         prop_assert_ne!(first_symbol, second_symbol);
         prop_assert_ne!(first_symbol, global);
         prop_assert_ne!(first_symbol.to_expr(), second_symbol.to_expr());
         let cloned = first.clone();
-        prop_assert_eq!(cloned.symb(&name), first_symbol);
+        prop_assert_eq!(cloned.symb(&name)?, first_symbol);
         prop_assert_eq!(first.id(), cloned.id());
     }
 
@@ -52,7 +52,7 @@ proptest! {
         let expected_functions: HashSet<_> = function_names.iter().cloned().collect();
         let context = Context::new();
         for name in symbol_names {
-            let registered = context.symb(&name);
+            let registered = context.symb(&name)?;
             prop_assert_eq!(context.get_symbol(&name), Some(registered));
         }
         for name in &expected_functions {
@@ -67,10 +67,33 @@ proptest! {
         for name in &expected_functions {
             prop_assert!(context.has_function(name));
         }
-        prop_assert_eq!(context.symbol_names_set(), expected_symbols);
-        prop_assert_eq!(context.function_names(), expected_functions);
+        let names = context.symbol_names();
+        prop_assert!(names.windows(2).all(|pair| pair.first() < pair.get(1)));
+        prop_assert_eq!(names.into_iter().collect::<HashSet<_>>(), expected_symbols);
+        let functions = context.functions();
+        prop_assert!(functions.windows(2).all(|pair| pair.first() < pair.get(1)));
+        prop_assert_eq!(functions.iter().map(|function|String::from(function.as_str())).collect::<HashSet<_>>(), expected_functions);
         context.clear_all();
         prop_assert!(context.is_empty());
+        for function in functions {
+            prop_assert!(context.get_function(function.as_str()).is_none());
+            prop_assert!(function.definition().is_some());
+            prop_assert!(function.call(vec![]).is_ok());
+        }
+    }
+
+    #[test]
+    fn symbol_names_share_their_allocation_and_survive_unbinding(name in local_name_strategy()) {
+        let context = Context::new();
+        let symbol = context.symb(&name)?;
+        let first = symbol.name().expect("named symbol");
+        let second = symbol.name().expect("named symbol");
+        prop_assert!(Arc::ptr_eq(&first, &second));
+        prop_assert!(context.remove_symbol(&name));
+        let retained = symbol.name().expect("unbinding preserves the identity");
+        prop_assert!(Arc::ptr_eq(&first, &retained));
+        drop(context);
+        prop_assert_eq!(retained.as_ref(), name.as_str());
     }
 
     #[test]
@@ -79,10 +102,13 @@ proptest! {
         index in 0_usize..=8
     ) {
         let context = Context::new();
+        let other = Context::new();
+        let foreign = other.register_function(&name, UserFunction::default()).expect("unbound name");
         prop_assert!(!Symbol::exists(&name));
-        prop_assert!(context.get_user_fn(&name).is_none());
-        prop_assert!(context.get_body(&name).is_none());
-        prop_assert!(context.get_partial(&name, index).is_none());
+        prop_assert!(context.get_function(&name).is_none());
+        let definition = foreign.definition().expect("custom handles own their definitions");
+        prop_assert!(definition.body_fn().is_none());
+        prop_assert!(definition.partial_fn(index).is_none());
         prop_assert!(!context.has_function(&name));
         prop_assert!(!Symbol::exists(&name));
     }
@@ -103,9 +129,9 @@ proptest! {
                 ])
             })),
         ).expect("the custom name is unbound");
-        let body = context.get_body(&name).expect("registered body");
         let argument = Expr::number(value);
         let function = context.get_function(&name).expect("registered function");
+        let body = function.definition().and_then(UserFunction::body_fn).expect("registered body");
         prop_assert_eq!(
             body(core::slice::from_ref(&argument)),
             Expr::sum(vec![argument, Expr::number(offset)])
@@ -132,10 +158,9 @@ proptest! {
             .expect("generated partial index is valid");
         let function = context.register_function(&name, definition)
             .expect("the custom name is unbound");
-        let original_body = context.get_body_for(&function).expect("registered body");
-        let original_partial = context
-            .get_partial_for(&function, partial_index)
-            .expect("registered partial");
+        let registered = function.definition().expect("registered definition");
+        let original_body = registered.body_fn().expect("registered body");
+        let original_partial = registered.partial_fn(partial_index).expect("registered partial");
         prop_assert_eq!(
             context.register_function(&name, UserFunction::default()),
             Err(FunctionError::DuplicateName(name.clone()))
@@ -145,18 +170,17 @@ proptest! {
         prop_assert_eq!(context.get_function(&name), Some(function.clone()));
         prop_assert!(Arc::ptr_eq(
             &original_body,
-            &context.get_body_for(&function).expect("preserved body")
+            &registered.body_fn().expect("preserved body")
         ));
         prop_assert!(Arc::ptr_eq(
             &original_partial,
-            &context
-                .get_partial_for(&function, partial_index)
-                .expect("preserved partial")
+            &registered.partial_fn(partial_index).expect("preserved partial")
         ));
-        let preserved = context.get_user_fn_for(&function).expect("definition");
-        prop_assert!(preserved.accepts_arity(arity));
-        prop_assert!(!preserved.accepts_arity(arity.saturating_sub(1)));
-        let placeholder = context.get_user_fn(&new_name).expect("new placeholder");
+        let preserved = function.definition().expect("definition");
+        prop_assert!(preserved.arity().contains(&arity));
+        prop_assert!(!preserved.arity().contains(&arity.saturating_sub(1)));
+        let placeholder_handle = context.get_function(&new_name).expect("registered name");
+        let placeholder = placeholder_handle.definition().expect("new placeholder");
         prop_assert!(!placeholder.has_body());
         prop_assert!(!placeholder.has_partial(0));
     }
@@ -169,21 +193,21 @@ proptest! {
         prop_assume!(name != unused_name);
         let context = Context::new();
         let clone = context.clone();
-        let symbol = clone.symb(&name);
+        let symbol = clone.symb(&name)?;
         let id = symbol.id();
         let expression = symbol.to_expr();
         let metadata = Arc::downgrade(&SymbolData::lookup(id).expect("live local ID"));
-        let unused = context.symb(&unused_name).id();
+        let unused = context.symb(&unused_name)?.id();
         let unused_metadata = Arc::downgrade(&SymbolData::lookup(unused).expect("unused ID"));
         prop_assert!(!Symbol::exists(&name));
         drop(context);
-        prop_assert!(symbol.to_expr().same_node(&expression));
+        prop_assert_eq!(&symbol.to_expr(), &expression);
         drop(clone);
         prop_assert!(unused_metadata.upgrade().is_none());
         prop_assert!(metadata.upgrade().is_some());
         prop_assert_eq!(expression.symbol_name(), Some(name.as_str()));
         let borrowed = expression.as_symbol().expect("expression owns symbol");
-        prop_assert!(borrowed.to_expr().same_node(&expression));
+        prop_assert_eq!(&borrowed.to_expr(), &expression);
         drop(expression);
         prop_assert!(metadata.upgrade().is_none());
         prop_assert_eq!(Symbol::from_id(id), Err(SymbolError::InvalidId(id)));
@@ -195,21 +219,21 @@ proptest! {
     ) {
         let context = Context::new();
         let manager = context.clone();
-        let old = context.symb(&name);
+        let old = context.symb(&name)?;
         let retained = old.to_expr();
         prop_assert!(context.remove_symbol(&name));
-        prop_assert!(old.to_expr().same_node(&retained));
-        let replacement = context.symb(&name);
+        prop_assert_eq!(&old.to_expr(), &retained);
+        let replacement = context.symb(&name)?;
         prop_assert_ne!(old, replacement);
         manager.clear_symbols();
         let replacement_expression = replacement.to_expr();
         prop_assert_eq!(replacement_expression.as_symbol(), Some(replacement));
-        let fresh = context.symb(&name);
+        let fresh = context.symb(&name)?;
         prop_assert_ne!(fresh, replacement);
         manager.clear_all();
         prop_assert_eq!(context.symbol_from_id(old.id()), Ok(old));
         prop_assert_eq!(context.symbol_from_id(replacement.id()), Ok(replacement));
-        prop_assert!(old.to_expr().same_node(&retained));
+        prop_assert_eq!(old.to_expr(), retained);
     }
 
     #[test]
@@ -220,11 +244,11 @@ proptest! {
         prop_assume!(name != unused_name);
         let mut context = Context::new();
         let previous = context.id();
-        let symbol = context.symb(&name);
+        let symbol = context.symb(&name)?;
         let id = symbol.id();
         let expression = Expr::sum(vec![symbol.to_expr(), Expr::number(1)]);
         let metadata = Arc::downgrade(&SymbolData::lookup(id).expect("used local ID"));
-        let unused = context.symb(&unused_name).id();
+        let unused = context.symb(&unused_name)?.id();
         let unused_metadata = Arc::downgrade(&SymbolData::lookup(unused).expect("unused ID"));
         context.reset();
         prop_assert_ne!(context.id(), previous);
@@ -233,7 +257,7 @@ proptest! {
         prop_assert!(unused_metadata.upgrade().is_none());
         prop_assert!(metadata.upgrade().is_some());
         prop_assert!(expression.symbols().iter().any(|referenced| referenced.id() == id));
-        prop_assert_ne!(context.symb(&name).id(), id);
+        prop_assert_ne!(context.symb(&name)?.id(), id);
     }
 
     #[test]
@@ -243,7 +267,7 @@ proptest! {
         let mut context = Context::new();
         let mut manager = context.clone();
         let owner = context.clone();
-        let symbol = owner.symb(&name);
+        let symbol = owner.symb(&name)?;
         let id = symbol.id();
         let metadata = Arc::downgrade(&SymbolData::lookup(id).expect("local ID"));
         context.reset();
@@ -267,7 +291,7 @@ proptest! {
     ) {
         let context = Context::new();
         let other = Context::new();
-        let symbol = context.symb(&name);
+        let symbol = context.symb(&name)?;
         prop_assert_eq!(context.symbol_from_id(symbol.id()), Ok(symbol));
         prop_assert_eq!(other.symbol_from_id(symbol.id()), Err(SymbolError::InvalidId(symbol.id())));
         prop_assert_eq!(Symbol::from_id(symbol.id()), Err(SymbolError::InvalidId(symbol.id())));
@@ -295,9 +319,9 @@ proptest! {
         let is_function = matches!(local_call.view(), ExprView::Function { .. });
         prop_assert!(is_function);
         prop_assert_eq!(first.get_function(function_name), Some(local.clone()));
-        prop_assert!(second.get_body_for(&local).is_none());
+        prop_assert!(other.definition().and_then(UserFunction::body_fn).is_none());
         prop_assert_eq!(
-            first.get_body_for(&local).expect("registered body")(&[]),
+            local.definition().and_then(UserFunction::body_fn).expect("registered body")(&[]),
             Expr::number(marker)
         );
     }

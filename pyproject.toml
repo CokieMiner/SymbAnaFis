@@ -1,5 +1,5 @@
 [build-system]
-requires = ["maturin>=1.4,<2.0"]
+requires = ["maturin>=1.10,<2.0"]
 build-backend = "maturin"
 
 [project]
@@ -40,6 +40,7 @@ Repository = "https://github.com/CokieMiner/SymbAnaFis"
 Documentation = "https://docs.rs/symb_anafis"
 
 [tool.maturin]
-features = ["python", "parallel"]
+manifest-path = "bindings/python/Cargo.toml"
 python-source = "python"
-module-name = "symb_anafis"
+module-name = "symb_anafis._native"
+include = [{ path = "docs/PYTHON.md", format = "sdist" }]

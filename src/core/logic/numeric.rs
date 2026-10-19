@@ -7,7 +7,7 @@
 
 use num_anafis::{Complex, Number, Real};
 
-use super::{BinaryRule, BuiltinFunction, UnaryRule};
+use super::{BinaryRule, BuiltinFunction, Kernel, Scalar, UnaryRule};
 
 static IMAGINARY_UNIT: NumericValue = NumericValue(Number::i());
 
@@ -38,6 +38,19 @@ impl NumericValue {
             Some((re, im))
         } else {
             None
+        }
+    }
+
+    /// Read an exact real exponent without treating integral floats as integers.
+    pub fn exact_ratio(&self) -> Option<(i64, u64)> {
+        let parts = self.parts()?;
+        if parts.im.is_float() || !parts.im.is_zero() {
+            return None;
+        }
+        match parts.re {
+            Real::Int(numerator) => Some((numerator, 1)),
+            Real::Rational(ratio) => Some((*ratio.numer(), *ratio.denom())),
+            Real::Float(_) | _ => None,
         }
     }
 

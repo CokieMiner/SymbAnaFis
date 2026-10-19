@@ -7,7 +7,7 @@ use core::{
 
 use alloc::{sync::Arc, vec::Vec};
 
-use super::{BodyFn, FunctionError, PartialFn, UserFunction};
+use super::{BodyFn, FunctionError, UserFunction};
 
 impl Default for UserFunction {
     fn default() -> Self {
@@ -44,11 +44,13 @@ impl UserFunction {
         self
     }
 
-    /// Register a shared partial derivative for an argument index.
+    /// Set a shared partial derivative for an argument index in this draft.
+    /// Setting the same index replaces its callback. Registered function
+    /// identities retain their immutable definitions.
     ///
     /// # Errors
     /// Returns `FunctionError::InvalidPartialIndex` when no accepted arity contains the index.
-    pub fn partial(mut self, index: usize, partial: PartialFn) -> Result<Self, FunctionError> {
+    pub fn partial(mut self, index: usize, partial: BodyFn) -> Result<Self, FunctionError> {
         let maximum = *self.arity.end();
         if self.arity.is_empty() || index >= maximum {
             return Err(FunctionError::InvalidPartialIndex {
@@ -85,12 +87,6 @@ impl UserFunction {
             .is_ok()
     }
 
-    /// Test whether the argument count is accepted.
-    #[must_use]
-    pub fn accepts_arity(&self, count: usize) -> bool {
-        self.arity.contains(&count)
-    }
-
     /// Return the range of accepted argument counts.
     #[must_use]
     pub fn arity(&self) -> RangeInclusive<usize> {
@@ -105,7 +101,7 @@ impl UserFunction {
 
     /// Share a registered partial derivative.
     #[must_use]
-    pub fn partial_fn(&self, index: usize) -> Option<PartialFn> {
+    pub fn partial_fn(&self, index: usize) -> Option<BodyFn> {
         self.partials
             .binary_search_by_key(&index, |(stored, _)| *stored)
             .ok()

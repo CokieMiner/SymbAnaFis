@@ -82,13 +82,8 @@ proptest! {
         let expected = value_number.log(&base_number);
         assert_number(
             &Expr::number(value).log(base),
-            expected.clone(),
-            "an approximate base must enable folding",
-        );
-        assert_number(
-            &Expr::number(value).log_base(base),
             expected,
-            "log_base must retain value-first order",
+            "an approximate base must enable folding",
         );
     }
 
@@ -156,7 +151,7 @@ proptest! {
     #[test]
     fn rewrites_rebuild_approximate_cosine_calls(input in -1.0_f64..=1.0_f64) {
         let x = Expr::symbol("numeric_approximate_rewrite_edge");
-        let capture = Pattern::capture("argument");
+        let capture = Pattern::capture("argument", None);
         let rule = RewriteRule::new(capture.sin(), capture.cos())
             .expect("valid rewrite rule");
         let rewritten = rule.apply_all(&x.sin(), None, None)
@@ -170,20 +165,22 @@ proptest! {
     }
 
     #[test]
-    fn discrete_float_and_complex_orders_use_the_nearest_real_integer(
+    fn continuous_hermite_degrees_preserve_real_and_imaginary_components(
         degree in 0_i32..=6,
         offset in -0.49_f64..=0.49,
         imaginary in -2.0_f64..=2.0,
         input in -1.0_f64..=1.0,
     ) {
         let receiver = Number::from_float(input);
-        let expected = Expr::number(receiver.hermite(&Number::from_int(i64::from(degree))));
         let real = f64::from(degree) + offset;
         let complex_order = Number::from_complex(
             Number::from_float(real), Number::from_float(imaginary),
         );
-        prop_assert_eq!(&Expr::number(receiver.clone()).hermite(real), &expected);
-        prop_assert_eq!(&Expr::number(receiver).hermite(complex_order), &expected);
+        let expected_real = receiver.hermite(&Number::from_float(real));
+        let expected_complex = receiver.hermite(&complex_order);
+        prop_assume!(expected_real.is_finite() && expected_complex.is_finite());
+        prop_assert_eq!(Expr::number(receiver.clone()).hermite(real), Expr::number(expected_real));
+        prop_assert_eq!(Expr::number(receiver).hermite(complex_order), Expr::number(expected_complex));
     }
 
     #[test]
@@ -208,12 +205,12 @@ fn signed_zero_is_preserved_by_approximate_sine() {
 }
 
 #[test]
-fn rounded_discrete_orders_fold_and_nonfinite_calls_remain_symbolic() {
+fn continuous_degrees_fold_and_nonfinite_calls_remain_symbolic() {
     let half = Expr::number(Number::from_float(0.25));
     assert_number(
         &half.hermite(1.5),
-        Number::from_float(0.25).hermite(&Number::from_int(2)),
-        "the degree rounds to two before evaluating H_2(0.25)",
+        Number::from_float(0.25).hermite(&Number::from_float(1.5)),
+        "Hermite retains its continuous degree",
     );
     for input in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
         assert_function(&Expr::number(input).sin(), "nonfinite inputs stay symbolic");

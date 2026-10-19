@@ -13,8 +13,8 @@ use alloc::{
 };
 
 use super::{
-    Bindings, BodyFn, Context, FunctionDefinition, FunctionError, FunctionName, HashMap, HashSet,
-    IdSequence, Mutex, PartialFn, Symbol, SymbolData, SymbolError, UserFunction,
+    Bindings, Context, FunctionDefinition, FunctionError, FunctionName, HashMap, IdSequence, Mutex,
+    Symbol, SymbolData, SymbolError, UserFunction,
 };
 
 static NEXT_CONTEXT: IdSequence = IdSequence::new();
@@ -33,7 +33,7 @@ impl Debug for Context {
             let bindings = self.bindings.lock();
             (
                 bindings.symbols.keys().cloned().collect::<Vec<_>>(),
-                bindings.function_names.keys().cloned().collect::<Vec<_>>(),
+                bindings.functions.keys().cloned().collect::<Vec<_>>(),
             )
         };
         formatter
@@ -46,27 +46,30 @@ impl Debug for Context {
 }
 
 impl Context {
+    /// Create a local namespace whose clones share symbol and function bindings.
+    ///
+    /// # Panics
+    /// Panics if the representable context IDs are exhausted.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            id: NEXT_CONTEXT.next().expect("context IDs exhausted"),
+            bindings: Arc::new(Mutex::new(Bindings::default())),
+        }
+    }
+
     /// Get the context identity, shared by clones.
     #[must_use]
     pub const fn id(&self) -> usize {
         self.id
     }
 
-    /// Get or create a locally bound symbol.
-    ///
-    /// # Panics
-    /// Panics if IDs are exhausted.
-    #[must_use]
-    pub fn symb(&self, name: &str) -> Symbol<'_> {
-        self.try_symb(name)
-            .expect("context symbol registration failed")
-    }
-
     /// Get or create a locally bound symbol without a global name binding.
     ///
     /// # Errors
-    /// Returns ID exhaustion.
-    pub fn try_symb(&self, name: &str) -> Result<Symbol<'_>, SymbolError> {
+    /// Returns [`SymbolError::IdExhausted`] when a new identity cannot be allocated.
+    /// Existing names remain resolvable after exhaustion.
+    pub fn symb(&self, name: &str) -> Result<Symbol<'_>, SymbolError> {
         let mut bindings = self.bindings.lock();
         if let Some(existing) = bindings.symbols.get(name) {
             return Ok(existing.scoped_symbol(self));
@@ -111,31 +114,23 @@ impl Context {
         self.bindings.lock().symbols.contains_key(name)
     }
 
-    /// Collect context variable names for set membership.
-    #[must_use]
-    pub fn symbol_names_set(&self) -> HashSet<String> {
-        self.bindings
-            .lock()
-            .symbols
-            .keys()
-            .map(ToString::to_string)
-            .collect()
-    }
-
-    /// List context variable names.
+    /// Snapshot context variable names in lexicographic order.
     #[must_use]
     pub fn symbol_names(&self) -> Vec<String> {
-        self.bindings
+        let mut names: Vec<_> = self
+            .bindings
             .lock()
             .symbols
             .keys()
             .map(ToString::to_string)
-            .collect()
+            .collect();
+        names.sort_unstable();
+        names
     }
 
-    /// Register an unbound custom function name with an immutable arity.
+    /// Register an unbound custom function name with an immutable definition.
     /// Remove an existing registration before reusing its name. Surviving handles
-    /// retain the previous identity and argument contract.
+    /// retain the previous identity, argument contract, body, and partials.
     ///
     /// # Errors
     /// Returns [`FunctionError::DuplicateName`] if this context already binds the
@@ -157,14 +152,13 @@ impl Context {
             });
         }
         let mut bindings = self.bindings.lock();
-        if bindings.function_names.contains_key(name) {
+        if bindings.functions.contains_key(name) {
             drop(bindings);
             return Err(FunctionError::DuplicateName(name.into()));
         }
         let text: Arc<str> = Arc::from(name);
-        let function = FunctionDefinition::local(Arc::clone(&text), arity);
-        bindings.function_names.insert(text, function.clone());
-        bindings.functions.insert(function.clone(), definition);
+        let function = FunctionDefinition::local(Arc::clone(&text), definition);
+        bindings.functions.insert(text, function.clone());
         drop(bindings);
         Ok(function)
     }
@@ -172,94 +166,22 @@ impl Context {
     /// Resolve the typed identity of a registered local function.
     #[must_use]
     pub fn get_function(&self, name: &str) -> Option<FunctionName> {
-        self.bindings.lock().function_names.get(name).cloned()
-    }
-
-    /// Copy a local definition by name without creating missing names.
-    #[must_use]
-    pub fn get_user_fn(&self, name: &str) -> Option<UserFunction> {
-        let bindings = self.bindings.lock();
-        bindings
-            .function_names
-            .get(name)
-            .and_then(|function| bindings.functions.get(function))
-            .cloned()
-    }
-
-    /// Copy a local definition by its canonical identity.
-    #[must_use]
-    pub fn get_user_fn_for(&self, function: &FunctionName) -> Option<UserFunction> {
-        self.bindings.lock().functions.get(function).cloned()
+        self.bindings.lock().functions.get(name).cloned()
     }
 
     /// Test whether a local function is registered.
     #[must_use]
     pub fn has_function(&self, name: &str) -> bool {
-        self.bindings.lock().function_names.contains_key(name)
+        self.bindings.lock().functions.contains_key(name)
     }
 
-    /// List registered function names.
+    /// Snapshot registered function handles in lexicographic name order.
+    /// Handles retain their complete definitions after removal from this context.
     #[must_use]
-    pub fn function_names(&self) -> HashSet<String> {
-        self.bindings
-            .lock()
-            .function_names
-            .keys()
-            .map(ToString::to_string)
-            .collect()
-    }
-
-    /// Copy the name-to-function handle index.
-    #[must_use]
-    pub fn function_handles(&self) -> HashMap<String, FunctionName> {
-        self.bindings
-            .lock()
-            .function_names
-            .iter()
-            .map(|(name, function)| (name.to_string(), function.clone()))
-            .collect()
-    }
-
-    /// Share a function body by name without cloning its whole definition.
-    #[must_use]
-    pub fn get_body(&self, name: &str) -> Option<BodyFn> {
-        let bindings = self.bindings.lock();
-        bindings
-            .function_names
-            .get(name)
-            .and_then(|function| bindings.functions.get(function))
-            .and_then(UserFunction::body_fn)
-    }
-
-    /// Share a body by canonical function identity, with no name resolution.
-    #[must_use]
-    pub fn get_body_for(&self, function: &FunctionName) -> Option<BodyFn> {
-        self.bindings
-            .lock()
-            .functions
-            .get(function)
-            .and_then(UserFunction::body_fn)
-    }
-
-    /// Share a partial derivative by function name and argument index.
-    #[must_use]
-    pub fn get_partial(&self, name: &str, index: usize) -> Option<PartialFn> {
-        let bindings = self.bindings.lock();
-        bindings
-            .function_names
-            .get(name)
-            .and_then(|function| bindings.functions.get(function))
-            .and_then(|definition| definition.partial_fn(index))
-    }
-
-    /// Share a partial derivative by canonical identity and argument index.
-    #[must_use]
-    pub fn get_partial_for(&self, function: &FunctionName, index: usize) -> Option<PartialFn> {
-        self.bindings
-            .lock()
-            .functions
-            .get(function)
-            .and_then(|definition| definition.partial_fn(index))
+    pub fn functions(&self) -> Vec<FunctionName> {
+        let mut functions: Vec<_> = self.bindings.lock().functions.values().cloned().collect();
+        functions.sort_unstable();
+        functions
     }
 
     /// Test whether any custom function has a symbolic body.
@@ -269,7 +191,7 @@ impl Context {
             .lock()
             .functions
             .values()
-            .any(UserFunction::has_body)
+            .any(|function| function.definition().is_some_and(UserFunction::has_body))
     }
 
     /// Remove a local name binding while keeping issued Copy handles valid.
@@ -288,16 +210,12 @@ impl Context {
         present
     }
 
-    /// Remove a local function; surviving expressions retain its old identity.
+    /// Remove a function-name binding; surviving handles retain its definition.
     #[must_use]
     pub fn remove_function(&self, name: &str) -> bool {
         let removed = {
             let mut bindings = self.bindings.lock();
-            let removed = bindings
-                .function_names
-                .remove(name)
-                .and_then(|function| bindings.functions.remove(&function));
-            Bindings::compact_map(&mut bindings.function_names);
+            let removed = bindings.functions.remove(name);
             Bindings::compact_map(&mut bindings.functions);
             removed
         };
@@ -314,30 +232,22 @@ impl Context {
         drop(removed);
     }
 
-    /// Remove all local custom definitions.
+    /// Remove all function-name bindings. Referenced definitions remain alive.
     pub fn clear_functions(&self) {
-        let removed = {
-            let mut bindings = self.bindings.lock();
-            let functions = take(&mut bindings.functions);
-            let names = take(&mut bindings.function_names);
-            drop(bindings);
-            (functions, names)
-        };
-        // Both callback captures and local function names are released outside
-        // the lock. The replacement maps have zero retained capacity.
+        let removed = take(&mut self.bindings.lock().functions);
         drop(removed);
     }
 
-    /// Remove all shared name bindings and definitions. Issued local identities
-    /// remain owned by the namespace; use [`Self::reset`] to release ownership.
+    /// Remove all shared name bindings. Issued symbol identities remain owned
+    /// by the namespace; use [`Self::reset`] to release ownership. Function
+    /// handles and expressions retain their own definitions.
     pub fn clear_all(&self) {
         let removed = {
             let mut bindings = self.bindings.lock();
             let symbols = take(&mut bindings.symbols);
             let functions = take(&mut bindings.functions);
-            let names = take(&mut bindings.function_names);
             drop(bindings);
-            (symbols, functions, names)
+            (symbols, functions)
         };
         drop(removed);
     }
@@ -353,10 +263,11 @@ impl Context {
     /// ```
     /// use symb_anafis::Context;
     /// let mut context = Context::new();
-    /// let expression = context.symb("x") + 1;
+    /// let expression = context.symb("x")? + 1;
     /// context.reset();
     /// assert!(context.is_empty());
     /// assert!(expression.contains_var("x"));
+    /// # Ok::<(), symb_anafis::SymbolError>(())
     /// ```
     ///
     /// Rust prevents resetting the owner while a borrowed symbol is still used:
@@ -364,24 +275,12 @@ impl Context {
     /// ```compile_fail
     /// use symb_anafis::Context;
     /// let mut context = Context::new();
-    /// let x = context.symb("x");
+    /// let x = context.symb("x").expect("symbol allocation");
     /// context.reset();
     /// let expression = x + 1;
     /// ```
     pub fn reset(&mut self) {
         *self = Self::new();
-    }
-
-    /// Create a local namespace whose clones share bindings and definitions.
-    ///
-    /// # Panics
-    /// Panics if the representable context IDs are exhausted.
-    #[must_use]
-    pub fn new() -> Self {
-        Self {
-            id: NEXT_CONTEXT.next().expect("context IDs exhausted"),
-            bindings: Arc::new(Mutex::new(Bindings::default())),
-        }
     }
 
     /// Count live local symbol bindings.
@@ -390,7 +289,7 @@ impl Context {
         self.bindings.lock().symbols.len()
     }
 
-    /// Test whether the context has no local symbols or definitions.
+    /// Test whether the context has no local symbol or function-name bindings.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         let bindings = self.bindings.lock();

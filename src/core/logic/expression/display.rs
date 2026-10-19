@@ -131,7 +131,7 @@ fn schedule<'expr>(
         Node::Pow(base, exponent) => schedule_power(base, exponent, style, pending),
         Node::Derivative { inner, var, order } => {
             pending.push(Task::Text(")"));
-            pending.push(Task::Order(*order));
+            pending.push(Task::Order(order.get()));
             pending.push(Task::Text(", "));
             pending.push(
                 var.name()

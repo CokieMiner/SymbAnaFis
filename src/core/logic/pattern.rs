@@ -5,6 +5,8 @@
     reason = "the type owner keeps fields private while its descendants implement operations; mod.rs files contain plumbing only"
 )]
 
+use core::{num::NonZeroU64, slice::from_ref};
+
 use alloc::{sync::Arc, vec::Vec};
 
 use crate::collections::{HashMap, HashSet};
@@ -12,7 +14,7 @@ use crate::collections::{HashMap, HashSet};
 use super::{
     AdditiveOperands, AlgebraicOperands, BuiltinFunction, ConcreteMatcher, ExactSources, Expr,
     ExprView, FunctionDefinition, FunctionError, FunctionName, OperandDemand, OperandMatch,
-    RewriteError, Substitution, Symbol,
+    RewriteError, Substitution, Symbol, UserFunction,
 };
 
 /// A structural template with named captures and exact expressions.
@@ -29,19 +31,23 @@ use super::{
 /// whole operands are tried before split units and grouped partitions. Positive
 /// power blocks are searched lazily. Scalar coefficient quotients use numeric
 /// promotion. Distinct names may consume disjoint units of the same base.
-/// Negative and fractional powers remain opaque. A missing finite nonzero scalar
-/// prefix can be inferred: `2*a` matches `x` with `a = x/2`. Such a template can
+/// Exact rational powers supply integral groups on their unchanged principal base.
+/// Integer outer powers can capture fractional blocks present in an arithmetic
+/// input. Reciprocal templates require denominator factors; nested poles remain
+/// opaque. Bare expressions do not infer fractional roots. Capture predicates
+/// reject candidates before continuing the assignment. A missing finite nonzero scalar prefix can
+/// be inferred: `2*a` matches `x` with `a = x/2`. Such a template can
 /// match every subtree; function templates and guards restrict its scope.
 ///
 /// ```
 /// use symb_anafis::{Context, Pattern, RewriteRule};
 /// let context = Context::new();
-/// let u = context.symb("u");
-/// let x = context.symb("x");
-/// let a = Pattern::capture("a");
+/// let u = context.symb("u")?;
+/// let x = context.symb("x")?;
+/// let a = Pattern::capture("a", None);
 /// let rule = RewriteRule::new(u + &a, 2 * &a)?;
 /// assert_eq!(rule.apply_all(&(u + x), None, None)?, 2 * x);
-/// # Ok::<(), symb_anafis::RewriteError>(())
+/// # Ok::<(), Box<dyn core::error::Error>>(())
 /// ```
 ///
 /// `Debug` reports only the root shape of a pattern. It deliberately does not
@@ -51,7 +57,10 @@ use super::{
 pub struct Pattern(Option<Arc<PatternNode>>);
 
 enum PatternNode {
-    Capture(Arc<str>),
+    Capture {
+        name: Arc<str>,
+        predicates: CaptureConditions,
+    },
     Exact(Expr),
     Function {
         name: FunctionName,
@@ -71,10 +80,33 @@ enum Arithmetic {
     Pow(Pattern, Pattern),
 }
 
+enum CaptureConditions {
+    Unrestricted,
+    One(Arc<CapturePredicate>),
+    Many(Vec<Arc<CapturePredicate>>),
+}
+
 #[derive(Default)]
 struct Normalization {
-    captures: HashMap<Arc<str>, Expr>,
-    markers: HashMap<FunctionName, Pattern>,
+    captures: HashMap<Arc<str>, (Expr, Vec<Arc<CapturePredicate>>)>,
+    markers: HashMap<FunctionName, Arc<str>>,
+}
+
+/// The destination of a rewrite rule.
+///
+/// Pattern destinations validate capture names and compile during construction.
+/// Callback destinations receive only the accepted input bindings and return an
+/// owning expression. They must be pure and stable for the same bindings;
+/// counted matches reuse one result, and capture-free callbacks run lazily once
+/// per application pass. Neither form validates mathematical equivalence.
+#[derive(Clone)]
+#[non_exhaustive]
+pub enum Replacement {
+    /// A normalized template whose captures must occur in the input pattern.
+    Pattern(Pattern),
+    /// Construct a destination after matching and guard acceptance.
+    /// Callback panics propagate; returned expressions retain DAG invariants.
+    Callback(Arc<ReplacementFn>),
 }
 
 /// A validated rule applied once to every distinct node of an input DAG.
@@ -83,9 +115,9 @@ struct Normalization {
 /// use symb_anafis::{Context, Pattern, RewriteRule, UserFunction};
 /// let context = Context::new();
 /// let pair = context.register_function("pair", UserFunction::new(2..=2))?;
-/// let argument = Pattern::capture("argument");
+/// let argument = Pattern::capture("argument", None);
 /// let rule = RewriteRule::new(argument.sin(), argument.cos())?;
-/// let x = context.symb("x");
+/// let x = context.symb("x")?;
 /// let input = pair.call(vec![x.sin(), x.sin()])?;
 /// assert_eq!(rule.apply_all(&input, None, None)?, pair.call(vec![x.cos(), x.cos()])?);
 /// # Ok::<(), Box<dyn core::error::Error>>(())
@@ -95,14 +127,32 @@ struct Normalization {
 #[derive(Clone)]
 pub struct RewriteRule {
     pattern: Pattern,
-    replacement: Vec<ReplacementOp>,
+    replacement: ReplacementProgram,
     associative: bool,
-    concrete: Option<Substitution>,
 }
 
 /// A caller's condition on the captured expressions of a structural match.
 /// Returning false rejects that assignment without changing the input DAG.
-pub type RewriteGuard<'guard> = dyn FnMut(&HashMap<&str, Expr>) -> bool + 'guard;
+type RewriteGuard<'guard> = dyn FnMut(&HashMap<&str, Expr>) -> bool + 'guard;
+
+/// A pure, thread-safe condition checked before binding a capture candidate.
+/// The result must remain stable for the same expression. Search may evaluate
+/// the predicate more than once; effects and panics belong to the caller.
+type CapturePredicate = dyn Fn(&Expr) -> bool + Send + Sync;
+
+/// A pure expression constructor over accepted capture bindings.
+type ReplacementFn = dyn Fn(&HashMap<&str, Expr>) -> Expr + Send + Sync;
+
+#[derive(Clone)]
+enum ReplacementProgram {
+    Template(Vec<ReplacementOp>),
+    Callback(Arc<ReplacementFn>),
+    Concrete(Substitution),
+    ConcreteCallback {
+        source: Expr,
+        callback: Arc<ReplacementFn>,
+    },
+}
 
 struct MatchWork {
     remaining: Option<usize>,
@@ -166,10 +216,21 @@ struct Group<'pattern, 'input> {
     root: bool,
 }
 
-enum Assignment {
+enum Assignment<'pattern> {
     Explicit(usize),
     Group(Vec<usize>),
     Counted(OperandMatch),
+    Projected {
+        operand: OperandMatch,
+        base: &'pattern Pattern,
+    },
+}
+
+struct PowerTemplate<'pattern> {
+    base: &'pattern Pattern,
+    numerator: i64,
+    denominator: NonZeroU64,
+    inverse: bool,
 }
 
 #[derive(Debug)]
@@ -213,14 +274,25 @@ impl Pattern {
     }
 }
 
+impl CaptureConditions {
+    fn iter(&self) -> impl Iterator<Item = &Arc<CapturePredicate>> {
+        let conditions = match self {
+            Self::Unrestricted => [].as_slice(),
+            Self::One(predicate) => from_ref(predicate),
+            Self::Many(predicates) => predicates.as_slice(),
+        };
+        conditions.iter()
+    }
+}
+
 mod constructors;
 mod debug;
 mod groups;
-mod instantiate;
 mod matching;
 mod normalize;
 mod operators;
 mod reclaim;
+mod replacement;
 mod rules;
 mod search;
 

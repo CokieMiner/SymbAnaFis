@@ -15,11 +15,17 @@
 
 mod core;
 mod diff;
+mod evaluator;
 mod parser;
+mod simplification;
+mod uncertainty;
 
 pub use core::{FunctionError, RewriteError, SubstitutionError, SymbolError};
 pub use diff::DiffError;
-pub use parser::Span;
+pub use evaluator::EvalError;
+pub use parser::{ParseError, Span};
+pub use simplification::SimplifyError;
+pub use uncertainty::UncertaintyError;
 
 #[cfg(test)]
 mod tests;

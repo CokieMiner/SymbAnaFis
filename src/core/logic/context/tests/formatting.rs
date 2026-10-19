@@ -27,7 +27,7 @@ proptest! {
     fn debug_writers_run_after_unlocking_the_registry(count in 0_usize..=8) {
         let context = Context::new();
         for index in 0..count {
-            let _symbol = context.symb(&format!("s{index}"));
+            let _symbol = context.symb(&format!("s{index}"))?;
             context.register_function(&format!("f{index}"), UserFunction::default())
                 .expect("the generated names are distinct");
         }

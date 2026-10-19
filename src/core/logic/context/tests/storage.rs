@@ -11,12 +11,22 @@ use super::super::{Context, UserFunction};
 #[test]
 fn churned_binding_maps_reclaim_capacity_while_retaining_live_entries() {
     let context = Context::new();
-    let retained = context.symb("context_storage_retained").to_expr();
+    let retained = context
+        .symb("context_storage_retained")
+        .expect("symbol allocation")
+        .to_expr();
     let symbol_names: Vec<_> = (0..128)
         .map(|index| format!("context_storage_symbol_{index}"))
         .collect();
     for name in &symbol_names {
-        assert_eq!(context.symb(name).name().as_deref(), Some(name.as_str()));
+        assert_eq!(
+            context
+                .symb(name)
+                .expect("symbol allocation")
+                .name()
+                .as_deref(),
+            Some(name.as_str())
+        );
     }
     let symbol_capacity_before = context.bindings.lock().symbols.capacity();
     assert!(symbol_capacity_before > 64, "the symbol churn grew the map");
@@ -37,33 +47,17 @@ fn churned_binding_maps_reclaim_capacity_while_retaining_live_entries() {
             .register_function(name, UserFunction::new(0..=0))
             .expect("generated custom names are distinct");
     }
-    let function_capacities_before = {
-        let bindings = context.bindings.lock();
-        (
-            bindings.function_names.capacity(),
-            bindings.functions.capacity(),
-        )
-    };
-    assert!(function_capacities_before.0 > 64);
-    assert!(function_capacities_before.1 > 64);
+    let function_capacity_before = context.bindings.lock().functions.capacity();
+    assert!(function_capacity_before > 64);
     for name in function_names.iter().take(127) {
         assert!(context.remove_function(name));
     }
-    let function_capacities_after = {
-        let bindings = context.bindings.lock();
-        (
-            bindings.function_names.capacity(),
-            bindings.functions.capacity(),
-        )
-    };
-    assert!(function_capacities_after.0 < function_capacities_before.0);
-    assert!(function_capacities_after.1 < function_capacities_before.1);
-    assert!(function_capacities_after.0 <= 64);
-    assert!(function_capacities_after.1 <= 64);
+    let function_capacity_after = context.bindings.lock().functions.capacity();
+    assert!(function_capacity_after < function_capacity_before);
+    assert!(function_capacity_after <= 64);
 
     context.clear_functions();
     let bindings = context.bindings.lock();
-    assert_eq!(bindings.function_names.capacity(), 0);
     assert_eq!(bindings.functions.capacity(), 0);
 }
 

@@ -1,41 +1,46 @@
-//! Exact function cells on stored integer and Gaussian-integer inputs.
+//! Function cells on stored exact real and complex inputs.
 //!
-//! These rules reuse the backend's stored integer results where supported, and
-//! prove the remaining cells using identities and checked arithmetic.
-//! A rounded floating result that happens to be integral is never evidence of
-//! exactness. All other calls remain symbolic for explicit evaluation later.
+//! These rules reuse backend evaluation and prove additional cells using identities
+//! and checked arithmetic. The constructor accepts only stored exact components;
+//! a rounded floating value is never evidence of exactness.
+//! Rational roots retain identities such as \(\sqrt{p^2/q^2}=|p|/q\) for \(q>0\).
 
-use num_anafis::{Number, Numeric};
+use num_anafis::{Number, Numeric, Real};
 
 use super::{BinaryRule, NumericValue, UnaryRule};
 
 impl NumericValue {
-    /// Evaluate only exact integer cells of supported unary functions.
+    /// Compute unary candidates for exact inputs; construction rejects approximate results.
+    ///
+    /// # Panics
+    /// Numeric evaluation can propagate the backend's rational capacity panics.
     pub fn evaluate(&self, rule: UnaryRule) -> Option<Number> {
-        let (re, im) = self.gaussian()?;
+        let parts = self.parts()?;
+        if !matches!(parts.re, Real::Int(_) | Real::Rational(_))
+            || !matches!(parts.im, Real::Int(_) | Real::Rational(_))
+        {
+            return None;
+        }
         match rule {
-            UnaryRule::Identity => Some(self.0.clone()),
-            UnaryRule::Zero => Some(Number::zero()),
-            // This exact-function boundary retains its representable-result
-            // contract; ordinary arithmetic still follows native backend overflow.
-            UnaryRule::Negate if re != i64::MIN && im != i64::MIN => {
-                Self::integer_result(Numeric::negate(&self.0))
-            }
-            UnaryRule::Abs => Self::integer_result(Numeric::abs(&self.0)),
-            UnaryRule::Sign => Self::integer_result(Numeric::signum(&self.0)),
-            UnaryRule::Sqrt => Self::integer_result(Numeric::sqrt(&self.0)),
-            UnaryRule::Cbrt if im == 0 => Self::integer_result(Numeric::cbrt(&self.0)),
-            UnaryRule::AtZero(value) if re == 0 && im == 0 => Some(Number::from_int(value)),
-            UnaryRule::AtOneZero if re == 1 && im == 0 => Some(Number::zero()),
-            UnaryRule::Lgamma if im == 0 => Self::integer_result(Numeric::lgamma(&self.0)),
-            UnaryRule::Gamma if im == 0 => Self::integer_result(Numeric::gamma(&self.0)),
-            UnaryRule::Log(base) if im == 0 => Self::integer_result(match base {
+            UnaryRule::Floor => Some(Numeric::floor(&self.0)),
+            UnaryRule::Ceil => Some(Numeric::ceil(&self.0)),
+            UnaryRule::Round => Some(Numeric::round(&self.0)),
+            UnaryRule::Trunc => Some(Numeric::trunc(&self.0)),
+            UnaryRule::Fract => Some(Numeric::fract(&self.0)),
+            UnaryRule::Abs => Some(Numeric::abs(&self.0)),
+            UnaryRule::Sign => Some(Numeric::signum(&self.0)),
+            UnaryRule::Sqrt => Some(Numeric::sqrt(&self.0)),
+            UnaryRule::Cbrt if parts.im.is_zero() => Some(Numeric::cbrt(&self.0)),
+            UnaryRule::AtZero(value) if self.0.is_zero() => Some(Number::from_int(value)),
+            UnaryRule::AtOneZero if self.0.is_one() => Some(Number::zero()),
+            UnaryRule::Lgamma if parts.im.is_zero() => Some(Numeric::lgamma(&self.0)),
+            UnaryRule::Gamma if parts.im.is_zero() => Some(Numeric::gamma(&self.0)),
+            UnaryRule::Log(base) if parts.im.is_zero() => Some(match base {
                 2 => Numeric::log2(&self.0),
                 10 => Numeric::log10(&self.0),
                 _ => Numeric::log(&self.0, &Number::from_int(base)),
             }),
-            UnaryRule::Negate
-            | UnaryRule::Cbrt
+            UnaryRule::Cbrt
             | UnaryRule::AtZero(_)
             | UnaryRule::AtOneZero
             | UnaryRule::Lgamma
@@ -51,10 +56,7 @@ impl NumericValue {
         match rule {
             // The symbolic log constructor stores (base, argument).
             BinaryRule::Log if left_im == 0 && right_im == 0 => {
-                Self::integer_result(Numeric::log(&other.0, &self.0))
-            }
-            BinaryRule::LogBase if left_im == 0 && right_im == 0 => {
-                Self::integer_result(Numeric::log(&self.0, &other.0))
+                Some(Numeric::log(&other.0, &self.0))
             }
             BinaryRule::Atan2 if left == 0 && left_im == 0 && right > 0 && right_im == 0 => {
                 Some(Number::zero())
@@ -84,19 +86,11 @@ impl NumericValue {
                 Some(Number::zero())
             }
             BinaryRule::Log
-            | BinaryRule::LogBase
             | BinaryRule::Atan2
             | BinaryRule::Beta
             | BinaryRule::Bessel
             | BinaryRule::Hermite
             | BinaryRule::LambertW => None,
         }
-    }
-
-    fn integer_result(value: Number) -> Option<Number> {
-        // Number::is_int also accepts integral floats. Only the stored component
-        // variants prove that evaluation retained the exact integer tier.
-        let result = Self(value);
-        result.gaussian().map(|_| result.0)
     }
 }

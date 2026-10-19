@@ -17,6 +17,7 @@ categories = ["mathematics", "science"]
 
 include = [
     "/src/**",
+    "/examples/**",
     "/Cargo.toml",
     "/README.md",
     "/LICENSE",
@@ -28,6 +29,11 @@ include = [
 name = "symb_anafis"
 crate-type = ["rlib"]
 
+[workspace]
+members = ["bindings/python"]
+default-members = ["."]
+resolver = "3"
+
 [dependencies]
 hashbrown = { version = "0.17.1", default-features = false, features = ["default-hasher"] }
 foldhash = { version = "0.2.0", default-features = false }
@@ -37,6 +43,8 @@ num_anafis = { path = "../NumAnaFis", default-features = false }
 
 [dev-dependencies]
 proptest = { version = "1.12.0", default-features = false, features = ["std"] }
+dotenvy = "0.15.7"
+symbolica = "3.0.1"
 
 [features]
 default = []
@@ -167,3 +175,7 @@ suspicious_xor_used_as_pow = "deny" # Catch common XOR/pow confusion
 # =============================================================================
 cargo_common_metadata = "deny"      # Ensure project metadata is complete
 wildcard_dependencies = "deny"      # Prevent non-deterministic builds
+
+[[example]]
+name = "expr_with_4649517_caracters-comparison"
+path = "examples/benchmarks/expr_with_4649517_caracters-comparison.rs"

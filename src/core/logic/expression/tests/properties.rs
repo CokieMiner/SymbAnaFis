@@ -3,8 +3,8 @@
 use alloc::{format, sync::Arc, vec, vec::Vec};
 
 use proptest::{
-    collection, prop_assert, prop_assert_eq, prop_assume, prop_oneof, proptest, sample,
-    strategy::Strategy,
+    collection, prop_assert, prop_assert_eq, prop_assert_ne, prop_assume, prop_oneof, proptest,
+    sample, strategy::Strategy,
 };
 
 use crate::{
@@ -88,12 +88,12 @@ proptest! {
         let sum = Expr::sum(operands.clone());
         let product = Expr::product(operands.clone());
 
-        prop_assert!(sum.same_node(&Expr::sum(reversed.clone())));
-        prop_assert!(product.same_node(&Expr::product(reversed)));
-        prop_assert!(sum.same_node(&Expr::sum(vec![sum.clone()])));
-        prop_assert!(product.same_node(&Expr::product(vec![product.clone()])));
-        prop_assert!(sum.same_node(&Expr::sum(vec![Expr::sum(operands.clone())])));
-        prop_assert!(product.same_node(&Expr::product(vec![Expr::product(operands)])));
+        prop_assert_eq!(&sum, &Expr::sum(reversed.clone()));
+        prop_assert_eq!(&product, &Expr::product(reversed));
+        prop_assert_eq!(&sum, &Expr::sum(vec![sum.clone()]));
+        prop_assert_eq!(&product, &Expr::product(vec![product.clone()]));
+        prop_assert_eq!(sum, Expr::sum(vec![Expr::sum(operands.clone())]));
+        prop_assert_eq!(product, Expr::product(vec![Expr::product(operands)]));
     }
 
     #[test]
@@ -101,8 +101,8 @@ proptest! {
         atom in atom_strategy(),
     ) {
         let expression = atom_expression(&atom);
-        prop_assert!(Expr::sum(vec![expression.clone()]).same_node(&expression));
-        prop_assert!(Expr::product(vec![expression.clone()]).same_node(&expression));
+        prop_assert_eq!(&Expr::sum(vec![expression.clone()]), &expression);
+        prop_assert_eq!(&Expr::product(vec![expression.clone()]), &expression);
         prop_assert_eq!(Expr::sum(Vec::new()), Expr::number(0));
         prop_assert_eq!(Expr::product(Vec::new()), Expr::number(1));
     }
@@ -121,7 +121,7 @@ proptest! {
         let expected = Expr::sum(operands.clone());
         let mut reversed = operands.clone();
         reversed.reverse();
-        prop_assert!(Expr::sum(reversed).same_node(&expected));
+        prop_assert_eq!(&Expr::sum(reversed), &expected);
         let all_symbol_terms = matches!(expected.view(), ExprView::Sum(terms)
             if terms.len() == operands.len()
                 && terms.clone().all(|term| matches!(term.view(), ExprView::Symbol(_))));
@@ -139,7 +139,7 @@ proptest! {
     ) {
         let terms: Vec<_> = monomials.iter().map(monomial_expression).collect();
         let expression = Expr::sum(terms);
-        prop_assert!(expression.same_node(&Expr::sum(vec![expression.clone()])));
+        prop_assert_eq!(&expression, &Expr::sum(vec![expression.clone()]));
 
         let replacements: HashMap<_, _> = values
             .iter()
@@ -190,7 +190,8 @@ proptest! {
         let Node::Poly(storage) = polynomial.node() else {
             return Err(proptest::test_runner::TestCaseError::fail("two distinct positive powers select compact storage"));
         };
-        prop_assert_eq!(&storage.bases, core::slice::from_ref(&base));
+        prop_assert!(storage.terms.iter().all(|term|
+            matches!(term.powers.as_slice(), [(stored, _)] if stored == &base)));
         let sparse_positive = storage.terms.iter().all(|term| {
             !term.powers.is_empty()
                 && term.powers.iter().all(|(_, exponent)| *exponent > 0)
@@ -199,8 +200,8 @@ proptest! {
 
         let with_constant = Expr::sum(vec![Expr::number(constant), polynomial.clone()]);
         let keeps_outer_constant = matches!(with_constant.node(), Node::Sum(terms)
-            if terms.iter().any(|term| term.same_node(&Expr::number(constant)))
-                && terms.iter().any(|term| term.same_node(&polynomial)));
+            if terms.contains(&Expr::number(constant))
+                && terms.contains(&polynomial));
         prop_assert!(keeps_outer_constant);
     }
 
@@ -217,7 +218,7 @@ proptest! {
         let function = FunctionName::builtin(name).expect("the sampled builtin is known");
         let first = function.call(vec![argument.clone()]).expect("the builtin is unary");
         let second = function.call(vec![argument]).expect("the builtin is unary");
-        prop_assert!(first.same_node(&second));
+        prop_assert_eq!(first, second);
         prop_assert!(function.call(Vec::new()).is_err());
     }
 
@@ -253,7 +254,7 @@ proptest! {
             .expect("helper index is generated within the table length");
         let argument = Expr::number(argument_value);
         let function = FunctionName::builtin(name).expect("the helper's builtin is known");
-        prop_assert!(helper(&argument).same_node(&function.call(vec![argument]).expect("the builtin is unary")));
+        prop_assert_eq!(helper(&argument), function.call(vec![argument]).expect("the builtin is unary"));
     }
 
     #[test]
@@ -279,7 +280,7 @@ proptest! {
         let argument = Expr::number(argument_value);
         let parameter = Expr::number(parameter_value);
         let function = FunctionName::builtin(name).expect("the helper's builtin is known");
-        prop_assert!(helper(&argument, parameter.clone()).same_node(&function.call(vec![parameter, argument]).expect("the builtin accepts two arguments")));
+        prop_assert_eq!(helper(&argument, parameter.clone()), function.call(vec![parameter, argument]).expect("the builtin accepts two arguments"));
     }
 
     #[test]
@@ -295,7 +296,7 @@ proptest! {
         let argument = Expr::number(argument_value);
         let first = first_function.call(vec![argument.clone()]).expect("the function is unary");
         let second = second_function.call(vec![argument]).expect("the function is unary");
-        prop_assert!(!first.same_node(&second));
+        prop_assert_ne!(first, second);
     }
 
     #[test]
@@ -353,7 +354,7 @@ proptest! {
         }).expect("the counting transformation cannot fail");
         prop_assert_eq!(visited.len(), 3);
         prop_assert!(visited.values().all(|count| *count == 1));
-        prop_assert!(result.same_node(&root));
+        prop_assert_eq!(result, root);
     }
 
     #[test]
@@ -365,10 +366,10 @@ proptest! {
         let name = format!("generated_context_symbol_{name_index}");
         let first_context = Context::new();
         let second_context = Context::new();
-        let first = first_context.symb(&name);
-        let other = second_context.symb(&name);
+        let first = first_context.symb(&name)?;
+        let other = second_context.symb(&name)?;
         let replacement = Expr::symbol(format!("generated_context_replacement_{name_index}"));
-        let derivative = Expr::derivative_symbol(Expr::number(derivative_order), first, derivative_order);
+        let derivative = Expr::derivative(first.abs(), first, derivative_order);
         let pair = first_context.register_function("pair", UserFunction::default()).expect("the custom name is unbound");
         let identity_expression = pair.call(vec![derivative, other.to_expr()]).expect("pair is variadic");
         let identities = HashSet::from([first, other]);
@@ -422,8 +423,8 @@ proptest! {
         prop_assert!(Symbol::remove(&name));
         let rebound = Symbol::intern(&name);
         prop_assert!(old != rebound);
-        prop_assert!(expression.same_node(&old.to_expr()));
-        prop_assert!(!expression.same_node(&rebound.to_expr()));
+        prop_assert_eq!(&expression, &old.to_expr());
+        prop_assert_ne!(expression, rebound.to_expr());
     }
 
     #[test]
@@ -501,7 +502,7 @@ proptest! {
         let (helper, name, arguments) = match helper_index {
             0 => (x.beta(first.clone()), "beta", vec![x, first]),
             1 => (x.atan2(first.clone()), "atan2", vec![x, first]),
-            2 => (x.log_base(first.clone()), "log_base", vec![x, first]),
+            2 => (x.log(first.clone()), "log", vec![first, x]),
             3 => (
                 x.assoc_legendre(first.clone(), second.clone()),
                 "assoc_legendre", vec![first, second, x],
@@ -513,7 +514,7 @@ proptest! {
         };
         let textual = FunctionName::builtin(name).expect("the sampled builtin is known")
             .call(arguments).expect("the helper supplies the registered arity");
-        prop_assert!(helper.same_node(&textual));
+        prop_assert_eq!(&helper, &textual);
         let is_function = matches!(helper.view(), ExprView::Function { .. });
         prop_assert!(is_function);
     }
@@ -549,10 +550,10 @@ proptest! {
     #[test]
     #[expect(
         clippy::arithmetic_side_effects,
-        reason = "generated opaque bases exercise symbolic sum and quotient construction"
+        reason = "generated opaque bases exercise symbolic sum construction"
     )]
     fn opaque_repeated_bases_select_poly_without_expanding(
-        base_kind in 0_usize..4,
+        base_kind in 0_usize..3,
         first in 2_u32..=4,
         second in 2_u32..=5,
     ) {
@@ -562,8 +563,7 @@ proptest! {
         let base = match base_kind {
             0 => x,
             1 => x.sin(),
-            2 => &x + &y,
-            _ => &x / &y,
+            _ => &x + &y,
         };
         let expression = Expr::sum(vec![
             base.pow(i64::from(first)),
@@ -572,25 +572,24 @@ proptest! {
         let Node::Poly(polynomial) = expression.node() else {
             return Err(proptest::test_runner::TestCaseError::fail("repeated opaque bases select compact storage"));
         };
-        prop_assert_eq!(&polynomial.bases, core::slice::from_ref(&base));
+        prop_assert!(polynomial.terms.iter().all(|term|
+            matches!(term.powers.as_slice(), [(stored, _)] if stored == &base)));
         let remains_unexpanded = matches!(base.pow(100).view(), ExprView::Pow(_, _));
         prop_assert!(remains_unexpanded);
     }
 
     #[test]
-    fn nonpositive_and_fractional_powers_stay_general_products(
+    fn negative_powers_move_to_denominators_without_combining_approximate_powers(
         base_index in 0_usize..3,
         negative in -3_i64..=-1,
         fractional in sample::select(vec![0.25_f64, 0.5, 1.5]),
     ) {
         let base = symbol(base_index);
-        let factors = vec![base.pow(negative), base.pow(fractional)];
-        let product = Expr::product(factors.clone());
-        let keeps_factors = matches!(product.view(), ExprView::Product(stored)
-            if stored.len() == factors.len());
-        prop_assert!(keeps_factors);
-        for factor in factors {
-            prop_assert!(product.children().any(|child| child == factor));
-        }
+        let numerator = base.pow(fractional);
+        let denominator = base.pow(negative.saturating_neg());
+        let product = Expr::product(vec![base.pow(negative), numerator.clone()]);
+        let separates_domains = matches!(product.view(), ExprView::Div(top, bottom)
+            if top == &numerator && bottom == &denominator);
+        prop_assert!(separates_domains);
     }
 }

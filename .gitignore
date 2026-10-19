@@ -2,3 +2,6 @@
 target
 .vscode
 old
+.venv/
+__pycache__/
+*.py[cod]

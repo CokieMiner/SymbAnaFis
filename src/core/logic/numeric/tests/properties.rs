@@ -11,7 +11,7 @@ proptest! {
     #[test]
     fn integer_literals_reintern_without_crossing_the_float_tier(value in -1_000_000_i32..=1_000_000_i32) {
         let exact = Expr::number(value);
-        prop_assert!(exact.same_node(&Expr::number(value)));
+        prop_assert_eq!(&exact, &Expr::number(value));
         prop_assert_ne!(exact, Expr::number(f64::from(value)));
     }
 
@@ -32,7 +32,7 @@ proptest! {
             scaled_numerator,
             scaled_denominator,
         )));
-        prop_assert!(first.same_node(&second));
+        prop_assert_eq!(first, second);
     }
 
     #[test]
@@ -107,7 +107,7 @@ proptest! {
             .checked_pow(base_exponent)
             .expect("the generated integer power fits in i64");
         prop_assert_eq!(
-            Expr::number(power).log_base(base),
+            Expr::number(power).log(base),
             Expr::number(i64::from(base_exponent)),
         );
     }

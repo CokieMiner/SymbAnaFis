@@ -9,14 +9,17 @@ use super::super::{Expr, Pattern, RewriteError, RewriteRule};
 #[test]
 fn replacement_validation_rejects_unbound_captures() {
     assert!(matches!(
-        RewriteRule::new(Pattern::capture("bound"), Pattern::capture("absent")),
+        RewriteRule::new(
+            Pattern::capture("bound", None),
+            Pattern::capture("absent", None)
+        ),
         Err(RewriteError::UnboundCapture(_))
     ));
 }
 
 #[test]
 fn replacement_is_not_rewritten_again_and_false_guards_preserve_input() {
-    let capture = Pattern::capture("edge_argument");
+    let capture = Pattern::capture("edge_argument", None);
     let expanding =
         RewriteRule::new(capture.clone(), capture.sin()).expect("the replacement capture is bound");
     let x = Expr::symbol("pattern_edge_x");

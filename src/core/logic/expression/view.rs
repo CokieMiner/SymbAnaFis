@@ -26,7 +26,7 @@ impl Expr {
             Node::Derivative { inner, var, order } => ExprView::Derivative {
                 inner,
                 var: var.symbol(),
-                order: *order,
+                order: order.get(),
             },
         }
     }
@@ -41,12 +41,13 @@ impl Expr {
     /// ```
     /// use symb_anafis::{Context, Expr, ExprView};
     /// let context = Context::new();
-    /// let x = context.symb("x");
+    /// let x = context.symb("x")?;
     /// let expression = x.pow(2) + x.pow(3) + 1;
     /// assert!(matches!(expression.view(), ExprView::Sum(_)));
     /// let terms = expression.children();
     /// assert_eq!(terms.len(), 3);
     /// assert_eq!(Expr::sum(terms.collect()), expression);
+    /// # Ok::<(), symb_anafis::SymbolError>(())
     /// ```
     ///
     /// # Panics

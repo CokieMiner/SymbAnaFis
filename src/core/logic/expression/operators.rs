@@ -6,7 +6,7 @@ use alloc::vec;
 
 use num_anafis::Number;
 
-use super::Expr;
+use super::{Expr, Node};
 
 macro_rules! handle_operators {
     ($left:ty) => {
@@ -31,7 +31,7 @@ macro_rules! handle_operators {
         impl<Right: Into<Expr>> Div<Right> for $left {
             type Output = Expr;
             fn div(self, right: Right) -> Expr {
-                Expr::div_expr(self.into(), right.into())
+                Node::normalize_quotient(self.into(), right.into())
             }
         }
     };
@@ -63,7 +63,7 @@ macro_rules! primitive_operators {
         impl Div<$right> for $left {
             type Output = Expr;
             fn div(self, right: $right) -> Expr {
-                Expr::div_expr(self.into(), right.into())
+                Node::normalize_quotient(self.into(), right.into())
             }
         }
     };

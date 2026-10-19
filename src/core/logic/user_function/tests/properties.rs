@@ -4,11 +4,33 @@ use alloc::{sync::Arc, vec::Vec};
 
 use proptest::{collection, prelude::any, prop_assert, prop_assert_eq, proptest};
 
-use crate::errors::FunctionError;
+use crate::{core::Context, errors::FunctionError};
 
 use super::super::{BodyFn, Expr, UserFunction};
 
 proptest! {
+    #[test]
+    fn replacing_a_draft_partial_preserves_registered_definitions(
+        index in 0_usize..8,
+        original_value in -100_i64..=100,
+        replacement_value in -100_i64..=100,
+    ) {
+        let context = Context::new();
+        let arity = index.saturating_add(1);
+        let draft = UserFunction::new(arity..=arity)
+            .partial(index, Arc::new(move |_| Expr::number(original_value)))?;
+        let original = context.register_function("original", draft.clone())?;
+        let replacement = draft.partial(index, Arc::new(move |_| Expr::number(replacement_value)))?;
+        let revised = context.register_function("revised", replacement)?;
+        let original_partial = original.definition().and_then(|definition| definition.partial_fn(index))
+            .expect("the original registration owns its partial");
+        let revised_partial = revised.definition().and_then(|definition| definition.partial_fn(index))
+            .expect("the revised registration owns its partial");
+        prop_assert_eq!(original_partial(&[]), Expr::number(original_value));
+        prop_assert_eq!(revised_partial(&[]), Expr::number(replacement_value));
+        prop_assert!(!Arc::ptr_eq(&original_partial, &revised_partial));
+    }
+
     #[test]
     fn callback_installation_preserves_shared_allocation_and_clone_ownership(
         index in 0_usize..8,
@@ -58,8 +80,8 @@ proptest! {
             .body(Arc::new(|args| args.first().cloned().unwrap_or_else(|| Expr::number(0))));
         let arguments = argument_values.into_iter().map(Expr::number).collect::<Vec<_>>();
         let argument_count = arguments.len();
-        prop_assert!(function.accepts_arity(arity));
-        prop_assert_eq!(function.accepts_arity(argument_count), arity == argument_count);
+        prop_assert!(function.arity().contains(&arity));
+        prop_assert_eq!(function.arity().contains(&argument_count), arity == argument_count);
         let body = function.body_fn().expect("a registered body must be retrievable");
         prop_assert_eq!(
             body(&arguments),

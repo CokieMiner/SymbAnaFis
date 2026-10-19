@@ -1,19 +1,22 @@
 //! Rule validation and single-pass application.
 
-use core::{ptr::from_ref, slice::from_ref as one};
+use core::{cell::OnceCell, num::NonZeroU64, slice::from_ref as one};
 
-use alloc::{borrow::Cow, sync::Arc, vec::Vec};
+use alloc::{borrow::Cow, vec::Vec};
 
 use crate::collections::{HashMap, HashSet};
 
 use super::{
-    AdditiveOperands, AlgebraicOperands, ConcreteMatcher, ExactSources, Expr, ExprView, Group,
-    GroupValues, MatchWork, Normalization, Pattern, PatternNode, ReplacementOp, RewriteError,
-    RewriteGuard, RewriteRule, Search, Selected, Substitution, Task,
+    AdditiveOperands, AlgebraicOperands, BuiltinFunction, ConcreteMatcher, ExactSources, Expr,
+    ExprView, FunctionName, Group, GroupValues, MatchWork, Normalization, Pattern, PatternNode,
+    Replacement, ReplacementProgram, RewriteError, RewriteGuard, RewriteRule, Search, Selected,
+    Substitution, Task,
 };
 
 impl RewriteRule {
-    /// Validate that every replacement capture is supplied by the input pattern.
+    /// Construct a rule with a compiled pattern or a pure replacement callback.
+    /// Template captures must be supplied by the input pattern. Callback
+    /// destinations receive only accepted bindings and remain dormant here.
     ///
     /// # Errors
     /// Returns `UnboundCapture` when the result uses an absent input capture.
@@ -21,7 +24,23 @@ impl RewriteRule {
     /// # Panics
     /// Propagates numeric backend capacity panics while normalizing literal
     /// templates. Internal template-order violations also panic.
-    pub fn new(pattern: Pattern, replacement: Pattern) -> Result<Self, RewriteError> {
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    /// use symb_anafis::{Context, Expr, Pattern, Replacement, RewriteRule};
+    /// let context = Context::new();
+    /// let x = context.symb("x")?;
+    /// let a = Pattern::capture("a", None);
+    /// let rule = RewriteRule::new(a.sin(), Replacement::Callback(Arc::new(|captures| {
+    ///     captures.get("a").map_or_else(|| Expr::number(0), Expr::cos)
+    /// })))?;
+    /// assert_eq!(rule.apply_all(&x.sin(), None, None)?, x.cos());
+    /// # Ok::<(), Box<dyn core::error::Error>>(())
+    /// ```
+    pub fn new(
+        pattern: Pattern,
+        replacement: impl Into<Replacement>,
+    ) -> Result<Self, RewriteError> {
         let pattern_order = PatternNode::template_order(&pattern);
         let associative = pattern_order.iter().any(|template| {
             matches!(
@@ -32,59 +51,32 @@ impl RewriteRule {
         let captures: HashSet<_> = pattern_order
             .iter()
             .filter_map(|template| {
-                if let PatternNode::Capture(name) = template.node() {
+                if let PatternNode::Capture { name, .. } = template.node() {
                     Some(name.as_ref())
                 } else {
                     None
                 }
             })
             .collect();
-        let mut instructions = Vec::new();
-        let mut indices = HashMap::new();
-        for template in PatternNode::template_order(&replacement) {
-            let index = |child: &Pattern| {
-                *indices
-                    .get(&from_ref(child.node()))
-                    .expect("compiled children precede their parent")
-            };
-            let operation = match template.node() {
-                PatternNode::Capture(name) if !captures.contains(name.as_ref()) => {
-                    return Err(RewriteError::UnboundCapture(name.as_ref().into()));
-                }
-                PatternNode::Capture(name) => ReplacementOp::Capture(Arc::clone(name)),
-                PatternNode::Exact(value) => ReplacementOp::Exact(value.clone()),
-                PatternNode::Function { name, args } => ReplacementOp::Function {
-                    name: name.clone(),
-                    args: args.iter().map(index).collect(),
-                },
-                PatternNode::Sum(args) => ReplacementOp::Sum(args.iter().map(index).collect()),
-                PatternNode::Product(args) => {
-                    ReplacementOp::Product(args.iter().map(index).collect())
-                }
-                PatternNode::Div(left, right) => ReplacementOp::Div(index(left), index(right)),
-                PatternNode::Pow(base, exponent) => {
-                    ReplacementOp::Pow(index(base), index(exponent))
-                }
-            };
-            indices.insert(from_ref(template.node()), instructions.len());
-            instructions.push(operation);
-        }
-        let concrete = captures.is_empty().then(|| {
-            Substitution::new(
-                Normalization::default().lower(&pattern),
-                ReplacementOp::instantiate(&instructions, &HashMap::new()),
-            )
-        });
-        if concrete.is_some() {
-            instructions = Vec::new();
-        }
+        let program = ReplacementProgram::compile(replacement.into(), &captures)?;
+        let destination = if captures.is_empty() {
+            let source = Normalization::default().lower(&pattern);
+            if let ReplacementProgram::Callback(callback) = program {
+                ReplacementProgram::ConcreteCallback { source, callback }
+            } else {
+                ReplacementProgram::Concrete(Substitution::new(
+                    source,
+                    program.instantiate(&HashMap::new()),
+                ))
+            }
+        } else {
+            program
+        };
         drop(captures);
-        drop(replacement);
         Ok(Self {
             pattern,
-            replacement: instructions,
+            replacement: destination,
             associative,
-            concrete,
         })
     }
 
@@ -101,7 +93,11 @@ impl RewriteRule {
     /// and grouped partitions. Positive power bases are tried in increasing
     /// block size; new
     /// quotients are not capture candidates. Repeated replacements stay compressed.
-    /// Negative/fractional powers and arbitrary algebraic identities are opaque.
+    /// Exact rational templates consume integral groups on an unchanged principal
+    /// base. Integral outer powers can also capture fractional blocks already
+    /// present in the input. Reciprocal templates require denominator factors;
+    /// nested reciprocal exclusions remain opaque. Bare expressions do not infer
+    /// fractional roots. Arbitrary algebraic identities require explicit rules.
     /// Missing scalar prefixes are inferred by dividing the whole operand:
     /// `2*a -> f(a)` maps a bare `x` to `f(x/2)`. This rule also matches other
     /// subtrees, including numeric literals. Matching remains bottom-up; use a
@@ -110,7 +106,10 @@ impl RewriteRule {
     /// `match_limit = None` permits unrestricted commutative search. A supplied
     /// limit bounds candidate attempts across the whole pass; complete ordered
     /// matches consume no attempts. Capture-free rules share concrete matching
-    /// with Substitution, including implicit units and signed additive scales.
+    /// with Substitution, including implicit units, common additive factors,
+    /// and exact rational power groups whose branches and zero exclusions are preserved.
+    /// Rules match rebuilt nodes bottom-up; simultaneous substitutions match
+    /// original nodes before rebuilding children.
     /// Exhaustion stops traversal and discards the
     /// partial output. The immutable input remains valid.
     /// A counted assignment can cover many identical groups with one guard call;
@@ -119,22 +118,26 @@ impl RewriteRule {
     /// `guard = None` accepts every structural match. A guard may reject an
     /// assignment and search another; it can run more than once per input node.
     /// Callback side effects preceding an error are not rolled back.
+    /// Replacement callbacks run only after guard acceptance. They must be
+    /// stable for identical bindings: counted groups share one destination,
+    /// and capture-free destinations are cached lazily within this pass.
     ///
     /// # Errors
     /// Returns [`RewriteError::MatchLimitExceeded`] when another attempt is needed
     /// after the supplied candidate limit has been reached.
     ///
     /// # Panics
-    /// Propagates guard callback and numeric backend capacity panics.
+    /// Propagates capture predicate, guard, replacement callback, and numeric
+    /// backend capacity panics.
     ///
     /// ```
     /// use symb_anafis::{Context, Pattern, RewriteRule};
     /// let context = Context::new();
-    /// let x = context.symb("x");
-    /// let u = context.symb("u");
+    /// let x = context.symb("x")?;
+    /// let u = context.symb("u")?;
     /// let rule = RewriteRule::new(Pattern::exact(x.pow(2)), Pattern::exact(u))?;
     /// assert_eq!(rule.apply_all(&x.pow(5), None, None)?, u.pow(2) * x);
-    /// # Ok::<(), symb_anafis::RewriteError>(())
+    /// # Ok::<(), Box<dyn core::error::Error>>(())
     /// ```
     pub fn apply_all(
         &self,
@@ -148,29 +151,57 @@ impl RewriteRule {
         };
         let mut accepts =
             |captures: &HashMap<&str, Expr>| guard.as_mut().is_none_or(|check| check(captures));
-        if let Some(entry) = &self.concrete {
+        if let ReplacementProgram::Concrete(entry) = &self.replacement {
             let matcher = ConcreteMatcher::new(ExactSources::One(entry));
+            let captures = HashMap::new();
             return expression.map(|node| {
                 let replacement = matcher.replace(node);
                 if replacement.is_some()
-                    && !node.same_node(entry.from())
+                    && node != entry.from()
                     && let Some(remaining) = &mut work.remaining
                 {
                     *remaining = remaining
                         .checked_sub(1)
                         .ok_or(RewriteError::MatchLimitExceeded { limit: work.limit })?;
                 }
-                Ok(replacement.filter(|_| accepts(&HashMap::new())))
+                Ok(replacement.filter(|_| accepts(&captures)))
+            });
+        }
+        if let ReplacementProgram::ConcreteCallback { source, callback } = &self.replacement {
+            let probe = Substitution::new(source.clone(), source.clone());
+            let matcher = ConcreteMatcher::new(ExactSources::One(&probe));
+            let resolved_entry = OnceCell::new();
+            let resolved_matcher = OnceCell::new();
+            let captures = HashMap::new();
+            return expression.map(|node| {
+                let active: &ConcreteMatcher<'_> = resolved_matcher.get().unwrap_or(&matcher);
+                let replacement = active.replace(node);
+                if replacement.is_some()
+                    && node != source
+                    && let Some(remaining) = &mut work.remaining
+                {
+                    *remaining = remaining
+                        .checked_sub(1)
+                        .ok_or(RewriteError::MatchLimitExceeded { limit: work.limit })?;
+                }
+                if replacement.is_none() || !accepts(&captures) {
+                    return Ok(None);
+                }
+                if resolved_matcher.get().is_some() {
+                    return Ok(replacement);
+                }
+                let resolved = resolved_entry
+                    .get_or_init(|| Substitution::new(source.clone(), callback(&captures)));
+                let prepared = resolved_matcher
+                    .get_or_init(|| ConcreteMatcher::new(ExactSources::One(resolved)));
+                Ok(prepared.replace(node))
             });
         }
         expression.map(|node| {
             if let Some(captures) = PatternNode::match_ordered(&self.pattern, node)
                 && accepts(&captures)
             {
-                return Ok(Some(ReplacementOp::instantiate(
-                    &self.replacement,
-                    &captures,
-                )));
+                return Ok(Some(self.replacement.instantiate(&captures)));
             }
             if let PatternNode::Sum(patterns) | PatternNode::Product(patterns) = self.pattern.node()
             {
@@ -192,10 +223,7 @@ impl RewriteRule {
                     .pending
                     .push(Task::Match(&self.pattern, node.clone()));
                 if let Some(matched) = search.run(&mut work, &mut accepts)? {
-                    return Ok(Some(ReplacementOp::instantiate(
-                        &self.replacement,
-                        &matched.captures,
-                    )));
+                    return Ok(Some(self.replacement.instantiate(&matched.captures)));
                 }
             }
             if let Some(replacement) = self.rewrite_counted(node, &mut work, &mut accepts)? {
@@ -212,14 +240,31 @@ impl RewriteRule {
                     .pending
                     .push(Task::Match(&self.pattern, node.clone()));
                 if let Some(matched) = search.run(&mut work, &mut accepts)? {
-                    return Ok(Some(ReplacementOp::instantiate(
-                        &self.replacement,
-                        &matched.captures,
-                    )));
+                    return Ok(Some(self.replacement.instantiate(&matched.captures)));
                 }
             }
             Ok(None)
         })
+    }
+
+    /// Enumerate function identities whose absence rules out a structural match.
+    ///
+    /// Captures and exact-expression templates add no requirements. Square roots
+    /// are excluded because counted rational powers can supply their groups
+    /// without storing a square-root call. Identities may occur more than once;
+    /// their presence is necessary but does not establish a match.
+    pub fn required_functions(&self) -> impl Iterator<Item = FunctionName> {
+        PatternNode::template_order(&self.pattern)
+            .into_iter()
+            .filter_map(|pattern| {
+                if let PatternNode::Function { name, .. } = pattern.node()
+                    && *name != BuiltinFunction::Sqrt.function()
+                {
+                    Some(name.clone())
+                } else {
+                    None
+                }
+            })
     }
 
     /// Select whole original operands before searching their remaining counted units.
@@ -284,10 +329,7 @@ impl RewriteRule {
                 .skip(start)
                 .find_map(|(index, (_, keep))| keep.then_some(index))
                 .unwrap_or(original.len());
-            inserted.push(ReplacementOp::instantiate(
-                &self.replacement,
-                &matched.captures,
-            ));
+            inserted.push(self.replacement.instantiate(&matched.captures));
         }
         if inserted.is_empty() {
             return Ok(None);
@@ -322,26 +364,52 @@ impl RewriteRule {
         let (sum, patterns) = match self.pattern.node() {
             PatternNode::Sum(patterns) => (true, patterns.as_slice()),
             PatternNode::Product(patterns) => (false, patterns.as_slice()),
-            PatternNode::Pow(_, exponent)
-                if matches!(exponent.node(), PatternNode::Exact(value)
-                    if AlgebraicOperands::integer(value).is_some_and(|power| power > 0)) =>
-            {
-                (false, one(&self.pattern))
-            }
+            template if template.power_template().is_some() => (false, one(&self.pattern)),
             PatternNode::Exact(_)
-            | PatternNode::Capture(_)
+            | PatternNode::Capture { .. }
             | PatternNode::Function { .. }
             | PatternNode::Div(..)
             | PatternNode::Pow(..) => return Ok(None),
         };
-        if patterns.is_empty()
-            || !sum && !matches!(node.view(), ExprView::Product(_) | ExprView::Pow(..))
-        {
+        let supported = sum
+            || matches!(
+                node.view(),
+                ExprView::Product(_) | ExprView::Pow(..) | ExprView::Div(..)
+            )
+            || matches!(node.view(), ExprView::Function { name, .. } if *name == BuiltinFunction::Sqrt.function());
+        if patterns.is_empty() || !supported {
             return Ok(None);
         }
         let Some(mut operands) = AlgebraicOperands::new(node, sum, 0) else {
             return Ok(None);
         };
+        if !sum {
+            let mut denominator = NonZeroU64::MIN;
+            for pattern in patterns {
+                if let Some(power) = pattern.node().power_template() {
+                    let mut first = denominator.get();
+                    let mut second = power.denominator.get();
+                    while second != 0 {
+                        let Some(remainder) = first.checked_rem(second) else {
+                            break;
+                        };
+                        first = second;
+                        second = remainder;
+                    }
+                    let Some(common) = power
+                        .denominator
+                        .get()
+                        .checked_div(first)
+                        .and_then(|scale| denominator.get().checked_mul(scale))
+                        .and_then(NonZeroU64::new)
+                    else {
+                        return Ok(None);
+                    };
+                    denominator = common;
+                }
+            }
+            operands.refine_powers(denominator);
+        }
         let mut inserted = Vec::new();
         loop {
             let mut search = Search::new();
@@ -363,7 +431,7 @@ impl RewriteRule {
                 return Ok(None);
             };
             let repetitions = operands.consume(&selected);
-            let replacement = ReplacementOp::instantiate(&self.replacement, &matched.captures);
+            let replacement = self.replacement.instantiate(&matched.captures);
             inserted.push(AlgebraicOperands::repeat(replacement, repetitions, sum));
         }
         Ok((!inserted.is_empty()).then(|| operands.finish(inserted)))

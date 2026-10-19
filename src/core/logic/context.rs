@@ -1,4 +1,4 @@
-//! Isolated symbol bindings and shared user-function registration.
+//! Isolated symbol ownership and shared function-name registration.
 
 #![expect(
     clippy::self_named_module_files,
@@ -7,22 +7,21 @@
 
 use alloc::sync::Arc;
 
-use crate::collections::{HashMap, HashSet};
+use crate::collections::HashMap;
 
 use super::{
-    BodyFn, FunctionDefinition, FunctionError, FunctionName, IdSequence, Mutex, PartialFn, Symbol,
-    SymbolData, SymbolError, UserFunction,
+    FunctionDefinition, FunctionError, FunctionName, IdSequence, Mutex, Symbol, SymbolData,
+    SymbolError, UserFunction,
 };
 
 #[derive(Debug, Default)]
 struct Bindings {
     symbols: HashMap<Arc<str>, Arc<SymbolData>>,
     owned_symbols: HashMap<usize, Arc<SymbolData>>,
-    functions: HashMap<FunctionName, UserFunction>,
-    function_names: HashMap<Arc<str>, FunctionName>,
+    functions: HashMap<Arc<str>, FunctionName>,
 }
 
-/// An isolated symbol namespace and a shared set of user functions.
+/// An isolated symbol namespace and a shared set of function-name bindings.
 ///
 /// Clones share bindings. Distinct contexts always allocate distinct variable
 /// and function identities, including when a global name already exists.
@@ -34,6 +33,8 @@ struct Bindings {
 /// Name removal retains every issued symbol identity until the namespace's
 /// final owner is released. Repeated creation and removal therefore accumulates
 /// metadata; use `reset` or a short-lived context to release unused identities.
+/// Registered function handles own their immutable definitions. Removing a name
+/// or dropping the context preserves definitions retained by handles or expressions.
 #[derive(Clone)]
 pub struct Context {
     id: usize,

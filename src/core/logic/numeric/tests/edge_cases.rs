@@ -8,9 +8,9 @@ use crate::core::{Expr, ExprView, Symbol};
 
 #[test]
 fn constants_have_distinct_nodes_from_named_variables_and_float_approximations() {
-    assert!(Expr::pi().same_node(&Expr::pi()));
-    assert!(Expr::e().same_node(&Expr::e()));
-    assert!(Expr::i().same_node(&Expr::number(Number::i())));
+    assert_eq!(Expr::pi(), Expr::pi());
+    assert_eq!(Expr::e(), Expr::e());
+    assert_eq!(Expr::i(), Expr::number(Number::i()));
     assert!(matches!(Expr::pi().view(), ExprView::Pi));
     assert!(matches!(Expr::e().view(), ExprView::Euler));
     assert!(matches!(Expr::i().view(), ExprView::ImaginaryUnit));

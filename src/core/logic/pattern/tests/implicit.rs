@@ -4,7 +4,7 @@ use alloc::vec;
 
 use num_anafis::Number;
 
-use proptest::{prop_assert, prop_assert_eq, proptest};
+use proptest::{prop_assert_eq, proptest};
 
 use crate::{
     collections::HashMap,
@@ -20,9 +20,9 @@ proptest! {
         exponent in 2_i64..=9,
     ) {
         let context = Context::new();
-        let x = context.symb("x");
+        let x = context.symb("x")?;
         let f = context.register_function("f", UserFunction::new(1..=1)).expect("the name is unbound");
-        let a = Pattern::capture("a");
+        let a = Pattern::capture("a", None);
         let pattern = Pattern::product(vec![Pattern::exact(Expr::number(2)), a.clone()]);
         let replacement = Pattern::apply(f.clone(), vec![a]).expect("f is unary");
         let rule = RewriteRule::new(pattern, replacement).expect("a is bound");
@@ -40,10 +40,10 @@ proptest! {
     #[test]
     fn whole_capture_backtracking_can_split_one_power_for_two_names(exponent in 2_i64..=12) {
         let context = Context::new();
-        let x = context.symb("x");
+        let x = context.symb("x")?;
         let pair = context.register_function("pair", UserFunction::new(2..=2)).expect("the name is unbound");
-        let a = Pattern::capture("a");
-        let b = Pattern::capture("b");
+        let a = Pattern::capture("a", None);
+        let b = Pattern::capture("b", None);
         let rule = RewriteRule::new(
             Pattern::product(vec![a.clone(), b.clone()]),
             Pattern::apply(pair.clone(), vec![a, b]).expect("pair is binary"),
@@ -51,7 +51,7 @@ proptest! {
         let expected = pair.call(vec![x.into(), x.pow(exponent.saturating_sub(1))]).expect("pair is binary");
         prop_assert_eq!(rule.apply_all(&x.pow(exponent), None, None), Ok(expected));
         let x_expression = x.to_expr();
-        let mut units_only = |captures: &HashMap<&str, Expr>| captures.values().all(|value| value.same_node(&x_expression));
+        let mut units_only = |captures: &HashMap<&str, Expr>| captures.values().all(|value| value == &x_expression);
         let copies = exponent.checked_div(2).expect("two is nonzero");
         let mut factors = vec![pair.call(vec![x.into(), x.into()]).expect("pair is binary").pow(copies)];
         if exponent & 1 != 0 { factors.push(x.into()); }
@@ -66,8 +66,8 @@ proptest! {
         x_value in -2_i64..=2,
     ) {
         let context = Context::new();
-        let x = context.symb("x");
-        let u = context.symb("u");
+        let x = context.symb("x")?;
+        let u = context.symb("u")?;
         let source = x.pow(requested);
         let rule = RewriteRule::new(Pattern::exact(source.clone()), Pattern::exact(u))
             .expect("literal replacements have no captures");
@@ -94,11 +94,11 @@ proptest! {
         coefficient in 1_i32..=6,
     ) {
         let context = Context::new();
-        let x = context.symb("x");
-        let y = context.symb("y");
-        let u = context.symb("u");
+        let x = context.symb("x")?;
+        let y = context.symb("y")?;
+        let u = context.symb("u")?;
         let f = context.register_function("f", UserFunction::new(1..=1)).expect("the name is unbound");
-        let a = Pattern::capture("a");
+        let a = Pattern::capture("a", None);
         let call = Pattern::apply(f.clone(), vec![a.clone()]).expect("f is unary");
         let rule = RewriteRule::new(Pattern::product(vec![a.pow(2), call]), Pattern::exact(u)).expect("the RHS has no captures");
         let fx = f.call(vec![x.into()]).expect("f is unary");
@@ -111,7 +111,7 @@ proptest! {
         if function_remaining > 0 { factors.push(fx.pow(function_remaining)); }
         prop_assert_eq!(rule.apply_all(&input, None, None), Ok(Expr::product(factors)));
         let wrong = Expr::product(vec![Expr::number(coefficient), x.pow(x_power), f.call(vec![y.into()]).expect("f is unary").pow(function_power)]);
-        prop_assert!(rule.apply_all(&wrong, None, None).expect("unlimited search").same_node(&wrong));
+        prop_assert_eq!(rule.apply_all(&wrong, None, None).expect("unlimited search"), wrong);
     }
 
     #[test]
@@ -120,10 +120,10 @@ proptest! {
         y_count in 2_i32..=10,
     ) {
         let context = Context::new();
-        let x = context.symb("x");
-        let y = context.symb("y");
-        let z = context.symb("z");
-        let u = context.symb("u");
+        let x = context.symb("x")?;
+        let y = context.symb("y")?;
+        let z = context.symb("z")?;
+        let u = context.symb("u")?;
         let rule = RewriteRule::new(Pattern::sum(vec![Pattern::exact(x), Pattern::exact(y)]), Pattern::exact(u))
             .expect("literal replacements have no captures");
         let input = Expr::sum(vec![Expr::product(vec![Expr::number(x_count), x.into()]), Expr::product(vec![Expr::number(y_count), y.into()]), z.into()]);
@@ -137,9 +137,9 @@ proptest! {
     #[test]
     fn signed_collected_addends_match_patterns_without_erasing_the_sign(count in 2_i32..=10) {
         let context = Context::new();
-        let x = context.symb("x");
-        let y = context.symb("y");
-        let u = context.symb("u");
+        let x = context.symb("x")?;
+        let y = context.symb("y")?;
+        let u = context.symb("u")?;
         let negative_y = Expr::product(vec![Expr::number(-1), y.into()]);
         let rule = RewriteRule::new(Pattern::sum(vec![Pattern::exact(x), Pattern::exact(negative_y)]), Pattern::exact(u))
             .expect("there are no RHS captures");
@@ -150,21 +150,21 @@ proptest! {
     #[test]
     fn nested_function_templates_do_not_extract_a_factor_from_an_argument(exponent in 3_i64..=12) {
         let context = Context::new();
-        let x = context.symb("x");
+        let x = context.symb("x")?;
         let f = context.register_function("f", UserFunction::new(1..=1)).expect("the name is unbound");
-        let rule = RewriteRule::new(Pattern::apply(f.clone(), vec![Pattern::exact(x.pow(2))]).expect("f is unary"), Pattern::exact(context.symb("u")))
+        let rule = RewriteRule::new(Pattern::apply(f.clone(), vec![Pattern::exact(x.pow(2))]).expect("f is unary"), Pattern::exact(context.symb("u")?))
             .expect("there are no RHS captures");
         let input = f.call(vec![x.pow(exponent)]).expect("f is unary");
-        prop_assert!(rule.apply_all(&input, None, None).expect("unlimited search").same_node(&input));
+        prop_assert_eq!(rule.apply_all(&input, None, None).expect("unlimited search"), input);
     }
 
     #[test]
     fn distinct_captures_may_consume_disjoint_units_of_one_power(exponent in 4_i64..=13) {
         let context = Context::new();
-        let x = context.symb("x");
+        let x = context.symb("x")?;
         let pair = context.register_function("pair", UserFunction::new(2..=2)).expect("the name is unbound");
-        let a = Pattern::capture("a");
-        let b = Pattern::capture("b");
+        let a = Pattern::capture("a", None);
+        let b = Pattern::capture("b", None);
         let replacement = Pattern::apply(pair.clone(), vec![a.clone(), b.clone()]).expect("pair is binary");
         let rule = RewriteRule::new(Pattern::product(vec![a.pow(2), b.pow(2)]), replacement).expect("both captures are bound");
         let copies = exponent.checked_div(4).expect("four is nonzero");
@@ -177,12 +177,12 @@ proptest! {
     #[test]
     fn guard_rejection_preserves_original_powers_and_rolls_back_captures(exponent in 3_i64..=15) {
         let context = Context::new();
-        let x = context.symb("x");
-        let a = Pattern::capture("a");
-        let rule = RewriteRule::new(a.pow(2), Pattern::exact(context.symb("u"))).expect("no RHS captures");
+        let x = context.symb("x")?;
+        let a = Pattern::capture("a", None);
+        let rule = RewriteRule::new(a.pow(2), Pattern::exact(context.symb("u")?)).expect("no RHS captures");
         let input = x.pow(exponent);
         let mut reject = |_: &HashMap<&str, Expr>| false;
-        prop_assert!(rule.apply_all(&input, None, Some(&mut reject)).expect("unlimited search").same_node(&input));
+        prop_assert_eq!(&rule.apply_all(&input, None, Some(&mut reject)).expect("unlimited search"), &input);
         prop_assert_eq!(rule.apply_all(&input, Some(0), None), Err(RewriteError::MatchLimitExceeded { limit: 0 }));
     }
 }
@@ -190,9 +190,9 @@ proptest! {
 #[test]
 fn a_single_virtual_candidate_handles_the_largest_exponent() {
     let context = Context::new();
-    let x = context.symb("x");
-    let u = context.symb("u");
-    let a = Pattern::capture("a");
+    let x = context.symb("x").expect("symbol allocation");
+    let u = context.symb("u").expect("symbol allocation");
+    let a = Pattern::capture("a", None);
     let rule = RewriteRule::new(a.pow(2), Pattern::exact(u)).expect("no RHS captures");
     let expected = Expr::product(vec![
         u.pow(i64::MAX.checked_div(2).expect("two is nonzero")),

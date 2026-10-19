@@ -57,8 +57,8 @@ fn implicit_conversion_survives_concurrent_unbinding_and_replacement() {
                 scope.spawn(move || {
                     barrier.wait();
                     for _ in 0..64 {
-                        assert!(symbol.to_expr().same_node(expression));
-                        assert!((symbol + 1).same_node(sum));
+                        assert_eq!(&symbol.to_expr(), expression);
+                        assert_eq!(&(symbol + 1), sum);
                         assert_eq!(Symbol::from_id(symbol.id()), Ok(symbol));
                     }
                 })
@@ -78,14 +78,16 @@ fn implicit_conversion_survives_concurrent_unbinding_and_replacement() {
     });
     drop(registry);
     drop(data);
-    assert!((symbol + 1).same_node(&sum));
+    assert_eq!(symbol + 1, sum);
 }
 
 #[test]
 fn scoped_conversion_survives_concurrent_name_clearing_and_clone_reset() {
     let context = Context::new();
     let mut manager = context.clone();
-    let symbol = context.symb("concurrent_scoped_symbol");
+    let symbol = context
+        .symb("concurrent_scoped_symbol")
+        .expect("symbol allocation");
     let id = symbol.id();
     let expression = symbol.to_expr();
     let sum = symbol + 1;
@@ -101,8 +103,8 @@ fn scoped_conversion_survives_concurrent_name_clearing_and_clone_reset() {
                 scope.spawn(move || {
                     barrier.wait();
                     for _ in 0..64 {
-                        assert!(symbol.to_expr().same_node(expression));
-                        assert!((symbol + 1).same_node(sum));
+                        assert_eq!(&symbol.to_expr(), expression);
+                        assert_eq!(&(symbol + 1), sum);
                         assert_eq!(context.symbol_from_id(id), Ok(symbol));
                         assert_eq!(Symbol::from_id(id), Err(SymbolError::InvalidId(id)));
                     }
@@ -112,7 +114,9 @@ fn scoped_conversion_survives_concurrent_name_clearing_and_clone_reset() {
         barrier.wait();
         for _ in 0..32 {
             context.clear_all();
-            let replacement = context.symb("concurrent_scoped_symbol");
+            let replacement = context
+                .symb("concurrent_scoped_symbol")
+                .expect("symbol allocation");
             assert_ne!(replacement.id(), id);
             manager.reset();
         }

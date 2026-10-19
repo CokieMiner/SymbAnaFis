@@ -2,29 +2,80 @@
 
 use alloc::{borrow::Cow, vec, vec::Vec};
 
-use num_anafis::Number;
+use num_anafis::{Number, RationalType};
 
 use super::{
-    AdditiveOperands, AlgebraicOperands, ConcreteMatcher, ExactSources, Expr, FactorSide,
-    LinearOperands, Node, NumericValue, OperandSource, PartialSelection, RemainingOperand,
-    Selection,
+    AdditiveOperands, AlgebraicOperands, BuiltinFunction, ConcreteMatcher, ExactSources, Expr,
+    FactorSide, LinearOperands, Node, NumericValue, OperandSource, PartialSelection,
+    RemainingOperand, Selection,
 };
 
-impl ConcreteMatcher<'_> {
+impl<'entries> ConcreteMatcher<'entries> {
+    /// Prepare source families once for a transformation pass.
+    pub fn new(exact: ExactSources<'entries>) -> Self {
+        let mut matcher = Self {
+            exact,
+            groups: Vec::new(),
+            arithmetic: 0,
+        };
+        let mut add = |source: &'entries Expr, destination: &'entries Expr| {
+            matcher.arithmetic |=
+                AlgebraicOperands::mode(source).map_or(0, |sum| if sum { 1 } else { 2 });
+            if LinearOperands::supports(source) {
+                matcher.arithmetic |= 1;
+            }
+            if matches!(source.node(), Node::Pow(..) | Node::Div(..))
+                || matches!(source.node(), Node::Function { name, .. } if *name == BuiltinFunction::Sqrt.function())
+            {
+                matcher.arithmetic |= 16;
+            }
+            if AlgebraicOperands::mode(source) == Some(false) {
+                for (factor, side) in AlgebraicOperands::factors(source) {
+                    if factor
+                        .literal()
+                        .is_some_and(|value| value.value().is_finite() && !value.value().is_zero())
+                    {
+                        matcher.arithmetic |= match side {
+                            FactorSide::Numerator => 4,
+                            FactorSide::Denominator => 8,
+                        };
+                    }
+                }
+            }
+            if matches!(matcher.exact, ExactSources::One(_)) {
+                matcher
+                    .groups
+                    .extend(OperandSource::new(source, destination));
+            }
+        };
+        match matcher.exact {
+            ExactSources::One(entry) => add(entry.from(), entry.to()),
+            ExactSources::Many(entries) => {
+                for (source, destination) in entries.iter() {
+                    add(source, destination);
+                }
+            }
+        }
+        matcher
+    }
+
     /// Reconstruct one selected node without traversing inserted destinations.
     pub fn replace(&self, expression: &Expr) -> Option<Expr> {
-        self.select(expression).map(|selection| match selection {
-            Selection::Whole(value) => value,
-            Selection::Partial(partial) => partial.rebuild(Clone::clone),
+        self.select(expression).map(|selection| {
+            if matches!(self.exact, ExactSources::One(entry) if entry.from() == entry.to()) {
+                return expression.clone();
+            }
+            match selection {
+                Selection::Whole(value) => value,
+                Selection::Partial(partial) => partial.rebuild(&mut Clone::clone),
+            }
         })
     }
 
     /// Select exact parents first, then disjoint groups from original operands.
     pub fn select_explicit(&self, expression: &Expr) -> Option<Selection> {
         let exact = match self.exact {
-            ExactSources::One(entry) => expression
-                .same_node(entry.from())
-                .then(|| entry.to().clone()),
+            ExactSources::One(entry) => (expression == entry.from()).then(|| entry.to().clone()),
             ExactSources::Many(entries) => entries.get(expression).cloned(),
         };
         if let Some(replacement) = exact {
@@ -70,54 +121,9 @@ impl ConcreteMatcher<'_> {
     }
 }
 
-impl<'entries> ConcreteMatcher<'entries> {
-    /// Prepare source families once for a transformation pass.
-    pub fn new(exact: ExactSources<'entries>) -> Self {
-        let mut matcher = Self {
-            exact,
-            groups: Vec::new(),
-            arithmetic: 0,
-        };
-        let mut add = |source: &'entries Expr, destination: &'entries Expr| {
-            matcher.arithmetic |=
-                AlgebraicOperands::mode(source).map_or(0, |sum| if sum { 1 } else { 2 });
-            if LinearOperands::supports(source) {
-                matcher.arithmetic |= 1;
-            }
-            if AlgebraicOperands::mode(source) == Some(false) {
-                for (factor, side) in AlgebraicOperands::factors(source) {
-                    if factor
-                        .literal()
-                        .is_some_and(|value| value.value().is_finite() && !value.value().is_zero())
-                    {
-                        matcher.arithmetic |= match side {
-                            FactorSide::Numerator => 4,
-                            FactorSide::Denominator => 8,
-                        };
-                    }
-                }
-            }
-            if matches!(matcher.exact, ExactSources::One(_)) {
-                matcher
-                    .groups
-                    .extend(OperandSource::new(source, destination));
-            }
-        };
-        match matcher.exact {
-            ExactSources::One(entry) => add(entry.from(), entry.to()),
-            ExactSources::Many(entries) => {
-                for (source, destination) in entries.iter() {
-                    add(source, destination);
-                }
-            }
-        }
-        matcher
-    }
-}
-
 impl PartialSelection {
     /// Transform unmatched original operands, then insert untouched destinations.
-    pub fn rebuild(self, mut mapped: impl FnMut(&Expr) -> Expr) -> Expr {
+    pub fn rebuild(self, mapped: &mut impl FnMut(&Expr) -> Expr) -> Expr {
         let mut operands = Vec::new();
         let mut divisors = Vec::new();
         for operand in &self.remainder {
@@ -136,6 +142,27 @@ impl PartialSelection {
                 RemainingOperand::Fixed(value) => value.clone(),
                 RemainingOperand::Scaled { base, coefficient } => {
                     Expr::product(vec![coefficient.clone(), mapped(base)])
+                }
+                RemainingOperand::Power {
+                    base,
+                    exponent,
+                    denominator,
+                } => {
+                    let value = mapped(base);
+                    if denominator.get() == 1 {
+                        Expr::integer_power(&value, exponent.get())
+                    } else if let Ok(numerator) = i64::try_from(exponent.get()) {
+                        value.pow(Number::from_rational(RationalType::from_parts(
+                            numerator,
+                            denominator.get(),
+                        )))
+                    } else {
+                        let root = value.pow(Number::from_rational(RationalType::from_parts(
+                            1,
+                            denominator.get(),
+                        )));
+                        Expr::integer_power(&root, exponent.get())
+                    }
                 }
                 RemainingOperand::Divisor(original) => {
                     divisors.push(mapped(original));
@@ -165,6 +192,12 @@ impl PartialSelection {
                     });
                     continue;
                 }
+                RemainingOperand::Factored { factor, inserted } => Self {
+                    sum: false,
+                    remainder: factor.remainder(),
+                    inserted: vec![inserted.clone()],
+                }
+                .rebuild(mapped),
             };
             operands.push(value);
         }
@@ -177,7 +210,7 @@ impl PartialSelection {
         if divisors.is_empty() {
             result
         } else {
-            Expr::div_expr(result, Expr::product(divisors))
+            Node::normalize_quotient(result, Expr::product(divisors))
         }
     }
 }
@@ -203,7 +236,7 @@ impl<'entries> OperandSource<'entries> {
             if !keep {
                 continue;
             }
-            if candidate.same_node(expected) {
+            if candidate == expected {
                 selected.push(index);
                 next = required.next();
             } else if Node::compare(candidate, expected).is_gt() {

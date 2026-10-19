@@ -23,7 +23,7 @@ impl Drop for Pattern {
 
 fn release(node: PatternNode, pending: &mut Vec<Arc<PatternNode>>) {
     match node {
-        PatternNode::Capture(_) | PatternNode::Exact(_) => {}
+        PatternNode::Capture { .. } | PatternNode::Exact(_) => {}
         PatternNode::Function { args, .. }
         | PatternNode::Sum(args)
         | PatternNode::Product(args) => {

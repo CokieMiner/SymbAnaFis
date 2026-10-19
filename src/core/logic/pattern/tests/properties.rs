@@ -81,7 +81,7 @@ proptest! {
         let function = context.register_function("arity", UserFunction::new(0..=6)).expect("the custom name is unbound");
         let pattern = Pattern::apply(
             function.clone(),
-            (0..pattern_arity).map(|index| Pattern::capture(format!("arg{index}"))).collect(),
+            (0..pattern_arity).map(|index| Pattern::capture(format!("arg{index}"), None)).collect(),
         ).expect("the generated pattern arity is accepted");
         let rule = RewriteRule::new(pattern, Pattern::exact(7))
             .expect("an exact replacement needs no captures");
@@ -132,7 +132,7 @@ proptest! {
         let sum_rule = RewriteRule::new(
             Pattern::apply(
                 host.clone(),
-                vec![Pattern::sum((0..pattern_arity).map(|index| Pattern::capture(format!("arg{index}"))).collect())],
+                vec![Pattern::sum((0..pattern_arity).map(|index| Pattern::capture(format!("arg{index}"), None)).collect())],
             ).expect("the host is unary"),
             Pattern::exact(9),
         )
@@ -153,7 +153,7 @@ proptest! {
         let product_rule = RewriteRule::new(
             Pattern::apply(
                 host.clone(),
-                vec![Pattern::product((0..pattern_arity).map(|index| Pattern::capture(format!("arg{index}"))).collect())],
+                vec![Pattern::product((0..pattern_arity).map(|index| Pattern::capture(format!("arg{index}"), None)).collect())],
             ).expect("the host is unary"),
             Pattern::exact(9),
         )
@@ -184,7 +184,7 @@ fn leaf(choice: u8) -> Expr {
 proptest! {
     #[test]
     fn bounded_shared_template_depth_is_memoized(depth in 0_usize..=9) {
-        let capture = Pattern::capture("property_deep_argument");
+        let capture = Pattern::capture("property_deep_argument", None);
         let mut pattern = capture.clone();
         let leaf = Expr::symbol("property_deep_x");
         let mut expression = leaf.clone();
@@ -215,7 +215,7 @@ proptest! {
         let context = Context::new();
         let pair = context.register_function("pair", UserFunction::new(2..=2)).expect("the custom name is unbound");
         let expression = bounded_expression(steps.clone(), &pair);
-        let capture = Pattern::capture("property_argument");
+        let capture = Pattern::capture("property_argument", None);
         let rule = RewriteRule::new(capture.clone(), capture.sin())
             .expect("the generated replacement capture is bound");
         prop_assert_eq!(
@@ -232,7 +232,7 @@ proptest! {
         first in 0_u8..4,
         second in 0_u8..4,
     ) {
-        let capture = Pattern::capture("property_repeated_argument");
+        let capture = Pattern::capture("property_repeated_argument", None);
         let context = Context::new();
         let pair = context.register_function("pair", UserFunction::new(2..=2)).expect("the custom name is unbound");
         let pattern = Pattern::apply(
@@ -269,7 +269,7 @@ proptest! {
         base_expression in bounded_expression_strategy()
     ) {
         let expression = base_expression.sin();
-        let capture = Pattern::capture("property_guard_argument");
+        let capture = Pattern::capture("property_guard_argument", None);
         let rule = RewriteRule::new(capture.sin(), capture.cos())
             .expect("the generated guard capture is bound");
         let expected_checks = expression.fold(0_usize, |count, node| {
@@ -365,7 +365,7 @@ proptest! {
         let context = Context::new();
         let pair = context.register_function("pair", UserFunction::new(2..=2)).expect("the custom name is unbound");
         let input = pair.call(vec![additive.clone(), additive]).expect("pair accepts two arguments");
-        let capture = Pattern::capture("property_poly_argument");
+        let capture = Pattern::capture("property_poly_argument", None);
         let rule = RewriteRule::new(capture.clone(), capture.cos())
             .expect("the generated polynomial replacement is bound");
         let expected = input.map(|node| Ok::<_, ()>(Some(node.cos())))
@@ -420,11 +420,11 @@ proptest! {
             "logical polynomial projection must retain canonical order"
         );
 
-        let first = Pattern::capture("property_projection_0");
+        let first = Pattern::capture("property_projection_0", None);
         let pattern_terms = logical
             .iter()
             .enumerate()
-            .map(|(index, _)| Pattern::capture(format!("property_projection_{index}")))
+            .map(|(index, _)| Pattern::capture(format!("property_projection_{index}"), None))
             .collect();
         let rule = RewriteRule::new(Pattern::sum(pattern_terms), first)
             .expect("the generated projected captures are bound");
@@ -451,7 +451,7 @@ proptest! {
         };
         let local_call = local.call(vec![argument.clone()]).expect("the custom function is unary");
         let input = host.call(vec![argument.sin(), local_call.clone()]).expect("the host accepts two arguments");
-        let capture = Pattern::capture("property_builtin_argument");
+        let capture = Pattern::capture("property_builtin_argument", None);
         let rule = RewriteRule::new(
             capture.sin(),
             capture.cos(),

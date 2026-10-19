@@ -88,17 +88,19 @@ impl PatternNode {
         commutative: bool,
     ) -> Option<MatchChildren<'pattern, 'expr>> {
         match template {
-            Self::Capture(name) => {
-                if let Some(existing) = captured.get(name.as_ref()) {
-                    if !existing.same_node(node) {
-                        return None;
-                    }
-                } else {
-                    captured.insert(name, node.clone());
+            Self::Capture { name, predicates } => {
+                if let Some(existing) = captured.get(name.as_ref())
+                    && existing != node
+                {
+                    return None;
                 }
+                if !predicates.iter().all(|predicate| predicate(node)) {
+                    return None;
+                }
+                captured.entry(name).or_insert_with(|| node.clone());
                 Some(MatchChildren::Done)
             }
-            Self::Exact(expected) => expected.same_node(node).then_some(MatchChildren::Done),
+            Self::Exact(expected) => (expected == node).then_some(MatchChildren::Done),
             Self::Function { name, args } => {
                 if let ExprView::Function {
                     name: actual,
@@ -166,7 +168,7 @@ impl PatternNode {
     fn pattern_children(pattern: &Pattern) -> impl Iterator<Item = &Pattern> {
         let (many, first, second): (&[Pattern], Option<&Pattern>, Option<&Pattern>) =
             match pattern.node() {
-                Self::Capture(_) | Self::Exact(_) => (&[], None, None),
+                Self::Capture { .. } | Self::Exact(_) => (&[], None, None),
                 Self::Function { args, .. } | Self::Sum(args) | Self::Product(args) => {
                     (args, None, None)
                 }
