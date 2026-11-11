@@ -1,12 +1,14 @@
-//! Numerical evaluation backends for symbolic expressions.
-//!
-//! The public evaluator API is exposed through [`api`], while the concrete
-//! compilation and execution backends stay internal to this module.
-//!
-//! Today the primary fast path is a compiled bytecode evaluator with scalar,
-//! SIMD, and parallel execution.
+//! Compiled scalar numerical evaluation over canonical expression DAGs.
 
-mod api;
-mod logic;
+use traversal::Traversal;
 
-pub use api::*;
+mod direct;
+mod program;
+mod traversal;
+mod value;
+
+pub use program::{MultiProgram, NativeScalar, Program, WasmScalar, Workspace};
+pub use value::EvaluationValue;
+
+#[cfg(test)]
+mod tests;

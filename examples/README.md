@@ -1,158 +1,84 @@
-# Examples
+# SymbAnaFis Examples & Benchmarks
 
-This directory contains examples demonstrating SymbAnaFis capabilities.
+Runnable demonstrations for Rust and Python workflows, plus head-to-head Rust and Python benchmark suites.
 
-## Quick Reference
-
-| Example                       | Description                                 | Run With                                        |
-| ----------------------------- | ------------------------------------------- | ----------------------------------------------- |
-| **quickstart**                | Minimal 25-line demo                        | `cargo run --example quickstart`                |
-| **api_showcase**              | Complete API tour (16 sections)             | `cargo run --example api_showcase`              |
-| **dual_autodiff**             | Automatic differentiation with dual numbers | `cargo run --example dual_autodiff`             |
-| **applications**              | Physics & engineering                       | `cargo run --example applications`              |
-| **simplification_comparison** | Compare against Symbolica CAS               | `cargo run --example simplification_comparison` |
-| **view_api_demo**             | View API pattern matching (Rust)            | `cargo run --example view_api_demo`             |
-
-## Visual Benchmarks
-
-These Python scripts demonstrate high-performance simulation and visualization capabilities.
-
-| Benchmark                        | Description                          | Run With                                              |
-| -------------------------------- | ------------------------------------ | ----------------------------------------------------- |
-| **aizawa_flow.py**               | Aizawa Attractor (3D Chaotic System) | `python examples/python/aizawa_flow.py`               |
-| **clifford_benchmark.py**        | Clifford Attractor (2D Discrete Map) | `python examples/python/clifford_benchmark.py`        |
-| **double_pendulum_benchmark.py** | Double Pendulum Phase Space (Chaos)  | `python examples/python/double_pendulum_benchmark.py` |
-| **gradient_descent.py**          | Gradient Descent on Complex Terrain  | `python examples/python/gradient_descent.py`          |
-
-## quickstart.rs - Get Started Fast
-
-Core features in 25 lines: differentiation, simplification, Symbol Copy, LaTeX/Unicode output.
-
-```bash
-cargo run --example quickstart
-```
-
-## api_showcase.rs - Complete API Tour
-
-Comprehensive demo of ALL features across 15 sections:
-
-| Section | Feature                   |
-| ------- | ------------------------- |
-| 1       | Quick Start               |
-| 2       | Symbol Management         |
-| 3       | Core Functions            |
-| 4       | Builder Pattern API       |
-| 5       | Expression Output         |
-| 6       | Uncertainty Propagation   |
-| 7       | Custom Functions          |
-| 8       | Evaluation                |
-| 9       | Vector Calculus           |
-| 10      | Automatic Differentiation |
-| 11      | Parallel Evaluation       |
-| 12      | Compilation & Performance |
-| 13      | Built-in Functions        |
-| 14      | Expression Syntax         |
-| 15      | Error Handling            |
-
-```bash
-cargo run --example api_showcase
-cargo run --example api_showcase --features parallel  # Include Section 11
-```
-
-Python version available: `python examples/python/api_showcase.py`
-
-## dual_autodiff.rs - Automatic Differentiation
-
-Demonstrates SymbAnaFis's `Dual<T>` number implementation for exact derivative computation through algebraic manipulation.
-
-**Features shown:**
-- Basic dual number arithmetic
-- Transcendental functions (sin, exp)
-- Higher-order derivatives
-- Chain rule application
-- Comparison with symbolic differentiation
-
-**Sample Output:**
 ```text
-=== Quadratic Function: f(x) = x² + 3x + 1 ===
-f(2) = 11
-f'(2) = 7
-Expected: f(2) = 11, f'(2) = 7
-
-=== Transcendental Function: f(x) = sin(x) * exp(x) ===
-f(1) = 2.287355
-f'(1) = 5.435620
-Expected f'(1) = 5.435620
-Error: 0.00e0
+examples/
+├── rust/                  # Core Rust examples (run via `cargo run --example ...`)
+├── python/                # Standalone Python examples
+└── benchmarks/
+    ├── rust/              # Rust benchmarks (SymbAnaFis vs Symbolica: VM & Native JIT)
+    ├── python/            # Python ensemble benchmarks (SymbAnaFis vs SymPy & SymEngine)
+    └── data/              # Large benchmark expressions
 ```
 
-```bash
-cargo run --example dual_autodiff
-```
+---
 
-Python version available: `python examples/python/dual_autodiff.py`
+## Rust Examples (`examples/rust/`)
 
-## applications.rs - Real-World Physics
+Run any Rust example from the repository root (pass `--all-features` to enable native JIT):
 
-20 physics & engineering applications including:
-- Kinematics, thermodynamics, quantum mechanics
-- Fluid dynamics, optics, control systems
-- Electromagnetism, relativity, astrophysics
-
-```bash
-cargo run --example applications
-```
-
-## simplification_comparison.rs - Benchmarking Accuracy
-
-Compares SymbAnaFis differentiation quality against the commercial Symbolica engine across complex physics expressions (Maxwell-Boltzmann, Planck Blackbody, etc.).
-
-**Sample Output:**
-```text
---- Logistic Sigmoid (d/dx) ---
-Input: 1/(1+exp(-k*(x-x0)))
-SymbAnaFis (Simplified): exp(-k*(x - x0))*k/(1 + exp(-k*(x - x0)))^2
-Symbolica:               k*(exp(-k*(x-x0))+1)^-2*exp(-k*(x-x0))
-```
-
-## view_api_demo.rs - Expression Structure Inspection (Rust)
-
-Demonstrates the View API for safe pattern matching on expression structure in Rust. Shows how to:
-- Inspect expression types without accessing internals
-- Recursively traverse expression trees
-- Convert expressions to custom formats (e.g., JSON-like)
-- Handle anonymous symbols
-- Use helper methods (`is_number()`, `is_symbol()`, etc.)
-
-The View API ensures your code won't break when internal optimizations change (e.g., polynomial representations).
-
-```bash
+```sh
+cargo run --all-features --example quickstart
 cargo run --example view_api_demo
+cargo run --example instruction_dump
+cargo run --example applications
+cargo run --example rewriting
 ```
 
-**Sample Output:**
-```text
-1. POLYNOMIAL: x^2 + 2*x + 1
-----------------------------------------------------------------------
-Expression: 1 + (2*x + x^2)
-View kind: "Sum"
+| Example | Source | Description |
+| --- | --- | --- |
+| **Quickstart** | [`rust/quickstart.rs`](rust/quickstart.rs) | Parsing, differentiation, canonical `.compact()` simplification, symbol domain properties, exact `Number` and `f64` VM/JIT evaluation, batch runs, `.wasm` export, and LaTeX/Unicode output. |
+| **View API Demo** | [`rust/view_api_demo.rs`](rust/view_api_demo.rs) | Inspecting expressions with borrowed `ExprView`s, postorder DAG folding, polynomial term iteration, and retained derivatives. |
+| **Instruction Dump** | [`rust/instruction_dump.rs`](rust/instruction_dump.rs) | Derivatives across nine scientific models (Planck, Maxwell-Boltzmann, Lennard-Jones, etc.), register VM compilation, and bytecode disassembly. |
+| **Applications** | [`rust/applications.rs`](rust/applications.rs) | Kinematics, volume uncertainty propagation with diagonal covariance, and polar coordinate Jacobians via the `Jacobian` trait. |
+| **Rewriting** | [`rust/rewriting.rs`](rust/rewriting.rs) | Concrete `Substitution`, `UserFunction` registration, `Pattern`/`RewriteRule` matching, and `SimplificationSequence` with `DomainSafety`. |
 
-Structure:
-Sum (2 terms):
-  Number: 1
-  Sum (2 terms):
-    Product (2 factors):
-      Number: 2
-      Symbol: x
-    Power:
-      Base:
-        Symbol: x
-      Exponent:
-        Number: 2
+---
 
-6. ANONYMOUS SYMBOLS
-----------------------------------------------------------------------
-Expression:   1 + $4294967362
-Symbol name:  $4294967362
-             (Note: anonymous symbols show as '$ID')
+## Python Examples (`examples/python/`)
+
+After compiling the extension with `maturin develop --release` in a virtual environment:
+
+```sh
+python examples/python/quickstart.py
+python examples/python/numpy_interop.py   # requires optional NumPy (`symb_anafis[numpy]`)
 ```
+
+| Script | Source | Description |
+| --- | --- | --- |
+| **Quickstart** | [`python/quickstart.py`](python/quickstart.py) | Zero-dependency Python tutorial: calculus (gradient, Hessian, Laplacian, Jacobian), canonical simplification, symbol properties, exact/native JIT evaluation, and `.wasm` export. |
+| **NumPy Interop** | [`python/numpy_interop.py`](python/numpy_interop.py) | Symbolic NumPy ufuncs (`__array_ufunc__`), zero-copy 2D `meshgrid` evaluation with JIT + Rayon, scalar broadcasting with `out=`, and zero-copy `complex128` buffers. |
+
+---
+
+## Benchmarks (`examples/benchmarks/`)
+
+### Rust Benchmarks (`examples/benchmarks/rust/`)
+
+Head-to-head comparison of `SymbAnaFis` (compilation simplification + bytecode VM + native JIT) against Symbolica (bytecode VM + SymJIT native JIT) on the 4.6M-character expression in `data/big_expr.txt` (parsing, compilation, VM vs VM evaluation, Native JIT vs Native JIT evaluation, and differentiation):
+
+```sh
+cargo run --manifest-path examples/benchmarks/Cargo.toml --release --bin symbolica_comparison
+```
+
+### Python Benchmarks (`examples/benchmarks/python/`)
+
+Large-ensemble simulations comparing `SymbAnaFis` (compilation simplification + native JIT + Rayon parallel + zero-copy `out=` buffers) against SymPy, SymEngine (LLVM), and Symbolica (SymJIT), with adaptive 3- and 4-engine Matplotlib/FFmpeg MP4 dashboards written to `examples/videos/` (pass `--no-video` for headless timing):
+
+```sh
+python examples/benchmarks/python/clifford.py --no-video
+python examples/benchmarks/python/aizawa_flow.py --no-video
+python examples/benchmarks/python/double_pendulum.py --no-video
+python examples/benchmarks/python/gradient_descent.py --no-video
+python examples/benchmarks/python/robot_arm_uncertainty.py --no-video
+```
+
+| Script | Source | Description |
+| --- | --- | --- |
+| **Clifford Attractor** | [`benchmarks/python/clifford.py`](benchmarks/python/clifford.py) | 2D Clifford chaotic attractor across 1M particles (ping-pong double-buffered zero-copy evaluation + fast 2D density rasterization). |
+| **Aizawa Flow** | [`benchmarks/python/aizawa_flow.py`](benchmarks/python/aizawa_flow.py) | 3D Aizawa chaotic flow simulation for 500k particles with in-place Euler integration. |
+| **Double Pendulum** | [`benchmarks/python/double_pendulum.py`](benchmarks/python/double_pendulum.py) | Symbolic Lagrangian mechanics ($L = T - V$), Cramer's rule mass-matrix inversion, RK4 integration, and vectorized `LineCollection` rendering. |
+| **Gradient Descent** | [`benchmarks/python/gradient_descent.py`](benchmarks/python/gradient_descent.py) | 3D avalanche ensemble rolling down a symbolic `erf`/trig potential surface using exact gradients. |
+| **3-DOF Robot Arm IK & Uncertainty** | [`benchmarks/python/robot_arm_uncertainty.py`](benchmarks/python/robot_arm_uncertainty.py) | Symbolic $2\times 3$ Jacobian + correlated first-order covariance propagation ($J\Sigma_\theta J^T$, 11 joint compiled outputs), Damped Least-Squares IK across 50k arms, and live $2\sigma$ uncertainty ellipses. |
+| **Shared Helpers** | [`benchmarks/python/bench_common.py`](benchmarks/python/bench_common.py), [`benchmarks/python/video_writer.py`](benchmarks/python/video_writer.py) | Adaptive 3/4-engine dashboards, Symbolica `.env` license loader, speedup tables, and validated NVENC/libx264 `yuv420p` MP4 export. |

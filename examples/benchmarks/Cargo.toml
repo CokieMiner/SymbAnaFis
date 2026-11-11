@@ -1,0 +1,16 @@
+[package]
+name = "symb_anafis_benchmarks"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[[bin]]
+name = "symbolica_comparison"
+path = "rust/symbolica_comparison.rs"
+
+[dependencies]
+symb_anafis = { path = "../..", features = ["std", "native_jit"] }
+dotenvy = "0.15.7"
+symbolica = "3.0.2"

@@ -1,9 +1,12 @@
-//! Parser module.
-//!
-//! Public entry points live in [`api`], while the implementation details live in
-//! [`logic`].
+//! Text expressions resolved through scoped symbols and known function identities.
 
-mod api;
-mod logic;
+mod cache;
+mod input;
+mod lexer;
 
-pub use api::*;
+pub use cache::{Cache, PowerCache, slots_for};
+pub use input::Value;
+pub use lexer::{BinaryOp, Lexer, Token};
+
+#[cfg(test)]
+mod tests;
