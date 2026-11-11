@@ -1,15 +1,13 @@
-//! Core types for symbolic mathematics.
-//!
-//! Public entry points are declared in [`api_user`].
-//! Implementation details live in the submodules.
+//! Immutable, globally shared symbolic expressions and registry-owned symbols.
 
-mod api_crate;
-mod api_user;
-mod helpers;
+mod api;
+mod logic;
 
-mod context;
-mod expr;
-mod symbol;
-
-pub use api_crate::*;
-pub use api_user::*;
+pub use api::ExprView;
+pub use logic::{
+    AdditiveOperands, AlgebraicOperands, BuiltinFunction, BuiltinSet, CompactStorage,
+    ConcreteMatcher, Context, EvaluationValue, ExactIdentity, ExactSources, Expr, ExprChildren,
+    Forest, Function, FunctionDefinition, Kernel, Mapped, Mutex, OperandDemand, OperandMatch,
+    Postorder, Properties, Property, Scalar, StoredForm, Substitution, Substitutions, Symbol,
+    SymbolData, Truth, UserFunction,
+};

@@ -1,0 +1,16 @@
+[package]
+name = "symb_anafis_benchmarks"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[[bin]]
+name = "expr_with_4649517_caracters-comparison"
+path = "expr_with_4649517_caracters-comparison.rs"
+
+[dependencies]
+symb_anafis = { path = "../../", features = ["std"] }
+dotenvy = "0.15.7"
+symbolica = "3.0.2"

@@ -1,0 +1,33 @@
+[package]
+name = "symb_anafis_python"
+version = "0.9.0"
+edition = "2024"
+authors = ["CokieMiner"]
+description = "Owning Python bindings for SymbAnaFis"
+license = "Apache-2.0"
+repository = "https://github.com/CokieMiner/SymbAnaFis"
+publish = false
+
+[lib]
+name = "_native"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = "0.30.1"
+symb_anafis = { path = "../..", features = ["std"] }
+num_anafis = { path = "../../../NumAnaFis", features = ["std"] }
+
+[lints.rust]
+unsafe_code = "deny"
+missing_docs = "deny"
+missing_debug_implementations = "deny"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+nursery = { level = "deny", priority = -1 }
+allow_attributes_without_reason = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+undocumented_unsafe_blocks = "deny"
+

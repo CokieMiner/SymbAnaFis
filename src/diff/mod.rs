@@ -1,16 +1,12 @@
-//! Differentiation engine - symbolic derivative computation
-//!
-//! This module provides the core differentiation logic, implementing:
-//! - Standard calculus rules (sum, product, quotient, chain)
-//! - Logarithmic differentiation for variable exponents (e.g., x^x)
-//! - Custom function derivative support
-//! - Mixed partial derivatives (∂²f/∂x∂y)
-//! - O(N) polynomial differentiation
-//!
-//! The main entry point is [`Expr::derive()`](crate::Expr::derive),
-//! typically called via the [`Diff`](crate::Diff) builder API.
+//! Memoized symbolic differentiation on regular principal-branch domains.
 
-mod api;
-mod logic;
+mod calculus;
+mod differentiation;
+mod functions;
 
-pub use api::*;
+pub use calculus::Jacobian;
+pub use differentiation::Differentiation;
+pub use functions::Functions;
+
+#[cfg(test)]
+mod tests;

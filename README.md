@@ -1,205 +1,229 @@
-
-Lacks of updates cause I'm working on a arbitrary precision numeric lib to use for this, https://github.com/CokieMiner/MpAnafis.
-
 # SymbAnaFis
 
 [![Crates.io](https://img.shields.io/crates/v/symb_anafis.svg)](https://crates.io/crates/symb_anafis)
-[![PyPI](https://img.shields.io/pypi/v/symb-anafis.svg)](https://pypi.org/project/symb-anafis/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![no-std](https://img.shields.io/badge/no--std-alloc-brightgreen.svg)](#cargo-features)
+[![Docs.rs](https://docs.rs/symb_anafis/badge.svg)](https://docs.rs/symb_anafis)
 
-**High-performance symbolic mathematics** library written in Rust with Python bindings.
+SymbAnaFis is a Rust library for symbolic mathematics: it builds, transforms,
+differentiates, and evaluates mathematical expressions. Numbers come from
+[NumAnaFis](https://github.com/CokieMiner/NumAnaFis): integers and rationals stay
+exact, and floats keep their IEEE 754 representation.
 
-SymbAnaFis provides a robust engine for symbolic differentiation, simplification, and evaluation, designed for performance-critical applications in physics, engineering, and machine learning.
+## Features
 
-## Key Capabilities
+- **Expressions.** Expressions are immutable and hash-consed: equal
+  subexpressions share one node, so cloning, equality, and hashing take
+  constant time. Sums and products are normalized and collect equal terms.
+- **Parsing.** Text such as `2x + sin(x)^2`, with implicit multiplication, exact
+  integer literals, registered functions, and byte-range error spans.
+- **Calculus.** Derivatives, gradients, Jacobians, and Hessians. Unsupported
+  derivatives stay symbolic.
+- **Substitution and rewriting.** Concrete substitutions, including groups inside
+  larger sums and products, and pattern rules with captures, conditions, and
+  callback replacements.
+- **Simplification.** Compact, expanded, factored, and compilation presets, or
+  custom sequences of passes, rules, and callbacks ranked by a custom score.
+- **Evaluation.** Direct evaluation, or compiled register programs for `f64`,
+  exact and complex `Number`, or any compatible `Numeric` type.
+- **Uncertainty.** First-order propagation from independent variances or a
+  symbolic covariance matrix.
+- **Custom functions.** An arity, an optional symbolic body, and partial
+  derivatives.
+- **Python bindings.** Classes for the same operations.
 
-*   **∂ Symbolic Differentiation**: Supports product, chain, and quotient rules for a vast array of mathematical functions.
-*   **✨ Algebraic Simplification**: Intelligent simplification engine covering trigonometric identities, constant folding, and algebraic expansion.
-*   **📊 Uncertainty Propagation**: Comprehensive support for calculating uncertainty propagation with full covariance matrix integration.
-*   **∇ Vector Calculus**: Native symbolic computation of Gradients, Hessians, and Jacobian matrices.
-*   **🚀 Parallel Processing**: Optional parallel evaluation engine using Rayon for massive batch operations.
-*   **📦 Python Bindings**: Seamless Python integration via `maturin`, offering the speed of Rust with the ease of Python.
-
-## Visual Benchmarks
-
-SymbAnaFis performance is validated against SymPy and SymEngine using complex physical simulations.
-Each benchmark features a **Quad-View Dashboard** comparing real-time simulations side-by-side.
-
-### Aizawa Attractor
-[Watch Video](videos/aizawa_quad.mp4)
-Simulates 500,000 particles flowing through the Aizawa field, comparing Euler integration throughput.
-
-### Clifford Attractor
-[Watch Video](videos/clifford_quad.mp4)
-Visualizes 1,000,000 particles evolving in the Clifford map, testing discrete map evaluation speed.
-
-### Double Pendulum Matrix
-[Watch Video](videos/double_pendulum_quad.mp4)
-Simulates 50,000 chaotic double pendulums, verifying symbolic differentiation correctness and RK4 integration stability.
-
-### Gradient Descent Avalanche
-[Watch Video](videos/gradient_descent_quad.mp4)
-Massive particle descent on a complex terrain function, showcasing symbolic differentiation of compiled functions.
+Normalizing keeps domain exclusions: `x/x` stays `x/x` and `x - x` becomes
+`0*x`. Identities that depend on assumptions apply only through explicit rules
+or opt-in simplification modes. An exact result that does not fit the numeric
+backend keeps its operation symbolic.
 
 ## Installation
 
-```bash
-# Python
-pip install symb-anafis
+Add `symb_anafis` to your `Cargo.toml`:
 
-# Rust
-cargo add symb_anafis
+```toml
+[dependencies]
+symb_anafis = "0.9"
+```
+
+For standard library integration:
+
+```toml
+[dependencies]
+symb_anafis = { version = "0.9", features = ["std"] }
 ```
 
 ## Quick Start
 
-### Python
-
-```python
-import symb_anafis
-
-# Differentiate complex expressions
-result = symb_anafis.diff("x^3 + sin(x)", "x", [], None)
-# → "3*x^2 + cos(x)"
-
-# Algebraic Simplification
-result = symb_anafis.simplify("sin(x)^2 + cos(x)^2", [], None)
-# → "1"
-
-# Handle constants automatically
-result = symb_anafis.diff("a*x^2", "x", ["a"], None)
-# → "2*a*x"
-```
-
-### Rust
-
 ```rust
-use symb_anafis::{diff, simplify, symb};
+use symb_anafis::{Context, Substitution};
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // String API for ease of use
-    let result = diff("sin(x) * x", "x", &[], None)?;
-    println!("{result}");  // cos(x)*x + sin(x)
+fn main() -> Result<(), Box<dyn core::error::Error>> {
+    let context = Context::new()?;
+    let x = context.symb("x")?;
+    let y = context.symb("y")?;
+    let u = context.symb("u")?;
 
-    // Type-safe API (Symbol is Copy - no clone needed!)
-    let x = symb("x");
-    let expr = x.pow(2.0) + x.sin();  // x² + sin(x)
-    
-    // Export to LaTeX
-    println!("{}", expr.to_latex());  // x^{2} + \sin(x)
-    
+    let expression = (x + y).pow(2) + (x + y).sin();
+    let substitution = Substitution::new(x + y, u.into());
+    assert_eq!(substitution.apply_all(&expression), u.pow(2) + u.sin());
+
+    assert_eq!(context.parse("x^3")?.derivative(x, 1), 3 * x.pow(2));
     Ok(())
 }
 ```
 
-## Advanced Features
+## Rewriting
 
-### 🔍 Fine-Grained Control
-Use the Builder pattern to configure safety limits and behavior.
-
-```rust
-use symb_anafis::{Diff, Simplify};
-
-Diff::new()
-    .domain_safe(true)     // Prevent unsafe simplifications (e.g., x/x != 1 if x=0)
-    .max_depth(200)        // Prevent stack overflows on massive expressions
-    .diff_str("sqrt(x^2)", "x", &[])?; // Result: abs(x)
-```
-
-### 📉 Uncertainty Propagation
-Calculate error propagation symbolically, supporting correlated variables.
+A rule applies an identity inside a larger expression and keeps the unmatched
+terms:
 
 ```rust
-use symb_anafis::uncertainty_propagation;
+use symb_anafis::{Context, Pattern, RewriteRule};
 
-// Calculate uncertainty formula for f = x + y with full covariance support
-let sigma = uncertainty_propagation(&expr, &["x", "y"], None)?;
-// → sqrt(sigma_x^2 + 2*sigma_x*sigma_y*rho_xy + sigma_y^2)
+fn main() -> Result<(), Box<dyn core::error::Error>> {
+    let context = Context::new()?;
+    let x = context.symb("x")?;
+    let y = context.symb("y")?;
+    let angle = Pattern::capture("angle", None);
+    let identity = RewriteRule::new(
+        angle.sin().pow(2) + angle.cos().pow(2),
+        Pattern::exact(1),
+    )?;
+
+    let expression = x.sin().pow(2) + x.cos().pow(2) + y;
+    assert_eq!(identity.apply_all(&expression, usize::MAX, None)?, y + 1);
+    Ok(())
+}
 ```
 
-### ⚡ Parallel Evaluation
-Evaluate expressions over large datasets in parallel (requires `parallel` feature).
+Captures bind whole subexpressions, so the rule also applies to composite
+angles. Conditions can require domain proofs, and replacement callbacks can
+build results whose size depends on the captures. The
+[API reference](docs/API.md) has examples of simultaneous substitutions, custom
+partial derivatives, guarded identities, and a
+[binomial expansion of variable order](docs/api/rewriting.md#binomial-expansion-with-a-variable-order).
+
+## Simplification
+
+Canonical transformations are available directly on expressions:
 
 ```rust
-// Requires: symb_anafis = { features = ["parallel"] }
-use symb_anafis::{eval_parallel, symb};
+use symb_anafis::{Context, SimplificationSequence, SimplificationStep};
 
-let x = symb("x");
-let expr = x.pow(2.0);
+fn main() -> Result<(), Box<dyn core::error::Error>> {
+    let context = Context::new()?;
+    let x = context.symb("x")?;
+    let y = context.symb("y")?;
+    let expression = context.parse("sin(x)^2 + cos(x)^2")?;
 
-// Clean macro syntax for parallel evaluation
-let results = eval_parallel!(
-    exprs: ["x + y", expr],
-    vars: [["x", "y"], ["x"]],
-    values: [
-        [[1.0, 2.0], [3.0, 4.0]],
-        [[1.0, 2.0, 3.0]]
-    ]
-).unwrap();
+    // Direct, canonical methods on Expr:
+    assert_eq!(expression.compact()?, 1.into());
+    assert_eq!((x + 1).pow(2).expand()?, x.pow(2) + 2 * x + 1);
+    assert_eq!((x.pow(2) + x * y).factor()?, x * (x + y));
+
+    // Custom multi-step pipelines:
+    let custom = SimplificationSequence::new()
+        .then(SimplificationStep::Trigonometric)
+        .then(SimplificationStep::Factor);
+    assert_eq!(custom.simplify(&expression)?.into_expression(), 1.into());
+
+    // Numerical compilation preparation:
+    let compiled = SimplificationSequence::compilation().simplify(&(x.exp() - 1))?;
+    assert_eq!(compiled.into_expression(), x.exp_m1());
+    Ok(())
+}
 ```
 
-### 🛠️ Custom Functions
-Register custom functions with their own derivative rules.
+By default, sequences keep proved domains and principal branches.
+`DomainSafety::AssumptionDependent` also admits tagged identities whose
+assumptions belong to the caller. The runner keeps the best visited form,
+detects cycles, and enforces configurable limits. See
+[simplification](docs/api/simplification.md) and the
+[rule reference](src/simplification/RULES.md).
+
+## Calculus and Uncertainty
 
 ```rust
-use symb_anafis::{Diff, UserFunction};
+use symb_anafis::{Context, CovarianceMatrix, Expr, Jacobian, Uncertainty};
 
-Diff::new()
-    .user_fn("f", UserFunction::new(1..=1).partial(0, |args| {
-        // Define ∂f/∂u = 2u for f(u)
-        // Clone the Arc (cheap), then multiply
-        2.0 * args[0].clone()  
-    }).unwrap())
-    .diff_str("f(x^2)", "x", &[])?; // → 4*x^3
+fn main() -> Result<(), Box<dyn core::error::Error>> {
+    let context = Context::new()?;
+    let x = context.symb("x")?;
+    let y = context.symb("y")?;
+    let model = x + 2 * y;
+    assert_eq!(model.gradient(&[x, y]), vec![Expr::number(1), Expr::number(2)]);
+    assert_eq!([model.clone(), x * y].jacobian(&[x, y]), vec![
+        vec![Expr::number(1), Expr::number(2)],
+        vec![y.to_expr(), x.to_expr()],
+    ]);
+
+    let covariance = CovarianceMatrix::diagonal(vec![Expr::number(4), Expr::number(9)])?;
+    let uncertainty = Uncertainty::propagate(&model, &[x, y], &covariance)?;
+    assert_eq!(uncertainty.variance(), &Expr::number(40));
+    assert_eq!(uncertainty.standard_deviation(), Expr::number(40).sqrt());
+    Ok(())
+}
 ```
 
-## Supported Functions
+Diagonal inputs are variances. Propagation assumes real coordinates, a regular
+model, a positive semidefinite covariance, and an adequate linear
+approximation. See [multivariable calculus](docs/api/calculus.md#2-multivariable-calculus)
+and [uncertainty propagation](docs/api/calculus.md#3-uncertainty-propagation).
 
-SymbAnaFis supports over 50 built-in mathematical functions:
+## Python
 
-| Category                   | Functions                                                                     |
-| -------------------------- | ----------------------------------------------------------------------------- |
-| **Trig**                   | `sin`, `cos`, `tan`, `cot`, `sec`, `csc`                                      |
-| **Inverse Trig**           | `asin`, `acos`, `atan`, `atan2`, `acot`, `asec`, `acsc`                       |
-| **Hyperbolic**             | `sinh`, `cosh`, `tanh`, `coth`, `sech`, `csch`                                |
-| **Inverse Hyperbolic**     | `asinh`, `acosh`, `atanh`, `acoth`, `asech`, `acsch`                          |
-| **Exp/Log**                | `exp`, `ln`, `log(b, x)`, `log10`, `log2`, `exp_polar`¹   |
-| **Roots**                  | `sqrt`, `cbrt`                                                                |
-| **Error Functions**        | `erf`, `erfc`                                                                 |
-| **Gamma Family**           | `gamma`, `lgamma`, `digamma`, `trigamma`, `tetragamma`, `polygamma(n, x)`, `beta(a, b)` |
-| **Zeta**                   | `zeta`, `zeta_deriv(n, s)`                                                    |
-| **Bessel**                 | `besselj(n, x)`, `bessely(n, x)`, `besseli(n, x)`, `besselk(n, x)`            |
-| **Elliptic Integrals**     | `elliptic_k`, `elliptic_e`                                                    |
-| **Orthogonal Polynomials** | `hermite(n, x)`, `assoc_legendre(l, m, x)`                                    |
-| **Spherical Harmonics**    | `spherical_harmonic(l, m, θ, φ)`, `ynm(l, m, θ, φ)`                           |
-| **Other**                  | `abs`, `signum`, `sinc`, `lambertw`, `floor`, `ceil`, `round`                 |
+Build the extension from this checkout with `maturin develop --release` in a
+Python virtual environment:
 
-¹ `exp_polar` currently aliases `exp` (placeholder for future polar form support)
+```python
+from symb_anafis import Context, Expr
+
+context = Context()
+x, y = context.symbols("x", "y")
+expression = x**2 + x*y
+assert expression.gradient([x, y]) == [2*x+y, x]
+assert Expr.jacobian([expression, x*y], [x, y]) == [[2*x+y, x], [y, x]]
+assert expression.compile([x, y]).evaluate([2, 3]) == 10
+assert (x.sin()**2 + x.cos()**2).compact() == Expr(1)
+assert ((x + 1)**2).expand() == x**2 + 2*x + 1
+assert (x**2 + x*y).factor() == x * (x + y)
+assert "x" in expression
+```
+
+See the [Python API](docs/PYTHON.md).
+
+## Cargo Features
+
+The default build is `no_std` with `alloc`; the target needs a global allocator
+and pointer-width atomics.
+
+| Feature | Description |
+| --- | --- |
+| `std` | Blocking registry locks and the NumAnaFis `std` backend. |
+| `num-traits` | `Zero` and `One` for `Expr`. |
 
 ## Documentation
 
-- **[API Reference](docs/API_REFERENCE.md)** - Detailed guide to all functions and modules.
-- **[Compiler Architecture](src/evaluator/logic/bytecode/ARCHITECTURE.md)** - Detailed design of the register-based VM and optimization pipeline.
-- **[docs.rs](https://docs.rs/symb_anafis)** - Full Rust crate documentation.
-
-## License
-
-Apache License 2.0 - see [LICENSE](LICENSE)
+- [Examples](examples/README.md): runnable introductions, DAG inspection, bytecode listings, and scientific applications.
+- [API reference](docs/API.md): operations, contracts, and examples.
+- [Python API](docs/PYTHON.md): classes, build, and examples.
+- [Project guidelines](AGENTS.md): architecture, contribution rules, and verification.
 
 ## Citation
-
-If you use SymbAnaFis in academic work, please cite:
 
 ```bibtex
 @software{symbanafis,
   author       = {Martins, Pedro},
-  title        = {SymbAnaFis: High-Performance Symbolic Mathematics Library},
+  orcid        = {0009-0001-8170-2930},
+  title        = {SymbAnaFis: High-performance symbolic mathematics},
   year         = {2026},
   url          = {https://github.com/CokieMiner/SymbAnaFis},
-  version      = {0.8.0}
+  version      = {0.9.0}
 }
 ```
 
----
+## License
 
-**Built with ❤️ in Rust** 🚀
+SymbAnaFis is licensed under the Apache License, Version 2.0. See
+[LICENSE](LICENSE).

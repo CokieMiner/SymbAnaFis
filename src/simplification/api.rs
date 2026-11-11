@@ -1,332 +1,517 @@
-use crate::core::{BodyFn, Context, UserFunction};
-use crate::core::{DiffError, Expr};
-use crate::evaluator::ToParamName;
-use crate::parser::parse;
-use crate::{DEFAULT_MAX_DEPTH, DEFAULT_MAX_NODES};
-use rustc_hash::FxHashMap;
-use std::collections::{HashMap, HashSet};
-use std::string::ToString;
-use std::sync::Arc;
+//! Composable simplification passes, presets, and execution outcomes.
 
-use super::logic::{Simplifier, prettify_roots};
-/// Type alias for custom body function map (symbolic expansion).
-use crate::core::symb_interned;
-/// Uses std `HashMap` at the API boundary for caller convenience;
-/// converted to `FxHashMap` internally by the engine.
-pub type CustomBodyMap = HashMap<u64, BodyFn>;
+use core::fmt::{Debug, Formatter, Result as FmtResult};
 
-/// Builder for simplification operations.
-#[derive(Clone, Default)]
-pub struct Simplify {
-    domain_safe: bool,
-    user_fns: FxHashMap<String, UserFunction>,
-    max_depth: Option<usize>,
-    max_nodes: Option<usize>,
-    context: Option<Context>,
-    known_symbols: HashSet<String>,
+use alloc::{boxed::Box, sync::Arc, vec, vec::Vec};
+
+use crate::{
+    collections::FixedSet,
+    core::{Expr, Mutex},
+    errors::SimplifyError,
+    rewrite::RewriteRule,
+};
+
+use super::{CandidateCost, Limits, PassFeatures, PreparedPlan, PreparedStep};
+
+type NodeTransform = dyn Fn(&Expr) -> Option<Expr> + Send + Sync;
+
+type Score = dyn Fn(&Expr) -> usize + Send + Sync;
+
+/// An immutable, reusable simplification program.
+///
+/// Steps execute in insertion order, including temporary increases in cost.
+/// The input and every completed step compete under the target; equal scores
+/// select the latest candidate. Repetition stops at a fixed point, a cycle, or
+/// an iteration limit. Selection is heuristic over visited candidates.
+///
+/// ```
+/// use symb_anafis::{Expr, Pattern, RewriteRule, SimplificationSequence, SimplificationStep};
+/// let x = Expr::symbol("sequence_x")?;
+/// let a = Pattern::capture("a", None);
+/// let identity = RewriteRule::new(a.sin().pow(2) + a.cos().pow(2), Pattern::exact(1))?;
+/// let sequence = SimplificationSequence::new()
+///     .then(identity)
+///     .then(SimplificationStep::Factor);
+/// assert_eq!(sequence.simplify(&(x.sin().pow(2) + x.cos().pow(2)))?.into_expression(), Expr::number(1));
+/// # Ok::<(), Box<dyn core::error::Error>>(())
+/// ```
+#[derive(Clone)]
+pub struct SimplificationSequence {
+    steps: Vec<SimplificationStep>,
+    // Each step and its compiled plan are inserted and removed together.
+    // Plans own no references into steps; clones share immutable rule storage.
+    plans: Vec<PreparedPlan>,
+    target: SimplificationTarget,
+    domain_safety: DomainSafety,
+    score: Option<Arc<Score>>,
+    limits: Limits,
 }
 
-impl Simplify {
-    #[must_use]
-    #[doc = "Create a new simplification builder with default settings."]
-    pub fn new() -> Self {
-        Self::default()
-    }
+/// The best visited candidate and the reason a sequence stopped.
+#[derive(Clone, Debug)]
+pub struct Simplification {
+    expression: Expr,
+    termination: SimplificationTermination,
+    iterations: usize,
+}
 
-    #[inline]
-    #[must_use]
-    #[doc = "Enable or disable domain-safe mode."]
-    pub const fn domain_safe(mut self, safe: bool) -> Self {
-        self.domain_safe = safe;
-        self
-    }
+/// One complete DAG pass in an ordered simplification sequence.
+///
+/// Builtin passes preserve domains by default. [`DomainSafety`] controls
+/// whether additional caller-assumed domain and branch hypotheses are permitted.
+/// User rules and callbacks retain the core's caller-owned equivalence contract.
+#[derive(Clone)]
+#[non_exhaustive]
+pub enum SimplificationStep {
+    /// Guarded scalar and exact polynomial cancellation, signs, and fractions.
+    Algebraic,
+    /// Pythagorean, angle, parity, period, inverse, and quotient identities.
+    Trigonometric,
+    /// Hyperbolic identities, angle formulas, and exponential representations.
+    Hyperbolic,
+    /// Principal logarithm and exponential identities with conservative guards.
+    Exponential,
+    /// Principal square roots and real cube roots on proved domains.
+    Roots,
+    /// Distribute products and positive exact integer powers over sums.
+    Expand,
+    /// Extract common factors and recognize squares, cubes, and differences of squares.
+    Factor,
+    /// Select native numerical intrinsics and common factors for compilation.
+    Compilation,
+    /// Apply an existing core rewrite once; use capture predicates for guards.
+    Rewrite(RewriteRule),
+    /// Apply a pure callback bottom-up to each distinct logical input node.
+    /// Return `None` to retain the rebuilt node. Inserted nodes are not revisited.
+    /// Callback panics propagate; equal input nodes must produce equal results.
+    Map(Arc<NodeTransform>),
+}
 
-    #[inline]
-    #[must_use]
-    #[doc = "Set the Context for parsing and simplification."]
-    pub fn context(mut self, context: &Context) -> Self {
-        self.context = Some(context.clone());
-        self
-    }
+/// Which builtin rule contracts a sequence may use.
+///
+/// Custom rewrite rules and mapping callbacks retain their caller-owned
+/// correctness contract in both modes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum DomainSafety {
+    /// Preserve poles and principal branches using conservative input proofs.
+    #[default]
+    Preserving,
+    /// Also use identities whose domain and branch conditions the caller assumes.
+    ///
+    /// These rules may remove zero exclusions or require real inputs, positive
+    /// bases, or a principal inverse-function range. Selecting this mode asserts
+    /// those rule-specific hypotheses; it does not establish them.
+    AssumptionDependent,
+}
 
-    #[must_use]
-    #[doc = "Register a user-defined function with body and/or partial derivatives."]
-    pub fn user_fn(mut self, name: impl Into<String>, def: UserFunction) -> Self {
-        self.user_fns.insert(name.into(), def);
-        self
-    }
+/// The desired form among candidates visited by a sequence.
+///
+/// Presets pair a target with suitable passes; selecting a target alone does
+/// not add passes or perform a global search over equivalent expressions.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum SimplificationTarget {
+    /// Minimize logical expression size, counting repeated edges.
+    #[default]
+    Compact,
+    /// First minimize distributable products and positive integer powers of sums.
+    Expanded,
+    /// First minimize composite polynomial terms under sums, then logical size.
+    Factored,
+    /// Minimize estimated native operation cost over distinct logical DAG nodes.
+    Compilation,
+}
 
-    #[inline]
-    #[must_use]
-    #[doc = "Set maximum AST depth."]
-    pub const fn max_depth(mut self, depth: usize) -> Self {
-        self.max_depth = Some(depth);
-        self
-    }
+/// Why execution stopped. The returned expression is the best visited candidate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum SimplificationTermination {
+    /// Every step in the final sweep left its input unchanged, or the sequence is empty.
+    FixedPoint,
+    /// A complete sweep returned to a previously visited sweep boundary.
+    Cycle,
+    /// The configured number of complete sweeps was consumed.
+    IterationLimit,
+}
 
-    #[inline]
+impl SimplificationSequence {
+    /// Create an empty sequence with the compact target and default limits.
+    /// Canonical construction has already folded and collected basic arithmetic.
     #[must_use]
-    #[doc = "Set maximum AST node count."]
-    pub const fn max_nodes(mut self, nodes: usize) -> Self {
-        self.max_nodes = Some(nodes);
-        self
-    }
-
-    #[inline]
-    #[must_use]
-    #[doc = "Register a variable as constant during simplification."]
-    pub fn fixed_var<P: ToParamName>(mut self, var: &P) -> Self {
-        let (_, name) = var.to_param_id_and_name();
-        self.known_symbols.insert(name);
-        self
-    }
-
-    #[inline]
-    #[must_use]
-    #[doc = "Register multiple variables as constants during simplification."]
-    pub fn fixed_vars<P: ToParamName>(mut self, vars: &[P]) -> Self {
-        for var in vars {
-            let (_, name) = var.to_param_id_and_name();
-            self.known_symbols.insert(name);
+    pub const fn new() -> Self {
+        Self {
+            steps: Vec::new(),
+            plans: Vec::new(),
+            target: SimplificationTarget::Compact,
+            domain_safety: DomainSafety::Preserving,
+            score: None,
+            limits: Limits::DEFAULT,
         }
+    }
+
+    /// Build the compact identity and common-factor preset.
+    #[must_use]
+    pub fn compact() -> Self {
+        Self::identities(SimplificationStep::Factor)
+    }
+
+    /// Build the identity preset followed by bounded polynomial expansion.
+    #[must_use]
+    pub fn expanded() -> Self {
+        Self::identities(SimplificationStep::Expand).target(SimplificationTarget::Expanded)
+    }
+
+    /// Build the identity and common-factor preset with a factored objective.
+    #[must_use]
+    pub fn factored() -> Self {
+        Self::compact().target(SimplificationTarget::Factored)
+    }
+
+    /// Build the identity preset followed by native-intrinsic and factoring passes.
+    ///
+    /// Selection estimates operation cost over the shared DAG; weights are a
+    /// backend-independent heuristic, and callers may supply their own scorer.
+    ///
+    /// ```
+    /// use symb_anafis::{Expr, SimplificationSequence};
+    /// let x = Expr::symbol("compilation_example_x")?;
+    /// let result = SimplificationSequence::compilation().simplify(&(x.exp() - 1))?;
+    /// assert_eq!(result.into_expression(), x.exp_m1());
+    /// # Ok::<(), Box<dyn core::error::Error>>(())
+    /// ```
+    #[must_use]
+    pub fn compilation() -> Self {
+        Self::compact()
+            .then(SimplificationStep::Compilation)
+            .target(SimplificationTarget::Compilation)
+    }
+
+    /// Append a builtin pass, an existing rewrite, or a custom mapping pass.
+    #[must_use]
+    pub fn then(mut self, step: impl Into<SimplificationStep>) -> Self {
+        let operation = step.into();
+        let mut plan = PreparedPlan::new(&operation);
+        if self.domain_safety == DomainSafety::AssumptionDependent {
+            plan.enable_assumptions(&operation);
+        }
+        self.steps.push(operation);
+        self.plans.push(plan);
         self
     }
 
-    fn custom_function_names(&self) -> HashSet<String> {
-        self.user_fns.keys().cloned().collect()
+    /// Inspect or clone the preset's ordered steps to build another sequence.
+    #[must_use]
+    pub fn steps(&self) -> &[SimplificationStep] {
+        &self.steps
     }
 
-    fn build_bodies_map(&self) -> CustomBodyMap {
-        self.user_fns
-            .iter()
-            .filter_map(|(name, func)| {
-                func.body.as_ref().map(|b| {
-                    let id = symb_interned(name).id();
-                    (id, Arc::clone(b))
-                })
-            })
-            .collect()
+    /// Select a builtin objective and clear any custom scoring function.
+    /// Pass order remains caller-controlled.
+    #[must_use]
+    pub fn target(mut self, target: SimplificationTarget) -> Self {
+        self.target = target;
+        self.score = None;
+        self
     }
 
+    /// Select which builtin rule contracts may execute (default preserving).
+    ///
+    /// Assumption-dependent rules require the caller to supply the domain and
+    /// branch hypotheses documented for each identity. Custom rules and mapping
+    /// callbacks remain caller-validated in either mode. Steps and scoring stay
+    /// unchanged.
+    #[must_use]
+    pub fn domain_safety(mut self, safety: DomainSafety) -> Self {
+        if safety == DomainSafety::AssumptionDependent && self.domain_safety != safety {
+            for (step, plan) in self.steps.iter().zip(&mut self.plans) {
+                plan.enable_assumptions(step);
+            }
+        }
+        self.domain_safety = safety;
+        self
+    }
+
+    /// Minimize a pure caller score, breaking ties by logical expression size.
+    /// Equal complete scores select the latest candidate. Callback panics propagate.
+    #[must_use]
+    pub fn score_with(mut self, score: impl Fn(&Expr) -> usize + Send + Sync + 'static) -> Self {
+        self.score = Some(Arc::new(score));
+        self
+    }
+
+    /// Set the maximum complete sweeps (default 16). Zero returns the input.
+    #[must_use]
+    pub const fn max_iterations(mut self, limit: usize) -> Self {
+        self.limits = self.limits.with_iterations(limit);
+        self
+    }
+
+    /// Bound stored nodes in the input, intermediate stage outputs, and completed candidates (default unlimited, `usize::MAX`).
+    #[must_use]
+    pub const fn max_nodes(mut self, limit: usize) -> Self {
+        self.limits = self.limits.with_nodes(limit);
+        self
+    }
+
+    /// Bound stored depth in the input, intermediate stage outputs, and completed candidates (default unlimited, `usize::MAX`).
+    #[must_use]
+    pub const fn max_depth(mut self, limit: usize) -> Self {
+        self.limits = self.limits.with_depth(limit);
+        self
+    }
+
+    /// Bound candidate attempts per core rewrite pass (default 10,000;
+    /// `usize::MAX` is unbounded). Commutative matching can try exponentially
+    /// many assignments without producing a match, so the default is finite. A
+    /// builtin rule that exhausts the bound leaves its pass unchanged; a
+    /// [`SimplificationStep::Rewrite`] step returns the error.
+    #[must_use]
+    pub const fn match_limit(mut self, limit: usize) -> Self {
+        self.limits = self.limits.with_matches(limit);
+        self
+    }
+
+    /// Bound cumulative generated terms per expansion pass (default unlimited, `usize::MAX`).
+    /// The bound is checked before allocating each distributive product.
+    #[must_use]
+    pub const fn expansion_limit(mut self, limit: usize) -> Self {
+        self.limits = self.limits.with_expansion(limit);
+        self
+    }
+
+    /// Bound sparse polynomial work per algebraic pass (default unlimited, `usize::MAX`).
+    /// Parsing, term products, and remainder steps consume this shared budget.
+    #[must_use]
+    pub const fn polynomial_limit(mut self, limit: usize) -> Self {
+        self.limits = self.limits.with_polynomial(limit);
+        self
+    }
+
+    /// Execute the ordered passes and return the best visited candidate and stop reason.
+    /// A result makes no claim of a globally minimal algebraic form.
+    ///
     /// # Errors
-    /// Returns `DiffError` if expression limits are exceeded.
-    pub fn simplify(&self, expr: &Expr) -> Result<Expr, DiffError> {
-        if let Some(max_d) = self.max_depth
-            && expr.max_depth() > max_d
-        {
-            return Err(DiffError::MaxDepthExceeded);
+    /// Returns [`SimplifyError`] if a node, depth, expansion, polynomial, or rewrite
+    /// bound is exceeded.
+    /// Failed candidates are discarded; the input is immutable.
+    ///
+    /// # Panics
+    /// Propagates panics of mapping, scoring, and rule callbacks.
+    pub fn simplify(&self, expression: &Expr) -> Result<Simplification, SimplifyError> {
+        self.limits.validate(expression)?;
+        let mut result = Simplification {
+            expression: expression.clone(),
+            termination: SimplificationTermination::IterationLimit,
+            iterations: 0,
+        };
+        if self.steps.is_empty() {
+            result.termination = SimplificationTermination::FixedPoint;
+            return Ok(result);
         }
-        if let Some(max_n) = self.max_nodes
-            && expr.node_count() > max_n
-        {
-            return Err(DiffError::MaxNodesExceeded);
+        if self.limits.iterations() == 0 {
+            return Ok(result);
         }
-
-        Ok(simplify_expr(
-            expr.clone(),
-            self.known_symbols.clone(),
-            self.build_bodies_map(),
-            self.max_depth,
-            None,
-            None,
-            self.domain_safe,
-        ))
+        let mut best_score = None;
+        let mut current = expression.clone();
+        let mut seen = FixedSet::default();
+        for _ in 0..self.limits.iterations() {
+            let mut changed = false;
+            let mut features = PassFeatures::of(&current);
+            for (step, plan) in self.steps.iter().zip(&self.plans) {
+                if !features.allows(step) {
+                    continue;
+                }
+                let next = PreparedStep::new(step, plan, self.domain_safety)
+                    .apply(&current, self.limits)?;
+                if next == current {
+                    continue;
+                }
+                changed = true;
+                let baseline = *best_score.get_or_insert_with(|| {
+                    CandidateCost::new(expression, self.target, self.score.as_deref())
+                });
+                let candidate_score = CandidateCost::new(&next, self.target, self.score.as_deref());
+                if candidate_score <= baseline {
+                    best_score = Some(candidate_score);
+                    result.expression = next.clone();
+                }
+                current = next;
+                features = PassFeatures::of(&current);
+            }
+            // At most limits.iterations complete sweeps, so this sum fits usize.
+            result.iterations = result.iterations.saturating_add(1);
+            if !changed {
+                result.termination = SimplificationTermination::FixedPoint;
+                break;
+            }
+            if seen.is_empty() {
+                seen.insert(expression.clone());
+            }
+            if !seen.insert(current.clone()) {
+                result.termination = SimplificationTermination::Cycle;
+                break;
+            }
+        }
+        Ok(result)
     }
 
+    /// The identity steps shared by the presets, followed by `last`.
+    fn identities(last: SimplificationStep) -> Self {
+        let steps = vec![
+            SimplificationStep::Algebraic,
+            SimplificationStep::Roots,
+            SimplificationStep::Exponential,
+            SimplificationStep::Trigonometric,
+            SimplificationStep::Hyperbolic,
+            last,
+        ];
+        let plans = steps.iter().map(PreparedPlan::new).collect();
+        Self {
+            steps,
+            plans,
+            ..Self::new()
+        }
+    }
+}
+
+impl Simplification {
+    /// Borrow the selected canonical expression.
+    #[must_use]
+    pub const fn expression(&self) -> &Expr {
+        &self.expression
+    }
+
+    /// Take ownership of the selected canonical expression.
+    #[must_use]
+    pub fn into_expression(self) -> Expr {
+        self.expression
+    }
+
+    /// Read the termination reason, independently of which candidate won.
+    #[must_use]
+    pub const fn termination(&self) -> SimplificationTermination {
+        self.termination
+    }
+
+    /// Count completed sweeps; an empty sequence completes zero sweeps.
+    #[must_use]
+    pub const fn iterations(&self) -> usize {
+        self.iterations
+    }
+}
+
+impl Default for SimplificationSequence {
+    fn default() -> Self {
+        Self::compact()
+    }
+}
+
+impl Debug for SimplificationSequence {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
+        formatter
+            .debug_struct("SimplificationSequence")
+            .field("steps", &self.steps)
+            .field("target", &self.target)
+            .field("domain_safety", &self.domain_safety)
+            .field("custom_score", &self.score.is_some())
+            .field("limits", &self.limits)
+            .finish_non_exhaustive()
+    }
+}
+
+impl From<RewriteRule> for SimplificationStep {
+    fn from(rule: RewriteRule) -> Self {
+        Self::Rewrite(rule)
+    }
+}
+
+impl Debug for SimplificationStep {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
+        match self {
+            Self::Algebraic => formatter.write_str("Algebraic"),
+            Self::Trigonometric => formatter.write_str("Trigonometric"),
+            Self::Hyperbolic => formatter.write_str("Hyperbolic"),
+            Self::Exponential => formatter.write_str("Exponential"),
+            Self::Roots => formatter.write_str("Roots"),
+            Self::Expand => formatter.write_str("Expand"),
+            Self::Factor => formatter.write_str("Factor"),
+            Self::Compilation => formatter.write_str("Compilation"),
+            Self::Rewrite(rule) => formatter.debug_tuple("Rewrite").field(rule).finish(),
+            Self::Map(_) => formatter.write_str("Map(<callback>)"),
+        }
+    }
+}
+
+impl Expr {
+    /// Simplify this expression to minimize logical size using scalar identities and factoring.
+    ///
+    /// The preset's rules compile on the first call; later calls reuse them.
+    ///
     /// # Errors
-    /// Returns `DiffError` if parsing fails or there is a symbol/function collision.
-    pub fn simplify_str(&self, formula: &str, known_symbols: &[&str]) -> Result<String, DiffError> {
-        let mut symbols: HashSet<String> = known_symbols.iter().map(ToString::to_string).collect();
-        symbols.extend(self.known_symbols.clone());
-
-        let custom_functions = self.custom_function_names();
-
-        for func in &custom_functions {
-            if symbols.contains(func) {
-                return Err(DiffError::NameCollision { name: func.clone() });
-            }
-        }
-
-        for func in &custom_functions {
-            if self.known_symbols.contains(func) {
-                return Err(DiffError::NameCollision { name: func.clone() });
-            }
-        }
-
-        let ast = parse(formula, &symbols, &custom_functions, self.context.as_ref())?;
-        let result = self.simplify(&ast)?;
-        Ok(format!("{result}"))
-    }
-}
-
-pub fn simplify_expr(
-    expr: Expr,
-    _known_symbols: HashSet<String>,
-    mut custom_bodies: CustomBodyMap,
-    max_depth: Option<usize>,
-    max_iterations: Option<usize>,
-    context: Option<&Context>,
-    domain_safe: bool,
-) -> Expr {
-    if let Some(ctx) = context {
-        for id in ctx.fn_name_to_id().values() {
-            if let Some(body) = ctx.get_body_by_id(*id) {
-                custom_bodies.insert(*id, Arc::clone(&body));
-            }
-        }
+    /// Returns [`SimplifyError`] if simplification limits are exceeded.
+    ///
+    /// ```
+    /// use symb_anafis::Expr;
+    /// let x = Expr::symbol("compact_x").expect("symbol");
+    /// let expr = x.pow(2) - x.pow(2);
+    /// assert_eq!(expr.compact()?, Expr::number(0));
+    /// # Ok::<(), symb_anafis::SimplifyError>(())
+    /// ```
+    pub fn compact(&self) -> Result<Self, SimplifyError> {
+        // The compiled preset is leaked once, like global symbol metadata, so
+        // the lock is held only to read or publish its address.
+        static COMPACT: Mutex<Option<&'static SimplificationSequence>> = Mutex::new(None);
+        let sequence = *COMPACT
+            .lock()
+            .get_or_insert_with(|| Box::leak(Box::new(SimplificationSequence::compact())));
+        sequence.simplify(self).map(Simplification::into_expression)
     }
 
-    let mut simplifier = Simplifier::new()
-        .with_domain_safe(domain_safe)
-        .with_custom_bodies(custom_bodies);
-
-    if let Some(depth) = max_depth {
-        simplifier = simplifier.with_max_depth(depth);
-    }
-    if let Some(iters) = max_iterations {
-        simplifier = simplifier.with_max_iterations(iters);
-    }
-
-    let mut current = simplifier.simplify(expr);
-    current = prettify_roots(current);
-    current
-}
-
-/// Simplify a mathematical expression
-///
-/// This function applies algebraic, trigonometric, and other mathematical rules to
-/// reduce expressions to their simplest form. For advanced simplification control,
-/// use the [`Simplify`] builder which offers domain safety and iteration limits.
-///
-/// # Arguments
-/// * `formula` - Mathematical expression to simplify (e.g., "x + x + sin(x)^2 + cos(x)^2")
-/// * `known_symbols` - Multi-character symbols for parsing (e.g., `&["alpha", "beta"]`). These are hints to the parser and do NOT affect simplification logic.
-/// * `custom_functions` - User-defined function names (e.g., `Some(&["f", "g"])`)
-///
-/// # Returns
-/// The simplified expression as a string, or an error if parsing fails
-///
-/// # Errors
-/// Returns `DiffError` if:
-/// - **Syntax error**: Formula cannot be parsed
-/// - **Complexity limits**: Expression exceeds safety limits (rare)
-///
-/// # Examples
-///
-/// ## Algebraic simplification
-/// ```
-/// # use symb_anafis::simplify;
-///
-/// // Like terms
-/// let result = simplify("x + x + x", &[], None)?;
-/// assert_eq!(result, "3*x");
-///
-/// // Polynomial expansion
-/// let result = simplify("(x + 1)^2", &[], None)?;
-/// assert_eq!(result, "(1 + x)^2"); // May not expand automatically
-///
-/// // Fraction reduction
-/// let result = simplify("(x^2 - 1)/(x - 1)", &[], None)?;
-/// // Complex expression - may not simplify without domain assumptions
-/// # Ok::<(), symb_anafis::DiffError>(())
-/// ```
-///
-/// ## Trigonometric identities
-/// ```
-/// # use symb_anafis::simplify;
-///
-/// // Pythagorean identity
-/// let result = simplify("sin(x)^2 + cos(x)^2", &[], None)?;
-/// assert_eq!(result, "1");
-///
-/// // Double angle
-/// let result = simplify("2*sin(x)*cos(x)", &[], None)?;
-/// assert_eq!(result, "sin(2*x)");
-/// # Ok::<(), symb_anafis::DiffError>(())
-/// ```
-///
-/// ## Exponential and logarithmic
-/// ```
-/// use symb_anafis::simplify;
-///
-/// // Log properties
-/// let result = simplify("ln(e^x)", &[], None)?;
-/// assert_eq!(result, "x");
-///
-/// // Exponential properties
-/// let result = simplify("e^(ln(x))", &[], None)?;
-/// assert_eq!(result, "x");
-/// # Ok::<(), symb_anafis::DiffError>(())
-/// ```
-///
-/// ## Multi-character symbols
-/// ```
-/// # use symb_anafis::simplify;
-///
-/// let result = simplify("alpha + alpha + beta", &["alpha", "beta"], None)?;
-/// assert_eq!(result, "(2*alpha) + beta"); // Order may vary
-/// # Ok::<(), symb_anafis::DiffError>(())
-/// ```
-///
-/// # Simplification Categories
-///
-/// | Category | Rules Applied | Example |
-/// |----------|---------------|----------|
-/// | **Algebraic** | Like terms, polynomial operations | `x + 2*x` → `3*x` |
-/// | **Trigonometric** | Pythagorean, double angle, etc. | `sin²(x) + cos²(x)` → `1` |
-/// | **Exponential** | Log/exp inverses, power rules | `ln(e^x)` → `x` |
-/// | **Rational** | Common factors, fraction reduction | `x²/(x*y)` → `x/y` |
-/// | **Constants** | Arithmetic with numbers | `2 + 3*x + 1` → `3 + 3*x` |
-///
-/// # Performance and Limits
-/// Default safety limits prevent infinite simplification loops:
-/// - **Max depth**: 100 (default)
-/// - **Max nodes**: 10,000 (default)
-/// - **Max iterations**: 1000 simplification passes
-///
-/// For complex expressions, use the [`Simplify`] builder:
-/// ```
-/// use symb_anafis::Simplify;
-///
-/// let result = Simplify::new()
-///     .domain_safe(true)  // Avoid division by zero transformations
-///     .simplify_str("x + x", &[])?;
-/// assert_eq!(result, "2*x");
-/// # Ok::<(), symb_anafis::DiffError>(())
-/// ```
-///
-/// # Domain Safety
-/// By default, simplification may apply transformations that change the expression's domain.
-/// For domain-preserving simplification, use the builder:
-/// ```
-/// use symb_anafis::Simplify;
-///
-/// // This avoids simplifying x^2/x → x (which is undefined at x=0)
-/// let result = Simplify::new()
-///     .domain_safe(true)
-///     .simplify_str("x^2/x", &[])?;
-/// # Ok::<(), symb_anafis::DiffError>(())
-/// ```
-///
-/// # See Also
-/// - [`Simplify`]: Builder pattern for advanced simplification control
-/// - [`crate::diff`]: Differentiation with automatic simplification
-/// - [`crate::Diff::skip_simplification`]: Raw derivatives without simplification
-pub fn simplify(
-    formula: &str,
-    known_symbols: &[&str],
-    custom_functions: Option<&[&str]>,
-) -> Result<String, DiffError> {
-    let mut builder = Simplify::new();
-
-    if let Some(funcs) = custom_functions {
-        builder = funcs
-            .iter()
-            .fold(builder, |b, f| b.user_fn(*f, UserFunction::any_arity()));
+    /// Expand products and integer powers in this expression into distributed sums.
+    ///
+    /// The preset's rules compile on the first call; later calls reuse them.
+    ///
+    /// # Errors
+    /// Returns [`SimplifyError`] if simplification limits are exceeded.
+    ///
+    /// ```
+    /// use symb_anafis::Context;
+    /// let ctx = Context::new()?;
+    /// let x = ctx.symb("expand_x")?;
+    /// let expr = (x + 1).pow(2);
+    /// assert_eq!(expr.expand()?, x.pow(2) + 2 * x + 1);
+    /// # Ok::<(), Box<dyn core::error::Error>>(())
+    /// ```
+    pub fn expand(&self) -> Result<Self, SimplifyError> {
+        static EXPANDED: Mutex<Option<&'static SimplificationSequence>> = Mutex::new(None);
+        let sequence = *EXPANDED
+            .lock()
+            .get_or_insert_with(|| Box::leak(Box::new(SimplificationSequence::expanded())));
+        sequence.simplify(self).map(Simplification::into_expression)
     }
 
-    builder
-        .max_depth(DEFAULT_MAX_DEPTH)
-        .max_nodes(DEFAULT_MAX_NODES)
-        .simplify_str(formula, known_symbols)
+    /// Factor common polynomial powers and subexpressions.
+    ///
+    /// The preset's rules compile on the first call; later calls reuse them.
+    ///
+    /// # Errors
+    /// Returns [`SimplifyError`] if simplification limits are exceeded.
+    ///
+    /// ```
+    /// use symb_anafis::Context;
+    /// let ctx = Context::new()?;
+    /// let x = ctx.symb("factor_x")?;
+    /// let y = ctx.symb("factor_y")?;
+    /// let expr = x.pow(2) + x * y;
+    /// assert_eq!(expr.factor()?, x * (x + y));
+    /// # Ok::<(), Box<dyn core::error::Error>>(())
+    /// ```
+    pub fn factor(&self) -> Result<Self, SimplifyError> {
+        static FACTORED: Mutex<Option<&'static SimplificationSequence>> = Mutex::new(None);
+        let sequence = *FACTORED
+            .lock()
+            .get_or_insert_with(|| Box::leak(Box::new(SimplificationSequence::factored())));
+        sequence.simplify(self).map(Simplification::into_expression)
+    }
 }

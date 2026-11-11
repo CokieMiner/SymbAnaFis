@@ -1,256 +1,231 @@
-"""
-🌊 AIZAWA ATTRACTOR BENCHMARK: QUAD-VIEW DASHBOARD
-=================================================
-SymPy vs SymEngine vs SymbAnaFis
+"""Aizawa Attractor Benchmark and 3D Flow Dashboard.
 
-Dashboard:
-[ SymPy ] [ SymEngine ]
-[ SymbAnaFis ] [ Performance ]
+Simulates 3D particle trajectories flowing through the chaotic Aizawa attractor,
+comparing evaluation speed across SymPy, SymEngine (when available), and SymbAnaFis.
+
+System:
+    dx/dt = (z - B) * x - D * y
+    dy/dt = D * x + (z - B) * y
+    dz/dt = C + A * z - z^3 / 3 - (x^2 + y^2) * (1 + E * z) + F * z * x^3
 """
 
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.animation as animation
-import matplotlib.gridspec as gridspec
+from __future__ import annotations
+
 import time
 import warnings
-from pathlib import Path
-from video_writer import save_animation_mp4 # type: ignore[import]
-warnings.filterwarnings('ignore')
+from typing import Any, Callable
+
+import matplotlib.animation as animation
+import numpy as np
+
+from bench_common import (
+    create_dashboard_figure,
+    plot_performance_panel,
+    print_metric_summary,
+    save_benchmark_animation,
+)
+
+warnings.filterwarnings("ignore")
 
 # CONFIGURATION
 N_PARTICLES = 500_000
 N_STEPS = 600
 DT = 0.01
 GENERATE_VIDEO = True
+REQUIRE_ALL_ENGINES = False
 
 # Aizawa parameters
 A, B, C, D, E, F = 0.95, 0.7, 0.6, 3.5, 0.25, 0.1
-REQUIRE_ALL_ENGINES = True
 
-def setup_sympy():
+
+def setup_sympy() -> tuple[Callable[..., Any] | None, float]:
     try:
         import sympy as sp
-        print("\n🔧 SymPy: Setting up...")
+        print("SymPy: Setting up...")
         t0 = time.perf_counter()
-        
-        x, y, z = sp.symbols('x y z')
+
+        x, y, z = sp.symbols("x y z")
         dx = (z - B) * x - D * y
         dy = D * x + (z - B) * y
-        dz = C + A*z - z**3/3 - (x**2 + y**2) * (1 + E*z) + F * z * x**3
-        
-        # Lambdify with CSE
-        func = sp.lambdify([x, y, z], [dx, dy, dz], 'numpy', cse=True)
-        setup_time = time.perf_counter() - t0
-        print(f"   ✓ Setup: {setup_time*1000:.1f} ms")
-        
-        def evaluate(x, y, z):
-            result = func(x, y, z)
-            return tuple(result)  # type: ignore[return-value]
-            
-        return evaluate, setup_time
-    except ImportError: return None, 0
+        dz = C + A * z - z**3 / 3 - (x**2 + y**2) * (1 + E * z) + F * z * x**3
 
-def setup_symengine():
+        func = sp.lambdify([x, y, z], [dx, dy, dz], "numpy", cse=True)
+        setup_time = time.perf_counter() - t0
+        print(f"   Setup: {setup_time * 1000:.1f} ms")
+
+        def evaluate(x_arr: np.ndarray, y_arr: np.ndarray, z_arr: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+            result = func(x_arr, y_arr, z_arr)
+            return result[0], result[1], result[2]
+
+        return evaluate, setup_time
+    except ImportError:
+        print("   SymPy not available, skipping.")
+        return None, 0.0
+
+
+def setup_symengine() -> tuple[Callable[..., Any] | None, float]:
     try:
         import symengine as se
-        print("\n🔧 SymEngine: Setting up...")
+        print("SymEngine: Setting up...")
         t0 = time.perf_counter()
-        syms = se.symbols('x y z')
-        x, y, z = syms[0], syms[1], syms[2]  # type: ignore[misc]
+
+        syms = se.symbols("x y z")
+        x, y, z = syms[0], syms[1], syms[2]
         dx = (z - B) * x - D * y
         dy = D * x + (z - B) * y
-        dz = C + A*z - z**3/3 - (x**2 + y**2) * (1 + E*z) + F * z * x**3
-        
-        try:
-            func = se.Lambdify([x, y, z], [dx, dy, dz], backend='llvm')
-            print("   (LLVM)")
-        except Exception as exc:
-            raise RuntimeError("SymEngine LLVM backend is required for fair comparison.") from exc
-            
+        dz = C + A * z - z**3 / 3 - (x**2 + y**2) * (1 + E * z) + F * z * x**3
+
+        func = se.Lambdify([x, y, z], [dx, dy, dz], backend="llvm")
         setup_time = time.perf_counter() - t0
-        print(f"   ✓ Setup: {setup_time*1000:.1f} ms")
-        
-        def evaluate(x, y, z):
-            # Stack for SymEngine
-            inp = np.column_stack((x, y, z))
+        print(f"   Setup: {setup_time * 1000:.1f} ms (LLVM backend)")
+
+        def evaluate(x_arr: np.ndarray, y_arr: np.ndarray, z_arr: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+            inp = np.column_stack((x_arr, y_arr, z_arr))
             out = func(inp)
-            return out[:,0], out[:,1], out[:,2]  # type: ignore[return-value]
-            
+            return out[:, 0], out[:, 1], out[:, 2]
+
         return evaluate, setup_time
-    except ImportError: return None, 0
+    except Exception as exc:
+        print(f"   SymEngine not available or LLVM backend failed ({exc}), skipping.")
+        return None, 0.0
 
-def print_metric_summary(results):
-    print("\n📊 Metrics (prep/run/total)")
-    print("-" * 52)
-    for res in results:
-        prep = res["prep_time"]
-        run = res["run_time"]
-        total = prep + run
-        print(f"{res['name']:<12} prep={prep:>8.4f}s  run={run:>8.4f}s  total={total:>8.4f}s")
 
-def setup_symbanafis():
+def setup_symbanafis() -> tuple[Callable[..., Any] | None, float]:
     try:
-        from symb_anafis import parse, eval_f64
-        print("\n🔧 SymbAnaFis: Setting up...")
+        from symb_anafis import Context
+        print("SymbAnaFis: Setting up...")
         t0 = time.perf_counter()
-        
-        # Strings
-        ex_dx = f"(z - {B}) * x - {D} * y"
-        ex_dy = f"{D} * x + (z - {B}) * y"
-        ex_dz = f"{C} + {A}*z - z^3/3 - (x^2 + y^2) * (1 + {E}*z) + {F} * z * x^3"
-        
-        exprs = [parse(ex_dx), parse(ex_dy), parse(ex_dz)]
-        var_names = [["x", "y", "z"]] * 3
-        
-        setup_time = time.perf_counter() - t0
-        print(f"   ✓ Setup: {setup_time*1000:.1f} ms")
-        
-        def evaluate(x, y, z):
-            cols = [x, y, z]
-            res = eval_f64(exprs, var_names, [cols, cols, cols])
-            return res[0], res[1], res[2]
-            
-        return evaluate, setup_time
-    except ImportError: return None, 0
 
-def main():
-    print(f"🌊 AIZAWA QUAD-VIEW: {N_PARTICLES:,} Particles")
-    
-    # Init
-    x0 = np.random.normal(0, 0.1, N_PARTICLES)
-    y0 = np.random.normal(0, 0.1, N_PARTICLES)
-    z0 = np.random.normal(0, 0.5, N_PARTICLES)
-    
+        ctx = Context()
+        x, y, z = ctx.symbols("x", "y", "z")
+
+        ex_dx = ctx.parse(f"(z - {B}) * x - {D} * y")
+        ex_dy = ctx.parse(f"{D} * x + (z - {B}) * y")
+        ex_dz = ctx.parse(f"{C} + {A}*z - z^3/3 - (x^2 + y^2) * (1 + {E}*z) + {F} * z * x^3")
+
+        prog_dx = ex_dx.compile([x, y, z], backend="f64")
+        prog_dy = ex_dy.compile([x, y, z], backend="f64")
+        prog_dz = ex_dz.compile([x, y, z], backend="f64")
+
+        setup_time = time.perf_counter() - t0
+        print(f"   Setup: {setup_time * 1000:.1f} ms")
+
+        def evaluate(x_arr: np.ndarray, y_arr: np.ndarray, z_arr: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+            cols = [x_arr, y_arr, z_arr]
+            rx = np.asarray(prog_dx.evaluate_batch(cols), dtype=np.float64)
+            ry = np.asarray(prog_dy.evaluate_batch(cols), dtype=np.float64)
+            rz = np.asarray(prog_dz.evaluate_batch(cols), dtype=np.float64)
+            return rx, ry, rz
+
+        return evaluate, setup_time
+    except ImportError as e:
+        print(f"   SymbAnaFis import error: {e}")
+        return None, 0.0
+
+
+def main() -> None:
+    print("Aizawa Attractor Benchmark")
+    print(f"Particles: {N_PARTICLES:,} | Steps: {N_STEPS} | dt: {DT}")
+    print("-" * 56)
+
+    x0 = np.random.normal(0.0, 0.1, N_PARTICLES)
+    y0 = np.random.normal(0.0, 0.1, N_PARTICLES)
+    z0 = np.random.normal(0.0, 0.5, N_PARTICLES)
+
     engines = [
-        ('SymPy', setup_sympy, '#60a5fa'),
-        ('SymEngine', setup_symengine, '#34d399'),
-        ('SymbAnaFis', setup_symbanafis, '#fbbf24'),
+        ("SymPy", setup_sympy, "#60a5fa"),
+        ("SymEngine", setup_symengine, "#34d399"),
+        ("SymbAnaFis", setup_symbanafis, "#fbbf24"),
     ]
-    
-    results = []
-    
-    # Vis subset
-    vis_count = 10000 # Reduced from 50k to 10k for faster video generation (Matplotlib 3D is slow)
-    vis_idx = np.linspace(0, N_PARTICLES-1, vis_count, dtype=int)
-    
+
+    results: list[dict[str, Any]] = []
+    vis_count = 10_000
+    vis_idx = np.linspace(0, N_PARTICLES - 1, vis_count, dtype=int)
+
     for name, setup, color in engines:
         fn, s_time = setup()
-        if not fn: continue
-        
-        # Warmup
-        try: fn(x0[:100], y0[:100], z0[:100])
-        except: continue
-        
-        print(f"   Running {name}...")
-        
+        if not fn:
+            continue
+
+        try:
+            fn(x0[:100], y0[:100], z0[:100])
+        except Exception:
+            continue
+
+        print(f"Running {name}...")
         x, y, z = x0.copy(), y0.copy(), z0.copy()
-        
-        # History
+
         hx = np.zeros((N_STEPS, vis_count))
         hy = np.zeros((N_STEPS, vis_count))
         hz = np.zeros((N_STEPS, vis_count))
-        
+
         t0 = time.perf_counter()
-        
-        # Euler Integration (Steps)
         dt = DT
         for i in range(N_STEPS):
             hx[i], hy[i], hz[i] = x[vis_idx], y[vis_idx], z[vis_idx]
-            
-            dx, dy, dz = fn(x, y, z)  # type: ignore[misc]
-            # x += dx * dt
-            x += dx * dt  # type: ignore[assignment,operator]
-            y += dy * dt  # type: ignore[assignment,operator]
-            z += dz * dt  # type: ignore[assignment,operator]
-            
+            dx, dy, dz = fn(x, y, z)
+            x += dx * dt
+            y += dy * dt
+            z += dz * dt
+
         run_time = time.perf_counter() - t0
-        print(f"   ✓ Time: {run_time:.4f}s")
-        
+        print(f"   Execution time: {run_time:.4f}s")
+
         results.append({
-            "name": name, "prep_time": s_time, "run_time": run_time, "color": color,
-            "hx": hx, "hy": hy, "hz": hz
+            "name": name,
+            "prep_time": s_time,
+            "run_time": run_time,
+            "color": color,
+            "hx": hx,
+            "hy": hy,
+            "hz": hz,
         })
 
     if not results:
+        print("No engines completed successfully.")
         return
+
     if REQUIRE_ALL_ENGINES and len(results) != len(engines):
         raise RuntimeError("Not all engines completed. Aborting to keep benchmark fair.")
+
     print_metric_summary(results)
 
     if not GENERATE_VIDEO:
-        print("\n🎥 Video generation disabled (GENERATE_VIDEO=False).")
+        print("Video generation disabled (GENERATE_VIDEO=False).")
         return
 
-    # --- QUAD-VIEW VIDEO ---
-    print("\n🎥 Generating Quad-View Video...")
-    
-    fig = plt.figure(figsize=(16, 9), facecolor='#0f172a')
-    gs = gridspec.GridSpec(2, 2, width_ratios=[1, 1], height_ratios=[1, 1],
-                           wspace=0.1, hspace=0.15, left=0.05, right=0.95, top=0.9, bottom=0.05)
-                           
+    print("\nGenerating Quad-View Dashboard Video...")
+    fig, gs = create_dashboard_figure(f"Aizawa Attractor: {N_PARTICLES:,} Particles")
     axes_map = {0: gs[0, 0], 1: gs[0, 1], 2: gs[1, 0]}
-    
     subplots = []
-    
-    for i in range(3):
-        if i >= len(results): break
-        res = results[i]
-        
-        ax = fig.add_subplot(axes_map[i], projection='3d', facecolor='black')
-        ax.set_facecolor('#0f172a')
-        
+
+    for i, res in enumerate(results[:3]):
+        ax = fig.add_subplot(axes_map[i], projection="3d", facecolor="#0f172a")
+        ax.set_facecolor("#0f172a")
         ax.set_xlim(-2, 2)
         ax.set_ylim(-2, 2)
         ax.set_zlim(-1, 3)
         ax.set_axis_off()
-        ax.set_title(f"{res['name']}", color=res['color'], fontsize=14, fontweight='bold')
-        
-        scat = ax.scatter([], [], [], s=1, c=res['color'], alpha=0.1)
-        subplots.append({'scat': scat, 'hx': res['hx'], 'hy': res['hy'], 'hz': res['hz'], 'ax': ax})
-        
-    # Performance
-    ax_perf = fig.add_subplot(gs[1, 1], facecolor='#1e293b')
-    names = [r['name'] for r in results]
-    times = [r['run_time'] for r in results]
-    colors = [r['color'] for r in results]
-    y = np.arange(len(names))
-    
-    ax_perf.barh(y, times, color=colors)
-    ax_perf.set_yticks(y)
-    ax_perf.set_yticklabels(names, color='white', fontweight='bold')
-    ax_perf.invert_yaxis()
-    ax_perf.set_xlabel('Time (s)', color='#94a3b8')
-    ax_perf.set_title("Performance", color='white')
-    ax_perf.spines['right'].set_visible(False)
-    ax_perf.spines['top'].set_visible(False)
-    ax_perf.spines['left'].set_visible(False)
-    ax_perf.spines['bottom'].set_color('#475569')
-    ax_perf.tick_params(colors='#94a3b8')
-    
-    for i, v in enumerate(times):
-        ax_perf.text(v, i, f" {v:.4f}s", color='white', va='center')
-        
-    fig.suptitle(f"Aizawa Attractor: {N_PARTICLES:,} Particles", 
-                 color='white', fontsize=20, fontweight='bold', y=0.98)
-                 
-    def update(frame):
+        ax.set_title(res["name"], color=res["color"], fontsize=14, fontweight="bold")
+
+        scat = ax.scatter([], [], [], s=1, c=res["color"], alpha=0.1)
+        subplots.append({"scat": scat, "hx": res["hx"], "hy": res["hy"], "hz": res["hz"]})
+
+    ax_perf = fig.add_subplot(gs[1, 1], facecolor="#1e293b")
+    plot_performance_panel(ax_perf, results, title="Performance")
+
+    def update(frame: int) -> list[Any]:
+        frame_idx = min(frame, N_STEPS - 1)
         for sub in subplots:
-            frame_idx = min(frame, N_STEPS-1)
-            x = sub['hx'][frame_idx]  # type: ignore[index]
-            y = sub['hy'][frame_idx]  # type: ignore[index]
-            z = sub['hz'][frame_idx]  # type: ignore[index]
-            
-            sub['scat']._offsets3d = (x, y, z)  # type: ignore[attr-defined]
-            
+            sub_x = sub["hx"][frame_idx]
+            sub_y = sub["hy"][frame_idx]
+            sub_z = sub["hz"][frame_idx]
+            sub["scat"]._offsets3d = (sub_x, sub_y, sub_z)
         return []
-        
+
     ani = animation.FuncAnimation(fig, update, frames=N_STEPS, interval=40, blit=False)
-    
-    video_dir = Path(__file__).parent.parent / 'videos'
-    out_path = video_dir / 'aizawa_quad.mp4'
-    backend = save_animation_mp4(ani, out_path, fps=30, dpi=100, cq=26)
-    print(f"✨ Saved {out_path} ({backend})")
+    save_benchmark_animation(ani, "aizawa_quad.mp4", fps=30, dpi=100, cq=26)
+
 
 if __name__ == "__main__":
     main()

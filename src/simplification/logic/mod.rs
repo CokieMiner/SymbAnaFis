@@ -1,11 +1,15 @@
-//! Internal simplification implementation details.
+//! Bounded DAG transformations and guarded mathematical identities.
 
-pub(super) mod engine;
-pub(super) mod helpers;
-pub(super) mod rules;
+use super::{DomainSafety, SimplificationStep, SimplificationTarget};
 
-pub(super) use engine::Simplifier;
-pub(super) use helpers::prettify_roots;
+mod controls;
+mod polynomials;
+mod scalar;
+mod scoring;
+mod step;
 
-#[cfg(test)]
-mod tests;
+pub use controls::{Domain, Limits, PassFeatures, PreparedPlan};
+pub use polynomials::Polynomials;
+pub use scalar::{Algebraic, Branches, Identities, Powers};
+pub use scoring::CandidateCost;
+pub use step::PreparedStep;

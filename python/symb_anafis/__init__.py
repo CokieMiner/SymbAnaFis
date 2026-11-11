@@ -1,109 +1,31 @@
-"""
-SymbAnaFis - Fast symbolic differentiation library
+"""Symbolic mathematics through owning classes and scoped namespaces.
 
-A high-performance symbolic mathematics library written in Rust,
-providing fast differentiation and simplification of mathematical expressions,
-plus automatic differentiation via dual numbers.
-
-Example:
-    >>> import symb_anafis
-    >>> symb_anafis.diff("x^3 + 2*x^2 + x", "x")
-    '3*x^2+4*x+1'
-    >>> symb_anafis.simplify("sin(x)^2 + cos(x)^2")
-    '1'
-    >>> x = symb_anafis.Dual(2.0, 1.0)  # x + 1ε
-    >>> f = x * x + symb_anafis.Dual.constant(3.0) * x + symb_anafis.Dual.constant(1.0)
-    >>> f.val, f.eps  # (11.0, 7.0) - f(2) = 11, f'(2) = 7
-    (11.0, 7.0)
+Use Context for symbols and parsing; Expr for arithmetic and calculus;
+SimplificationSequence for presets or custom passes; Evaluator for numerical
+programs; and Uncertainty for real first-order covariance propagation.
 """
 
-from .symb_anafis import (  # type: ignore[import-not-found]
-    # Core functions (string API)
-    diff,
-    simplify,
-    parse,
-    evaluate,
-    evaluate_str,
-    # Classes
-    Expr,
-    Diff,
-    Simplify,
-    Dual,
-    Symbol,
-    Context,
-    CompiledEvaluator,
-    ExprView,
-    # Multi-variable calculus (Expr API)
-    gradient,
-    hessian,
-    jacobian,
-    # Multi-variable calculus (string API)
-    gradient_str,
-    hessian_str,
-    jacobian_str,
-    # Uncertainty propagation
-    uncertainty_propagation,
-    relative_uncertainty,
-    # Symbol management
-    symb,
-    symb_new,
-    symb_get,
-    symbol_exists,
-    symbol_count,
-    symbol_names,
-    remove_symbol,
-    clear_symbols,
-    # Version
-    __version__,
+from ._native import (
+    EvaluationError, ParseError, RewriteError, SimplifyError, UncertaintyError,
 )
+from ._number import Number
+from ._properties import Properties, Property, Truth
+from ._expression import Expr, ExprView, Symbol
+from ._function import Function
+from ._context import Context
+from ._rewriting import Pattern, RewriteRule, Substitution, Substitutions
+from ._simplification import (
+    DomainSafety, Simplification, SimplificationSequence, SimplificationStep,
+    SimplificationTarget, SimplificationTermination,
+)
+from ._evaluation import Evaluator
+from ._uncertainty import CovarianceMatrix, Uncertainty
 
-# Try to import parallel evaluation (only available with parallel feature)
-try:
-    from .symb_anafis import evaluate_parallel, eval_f64  # type: ignore[import-not-found]
-except ImportError:
-    evaluate_parallel = None  # type: ignore[assignment]
-    eval_f64 = None  # type: ignore[assignment]
-
+__version__ = "0.9.0"
 __all__ = [
-    # Core functions (string API)
-    "diff",
-    "simplify", 
-    "parse",
-    "evaluate",
-    "evaluate_str",
-    # Classes
-    "Expr",
-    "Diff",
-    "Simplify",
-    "Dual",
-    "Symbol",
-    "Context",
-    "CompiledEvaluator",
-    "PyExprView",
-    # Multi-variable calculus (Expr API)
-    "gradient",
-    "hessian",
-    "jacobian",
-    # Multi-variable calculus (string API)
-    "gradient_str",
-    "hessian_str",
-    "jacobian_str",
-    # Uncertainty propagation
-    "uncertainty_propagation",
-    "relative_uncertainty",
-    # Symbol management
-    "symb",
-    "symb_new",
-    "symb_get",
-    "symbol_exists",
-    "symbol_count",
-    "symbol_names",
-    "remove_symbol",
-    "clear_symbols",
-    # Parallel (if available)
-    "evaluate_parallel",
-    "eval_f64",
-    # Version
-    "__version__",
+    "Context", "CovarianceMatrix", "DomainSafety", "EvaluationError", "Evaluator",
+    "Expr", "ExprView", "Function", "Number", "ParseError", "Pattern", "Properties",
+    "Property", "RewriteError", "RewriteRule", "Simplification", "SimplificationSequence",
+    "SimplificationStep", "SimplificationTarget", "SimplificationTermination", "SimplifyError",
+    "Substitution", "Substitutions", "Symbol", "Truth", "Uncertainty", "UncertaintyError",
 ]
-

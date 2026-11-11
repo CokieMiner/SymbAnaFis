@@ -1,12 +1,12 @@
-//! Numerical evaluation backends for symbolic expressions.
-//!
-//! The public evaluator API is exposed through [`api`], while the concrete
-//! compilation and execution backends stay internal to this module.
-//!
-//! Today the primary fast path is a compiled bytecode evaluator with scalar,
-//! SIMD, and parallel execution.
+//! Compiled scalar numerical evaluation over canonical expression DAGs.
 
-mod api;
-mod logic;
+mod direct;
+mod program;
+mod traversal;
 
-pub use api::*;
+pub use crate::core::EvaluationValue;
+pub use program::{Program, Workspace};
+pub use traversal::Traversal;
+
+#[cfg(test)]
+mod tests;

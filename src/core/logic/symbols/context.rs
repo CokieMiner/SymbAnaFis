@@ -1,0 +1,321 @@
+//! Isolated symbol ownership and shared function-name registration.
+
+#![expect(
+    unsafe_code,
+    reason = "issued identities stay in the owner map for the context's lifetime, so handles borrow the context"
+)]
+
+use core::{
+    fmt::{Debug, Formatter, Result as FmtResult},
+    hash::Hash,
+    mem::take,
+};
+
+use alloc::{string::String, sync::Arc, vec::Vec};
+
+use crate::collections::HashMap;
+
+use super::{
+    Function, FunctionDefinition, FunctionError, IdSequence, Mutex, Symbol, SymbolData,
+    SymbolError, UserFunction,
+};
+
+static NEXT_CONTEXT: IdSequence = IdSequence::new();
+
+#[derive(Debug, Default)]
+struct Bindings {
+    symbols: HashMap<Arc<str>, Arc<SymbolData>>,
+    owned_symbols: HashMap<usize, Arc<SymbolData>>,
+    functions: HashMap<Arc<str>, Function>,
+}
+
+/// A symbol namespace with shared function-name bindings.
+///
+/// Clones share all bindings. Each context allocates its own symbol and
+/// function identities, even for a name that also exists globally. Local
+/// symbols are `Copy` handles that borrow the context. Expressions keep the
+/// symbol metadata they reference and may outlive the context; function
+/// handles keep their definitions.
+///
+/// Removing a name keeps every issued symbol identity until the last clone is
+/// dropped, so repeated creation and removal accumulates metadata.
+/// [`Self::reset`] moves this context to a fresh namespace and releases its
+/// share of the old one; other clones keep the old namespace.
+#[derive(Clone)]
+pub struct Context {
+    id: usize,
+    bindings: Arc<Mutex<Bindings>>,
+}
+
+impl Debug for Context {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
+        // A caller's formatting writer may reenter the context. Retain a name
+        // snapshot, then release the registry lock before writing any output.
+        let (symbols, functions) = {
+            let bindings = self.bindings.lock();
+            (
+                bindings.symbols.keys().cloned().collect::<Vec<_>>(),
+                bindings.functions.keys().cloned().collect::<Vec<_>>(),
+            )
+        };
+        formatter
+            .debug_struct("Context")
+            .field("id", &self.id)
+            .field("symbols", &symbols)
+            .field("functions", &functions)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Context {
+    /// Create a local namespace whose clones share symbol and function bindings.
+    ///
+    /// # Errors
+    /// Returns [`SymbolError::IdExhausted`] if representable context IDs are exhausted.
+    pub fn new() -> Result<Self, SymbolError> {
+        let id = NEXT_CONTEXT.next().ok_or(SymbolError::IdExhausted)?;
+        Ok(Self {
+            id,
+            bindings: Arc::new(Mutex::new(Bindings::default())),
+        })
+    }
+
+    /// Get the context identity, shared by clones.
+    #[must_use]
+    pub const fn id(&self) -> usize {
+        self.id
+    }
+
+    /// Get or create a locally bound symbol without a global name binding.
+    ///
+    /// # Errors
+    /// Returns [`SymbolError::IdExhausted`] when a new identity cannot be allocated.
+    /// Existing names remain resolvable after exhaustion.
+    pub fn symb(&self, name: &str) -> Result<Symbol<'_>, SymbolError> {
+        let mut bindings = self.bindings.lock();
+        if let Some(existing) = bindings.symbols.get(name) {
+            // SAFETY: every name binding was inserted together with an owner
+            // map entry for the same allocation, and `self` shares that map.
+            return Ok(unsafe { existing.scoped_symbol(self) });
+        }
+        let text: Arc<str> = Arc::from(name);
+        let data = SymbolData::local(Arc::clone(&text))?;
+        // SAFETY: `data` enters the owner map shared by `self` before the lock
+        // is released.
+        let symbol = unsafe { data.scoped_symbol(self) };
+        bindings.owned_symbols.insert(data.id(), Arc::clone(&data));
+        bindings.symbols.insert(text, data);
+        drop(bindings);
+        Ok(symbol)
+    }
+
+    /// Query a live context binding without creating it.
+    #[must_use]
+    pub fn get_symbol(&self, name: &str) -> Option<Symbol<'_>> {
+        self.bindings.lock().symbols.get(name).map(|data| {
+            // SAFETY: every name binding was inserted together with an owner
+            // map entry for the same allocation, and `self` shares that map.
+            unsafe { data.scoped_symbol(self) }
+        })
+    }
+
+    /// The local symbol with identity `id`, borrowing this context. A removed
+    /// name stays resolvable until the namespace's last owner is dropped.
+    ///
+    /// # Errors
+    /// Returns [`SymbolError::InvalidId`] for an identity this context does not
+    /// own, including global identities and those from before a reset.
+    pub fn symbol_from_id(&self, id: usize) -> Result<Symbol<'_>, SymbolError> {
+        self.bindings
+            .lock()
+            .owned_symbols
+            .get(&id)
+            .map(|data| {
+                // SAFETY: `data` is an entry of the owner map shared by `self`.
+                unsafe { data.scoped_symbol(self) }
+            })
+            .ok_or(SymbolError::InvalidId(id))
+    }
+
+    /// Snapshot context variable names in lexicographic order.
+    #[must_use]
+    pub fn symbol_names(&self) -> Vec<String> {
+        let mut names: Vec<_> = self
+            .bindings
+            .lock()
+            .symbols
+            .keys()
+            .map(|name| String::from(&**name))
+            .collect();
+        names.sort_unstable();
+        names
+    }
+
+    /// Register an unbound custom function name with an immutable definition.
+    /// Remove an existing registration before reusing its name. Surviving handles
+    /// retain the previous identity, argument contract, body, and partials.
+    ///
+    /// # Errors
+    /// Returns [`FunctionError::DuplicateName`] if this context already binds the
+    /// name or the name resolves to a builtin, including its aliases.
+    /// Returns [`FunctionError::InvalidArityRange`] for an empty argument range.
+    pub fn register_function(
+        &self,
+        name: &str,
+        definition: UserFunction,
+    ) -> Result<Function, FunctionError> {
+        if Function::builtin(name).is_some() {
+            return Err(FunctionError::DuplicateName(name.into()));
+        }
+        let arity = definition.arity();
+        if arity.is_empty() {
+            return Err(FunctionError::InvalidArityRange {
+                minimum: *arity.start(),
+                maximum: *arity.end(),
+            });
+        }
+        let mut bindings = self.bindings.lock();
+        if bindings.functions.contains_key(name) {
+            drop(bindings);
+            return Err(FunctionError::DuplicateName(name.into()));
+        }
+        let text: Arc<str> = Arc::from(name);
+        let function = FunctionDefinition::local(Arc::clone(&text), definition);
+        bindings.functions.insert(text, function.clone());
+        drop(bindings);
+        Ok(function)
+    }
+
+    /// Resolve the typed identity of a registered local function.
+    #[must_use]
+    pub fn get_function(&self, name: &str) -> Option<Function> {
+        self.bindings.lock().functions.get(name).cloned()
+    }
+
+    /// Snapshot registered function handles in lexicographic name order.
+    /// Handles retain their complete definitions after removal from this context.
+    #[must_use]
+    pub fn functions(&self) -> Vec<Function> {
+        let mut functions: Vec<_> = self.bindings.lock().functions.values().cloned().collect();
+        functions.sort_unstable();
+        functions
+    }
+
+    /// Test whether any custom function has a symbolic body.
+    #[must_use]
+    pub fn has_expandable_functions(&self) -> bool {
+        self.bindings.lock().functions.values().any(|function| {
+            function
+                .definition()
+                .is_some_and(|definition| definition.body_fn().is_some())
+        })
+    }
+
+    /// Remove a local name binding while keeping issued Copy handles valid.
+    #[must_use]
+    pub fn remove_symbol(&self, name: &str) -> bool {
+        // `owned_symbols` keeps the metadata of every issued symbol, so the
+        // removed binding is never its last owner and releases nothing.
+        let mut bindings = self.bindings.lock();
+        let removed = bindings.symbols.remove(name).is_some();
+        Bindings::compact_map(&mut bindings.symbols);
+        removed
+    }
+
+    /// Remove a function-name binding; surviving handles retain its definition.
+    #[must_use]
+    pub fn remove_function(&self, name: &str) -> bool {
+        let removed = {
+            let mut bindings = self.bindings.lock();
+            let removed = bindings.functions.remove(name);
+            Bindings::compact_map(&mut bindings.functions);
+            removed
+        };
+        // User callback captures can have arbitrary destructors. Release the
+        // removed definition after unlocking so they can reenter this context.
+        let present = removed.is_some();
+        drop(removed);
+        present
+    }
+
+    /// Remove local symbol bindings while preserving all issued identities.
+    pub fn clear_symbols(&self) {
+        let removed = take(&mut self.bindings.lock().symbols);
+        drop(removed);
+    }
+
+    /// Remove all function-name bindings. Referenced definitions remain alive.
+    pub fn clear_functions(&self) {
+        let removed = take(&mut self.bindings.lock().functions);
+        drop(removed);
+    }
+
+    /// Remove all shared name bindings. Issued symbol identities remain owned
+    /// by the namespace; use [`Self::reset`] to release ownership. Function
+    /// handles and expressions retain their own definitions.
+    pub fn clear_all(&self) {
+        let removed = {
+            let mut bindings = self.bindings.lock();
+            let symbols = take(&mut bindings.symbols);
+            let functions = take(&mut bindings.functions);
+            drop(bindings);
+            (symbols, functions)
+        };
+        drop(removed);
+    }
+
+    /// Release this context's namespace ownership and start a fresh namespace.
+    /// Other clones retain the old namespace. Unused local metadata is reclaimed
+    /// after its final context owner is released; surviving expressions retain
+    /// the metadata they use. Callback captures are released without a held lock.
+    ///
+    /// # Errors
+    /// Returns [`SymbolError::IdExhausted`] if representable context IDs are exhausted.
+    ///
+    /// ```
+    /// use symb_anafis::Context;
+    /// let mut context = Context::new()?;
+    /// let expression = context.symb("x")? + 1;
+    /// context.reset()?;
+    /// assert!(context.is_empty());
+    /// assert!(expression.contains_var("x"));
+    /// # Ok::<(), symb_anafis::SymbolError>(())
+    /// ```
+    ///
+    /// Rust prevents resetting the owner while a borrowed symbol is still used:
+    ///
+    /// ```compile_fail
+    /// use symb_anafis::Context;
+    /// let mut context = Context::new().expect("context creation");
+    /// let x = context.symb("x").expect("symbol allocation");
+    /// context.reset().expect("context reset");
+    /// let expression = x + 1;
+    /// ```
+    pub fn reset(&mut self) -> Result<(), SymbolError> {
+        *self = Self::new()?;
+        Ok(())
+    }
+
+    /// Count live local symbol bindings.
+    #[must_use]
+    pub fn symbol_count(&self) -> usize {
+        self.bindings.lock().symbols.len()
+    }
+
+    /// Test whether the context has no local symbol or function-name bindings.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        let bindings = self.bindings.lock();
+        bindings.symbols.is_empty() && bindings.functions.is_empty()
+    }
+}
+
+impl Bindings {
+    fn compact_map<Key: Eq + Hash, Value>(map: &mut HashMap<Key, Value>) {
+        if map.is_empty() {
+            *map = HashMap::new();
+        } else if map.capacity() > map.len().saturating_mul(4).max(64) {
+            map.shrink_to_fit();
+        }
+    }
+}
